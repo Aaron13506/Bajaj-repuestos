@@ -3,10 +3,11 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import DeleteButton from '@/components/DeleteButton'
 import PrintButton from '@/components/PrintButton'
-import ConfirmarPedidoButton from '@/components/ConfirmarPedidoButton'
-import { deletePresupuesto, confirmarPedido } from '../actions'
+import AprobarPedidoForm from '@/components/AprobarPedidoForm'
+import { deletePresupuesto, aprobarPedido } from '../actions'
 import { type BundlePiece, groupBundlePieces } from '@/lib/bundle'
 import { getTerminos } from '@/lib/terminos'
+import { METODOS_PAGO } from '@/lib/pagos'
 
 export default async function PresupuestoDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const id = parseInt((await params).id)
@@ -31,6 +32,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
 
   if (!presupuesto) notFound()
 
+  const isPropio = presupuesto.tipo === 'propio'
   const isPresupuesto = presupuesto.status === 'presupuesto'
   const terminos = await getTerminos(presupuesto.status)
   const total = presupuesto.items.reduce(
@@ -41,6 +43,13 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
   const bsdRate = bsdRow ? parseFloat(bsdRow.value) : NaN
   const totalBsd = Number.isNaN(bsdRate) ? null : total * bsdRate
   const deposit = total * 0.5
+
+  // Adelanto ya registrado (pedido de cliente confirmado)
+  const depositUsd = presupuesto.depositUsd != null ? parseFloat(presupuesto.depositUsd.toString()) : null
+  const saldoUsd = depositUsd != null ? total - depositUsd : null
+  const depositDateStr = presupuesto.depositAt
+    ? new Date(presupuesto.depositAt).toISOString().slice(0, 10)
+    : null
 
   const created = new Date(presupuesto.createdAt)
   const fmtDate = (d: Date) =>
@@ -66,18 +75,26 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold text-gray-900">{presupuesto.clientName}</h1>
             <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-              isPresupuesto
-                ? 'bg-yellow-100 text-yellow-700'
-                : 'bg-green-100 text-green-700'
+              isPropio
+                ? 'bg-blue-100 text-blue-700'
+                : isPresupuesto
+                  ? 'bg-yellow-100 text-yellow-700'
+                  : 'bg-green-100 text-green-700'
             }`}>
-              {isPresupuesto ? 'Presupuesto' : 'Pedido confirmado'}
+              {isPropio ? 'Stock propio' : isPresupuesto ? 'Presupuesto' : 'Pedido confirmado'}
             </span>
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-          {isPresupuesto && (
+          {!isPropio && isPresupuesto && (
             <>
-              <ConfirmarPedidoButton action={confirmarPedido.bind(null, id)} />
+              <div className="relative">
+                <AprobarPedidoForm
+                  action={aprobarPedido.bind(null, id)}
+                  methods={METODOS_PAGO}
+                  suggestedDeposit={deposit}
+                />
+              </div>
               <Link
                 href={`/presupuestos/${id}/edit`}
                 className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
@@ -86,10 +103,31 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
               </Link>
             </>
           )}
+          {!isPropio && !isPresupuesto && (
+            <div className="relative">
+              <AprobarPedidoForm
+                mode="editar"
+                action={aprobarPedido.bind(null, id)}
+                methods={METODOS_PAGO}
+                suggestedDeposit={deposit}
+                initialDeposit={depositUsd}
+                initialMethod={presupuesto.paymentMethod}
+                initialDate={depositDateStr}
+              />
+            </div>
+          )}
+          {isPropio && (
+            <Link
+              href={`/presupuestos/${id}/edit`}
+              className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              Editar
+            </Link>
+          )}
           <PrintButton />
           <DeleteButton
             action={deletePresupuesto.bind(null, id)}
-            confirmMessage={`¿Eliminar ${isPresupuesto ? 'presupuesto' : 'pedido'} de "${presupuesto.clientName}"?`}
+            confirmMessage={`¿Eliminar ${isPropio ? 'stock propio' : isPresupuesto ? 'presupuesto' : 'pedido'} de "${presupuesto.clientName}"?`}
           />
         </div>
       </div>
@@ -233,6 +271,28 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
             <div className="flex justify-between items-center bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 mt-2 [print-color-adjust:exact]">
               <span className="text-sm font-semibold text-yellow-800">Abono 50% para confirmar</span>
               <span className="font-bold font-mono text-yellow-900">${deposit.toFixed(2)}</span>
+            </div>
+          )}
+          {!isPropio && !isPresupuesto && depositUsd != null && (
+            <div className="mt-2 space-y-1.5">
+              <div className="flex justify-between items-center bg-green-50 border border-green-200 rounded-lg px-3 py-2 [print-color-adjust:exact]">
+                <span className="text-sm font-semibold text-green-800">
+                  Adelanto recibido
+                  {presupuesto.paymentMethod && (
+                    <span className="font-normal text-green-600"> · {presupuesto.paymentMethod}</span>
+                  )}
+                </span>
+                <span className="font-bold font-mono text-green-900">${depositUsd.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between items-center px-3">
+                <span className="text-sm font-semibold text-gray-700">Saldo pendiente</span>
+                <span className="font-bold font-mono text-gray-900">${(saldoUsd ?? 0).toFixed(2)}</span>
+              </div>
+              {presupuesto.depositAt && (
+                <p className="text-xs text-gray-400 px-3 print:hidden">
+                  Adelanto del {new Date(presupuesto.depositAt).toLocaleDateString('es-VE', { day: '2-digit', month: 'long', year: 'numeric' })}
+                </p>
+              )}
             </div>
           )}
         </div>

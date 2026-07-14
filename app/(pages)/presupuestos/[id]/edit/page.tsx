@@ -30,7 +30,10 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
     }),
   ])
 
-  if (!presupuesto || presupuesto.status !== 'presupuesto') notFound()
+  // Editable si sigue siendo presupuesto, o si es stock propio (nace como pedido
+  // pero es mío, así que puedo ajustarlo). Un pedido de cliente confirmado no se edita.
+  const editable = presupuesto && (presupuesto.status === 'presupuesto' || presupuesto.tipo === 'propio')
+  if (!presupuesto || !editable) notFound()
 
   const initialItems = presupuesto.items.map(item => ({
     productId: item.productId,
@@ -66,7 +69,7 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
           <span className="text-sm text-gray-600">Editar</span>
         </div>
         <h1 className="text-2xl font-bold text-gray-900">
-          Editar presupuesto — {presupuesto.clientName}
+          {presupuesto.tipo === 'propio' ? 'Editar stock propio' : 'Editar presupuesto'} — {presupuesto.clientName}
         </h1>
       </div>
 
@@ -74,6 +77,7 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
         assemblies={assembliesForClient}
         models={models}
         action={updatePresupuesto.bind(null, id)}
+        tipo={presupuesto.tipo === 'propio' ? 'propio' : 'cliente'}
         initialClientName={presupuesto.clientName}
         initialNotas={presupuesto.notas ?? ''}
         initialItems={initialItems}

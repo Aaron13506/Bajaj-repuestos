@@ -3,7 +3,13 @@ import PresupuestoBuilder from '@/components/PresupuestoBuilder'
 import { sortModels } from '@/lib/catalog'
 import { createPresupuesto } from '../actions'
 
-export default async function NewPresupuestoPage() {
+export default async function NewPresupuestoPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tipo?: string }>
+}) {
+  const tipo = (await searchParams).tipo === 'propio' ? 'propio' : 'cliente'
+
   // Solo headers de ensamble; los componentes se cargan on-demand al seleccionar uno.
   const assemblies = await db.product.findMany({
     where: { isAssembly: true },
@@ -27,12 +33,21 @@ export default async function NewPresupuestoPage() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Nuevo presupuesto</h1>
+        <h1 className="text-2xl font-bold text-gray-900">
+          {tipo === 'propio' ? 'Nuevo stock propio' : 'Nuevo presupuesto'}
+        </h1>
+        {tipo === 'propio' && (
+          <p className="text-sm text-gray-500 mt-1">
+            Piezas que traés para revender por tu cuenta. Suman al peso y volumen del envío, sin cliente ni adelanto.
+          </p>
+        )}
       </div>
       <PresupuestoBuilder
         assemblies={assembliesForClient}
         models={models}
         action={createPresupuesto}
+        tipo={tipo}
+        initialClientName={tipo === 'propio' ? 'Stock propio' : ''}
       />
     </div>
   )

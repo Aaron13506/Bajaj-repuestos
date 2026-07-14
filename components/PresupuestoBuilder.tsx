@@ -47,6 +47,8 @@ interface Props {
   initialClientName?: string
   initialNotas?: string
   initialItems?: CartItem[]
+  /** 'cliente' = presupuesto para un cliente; 'propio' = stock que traigo para revender. */
+  tipo?: 'cliente' | 'propio'
 }
 
 export default function PresupuestoBuilder({
@@ -56,7 +58,9 @@ export default function PresupuestoBuilder({
   initialClientName = '',
   initialNotas = '',
   initialItems = [],
+  tipo = 'cliente',
 }: Props) {
+  const isPropio = tipo === 'propio'
   const [selectedAssemblyId, setSelectedAssemblyId] = useState<number | null>(null)
   const [checked, setChecked] = useState<Record<number, boolean>>({})
   const [quantities, setQuantities] = useState<Record<number, number>>({})
@@ -239,6 +243,7 @@ export default function PresupuestoBuilder({
     const fd = new FormData()
     fd.set('clientName', clientName)
     fd.set('notas', notas)
+    fd.set('tipo', tipo)
     fd.set(
       'items',
       JSON.stringify(cart.map(c => ({
@@ -455,7 +460,7 @@ export default function PresupuestoBuilder({
           {/* Cart */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
             <h2 className="font-semibold text-gray-900 mb-4">
-              {isEditing ? 'Piezas del presupuesto' : 'Presupuesto'}
+              {isPropio ? (isEditing ? 'Piezas del stock' : 'Stock propio') : (isEditing ? 'Piezas del presupuesto' : 'Presupuesto')}
               {cart.length > 0 && (
                 <span className="ml-2 text-xs font-normal text-gray-400">
                   {cart.length} {cart.length === 1 ? 'pieza' : 'piezas'}
@@ -570,17 +575,17 @@ export default function PresupuestoBuilder({
 
           {/* Client info */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 space-y-4">
-            <h2 className="font-semibold text-gray-900">Datos del cliente</h2>
+            <h2 className="font-semibold text-gray-900">{isPropio ? 'Referencia' : 'Datos del cliente'}</h2>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Nombre <span className="text-red-500">*</span>
+                {isPropio ? 'Etiqueta / referencia' : 'Nombre'} <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
                 value={clientName}
                 onChange={e => setClientName(e.target.value)}
-                placeholder="Nombre del cliente"
+                placeholder={isPropio ? 'Ej: Stock reventa julio' : 'Nombre del cliente'}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 required
               />
@@ -602,7 +607,7 @@ export default function PresupuestoBuilder({
               disabled={!clientName.trim() || cart.length === 0 || submitting}
               className="w-full bg-blue-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              {submitting ? 'Guardando...' : isEditing ? 'Guardar cambios' : 'Guardar presupuesto'}
+              {submitting ? 'Guardando...' : isEditing ? 'Guardar cambios' : isPropio ? 'Guardar stock' : 'Guardar presupuesto'}
             </button>
           </div>
         </div>

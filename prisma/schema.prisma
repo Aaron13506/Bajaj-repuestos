@@ -82,7 +82,14 @@ model Pedido {
   id         Int          @id @default(autoincrement())
   clientName String
   notas      String?
+  // 'cliente' = pedido de un cliente (requiere aprobación + adelanto).
+  // 'propio'  = stock que traigo para revender por mi cuenta (sin cliente ni adelanto).
+  tipo       String       @default("cliente")
   status     String       @default("presupuesto")
+  // Adelanto: se llenan al aprobar un presupuesto de cliente (ver aprobarPedido).
+  depositUsd    Decimal?  @db.Decimal(10, 2)
+  paymentMethod String?
+  depositAt     DateTime?
   envioId    Int?
   envio      Envio?       @relation(fields: [envioId], references: [id], onDelete: SetNull)
   items      PedidoItem[]

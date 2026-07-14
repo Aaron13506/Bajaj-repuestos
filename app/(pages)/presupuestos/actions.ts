@@ -16,14 +16,21 @@ interface ItemInput {
 export async function createPresupuesto(formData: FormData) {
   const clientName = (formData.get('clientName') as string).trim()
   const notas = (formData.get('notas') as string)?.trim() || null
+  const tipo = (formData.get('tipo') as string) === 'propio' ? 'propio' : 'cliente'
   const items: ItemInput[] = JSON.parse(formData.get('items') as string)
 
   if (!clientName || items.length === 0) return
+
+  // El stock propio es una compra definida para revender: entra directo como
+  // pedido (no necesita aprobación ni adelanto). El de cliente arranca como presupuesto.
+  const status = tipo === 'propio' ? 'pedido' : 'presupuesto'
 
   const pedido = await db.pedido.create({
     data: {
       clientName,
       notas,
+      tipo,
+      status,
       items: {
         create: items.map(i => ({
           productId: i.productId,
@@ -68,8 +75,26 @@ export async function updatePresupuesto(id: number, formData: FormData) {
   redirect(`/presupuestos/${id}`)
 }
 
-export async function confirmarPedido(id: number) {
-  await db.pedido.update({ where: { id }, data: { status: 'pedido' } })
+// Aprueba un presupuesto (status -> 'pedido') registrando el adelanto: monto,
+// método de pago y fecha. Reutilizable para editar el adelanto de un pedido ya
+// confirmado (el status ya es 'pedido' y solo se actualizan los campos del adelanto).
+export async function aprobarPedido(id: number, formData: FormData) {
+  const rawDeposit = (formData.get('depositUsd') as string)?.trim()
+  const depositUsd = rawDeposit ? parseFloat(rawDeposit) : null
+  const paymentMethod = (formData.get('paymentMethod') as string)?.trim() || null
+  const rawDate = (formData.get('depositAt') as string)?.trim()
+  // El input date da 'YYYY-MM-DD'; se ancla a mediodía para evitar corrimientos de zona horaria.
+  const depositAt = rawDate ? new Date(`${rawDate}T12:00:00`) : new Date()
+
+  await db.pedido.update({
+    where: { id },
+    data: {
+      status: 'pedido',
+      depositUsd: depositUsd != null && !Number.isNaN(depositUsd) ? depositUsd : null,
+      paymentMethod,
+      depositAt,
+    },
+  })
   revalidatePath('/presupuestos')
   revalidatePath(`/presupuestos/${id}`)
 }

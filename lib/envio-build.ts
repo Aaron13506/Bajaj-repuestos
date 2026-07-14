@@ -14,6 +14,7 @@ export interface ProductCost {
 // Una pieza física ya resuelta, lista para el cálculo del envío.
 export interface CostPiece {
   name: string
+  sku: string | null
   weightGrams: number | null
   dimL: number | null
   dimA: number | null
@@ -51,6 +52,7 @@ export function expandCostPieces(
   if (!bundleItems || bundleItems.length === 0) {
     return [{
       name: product.nameEs,
+      sku: product.bajajCode,
       weightGrams: product.weightGrams,
       dimL: product.dimL,
       dimA: product.dimA,
@@ -64,6 +66,7 @@ export function expandCostPieces(
     const resolved = lookup(bp.bajajCode, bp.nameEs)
     return {
       name: bp.nameEs,
+      sku: bp.bajajCode,
       weightGrams: resolved?.weightGrams ?? null,
       dimL: resolved?.dimL ?? null,
       dimA: resolved?.dimA ?? null,

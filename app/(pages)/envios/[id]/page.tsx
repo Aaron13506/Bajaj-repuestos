@@ -68,28 +68,62 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
 
   // Aplanar todas las piezas del envío. Los conjuntos se expanden a sus piezas reales
   // para costearlos por las piezas que llevan, no por el ensamble entero.
-  const items: EnvioItemInput[] = envio.pedidos.flatMap(ped =>
+  const allPieces = envio.pedidos.flatMap(ped =>
     ped.items.flatMap(it =>
       expandCostPieces(
         it.product as ProductCost,
         it.quantity,
         it.bundleItems as BundlePiece[] | null,
         lookup,
-      ).map(piece => ({
-        pedidoId: ped.id,
-        productId: it.productId,
-        name: piece.name,
-        weightGrams: piece.weightGrams,
-        dimL: piece.dimL,
-        dimA: piece.dimA,
-        dimH: piece.dimH,
-        priceInr: piece.priceInr,
-        quantity: piece.quantity,
-      }))
+      ).map(piece => ({ pedidoId: ped.id, productId: it.productId, ...piece }))
     )
   )
 
+  const items: EnvioItemInput[] = allPieces.map(p => ({
+    pedidoId: p.pedidoId,
+    productId: p.productId,
+    name: p.name,
+    weightGrams: p.weightGrams,
+    dimL: p.dimL,
+    dimA: p.dimA,
+    dimH: p.dimH,
+    priceInr: p.priceInr,
+    quantity: p.quantity,
+  }))
+
   const calc = calcEnvio(items, cfg)
+
+  // Lista de compra: consolida las piezas por SKU (o nombre si no tiene SKU) sumando
+  // cantidades, para saber exactamente qué y cuánto comprar en India.
+  const inrUsd = parseFloat(cfg.inr_usd_rate ?? '95')
+  interface BuyRow {
+    sku: string | null
+    name: string
+    qty: number
+    unitInr: number | null
+    totalInr: number
+    missingPrice: boolean
+  }
+  const buyMap = new Map<string, BuyRow>()
+  for (const p of allPieces) {
+    const key = p.sku ?? p.name
+    let row = buyMap.get(key)
+    if (!row) {
+      row = { sku: p.sku, name: p.name, qty: 0, unitInr: p.priceInr, totalInr: 0, missingPrice: false }
+      buyMap.set(key, row)
+    }
+    row.qty += p.quantity
+    if (p.priceInr != null) {
+      row.totalInr += p.priceInr * p.quantity
+      if (row.unitInr == null) row.unitInr = p.priceInr
+    } else {
+      row.missingPrice = true
+    }
+  }
+  const buyList = Array.from(buyMap.values()).sort((a, b) => b.totalInr - a.totalInr)
+  const buyTotalInr = buyList.reduce((s, r) => s + r.totalInr, 0)
+  const buyTotalUsd = buyTotalInr / inrUsd
+  const buyUnits = buyList.reduce((s, r) => s + r.qty, 0)
 
   // Ingreso de venta (suma de salePrice) por pedido y total
   const saleByPedido = new Map<number, number>()
@@ -323,6 +357,58 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               </tbody>
             </table>
           </details>
+
+          {/* Lista de compra — qué comprar en India, consolidado por SKU */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
+            <div className="px-6 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+                Lista de compra ({buyList.length} {buyList.length === 1 ? 'ítem' : 'ítems'} · {buyUnits} u.)
+              </h2>
+              <span className="text-xs text-gray-400">Consolidado por código Bajaj</span>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
+                  <th className="text-left px-6 py-2 font-semibold">Código</th>
+                  <th className="text-left px-3 py-2 font-semibold">Pieza</th>
+                  <th className="text-right px-3 py-2 font-semibold">Cant.</th>
+                  <th className="text-right px-3 py-2 font-semibold">Unit. INR</th>
+                  <th className="text-right px-6 py-2 font-semibold">Total INR</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {buyList.map((r, i) => (
+                  <tr key={i} className="hover:bg-gray-50">
+                    <td className="px-6 py-2.5 font-mono text-xs text-gray-500">{r.sku ?? '—'}</td>
+                    <td className="px-3 py-2.5 text-gray-900">
+                      {r.name}
+                      {r.missingPrice && (
+                        <span className="ml-2 text-xs text-amber-600">sin precio</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono text-gray-700">{r.qty}</td>
+                    <td className="px-3 py-2.5 text-right font-mono text-gray-600">
+                      {r.unitInr != null ? r.unitInr.toLocaleString('es-VE') : '—'}
+                    </td>
+                    <td className="px-6 py-2.5 text-right font-mono font-semibold text-gray-900">
+                      {r.totalInr > 0 ? r.totalInr.toLocaleString('es-VE') : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-gray-200 bg-gray-50">
+                  <td className="px-6 py-3 font-bold text-gray-900" colSpan={2}>Total a comprar</td>
+                  <td className="px-3 py-3 text-right font-mono font-semibold text-gray-700">{buyUnits}</td>
+                  <td className="px-3 py-3"></td>
+                  <td className="px-6 py-3 text-right">
+                    <span className="font-bold font-mono text-blue-700">{buyTotalInr.toLocaleString('es-VE')} INR</span>
+                    <span className="block text-xs text-gray-400 font-mono">≈ {usd(buyTotalUsd)}</span>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </>
       )}
 
