@@ -1,0 +1,202 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Product {
+  id               Int      @id @default(autoincrement())
+  isAssembly       Boolean  @default(false)
+  bajajCode        String?
+  sourceUrl        String?
+  imageUrl         String?  // imagen del ensamble (de ScrapedProduct.imageS3Url); piezas no tienen
+  nameEs           String
+  nameEn           String?
+  description      String?
+  notes            String?
+  compatibleModels String?
+  weightGrams      Int?
+  dimL             Float?
+  dimA             Float?
+  dimH             Float?
+  priceInr         Int?
+  landedCostUsd    Decimal? @db.Decimal(10, 2)
+  margin           Float?
+  price            Decimal  @db.Decimal(10, 2)
+  // Precio fijado a mano: cuando es true, los recálculos (carga de medidas, costos)
+  // NO pisan `price`; solo actualizan landedCostUsd y ajustan el margen para reflejar
+  // el precio elegido. Aplica tanto a piezas como al precio del conjunto (ensamble).
+  priceLocked      Boolean  @default(false)
+  stock            Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  components  ProductComponent[] @relation("ParentProduct")
+  assemblies  ProductComponent[] @relation("ChildProduct")
+  pedidoItems PedidoItem[]
+  // Partes scrapeadas que hacen match por SKU (bajajCode). El cruce copia mi
+  // peso/dim/margen a ScrapedPart; esto solo deja la traza de origen.
+  scrapedMatches ScrapedPart[] @relation("MatchedScraped")
+
+  @@index([bajajCode])
+}
+
+// Un producto padre puede tener muchos hijos agrupados por nombre de grupo.
+// El mismo hijo puede aparecer en distintos grupos del mismo padre (ej: mismo damper en
+// "Brake Pedal" y "Rubber Boot"), y también puede ser hijo de múltiples padres distintos.
+model ProductComponent {
+  id        Int     @id @default(autoincrement())
+  parentId  Int
+  childId   Int
+  quantity  Int    @default(1)
+  groupName String @default("")
+  sortOrder Int    @default(0)
+  parent    Product @relation("ParentProduct", fields: [parentId], references: [id], onDelete: Cascade)
+  child     Product @relation("ChildProduct", fields: [childId], references: [id], onDelete: Restrict)
+
+  @@unique([parentId, childId, groupName])
+}
+
+model Config {
+  key         String  @id
+  value       String
+  description String?
+}
+
+model Envio {
+  id               Int       @id @default(autoincrement())
+  nombre           String?
+  notas            String?
+  shippingCostEst  Decimal?  @db.Decimal(10, 2)
+  shippingCostReal Decimal?  @db.Decimal(10, 2)
+  pedidos          Pedido[]
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+model Pedido {
+  id         Int          @id @default(autoincrement())
+  clientName String
+  notas      String?
+  status     String       @default("presupuesto")
+  envioId    Int?
+  envio      Envio?       @relation(fields: [envioId], references: [id], onDelete: SetNull)
+  items      PedidoItem[]
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+}
+
+model PedidoItem {
+  id         Int     @id @default(autoincrement())
+  pedidoId   Int
+  productId  Int
+  quantity   Int     @default(1)
+  salePrice  Decimal @db.Decimal(10, 2)
+  // Cuando el item es un conjunto/ensamble vendido a precio único, guarda el
+  // snapshot de las piezas elegidas: [{ nameEs, bajajCode, quantity }]. Null = pieza suelta.
+  bundleItems Json?
+  pedido     Pedido  @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  product    Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([pedidoId, productId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Catálogo MAESTRO, armado desde el scrape de 99rpm.com. Espeja la estructura del
+// sitio en tres niveles:
+//   MotoModel (enum) → ScrapedProduct (ENSAMBLE/bundle) → ScrapedGroup (SUBGRUPO) → ScrapedPart (PARTE/SKU)
+// El scrape es la fuente de verdad de la estructura, nombre (inglés) y precio INR.
+// El peso y las dimensiones (datos físicos que aporto yo) se CRUZAN por SKU y se copian
+// sobre ScrapedPart cuando su sku coincide con un Product.bajajCode que ya tengo curado
+// (ver scripts/cross-ref.ts, re-ejecutable). El margen NO se cruza: tiene default global
+// en Config (default_margin) y es editable por parte. Cada página de 99rpm es de UN modelo,
+// así que ScrapedProduct.model es un campo directo (enum). La compatibilidad
+// cruzada sale de que un mismo SKU aparece en productos de varios modelos.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum MotoModel {
+  PULSAR_N250_USD_FORK_2024_25   // vehicle_type 595
+  PULSAR_N250_DUAL_ABS_2022_23   // 579
+  PULSAR_N250_SINGLE_ABS_2021_23 // 562
+  PULSAR_NS200_USD_FORK_2023     // 580
+  PULSAR_NS200_BS6_2021_23       // 557
+  PULSAR_NS200_BS6_2020          // 558
+  PULSAR_NS200_BS4_2017_19       // 497
+  PULSAR_200NS_BS3_2012_16       // 442
+  PULSAR_N160_SINGLE_ABS_2022_23 // 572
+  PULSAR_N160_DUAL_ABS_2022_23   // 574
+  PULSAR_180_BS4_2017_19         // 513
+  PULSAR_180_BS3_2009_16_UG4     // 539
+  PULSAR_150_BS4                 // 515
+  PULSAR_150_UG4                 // 449
+}
+
+// ENSAMBLE: una página de producto de 99rpm = un bundle Magento (con subgrupos).
+model ScrapedProduct {
+  id           Int      @id @default(autoincrement())
+  sourceUrl    String   @unique
+  slug         String   @unique
+  title        String
+  model        MotoModel // moto compatible (cada página de 99rpm = un modelo)
+  mainImageUrl String?  // URL original de la imagen en 99rpm (con marca de agua)
+  imageS3Key   String?  // key de la imagen limpia en Supabase Storage
+  imageS3Url   String?
+  totalInr     Int?     // suma de precios de los componentes (total del bundle)
+  rawJson      Json     // bundle parseado completo, por seguridad/reproceso
+  scrapedAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  groups ScrapedGroup[]
+
+  @@index([model])
+}
+
+// SUBGRUPO: cada opción/grupo Magento dentro del ensamble (ej. "Front Suspension").
+model ScrapedGroup {
+  id        Int    @id @default(autoincrement())
+  productId Int
+  rawTitle  String // título crudo de Magento (ej. "Center Belly Pan| unpainted black")
+  title     String // título limpio (ej. "Center Belly Pan")
+  sortOrder Int    @default(0)
+
+  product ScrapedProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  parts   ScrapedPart[]
+
+  @@index([productId])
+}
+
+// PARTE: un componente/SKU dentro de un subgrupo. Datos del scrape + peso/dim curados
+// (copiados por cruce de SKU desde mi Product.bajajCode). El margen es override por
+// parte: null ⇒ usa el default global de Config (default_margin).
+model ScrapedPart {
+  id         Int     @id @default(autoincrement())
+  groupId    Int
+  name       String  // nombre de la pieza (inglés, del scrape)
+  sku        String  // código Bajaj primario
+  altSku     String? // código alterno si el nombre trae dos
+  priceInr   Int     // precio India del scrape
+  qty        Int     @default(1)
+  sortOrder  Int     @default(0)
+  imageUrl   String? // imagen específica del componente si existe
+  imageS3Key String?
+
+  // ── peso/dim: se llenan por cruce de SKU (scripts/cross-ref.ts) ──
+  weightGrams      Int?
+  dimL             Float?
+  dimA             Float?
+  dimH             Float?
+  matchedProductId Int?    // Product del que salió el peso/dim (traza del cruce)
+  // margen override por parte; null ⇒ default global de Config (default_margin)
+  margin           Float?
+
+  group   ScrapedGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  matched Product?     @relation("MatchedScraped", fields: [matchedProductId], references: [id], onDelete: SetNull)
+
+  @@index([sku])
+  @@index([groupId])
+  @@index([matchedProductId])
+}

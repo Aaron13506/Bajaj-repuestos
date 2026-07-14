@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+}
+
+@media print {
+  @page {
+    margin: 1cm;
+  }
+
+  body {
+    background: white !important;
+  }
+
+  /* Let the document flow across pages instead of being clipped to one
+     viewport. The app shell uses h-screen + overflow-auto, which otherwise
+     cuts off long presupuestos. */
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  body * {
+    overflow: visible !important;
+  }
+
+  main {
+    height: auto !important;
+    padding: 0 !important;
+    max-width: 100% !important;
+  }
+
+  /* Keep table rows whole and repeat the header on each printed page. */
+  table {
+    break-inside: auto;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tr {
+    break-inside: avoid;
+  }
+
+  /* Compact spacing so a normal presupuesto fits on a single page. */
+  th,
+  td {
+    padding-top: 0.35rem !important;
+    padding-bottom: 0.35rem !important;
+  }
+}

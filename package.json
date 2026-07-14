@@ -1,0 +1,54 @@
+{
+  "name": "bajaj-repuestos",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.31.0",
+  "engines": {
+    "node": "24.x",
+    "pnpm": "10.x"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "postinstall": "prisma generate",
+    "lint": "next lint",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:generate": "prisma generate",
+    "db:studio": "prisma studio",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:seed:footstep": "tsx prisma/seed-footstep.ts",
+    "scrape:99rpm": "tsx scripts/scrape-99rpm.ts",
+    "scrape:service": "tsx scripts/scrape-99rpm.ts --listings=service-parts.html --out=service-parts.json",
+    "db:seed:scraped": "tsx prisma/seed-scraped.ts",
+    "db:seed:service": "tsx prisma/seed-scraped.ts --file=service-parts.json",
+    "cross-ref": "tsx scripts/cross-ref.ts",
+    "materialize": "tsx scripts/materialize-catalog.ts",
+    "backfill:images": "tsx scripts/backfill-images.ts",
+    "verify:images": "tsx scripts/verify-scraped-images.ts"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1079.0",
+    "@prisma/client": "^5.22.0",
+    "next": "16.2.6",
+    "react": "^18",
+    "react-dom": "^18"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10.0.1",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.18",
+    "postcss": "^8",
+    "prisma": "^5.22.0",
+    "tailwindcss": "^3.4.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5"
+  }
+}
