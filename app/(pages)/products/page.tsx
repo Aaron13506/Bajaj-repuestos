@@ -13,12 +13,13 @@ interface SearchParams {
   lowStock?: string
 }
 
-export default async function ProductsPage({ searchParams }: { searchParams: SearchParams }) {
-  const search = searchParams.search ?? ''
-  const model = searchParams.model ?? ''
-  const category = searchParams.category ?? ''
-  const onlyLowStock = searchParams.lowStock === '1'
-  const page = Math.max(1, parseInt(searchParams.page ?? '1'))
+export default async function ProductsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  const sp = await searchParams
+  const search = sp.search ?? ''
+  const model = sp.model ?? ''
+  const category = sp.category ?? ''
+  const onlyLowStock = sp.lowStock === '1'
+  const page = Math.max(1, parseInt(sp.page ?? '1'))
   const limit = 20
 
   const where = {

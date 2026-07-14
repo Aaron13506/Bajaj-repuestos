@@ -10,11 +10,12 @@ interface SearchParams {
   page?: string
 }
 
-export default async function GroupsPage({ searchParams }: { searchParams: SearchParams }) {
-  const model = searchParams.model ?? ''
-  const category = searchParams.category ?? ''
-  const search = searchParams.search ?? ''
-  const page = Math.max(1, parseInt(searchParams.page ?? '1'))
+export default async function GroupsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  const sp = await searchParams
+  const model = sp.model ?? ''
+  const category = sp.category ?? ''
+  const search = sp.search ?? ''
+  const page = Math.max(1, parseInt(sp.page ?? '1'))
   const limit = 25
 
   const where = {

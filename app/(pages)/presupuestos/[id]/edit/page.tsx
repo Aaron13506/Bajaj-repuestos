@@ -6,8 +6,8 @@ import { sortModels } from '@/lib/catalog'
 import { updatePresupuesto } from '../../actions'
 import { type BundlePiece } from '@/lib/bundle'
 
-export default async function EditPresupuestoPage({ params }: { params: { id: string } }) {
-  const id = parseInt(params.id)
+export default async function EditPresupuestoPage({ params }: { params: Promise<{ id: string }> }) {
+  const id = parseInt((await params).id)
   if (isNaN(id)) notFound()
 
   const [presupuesto, assemblies] = await Promise.all([

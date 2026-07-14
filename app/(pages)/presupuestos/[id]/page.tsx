@@ -8,8 +8,8 @@ import { deletePresupuesto, confirmarPedido } from '../actions'
 import { type BundlePiece, groupBundlePieces } from '@/lib/bundle'
 import { getTerminos } from '@/lib/terminos'
 
-export default async function PresupuestoDetailPage({ params }: { params: { id: string } }) {
-  const id = parseInt(params.id)
+export default async function PresupuestoDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const id = parseInt((await params).id)
   if (isNaN(id)) notFound()
 
   const [presupuesto, bsdRow] = await Promise.all([

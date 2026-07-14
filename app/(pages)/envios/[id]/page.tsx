@@ -34,8 +34,8 @@ function airTierHint(chargeableKg: number): { tone: 'good' | 'info'; text: strin
   return { tone: 'good', text: 'Estás en el tramo más eficiente de ShipGlobal (~1 421 INR/kg).' }
 }
 
-export default async function EnvioDetailPage({ params }: { params: { id: string } }) {
-  const id = parseInt(params.id)
+export default async function EnvioDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const id = parseInt((await params).id)
   if (isNaN(id)) notFound()
 
   const [envio, cfgRows, sinAsignar, allProducts] = await Promise.all([

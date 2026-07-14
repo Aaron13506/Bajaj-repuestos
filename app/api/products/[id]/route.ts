@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { toJSON } from '@/lib/utils'
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
-  const id = parseInt(params.id)
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const id = parseInt((await params).id)
   if (isNaN(id)) return NextResponse.json({ error: 'ID invalido' }, { status: 400 })
 
   const product = await db.product.findUnique({
@@ -19,9 +19,9 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   return NextResponse.json(toJSON(product))
 }
 
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const id = parseInt(params.id)
+    const id = parseInt((await params).id)
     if (isNaN(id)) return NextResponse.json({ error: 'ID invalido' }, { status: 400 })
 
     const body = await request.json()
@@ -58,9 +58,9 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const id = parseInt(params.id)
+    const id = parseInt((await params).id)
     if (isNaN(id)) return NextResponse.json({ error: 'ID invalido' }, { status: 400 })
 
     await db.product.delete({ where: { id } })

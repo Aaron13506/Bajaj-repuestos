@@ -22,8 +22,9 @@ const DEFAULT_KEYS = Object.keys(FIELD_META)
 export default async function ConfigPage({
   searchParams,
 }: {
-  searchParams: { saved?: string }
+  searchParams: Promise<{ saved?: string }>
 }) {
+  const { saved } = await searchParams
   const rows = await db.config.findMany({ orderBy: { key: 'asc' } })
 
   // Merge DB values with defaults so all known keys always appear
@@ -48,7 +49,7 @@ export default async function ConfigPage({
         <h1 className="text-2xl font-bold text-gray-900">Configuración</h1>
       </div>
 
-      {searchParams.saved === '1' && (
+      {saved === '1' && (
         <div className="mb-6 bg-green-50 border border-green-200 text-green-800 rounded-lg px-4 py-3 text-sm font-medium">
           Cambios guardados correctamente.
         </div>

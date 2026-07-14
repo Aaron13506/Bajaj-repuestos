@@ -13,8 +13,8 @@ import { addComponent, removeComponent, addToAssembly } from './component-action
 import { deleteProduct } from '../actions'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
 
-export default async function ProductDetailPage({ params }: { params: { id: string } }) {
-  const id = parseInt(params.id)
+export default async function ProductDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const id = parseInt((await params).id)
   if (isNaN(id)) notFound()
 
   const [product, configRows] = await Promise.all([

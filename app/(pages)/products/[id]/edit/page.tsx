@@ -5,8 +5,8 @@ import ProductForm from '@/components/ProductForm'
 import type { ConfigMap } from '@/lib/calc'
 import { updateProduct } from '../../actions'
 
-export default async function EditProductPage({ params }: { params: { id: string } }) {
-  const id = parseInt(params.id)
+export default async function EditProductPage({ params }: { params: Promise<{ id: string }> }) {
+  const id = parseInt((await params).id)
   if (isNaN(id)) notFound()
 
   const [product, groups, configRows] = await Promise.all([
