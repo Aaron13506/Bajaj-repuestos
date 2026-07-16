@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useFormState, useFormStatus } from 'react-dom'
+import { useActionState, useState } from 'react'
+import { useFormStatus } from 'react-dom'
 import { updateMeasures, type MeasuresResult } from '@/app/(pages)/products/[id]/measure-actions'
 
 interface Part {
@@ -11,42 +11,115 @@ interface Part {
   nameEn: string | null
   compatibleModels: string | null
   weightGrams: number | null
+  quantity: number
 }
 
 const emptyResult: MeasuresResult = { ok: false, updated: 0, priced: 0, notFound: [], errors: [] }
 
 const PROMPT_TEMPLATE = `Sos un perito en repuestos de motos. Te paso una lista de piezas (con id,
-bajajCode y nombre) y necesito el PESO y las DIMENSIONES de envío de cada una, lo más
-PRECISO posible, corroborado con varias fuentes.
+bajajCode, nombre y "quantity") y necesito el PESO y las DIMENSIONES de envío de cada una, lo más
+PRECISO posible, cruzado contra varias fuentes y con la evidencia a la vista.
 
-INVESTIGACIÓN (hacela en serio, no adivines):
-- Buscá cada pieza en VARIAS fuentes y CRUZÁ los datos antes de decidir. Fuentes útiles:
+Voy a AUDITAR tu respuesta a mano: pieza por pieza, fuente por fuente, y voy a abrir los links.
+Un dato inventado que se ve prolijo me cuesta plata real en el flete. La única forma de que un
+número me sirva es que pueda ver de dónde salió.
+
+Esto NO es un proceso masivo: reviso los productos uno por uno, así que quiero SIEMPRE un
+resultado completo y usable para cada pieza, aunque sea una estimación. Nunca dejes una pieza sin
+peso/dimensiones ni un campo vacío — si no hay dato directo, estimá por analogía o por geometría
+(ver más abajo) y ACLARALO, pero completá la fila igual.
+
+CANTIDAD (contexto de búsqueda, NO cambia lo que tenés que dar):
+- El campo "quantity" (ej. x2 suspensiones, x4 arandelas) es cuántas unidades de esa pieza usa
+  ESTE ensamble. Te lo paso solo como contexto — puede ayudarte a entender qué estás viendo si
+  una fuente describe la pieza vendida de a pares/kits.
+- SIEMPRE quiero el peso y las dimensiones de UNA SOLA unidad (una arandela, un shock, un
+  tornillo — nunca el conjunto ni el paquete), sin importar cuánto diga "quantity".
+- Si la ÚNICA fuente que encontrás da el peso de un PAQUETE/PAR/KIT (ej. "shock absorber pair:
+  3.1 kg" o un listado que vende de a 2), DIVIDÍ por la cantidad de ESA fuente para llegar al
+  peso de una unidad, y ACLARALO en la ficha (de qué total partiste y por cuánto dividiste).
+- Dimensiones = la caja de UNA SOLA unidad. No apiles ni multipliques nada.
+
+INVESTIGACIÓN — BUSCÁ BIEN, CRUZÁ VARIAS FUENTES:
+- El error más común acá es buscar poco y rellenar. No pares en la primera fuente que te da un
+  número.
+- PISO POR PIEZA: al menos 3 fuentes independientes, y al menos 2 de marcas o modelos distintos.
+  Si podés traer más, mejor todavía: quiero ver el abanico de valores, no un dato suelto. Un solo
+  valor sin nada con qué compararlo no es un dato, es una apuesta.
+- VARIÁ los términos de búsqueda; no repitas la misma query. Probá, como mínimo:
+  · el SKU/código exacto, y también el código sin guiones ni espacios
+  · el nombre en inglés del catálogo Bajaj
+  · el nombre GENÉRICO de la pieza (\"clutch cable\", \"brake pad\", \"fork seal\")
+  · el equivalente de otra marca (\"Honda CB160 brake pad weight\")
+  · variantes de la métrica: \"part weight\", \"item weight\", \"shipping weight\", \"specifications\",
+    \"net weight\", peso en kg y en g
+- Fuentes útiles:
   · Catálogos/fichas oficiales Bajaj y del código de parte.
   · Tiendas de repuestos: boodmo.com, 99rpm.com, Amazon, eBay, AliExpress, MercadoLibre.
   · Piezas EQUIVALENTES de CUALQUIER marca y CUALQUIER modelo de moto (mismo tipo de
     repuesto: filtro, pastilla, disco, resorte, tornillo, etc.) — sirven de referencia
     para peso/tamaño.
-  · Especificaciones técnicas, manuales de taller y foros.
+  · Especificaciones técnicas, manuales de taller, catálogos de aftermarket y foros.
 - MUY IMPORTANTE: NO te limites a Bajaj/Pulsar (hay poca data). Ampliá la búsqueda a
   TODAS las marcas: japonesas (Honda, Yamaha, Suzuki, Kawasaki), indias (Bajaj, TVS,
   Hero, Royal Enfield, KTM India), y cualquier otra; de cualquier cilindrada y año. Una
   pastilla, un filtro o un tornillo del mismo tipo pesa y mide casi igual sin importar la
-  marca, así que usá TODA esa data para enriquecer y precisar la estimación.
-- Corroborá con al MENOS 2-3 fuentes por pieza (mejor de marcas distintas). Si difieren,
-  quedate con el valor más respaldado y explicá por qué. Si no hay dato directo, estimá
-  por analogía con la pieza equivalente más parecida (de la marca que sea) y decilo.
+  marca, así que usá esa data para enriquecer y precisar la estimación.
+- Mostrame TODOS los valores que encontraste, incluidos los que descartaste y por qué. Si
+  difieren, quedate con el más respaldado y explicá el criterio. Un rango amplio (ej. 280-600 g)
+  no es un problema: es información, y prefiero verlo a que me lo escondas detrás de un promedio.
+- Si no hay dato directo del SKU, estimá por analogía con la pieza equivalente más parecida (de la
+  marca que sea) — decilo, y traé igual las fuentes de esa equivalente. Si tampoco hay equivalente
+  citable, estimá por GEOMETRÍA: volumen aproximado × densidad del material (ver chequeo físico
+  abajo) — es el último recurso, pero siempre hay que llegar a un número.
 - Tené en cuenta material y función (metal vs plástico vs goma) para el peso, y el
   tamaño de la CAJA que contendría la pieza para las dimensiones.
+
+QUE LA FUENTE VALGA — FILTRO ANTI-PLACEHOLDER:
+- Antes de usar un número, asegurate de que sea el peso REAL de la pieza y no un campo por defecto
+  del sitio. Descartá (o marcá como sospechoso) esto:
+  · 0,5 kg / 1 kg / 100 g exactos en un listado de marketplace: es el default del formulario.
+  · caja 10×10×10, o dimensiones donde L = A = H.
+  · peso 0, 0,001, \"N/A\", \"-\", o el campo vacío.
+  · el MISMO peso repetido en todas las variantes/SKU de una familia: es autocompletado, no medido.
+  · \"shipping weight\" / peso de envío: incluye caja y relleno y suele venir redondeado hacia
+    arriba. No es el peso de la pieza. Si es lo único que hay, usalo pero ACLARALO.
+- De cada fuente, copiame la FRASE TEXTUAL donde figura el dato (ej. \"Weight: 0.320 kg\") junto al
+  link exacto. Si no podés citar la frase textual, esa fuente NO cuenta para el piso de 3.
+- No cites una fuente que no abriste. Un link inventado o \"plausible\" es el peor resultado posible:
+  peor que no encontrar nada, porque me hace confiar en un número falso.
+
+CHEQUEO FÍSICO OBLIGATORIO (en TODAS las filas, mostrá la cuenta):
+- densidad implícita = weightGrams / (dimL × dimA × dimH), en g/cm³.
+- Contrastala con el material: acero 7,8 · inox 8,0 · aluminio 2,7 · latón/bronce 8,5 ·
+  goma 1,2 · plástico 0,9-1,4 · vidrio 2,5.
+- INVARIANTE DURO: la densidad implícita NUNCA puede superar la del material. Si te da más, hay un
+  error seguro (casi siempre el peso, o una confusión kg/g). Corregilo y volvé a chequear.
+- Que dé BASTANTE menor que el material es normal cuando la pieza no llena la caja (un soporte, un
+  cable enrollado, un resorte). Eso está bien — pero decilo en una línea.
+- Si te da absurdamente bajo para una pieza maciza (ej. 0,1 g/cm³ en un disco de acero), el peso
+  está mal o la caja está inflada. Revisá.
 
 MARGEN:
 - Ante la duda, redondeá LEVEMENTE hacia ARRIBA (peso y tamaño): conviene sobreestimar
   un poco para no perder plata en el flete. Margen chico y prudente, NO exagerado.
 
 QUÉ DEVOLVER (en este orden):
-1) RAZONAMIENTO por pieza: para cada una, 1-3 líneas con cómo llegaste al valor, qué
-   fuentes usaste y qué pieza equivalente tomaste de referencia si aplica.
-2) FUENTES: lista de los enlaces/fuentes consultados.
-3) El JSON final, dentro de un bloque de código \`\`\`json … \`\`\`, con SOLO esto:
+1) FICHA POR PIEZA — una por cada pieza QUE TE PASÉ, sin excepción, en este formato compacto y
+   escaneable:
+
+   JR161036 — Pastilla de freno trasera (x1)
+   hallazgos: 320 g (boodmo, SKU exacto) · 340 g (Amazon, equivalente Honda) · 310 g (foro) ·
+              0,5 kg (AliExpress — DESCARTADO: default de marketplace)
+   elegido: 320 g · material: acero+ferodo
+   dims: 18 × 6 × 4 cm → densidad 320 / 432 = 0,74 g/cm³ (pastilla no maciza, coherente)
+   fuentes:
+     - https://… → \"Weight: 0.320 kg\"
+     - https://… → \"Item weight: 340 g\"
+     - https://… → \"…\"
+
+2) El JSON final, dentro de un bloque de código \`\`\`json … \`\`\`, con TODAS las piezas que te pasé
+   (misma cantidad de filas que la lista de entrada, sin faltantes):
 
 \`\`\`json
 [
@@ -62,11 +135,15 @@ QUÉ DEVOLVER (en este orden):
 
 Reglas del JSON:
 - Identificá cada fila con "bajajCode" (o "id") EXACTAMENTE como te lo di. No lo inventes.
-- weightGrams en gramos; dimL/dimA/dimH en centímetros (largo, ancho, alto de la caja).
-- Si de una pieza solo podés estimar el peso, poné solo "weightGrams" y omití las dims.
-- No incluyas precio, margen ni otro campo: solo identificador + medidas.
-- El bloque \`\`\`json debe ser válido y contener únicamente el array (el razonamiento y las
-  fuentes van FUERA del bloque).`
+- weightGrams en gramos = peso de UNA sola unidad; dimL/dimA/dimH en cm = la caja de UNA sola
+  unidad. Nunca del conjunto/paquete — ver la sección CANTIDAD.
+- TODAS las piezas van con los 4 campos completos (weightGrams, dimL, dimA, dimH). Nada de null,
+  nada vacío, ninguna fila faltante: si no hay dato directo, usá el mejor estimado por analogía o
+  geometría (ver arriba) — pero siempre completo. Reviso cada pieza a mano, así que prefiero tu
+  mejor estimación fundamentada antes que un hueco que después tengo que volver a pedir.
+- material y fuentes son para mi auditoría. No incluyas precio ni margen.
+- El bloque \`\`\`json debe ser válido y contener únicamente el array (la ficha y las fuentes van
+  FUERA del bloque).`
 
 function SubmitButton() {
   const { pending } = useFormStatus()
@@ -88,7 +165,7 @@ export default function AssemblyMeasures({
   assemblyId: number
   parts: Part[]
 }) {
-  const [state, formAction] = useFormState(updateMeasures, emptyResult)
+  const [state, formAction] = useActionState(updateMeasures, emptyResult)
   const [open, setOpen] = useState(false)
   const [copied, setCopied] = useState<'prompt' | 'list' | null>(null)
   const [onlyMissing, setOnlyMissing] = useState(true)
@@ -96,7 +173,10 @@ export default function AssemblyMeasures({
   const missingCount = parts.filter((p) => p.weightGrams == null).length
   const shown = onlyMissing ? parts.filter((p) => p.weightGrams == null) : parts
 
-  // Lo que se le pasa a la IA: identificador + nombre + modelos, sin ruido.
+  // Lo que se le pasa a la IA: identificador + nombre + modelos + cantidad, sin ruido.
+  // quantity = cuántas unidades de esa pieza lleva el ensamble (x2 suspensión, x4 arandela);
+  // es solo contexto de búsqueda — la IA siempre estima UNA unidad (ver prompt), y eso es
+  // exactamente lo que se guarda, sin dividir ni multiplicar nada en el server.
   const listJson = JSON.stringify(
     shown.map((p) => ({
       bajajCode: p.bajajCode,
@@ -104,6 +184,7 @@ export default function AssemblyMeasures({
       nameEs: p.nameEs,
       nameEn: p.nameEn,
       compatibleModels: p.compatibleModels,
+      quantity: p.quantity,
     })),
     null,
     2,

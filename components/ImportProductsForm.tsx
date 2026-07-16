@@ -1,8 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
-import { useFormState, useFormStatus } from 'react-dom'
+import { useActionState, useState } from 'react'
+import { useFormStatus } from 'react-dom'
 import { importProducts } from '@/app/(pages)/products/import/actions'
 import type { ImportResult } from '@/app/(pages)/products/import/actions'
 
@@ -90,7 +90,7 @@ function SubmitButton() {
 }
 
 export default function ImportProductsForm() {
-  const [state, formAction] = useFormState(importProducts, emptyImportResult)
+  const [state, formAction] = useActionState(importProducts, emptyImportResult)
   const [copied, setCopied] = useState<'prompt' | 'schema' | null>(null)
 
   function copy(text: string, which: 'prompt' | 'schema') {

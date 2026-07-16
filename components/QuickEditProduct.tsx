@@ -31,9 +31,18 @@ interface Props {
   triggerLabel?: string
   /** Llamado al guardar con los valores nuevos, para un update optimista en el padre. */
   onOptimistic?: (values: QuickEditValues) => void
+  /**
+   * Cuántas unidades de esta pieza usa el ensamble desde el que se abrió el editor
+   * (ProductComponent.quantity de ese enlace puntual). priceInr/weightGrams SIEMPRE se
+   * guardan por unidad; esto es solo para mostrar el total del paquete al lado y evitar
+   * cargar por error el total donde va la unidad (o viceversa). Sin ensamble de contexto
+   * (ej. lista plana de productos, donde la misma pieza puede repetirse con cantidades
+   * distintas en varios ensambles) se omite: no hay un único "total" que mostrar.
+   */
+  packQty?: number
 }
 
-export default function QuickEditProduct({ product, cfg, triggerClassName, triggerLabel = 'Editar', onOptimistic }: Props) {
+export default function QuickEditProduct({ product, cfg, triggerClassName, triggerLabel = 'Editar', onOptimistic, packQty }: Props) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -45,16 +54,25 @@ export default function QuickEditProduct({ product, cfg, triggerClassName, trigg
       >
         {triggerLabel}
       </button>
-      {open && <EditModal product={product} cfg={cfg} onClose={() => setOpen(false)} onOptimistic={onOptimistic} />}
+      {open && <EditModal product={product} cfg={cfg} onClose={() => setOpen(false)} onOptimistic={onOptimistic} packQty={packQty} />}
     </>
   )
 }
 
-function EditModal({ product: d, cfg, onClose, onOptimistic }: { product: QuickEditValues; cfg: ConfigMap; onClose: () => void; onOptimistic?: (values: QuickEditValues) => void }) {
+function EditModal({ product: d, cfg, onClose, onOptimistic, packQty }: { product: QuickEditValues; cfg: ConfigMap; onClose: () => void; onOptimistic?: (values: QuickEditValues) => void; packQty?: number }) {
   const router = useRouter()
   const [saving, setSaving] = useState(false)
   // Precio fijo: si está activo, la recarga de medidas no pisa este precio.
   const [locked, setLocked] = useState(d.priceLocked ?? false)
+
+  // priceInr/weightGrams se guardan SIEMPRE por unidad; este helper solo muestra el total
+  // del paquete que usa el ensamble desde el que se abrió el editor, para no confundir
+  // "por unidad" con "total" al cargar el dato (ver prop packQty).
+  const hasPack = (packQty ?? 1) > 1
+  const [priceInrUnit, setPriceInrUnit] = useState<number | null>(d.priceInr)
+  const [weightUnit, setWeightUnit] = useState<number | null>(d.weightGrams)
+  const priceInrTotal = hasPack && priceInrUnit != null ? priceInrUnit * packQty! : null
+  const weightTotal   = hasPack && weightUnit   != null ? weightUnit   * packQty! : null
 
   const initialLanded = calcLanded({
     priceInr: d.priceInr, weightGrams: d.weightGrams,
@@ -71,7 +89,7 @@ function EditModal({ product: d, cfg, onClose, onOptimistic }: { product: QuickE
   const priceRef    = useRef<HTMLInputElement>(null)
 
   function computeLanded(): number | null {
-    const num = (r: React.RefObject<HTMLInputElement>) => {
+    const num = (r: React.RefObject<HTMLInputElement | null>) => {
       const v = parseFloat(r.current?.value ?? '')
       return isNaN(v) ? null : v
     }
@@ -92,6 +110,12 @@ function EditModal({ product: d, cfg, onClose, onOptimistic }: { product: QuickE
     const margin = parseFloat(marginRef.current?.value ?? '')
     if (landed != null && !isNaN(margin) && margin < 100 && priceRef.current) {
       priceRef.current.value = (landed / (1 - margin / 100)).toFixed(2)
+    }
+    if (hasPack) {
+      const priceInr = parseFloat(priceInrRef.current?.value ?? '')
+      setPriceInrUnit(!isNaN(priceInr) ? priceInr : null)
+      const weight = parseFloat(weightRef.current?.value ?? '')
+      setWeightUnit(!isNaN(weight) ? weight : null)
     }
   }
 
@@ -151,7 +175,7 @@ function EditModal({ product: d, cfg, onClose, onOptimistic }: { product: QuickE
   const label = 'block text-xs font-medium text-gray-600 mb-1'
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 overflow-y-auto" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 overflow-y-auto whitespace-normal" onClick={onClose}>
       <div className="bg-white rounded-xl shadow-xl w-full max-w-lg my-8" onClick={e => e.stopPropagation()}>
         <form onSubmit={handleSubmit}>
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
@@ -185,6 +209,11 @@ function EditModal({ product: d, cfg, onClose, onOptimistic }: { product: QuickE
             </div>
 
             {/* Precios */}
+            {hasPack && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                Este ensamble usa {packQty} de esta pieza — Precio India y Peso van por unidad.
+              </p>
+            )}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div>
                 <label className={label}>Precio India (₹)</label>
@@ -208,6 +237,12 @@ function EditModal({ product: d, cfg, onClose, onOptimistic }: { product: QuickE
                   defaultValue={d.price} onChange={recalcFromPrice} className={input} />
               </div>
             </div>
+            {hasPack && (
+              <p className="text-xs text-gray-500">
+                Unidad: <span className="font-mono text-gray-700">{priceInrUnit != null ? `₹${priceInrUnit}` : '—'}</span>
+                {' · '}Paquete ×{packQty}: <span className="font-mono text-gray-700">{priceInrTotal != null ? `₹${priceInrTotal}` : '—'}</span>
+              </p>
+            )}
 
             {/* Precio fijo */}
             <label className="flex items-center gap-2 cursor-pointer">
@@ -251,6 +286,12 @@ function EditModal({ product: d, cfg, onClose, onOptimistic }: { product: QuickE
                 <input name="stock" type="number" min="0" defaultValue={d.stock} className={input} />
               </div>
             </div>
+            {hasPack && (
+              <p className="text-xs text-gray-500">
+                Unidad: <span className="font-mono text-gray-700">{weightUnit != null ? `${weightUnit} g` : '—'}</span>
+                {' · '}Paquete ×{packQty}: <span className="font-mono text-gray-700">{weightTotal != null ? `${weightTotal} g` : '—'}</span>
+              </p>
+            )}
             <p className="text-xs text-gray-400">
               El costo landed se calcula solo desde INR + peso. El precio sale del margen (o ajustá el precio y el margen se recalcula).
             </p>

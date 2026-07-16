@@ -54,7 +54,7 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
   // Costo landed calculado en vivo desde INR + peso + dims + config (mismo
   // cálculo que el catálogo). Devuelve null si falta INR o peso.
   function computeLanded(): number | null {
-    const num = (r: React.RefObject<HTMLInputElement>) => {
+    const num = (r: React.RefObject<HTMLInputElement | null>) => {
       const v = parseFloat(r.current?.value ?? '')
       return isNaN(v) ? null : v
     }

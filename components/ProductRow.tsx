@@ -23,8 +23,13 @@ function fmt(n: number | null | undefined, decimals = 2) {
   return `$${n.toFixed(decimals)}`
 }
 
-/** Celdas de costo compartidas por la fila principal y las sub-filas de componentes. */
-function CostCells({ d, cfg }: { d: QuickEditValues; cfg: ConfigMap }) {
+/**
+ * Celdas de costo compartidas por la fila principal y las sub-filas de componentes, y
+ * reusadas tal cual en la ficha del ensamble (Componentes) para el mismo desglose.
+ * priceInr/price son SIEMPRE por unidad; con `quantity` (solo en sub-filas de un ensamble
+ * puntual) se agrega el total de esa línea en chico, para no confundir unidad con total.
+ */
+export function CostCells({ d, cfg, quantity }: { d: QuickEditValues; cfg: ConfigMap; quantity?: number }) {
   const b = calcLanded({
     priceInr:    d.priceInr,
     weightGrams: d.weightGrams,
@@ -33,10 +38,15 @@ function CostCells({ d, cfg }: { d: QuickEditValues; cfg: ConfigMap }) {
     dimH:        d.dimH,
     margin:      d.margin,
   }, cfg)
+  const multi = (quantity ?? 1) > 1
+  const saleUsd = b?.priceUsd ?? parseFloat(d.price.toString())
   return (
     <>
       <td className="px-4 py-3 text-right text-gray-500 border-l border-gray-100 text-xs">
         {d.priceInr ? `₹${d.priceInr}` : '—'}
+        {multi && d.priceInr != null && (
+          <span className="block text-gray-400">total: ₹{d.priceInr * quantity!}</span>
+        )}
       </td>
       <td className="px-4 py-3 text-right text-gray-600">{b ? fmt(b.productCostUsd) : '—'}</td>
       <td className="px-4 py-3 text-right text-gray-600">{b ? fmt(b.shoppreShippingUsd) : '—'}</td>
@@ -47,7 +57,10 @@ function CostCells({ d, cfg }: { d: QuickEditValues; cfg: ConfigMap }) {
         {d.margin != null ? `${+(d.margin * 100).toFixed(2)}%` : '—'}
       </td>
       <td className="px-4 py-3 text-right font-medium text-gray-900">
-        {b?.priceUsd != null ? fmt(b.priceUsd) : fmt(d.price)}
+        {fmt(saleUsd)}
+        {multi && (
+          <span className="block text-[11px] font-normal text-gray-400">total: {fmt(saleUsd * quantity!)}</span>
+        )}
       </td>
       <td className="px-4 py-3 text-right text-gray-700">
         {b?.priceBsd != null ? `Bs.${b.priceBsd.toLocaleString('es-VE', { maximumFractionDigits: 0 })}` : '—'}
@@ -159,9 +172,14 @@ export default function ProductRow({ product, cfg }: { product: ProductRowData; 
             </span>
           </td>
           <td className="px-4 py-2 text-gray-400 max-w-[120px] truncate">{c.compatibleModels ?? '—'}</td>
-          <td className="px-4 py-2 text-right text-gray-400">{c.weightGrams ?? '—'}</td>
+          <td className="px-4 py-2 text-right text-gray-400">
+            {c.weightGrams ?? '—'}
+            {c.quantity > 1 && c.weightGrams != null && (
+              <span className="block text-gray-300">total: {c.weightGrams * c.quantity} g</span>
+            )}
+          </td>
 
-          <CostCells d={c} cfg={cfg} />
+          <CostCells d={c} cfg={cfg} quantity={c.quantity} />
 
           <td className="px-4 py-2 text-right border-l border-gray-100">
             <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${

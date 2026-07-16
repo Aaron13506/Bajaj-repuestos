@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import DeleteButton from '@/components/DeleteButton'
 import QuickEditProduct from '@/components/QuickEditProduct'
+import { CostCells } from '@/components/ProductRow'
 import AddComponentForm from '@/components/AddComponentForm'
 import AddToAssemblyForm from '@/components/AddToAssemblyForm'
 import AssemblyMeasures from '@/components/AssemblyMeasures'
@@ -58,7 +59,12 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   ))
 
   // Piezas únicas del ensamble (una misma pieza puede repetirse en varios subgrupos),
-  // para la carga de peso/dimensiones por JSON.
+  // para la carga de peso/dimensiones por JSON. La cantidad es la suma de sus apariciones
+  // en el ensamble (x2 suspensión, x4 arandela…), como contexto para la IA.
+  const qtyByChild = new Map<number, number>()
+  for (const c of product.components) {
+    qtyByChild.set(c.child.id, (qtyByChild.get(c.child.id) ?? 0) + c.quantity)
+  }
   const uniqueParts = Array.from(
     new Map(product.components.map(c => [c.child.id, c.child])).values()
   ).map(child => ({
@@ -68,6 +74,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     nameEn: child.nameEn,
     compatibleModels: child.compatibleModels,
     weightGrams: child.weightGrams,
+    quantity: qtyByChild.get(child.id) ?? 1,
   }))
 
   // Suma de las piezas (precio × cantidad) — referencia para el precio del conjunto.
@@ -76,7 +83,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   )
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="max-w-7xl space-y-6">
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
@@ -270,10 +277,17 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                   <th className="text-right font-medium px-2 py-2 w-10">Cant</th>
                   <th className="text-left font-medium px-2 py-2">Componente</th>
                   <th className="text-left font-medium px-2 py-2">Código</th>
-                  <th className="text-right font-medium px-2 py-2">₹ INR</th>
                   <th className="text-right font-medium px-2 py-2">Peso (g)</th>
                   <th className="text-right font-medium px-2 py-2">L×A×H (cm)</th>
+                  <th className="text-right font-medium px-2 py-2 border-l border-gray-100">₹ INR</th>
+                  <th className="text-right font-medium px-2 py-2">Producto</th>
+                  <th className="text-right font-medium px-2 py-2">Shoppre</th>
+                  <th className="text-right font-medium px-2 py-2">Seguro</th>
+                  <th className="text-right font-medium px-2 py-2">Marítimo</th>
+                  <th className="text-right font-medium px-2 py-2 border-l border-gray-200">Landed</th>
+                  <th className="text-right font-medium px-2 py-2 border-l border-gray-100">Margen</th>
                   <th className="text-right font-medium px-2 py-2">Precio USD</th>
+                  <th className="text-right font-medium px-2 py-2">Precio BsD</th>
                   <th className="text-right font-medium px-2 py-2">Acciones</th>
                 </tr>
               </thead>
@@ -282,15 +296,39 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                   <Fragment key={groupName}>
                     {groupName !== '—' && (
                       <tr>
-                        <td colSpan={8} className="px-2 pt-4 pb-1 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                        <td colSpan={15} className="px-2 pt-4 pb-1 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                           {groupName}
                         </td>
                       </tr>
                     )}
                     {items.map(comp => {
                       const c = comp.child
-                      const dims = [c.dimL, c.dimA, c.dimH]
+                      // priceInr/weightGrams/dims se guardan SIEMPRE por unidad. Peso y dims
+                      // muestran el TOTAL de la línea (unitario × cantidad) como valor principal,
+                      // con el peso "c/u" al lado en chico (ver QuickEditProduct, mismo criterio
+                      // al editar). El alto (dimH) se asume apilado × cantidad para estimar la
+                      // caja de envío; largo/ancho son la huella de una sola unidad. El desglose
+                      // de costo (₹INR en adelante) es el mismo componente CostCells de la lista
+                      // de productos, con `quantity` para mostrar el total de esta línea.
+                      const dims = [c.dimL, c.dimA, c.dimH != null ? +(c.dimH * comp.quantity).toFixed(2) : null]
                       const hasDims = dims.some(d => d != null)
+                      const lineWeight = c.weightGrams != null ? c.weightGrams * comp.quantity : null
+                      const costD = {
+                        id: c.id,
+                        nameEs: c.nameEs,
+                        nameEn: c.nameEn,
+                        bajajCode: c.bajajCode,
+                        compatibleModels: c.compatibleModels,
+                        priceInr: c.priceInr,
+                        weightGrams: c.weightGrams,
+                        dimL: c.dimL,
+                        dimA: c.dimA,
+                        dimH: c.dimH,
+                        margin: c.margin,
+                        price: parseFloat(c.price.toString()),
+                        priceLocked: c.priceLocked,
+                        stock: c.stock,
+                      }
                       return (
                         <tr key={comp.id} className="hover:bg-gray-50">
                           <td className="px-2 py-2 text-right text-gray-400">{comp.quantity}×</td>
@@ -301,39 +339,26 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                             {c.nameEn && <span className="block text-xs text-gray-400">{c.nameEn}</span>}
                           </td>
                           <td className="px-2 py-2 font-mono text-xs text-gray-500">{c.bajajCode ?? '—'}</td>
-                          <td className={`px-2 py-2 text-right font-mono ${c.priceInr == null ? 'text-red-400' : 'text-gray-700'}`}>
-                            {c.priceInr != null ? `₹${c.priceInr}` : '—'}
-                          </td>
-                          <td className={`px-2 py-2 text-right font-mono ${c.weightGrams == null ? 'text-red-400' : 'text-gray-700'}`}>
-                            {c.weightGrams ?? '—'}
+                          <td className={`px-2 py-2 text-right font-mono ${lineWeight == null ? 'text-red-400' : 'text-gray-700'}`}>
+                            {lineWeight ?? '—'}
+                            {comp.quantity > 1 && c.weightGrams != null && (
+                              <span className="block text-[10px] text-gray-400 font-normal">{c.weightGrams} g c/u</span>
+                            )}
                           </td>
                           <td className={`px-2 py-2 text-right font-mono ${!hasDims ? 'text-red-400' : 'text-gray-700'}`}>
                             {hasDims ? dims.map(d => d ?? '—').join('×') : '—'}
+                            {comp.quantity > 1 && c.dimH != null && (
+                              <span className="block text-[10px] text-gray-400 font-normal">alto {c.dimH} c/u × {comp.quantity}</span>
+                            )}
                           </td>
-                          <td className="px-2 py-2 text-right font-mono text-gray-700">
-                            ${parseFloat(c.price.toString()).toFixed(2)}
-                          </td>
+                          <CostCells d={costD} cfg={cfg} quantity={comp.quantity} />
                           <td className="px-2 py-2">
                             <div className="flex items-center justify-end gap-3">
                               <QuickEditProduct
                                 cfg={cfg}
                                 triggerClassName="text-xs text-blue-600 hover:text-blue-800 font-medium"
-                                product={{
-                                  id: c.id,
-                                  nameEs: c.nameEs,
-                                  nameEn: c.nameEn,
-                                  bajajCode: c.bajajCode,
-                                  compatibleModels: c.compatibleModels,
-                                  priceInr: c.priceInr,
-                                  weightGrams: c.weightGrams,
-                                  dimL: c.dimL,
-                                  dimA: c.dimA,
-                                  dimH: c.dimH,
-                                  margin: c.margin,
-                                  price: parseFloat(c.price.toString()),
-                                  priceLocked: c.priceLocked,
-                                  stock: c.stock,
-                                }}
+                                packQty={comp.quantity}
+                                product={costD}
                               />
                               <DeleteButton
                                 action={removeComponent.bind(null, id, comp.id)}
