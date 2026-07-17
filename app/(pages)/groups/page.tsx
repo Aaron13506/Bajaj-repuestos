@@ -29,6 +29,19 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
               { nameEs: { contains: search, mode: 'insensitive' as const } },
               { nameEn: { contains: search, mode: 'insensitive' as const } },
               { bajajCode: { contains: search, mode: 'insensitive' as const } },
+              {
+                components: {
+                  some: {
+                    child: {
+                      OR: [
+                        { nameEs: { contains: search, mode: 'insensitive' as const } },
+                        { nameEn: { contains: search, mode: 'insensitive' as const } },
+                        { bajajCode: { contains: search, mode: 'insensitive' as const } },
+                      ],
+                    },
+                  },
+                },
+              },
             ],
           }
         : {},
