@@ -171,16 +171,15 @@ export default function PresupuestoBuilder({
     }
     if (pieces.length === 0) return
     if (cart.find(c => c.productId === selectedAssembly.id)) return
-    // Precio del conjunto: el precio propio del ensamble si lo tiene; si el ensamble
-    // vale $0 (el costo vive en las piezas), cae a la suma de las piezas elegidas.
-    const bundlePrice = selectedAssembly.price > 0 ? selectedAssembly.price : piecesPriceSum
+    // Precio del conjunto: siempre la suma de las piezas marcadas, no el precio propio
+    // del ensamble (se pide al proveedor por SKU de pieza, no por el ensamble como unidad).
     setCart(prev => [
       ...prev,
       {
         productId: selectedAssembly.id,
         nameEs: selectedAssembly.nameEs,
         bajajCode: selectedAssembly.bajajCode,
-        unitPrice: bundlePrice,
+        unitPrice: piecesPriceSum,
         quantity: 1,
         imageUrl: selectedAssembly.imageUrl,
         bundleItems: pieces,
@@ -202,6 +201,17 @@ export default function PresupuestoBuilder({
   function updateCartPrice(productId: number, price: number) {
     if (isNaN(price) || price < 0) return
     setCart(prev => prev.map(c => c.productId === productId ? { ...c, unitPrice: price } : c))
+  }
+
+  // Cantidad de una pieza puntual dentro de un conjunto (por set; se multiplica ×
+  // cantidad del conjunto al mostrar/imprimir/pedir a proveedor).
+  function updateBundlePieceQty(productId: number, pieceIndex: number, qty: number) {
+    if (qty < 1) return
+    setCart(prev => prev.map(c => {
+      if (c.productId !== productId || !c.bundleItems) return c
+      const bundleItems = c.bundleItems.map((p, i) => i === pieceIndex ? { ...p, quantity: qty } : p)
+      return { ...c, bundleItems }
+    }))
   }
 
   function addProductToCart(product: Product) {
@@ -436,7 +446,7 @@ export default function PresupuestoBuilder({
                   </button>
                 </div>
                 <p className="mt-2 text-xs text-gray-400">
-                  <span className="font-medium text-gray-500">Conjunto:</span> una línea a precio único (editable, por defecto {selectedAssembly.price > 0 ? `$${selectedAssembly.price.toFixed(2)}` : 'la suma de las piezas elegidas'}) con las piezas listadas debajo.
+                  <span className="font-medium text-gray-500">Conjunto:</span> una línea a precio único (editable, por defecto la suma de las piezas elegidas) con las piezas listadas debajo.
                   {' · '}
                   <span className="font-medium text-gray-500">Piezas sueltas:</span> cada pieza con su propio precio.
                 </p>
@@ -544,6 +554,7 @@ export default function PresupuestoBuilder({
                           min={1}
                           value={item.quantity}
                           onChange={e => updateCartQty(item.productId, parseInt(e.target.value) || 1)}
+                          title={item.bundleItems ? 'Cantidad de conjuntos (multiplica cada pieza del desglose)' : undefined}
                           className="w-14 border border-gray-200 rounded px-2 py-0.5 text-sm text-center shrink-0"
                         />
                         {item.bundleItems ? (
@@ -584,15 +595,33 @@ export default function PresupuestoBuilder({
                                   {groupName}
                                 </p>
                               )}
-                              <ul className="space-y-0.5">
-                                {pieces.map((p, i) => (
-                                  <li key={i} className="text-xs text-gray-500">
-                                    {p.quantity}× {p.nameEs}
-                                    {p.bajajCode && (
-                                      <span className="ml-1.5 font-mono text-gray-300">{p.bajajCode}</span>
-                                    )}
-                                  </li>
-                                ))}
+                              <ul className="space-y-1">
+                                {pieces.map((p) => {
+                                  const pieceIndex = item.bundleItems!.indexOf(p)
+                                  return (
+                                    <li key={pieceIndex} className="flex items-center gap-1.5 text-xs text-gray-500">
+                                      <input
+                                        type="number"
+                                        min={1}
+                                        value={p.quantity}
+                                        onChange={e =>
+                                          updateBundlePieceQty(item.productId, pieceIndex, parseInt(e.target.value) || 1)
+                                        }
+                                        title="Cantidad de esta pieza por set"
+                                        className="w-12 border border-gray-200 rounded px-1 py-0.5 text-xs text-center shrink-0"
+                                      />
+                                      <span className="truncate">× {p.nameEs}</span>
+                                      {p.bajajCode && (
+                                        <span className="font-mono text-gray-300 shrink-0">{p.bajajCode}</span>
+                                      )}
+                                      {item.quantity > 1 && (
+                                        <span className="text-gray-300 shrink-0">
+                                          → {p.quantity * item.quantity} total
+                                        </span>
+                                      )}
+                                    </li>
+                                  )
+                                })}
                               </ul>
                             </div>
                           ))}

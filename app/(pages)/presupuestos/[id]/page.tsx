@@ -234,7 +234,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
                             <ul className="space-y-0.5">
                               {pieces.map((p, i) => (
                                 <li key={i} className="text-xs text-gray-500">
-                                  {p.quantity}× {p.nameEs}
+                                  {p.quantity * item.quantity}× {p.nameEs}
                                   {p.bajajCode && (
                                     <span className="ml-1.5 font-mono text-gray-300">{p.bajajCode}</span>
                                   )}
