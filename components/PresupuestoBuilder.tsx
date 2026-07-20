@@ -10,6 +10,7 @@ interface Product {
   bajajCode: string | null
   price: number
   imageUrl?: string | null
+  compatibleModels?: string | null
 }
 
 interface AssemblyComponent {
@@ -291,19 +292,43 @@ export default function PresupuestoBuilder({
               />
             </div>
 
-            <select
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-1 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              value={selectedAssemblyId ?? ''}
-              size={filteredAssemblies.length > 0 ? 8 : undefined}
-              onChange={e => selectAssembly(e.target.value ? parseInt(e.target.value) : null)}
-            >
-              <option value="">— Seleccionar ensamble —</option>
-              {filteredAssemblies.map(a => (
-                <option key={a.id} value={a.id}>
-                  {a.nameEs}{a.bajajCode ? ` (${a.bajajCode})` : ''}
-                </option>
-              ))}
-            </select>
+            <div className="border border-gray-300 rounded-lg mb-1 max-h-80 overflow-y-auto divide-y divide-gray-50">
+              {filteredAssemblies.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-6">Sin resultados</p>
+              ) : (
+                filteredAssemblies.map(a => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => selectAssembly(a.id === selectedAssemblyId ? null : a.id)}
+                    className={`w-full flex items-center gap-3 px-3 py-2 text-left transition-colors ${
+                      a.id === selectedAssemblyId ? 'bg-blue-50' : 'hover:bg-gray-50'
+                    }`}
+                  >
+                    {a.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={a.imageUrl}
+                        alt={a.nameEs}
+                        loading="lazy"
+                        className="w-10 h-10 object-contain rounded border border-gray-100 bg-white shrink-0"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded border border-gray-100 bg-gray-50 shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{a.nameEs}</p>
+                      <p className="text-xs text-gray-400 truncate">
+                        {a.bajajCode && <span className="font-mono">{a.bajajCode}</span>}
+                        {a.bajajCode && a.compatibleModels && ' · '}
+                        {a.compatibleModels}
+                      </p>
+                    </div>
+                    <span className="text-sm font-mono text-gray-600 shrink-0">${a.price.toFixed(2)}</span>
+                  </button>
+                ))
+              )}
+            </div>
             <p className="text-xs text-gray-400 mb-4">
               {filteredAssemblies.length} ensamble{filteredAssemblies.length === 1 ? '' : 's'}
               {modelFilter || asmSearch ? ' (filtrado)' : ''} de {assemblies.length}.
@@ -425,27 +450,39 @@ export default function PresupuestoBuilder({
             <div className="relative">
               <input
                 type="text"
-                placeholder="Buscar por nombre o código..."
+                placeholder="Buscar por nombre o código (pieza o ensamble)..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
               {filteredProducts.length > 0 && (
-                <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg divide-y divide-gray-50 overflow-hidden">
+                <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg divide-y divide-gray-50 overflow-hidden max-h-96 overflow-y-auto">
                   {filteredProducts.map(p => (
                     <button
                       key={p.id}
                       type="button"
                       onClick={() => addProductToCart(p)}
-                      className="w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-gray-50 transition-colors"
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-gray-50 transition-colors"
                     >
-                      <div>
-                        <span className="text-sm font-medium text-gray-900">{p.nameEs}</span>
-                        {p.bajajCode && (
-                          <span className="ml-2 text-xs font-mono text-gray-400">{p.bajajCode}</span>
-                        )}
+                      {p.imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={p.imageUrl}
+                          alt={p.nameEs}
+                          className="w-10 h-10 object-contain rounded border border-gray-100 bg-white shrink-0"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded border border-gray-100 bg-gray-50 shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{p.nameEs}</p>
+                        <p className="text-xs text-gray-400 truncate">
+                          {p.bajajCode && <span className="font-mono">{p.bajajCode}</span>}
+                          {p.bajajCode && p.compatibleModels && ' · '}
+                          {p.compatibleModels}
+                        </p>
                       </div>
-                      <span className="text-sm font-mono text-gray-600">${p.price.toFixed(2)}</span>
+                      <span className="text-sm font-mono text-gray-600 shrink-0">${p.price.toFixed(2)}</span>
                     </button>
                   ))}
                 </div>

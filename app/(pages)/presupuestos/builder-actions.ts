@@ -38,7 +38,7 @@ export async function searchProducts(term: string) {
         { bajajCode: { contains: q, mode: 'insensitive' } },
       ],
     },
-    select: { id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true },
+    select: { id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true, compatibleModels: true },
     take: 12,
     orderBy: { nameEs: 'asc' },
   })
@@ -48,5 +48,6 @@ export async function searchProducts(term: string) {
     bajajCode: p.bajajCode,
     price: parseFloat(p.price.toString()),
     imageUrl: p.imageUrl,
+    compatibleModels: p.compatibleModels,
   }))
 }
