@@ -558,17 +558,24 @@ export default function PresupuestoBuilder({
                           className="w-14 border border-gray-200 rounded px-2 py-0.5 text-sm text-center shrink-0"
                         />
                         {item.bundleItems ? (
-                          <div className="flex items-center shrink-0">
-                            <span className="text-sm text-gray-400">$</span>
-                            <input
-                              type="number"
-                              min={0}
-                              step="0.01"
-                              value={item.unitPrice}
-                              onChange={e => updateCartPrice(item.productId, parseFloat(e.target.value))}
-                              className="w-20 border border-gray-200 rounded px-2 py-0.5 text-sm text-right font-mono"
-                              title="Precio del conjunto"
-                            />
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <div className="flex items-center">
+                              <span className="text-sm text-gray-400">$</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={item.unitPrice}
+                                onChange={e => updateCartPrice(item.productId, parseFloat(e.target.value))}
+                                className="w-20 border border-gray-200 rounded px-2 py-0.5 text-sm text-right font-mono"
+                                title="Precio del conjunto (por set)"
+                              />
+                            </div>
+                            {item.quantity > 1 && (
+                              <span className="text-sm font-mono text-gray-700 w-16 text-right" title="Subtotal (precio × cantidad de conjuntos)">
+                                ${(item.unitPrice * item.quantity).toFixed(2)}
+                              </span>
+                            )}
                           </div>
                         ) : (
                           <span className="text-sm font-mono text-gray-700 w-16 text-right shrink-0">

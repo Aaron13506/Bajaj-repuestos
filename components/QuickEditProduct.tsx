@@ -13,6 +13,12 @@ export interface QuickEditValues {
   bajajCode: string | null
   compatibleModels: string | null
   priceInr: number | null
+  // Override de precio del proveedor activo, EN USD (null/undefined = sin override,
+  // cae al precio base priceInr de 99rpm). Solo tiene sentido con un proveedor activo.
+  priceUsd?: number | null
+  // true = priceUsd ya es el costo landed final (puesto en Venezuela) de ese proveedor,
+  // no se le suma Shoppre/seguro/marítimo encima. Solo tiene sentido junto a priceUsd.
+  priceIsLanded?: boolean
   weightGrams: number | null
   dimL: number | null
   dimA: number | null
@@ -40,9 +46,14 @@ interface Props {
    * distintas en varios ensambles) se omite: no hay un único "total" que mostrar.
    */
   packQty?: number
+  /**
+   * Proveedor activo (selector del sidebar). Si está seteado, el campo Precio India (₹)
+   * edita el override de ESE proveedor (SupplierPrice) en vez del precio base de 99rpm.
+   */
+  activeSupplierId?: number | null
 }
 
-export default function QuickEditProduct({ product, cfg, triggerClassName, triggerLabel = 'Editar', onOptimistic, packQty }: Props) {
+export default function QuickEditProduct({ product, cfg, triggerClassName, triggerLabel = 'Editar', onOptimistic, packQty, activeSupplierId }: Props) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -54,32 +65,41 @@ export default function QuickEditProduct({ product, cfg, triggerClassName, trigg
       >
         {triggerLabel}
       </button>
-      {open && <EditModal product={product} cfg={cfg} onClose={() => setOpen(false)} onOptimistic={onOptimistic} packQty={packQty} />}
+      {open && <EditModal product={product} cfg={cfg} onClose={() => setOpen(false)} onOptimistic={onOptimistic} packQty={packQty} activeSupplierId={activeSupplierId} />}
     </>
   )
 }
 
-function EditModal({ product: d, cfg, onClose, onOptimistic, packQty }: { product: QuickEditValues; cfg: ConfigMap; onClose: () => void; onOptimistic?: (values: QuickEditValues) => void; packQty?: number }) {
+function EditModal({ product: d, cfg, onClose, onOptimistic, packQty, activeSupplierId }: { product: QuickEditValues; cfg: ConfigMap; onClose: () => void; onOptimistic?: (values: QuickEditValues) => void; packQty?: number; activeSupplierId?: number | null }) {
   const router = useRouter()
   const [saving, setSaving] = useState(false)
   // Precio fijo: si está activo, la recarga de medidas no pisa este precio.
   const [locked, setLocked] = useState(d.priceLocked ?? false)
+
+  // Con proveedor activo, el costo de origen se edita en USD (SupplierPrice); sin
+  // proveedor, en ₹ (Product.priceInr, base 99rpm) como siempre.
+  const isSupplierMode = activeSupplierId != null
 
   // priceInr/weightGrams se guardan SIEMPRE por unidad; este helper solo muestra el total
   // del paquete que usa el ensamble desde el que se abrió el editor, para no confundir
   // "por unidad" con "total" al cargar el dato (ver prop packQty).
   const hasPack = (packQty ?? 1) > 1
   const [priceInrUnit, setPriceInrUnit] = useState<number | null>(d.priceInr)
+  const [priceUsdUnit, setPriceUsdUnit] = useState<number | null>(d.priceUsd ?? null)
   const [weightUnit, setWeightUnit] = useState<number | null>(d.weightGrams)
   const priceInrTotal = hasPack && priceInrUnit != null ? priceInrUnit * packQty! : null
+  const priceUsdTotal = hasPack && priceUsdUnit != null ? priceUsdUnit * packQty! : null
   const weightTotal   = hasPack && weightUnit   != null ? weightUnit   * packQty! : null
 
+  const [isLanded, setIsLanded] = useState(d.priceIsLanded ?? false)
+
   const initialLanded = calcLanded({
-    priceInr: d.priceInr, weightGrams: d.weightGrams,
+    priceInr: d.priceInr, priceUsd: d.priceUsd, priceIsLanded: d.priceIsLanded, weightGrams: d.weightGrams,
     dimL: d.dimL, dimA: d.dimA, dimH: d.dimH, margin: null,
   }, cfg)?.landedCostUsd ?? null
 
   const priceInrRef = useRef<HTMLInputElement>(null)
+  const priceUsdRef = useRef<HTMLInputElement>(null)
   const weightRef   = useRef<HTMLInputElement>(null)
   const dimLRef     = useRef<HTMLInputElement>(null)
   const dimARef     = useRef<HTMLInputElement>(null)
@@ -88,18 +108,20 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty }: { produc
   const marginRef   = useRef<HTMLInputElement>(null)
   const priceRef    = useRef<HTMLInputElement>(null)
 
-  function computeLanded(): number | null {
+  function computeLanded(landedOverride?: boolean): number | null {
     const num = (r: React.RefObject<HTMLInputElement | null>) => {
       const v = parseFloat(r.current?.value ?? '')
       return isNaN(v) ? null : v
     }
     const b = calcLanded({
-      priceInr:    num(priceInrRef),
-      weightGrams: num(weightRef),
-      dimL:        num(dimLRef),
-      dimA:        num(dimARef),
-      dimH:        num(dimHRef),
-      margin:      null,
+      priceInr:      isSupplierMode ? null : num(priceInrRef),
+      priceUsd:      isSupplierMode ? num(priceUsdRef) : null,
+      priceIsLanded: isSupplierMode ? (landedOverride ?? isLanded) : false,
+      weightGrams:   num(weightRef),
+      dimL:          num(dimLRef),
+      dimA:          num(dimARef),
+      dimH:          num(dimHRef),
+      margin:        null,
     }, cfg)
     return b ? b.landedCostUsd : null
   }
@@ -107,6 +129,17 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty }: { produc
   function recalcFromCost() {
     const landed = computeLanded()
     if (landedRef.current) landedRef.current.value = landed != null ? landed.toFixed(2) : ''
+    recalcPriceFromLanded(landed)
+  }
+
+  function handleLandedToggle(checked: boolean) {
+    setIsLanded(checked)
+    const landed = computeLanded(checked)
+    if (landedRef.current) landedRef.current.value = landed != null ? landed.toFixed(2) : ''
+    recalcPriceFromLanded(landed)
+  }
+
+  function recalcPriceFromLanded(landed: number | null) {
     const margin = parseFloat(marginRef.current?.value ?? '')
     if (landed != null && !isNaN(margin) && margin < 100 && priceRef.current) {
       priceRef.current.value = (landed / (1 - margin / 100)).toFixed(2)
@@ -114,6 +147,8 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty }: { produc
     if (hasPack) {
       const priceInr = parseFloat(priceInrRef.current?.value ?? '')
       setPriceInrUnit(!isNaN(priceInr) ? priceInr : null)
+      const priceUsd = parseFloat(priceUsdRef.current?.value ?? '')
+      setPriceUsdUnit(!isNaN(priceUsd) ? priceUsd : null)
       const weight = parseFloat(weightRef.current?.value ?? '')
       setWeightUnit(!isNaN(weight) ? weight : null)
     }
@@ -155,7 +190,9 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty }: { produc
       nameEn:           fdStr('nameEn') || null,
       bajajCode:        fdStr('bajajCode') || null,
       compatibleModels: fdStr('compatibleModels') || null,
-      priceInr:         fdInt('priceInr'),
+      priceInr:         isSupplierMode ? d.priceInr : fdInt('priceInr'),
+      priceUsd:         isSupplierMode ? fdFloat('priceUsd') : (d.priceUsd ?? null),
+      priceIsLanded:    isSupplierMode ? isLanded : (d.priceIsLanded ?? false),
       weightGrams:      fdInt('weightGrams'),
       dimL:             fdFloat('dimL'),
       dimA:             fdFloat('dimA'),
@@ -167,7 +204,7 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty }: { produc
     })
     onClose()
 
-    await quickUpdateProduct(d.id, fd)
+    await quickUpdateProduct(d.id, activeSupplierId ?? null, fd)
     router.refresh()
   }
 
@@ -209,17 +246,42 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty }: { produc
             </div>
 
             {/* Precios */}
+            {isSupplierMode && (
+              <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+                Editando el precio para el proveedor activo (en USD) — dejalo vacío para usar el precio base
+                de 99rpm{d.priceInr ? ` (₹${d.priceInr})` : ''}.
+              </p>
+            )}
             {hasPack && (
               <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                Este ensamble usa {packQty} de esta pieza — Precio India y Peso van por unidad.
+                Este ensamble usa {packQty} de esta pieza — {isSupplierMode ? 'Precio proveedor' : 'Precio India'} y Peso van por unidad.
               </p>
             )}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div>
-                <label className={label}>Precio India (₹)</label>
-                <input ref={priceInrRef} name="priceInr" type="number" min="0" step="1"
-                  defaultValue={d.priceInr ?? ''} onChange={recalcFromCost} className={input} />
-              </div>
+              {isSupplierMode ? (
+                <div>
+                  <label className={label}>Precio proveedor ($)</label>
+                  <input ref={priceUsdRef} name="priceUsd" type="number" min="0" step="0.01"
+                    defaultValue={d.priceUsd ?? ''} onChange={recalcFromCost} className={input} />
+                  <label className="flex items-center gap-1.5 mt-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      name="priceIsLanded"
+                      value="true"
+                      checked={isLanded}
+                      onChange={(e) => handleLandedToggle(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 accent-blue-600"
+                    />
+                    <span className="text-[11px] text-gray-500">Ya es costo landed (puesto en Venezuela)</span>
+                  </label>
+                </div>
+              ) : (
+                <div>
+                  <label className={label}>Precio India (₹)</label>
+                  <input ref={priceInrRef} name="priceInr" type="number" min="0" step="1"
+                    defaultValue={d.priceInr ?? ''} onChange={recalcFromCost} className={input} />
+                </div>
+              )}
               <div>
                 <label className={label}>Costo landed</label>
                 <input ref={landedRef} name="landedCostUsd" type="number" readOnly tabIndex={-1}
@@ -239,8 +301,17 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty }: { produc
             </div>
             {hasPack && (
               <p className="text-xs text-gray-500">
-                Unidad: <span className="font-mono text-gray-700">{priceInrUnit != null ? `₹${priceInrUnit}` : '—'}</span>
-                {' · '}Paquete ×{packQty}: <span className="font-mono text-gray-700">{priceInrTotal != null ? `₹${priceInrTotal}` : '—'}</span>
+                {isSupplierMode ? (
+                  <>
+                    Unidad: <span className="font-mono text-gray-700">{priceUsdUnit != null ? `$${priceUsdUnit.toFixed(2)}` : '—'}</span>
+                    {' · '}Paquete ×{packQty}: <span className="font-mono text-gray-700">{priceUsdTotal != null ? `$${priceUsdTotal.toFixed(2)}` : '—'}</span>
+                  </>
+                ) : (
+                  <>
+                    Unidad: <span className="font-mono text-gray-700">{priceInrUnit != null ? `₹${priceInrUnit}` : '—'}</span>
+                    {' · '}Paquete ×{packQty}: <span className="font-mono text-gray-700">{priceInrTotal != null ? `₹${priceInrTotal}` : '—'}</span>
+                  </>
+                )}
               </p>
             )}
 

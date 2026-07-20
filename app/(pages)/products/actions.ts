@@ -5,11 +5,14 @@ import { calcLanded, type ConfigMap } from '@/lib/calc'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 
-// Costo landed autoritativo: se recalcula en el server desde INR + peso + dims
-// y la config vigente, así no depende del JS del cliente. Devuelve null si
-// falta INR o peso (precio queda manual).
+// Costo landed autoritativo: se recalcula en el server desde el costo de origen
+// (₹ INR de 99rpm, o USD directo de un proveedor) + peso + dims y la config vigente,
+// así no depende del JS del cliente. Devuelve null si falta el costo o el peso
+// (precio queda manual).
 async function computeLanded(data: {
   priceInr: number | null
+  priceUsd?: number | null
+  priceIsLanded?: boolean
   weightGrams: number | null
   dimL: number | null
   dimA: number | null
@@ -88,17 +91,26 @@ export async function updateProduct(id: number, formData: FormData) {
 
 // Edición rápida (modal inline): actualiza solo los campos editables, recalcula
 // el landed y revalida SIN redirigir, para quedarse en la misma página.
-export async function quickUpdateProduct(id: number, formData: FormData) {
+//
+// Costo de origen: sin proveedor activo edita Product.priceInr (base, 99rpm, en ₹)
+// como siempre. Con un proveedor activo, en cambio, NO toca el precio base — sube/borra
+// un override en SupplierPrice (en USD) para ese (producto, proveedor), y el resto de
+// campos (peso, dims, margen, precio venta, stock) siguen escribiendo en Product como
+// siempre, porque solo el costo de origen varía entre proveedores.
+export async function quickUpdateProduct(id: number, activeSupplierId: number | null, formData: FormData) {
   const str = (k: string) => (formData.get(k) as string)?.trim() ?? ''
   const intOrNull   = (k: string) => { const v = str(k); return v ? parseInt(v) : null }
   const floatOrNull = (k: string) => { const v = str(k); return v ? parseFloat(v) : null }
 
-  const data = {
+  const submittedPriceInr = intOrNull('priceInr')
+  const submittedPriceUsd = floatOrNull('priceUsd')
+  const submittedIsLanded = formData.get('priceIsLanded') === 'true'
+
+  const baseFields = {
     nameEs:           str('nameEs'),
     nameEn:           str('nameEn') || null,
     bajajCode:        str('bajajCode') || null,
     compatibleModels: str('compatibleModels') || null,
-    priceInr:         intOrNull('priceInr'),
     weightGrams:      intOrNull('weightGrams'),
     dimL:             floatOrNull('dimL'),
     dimA:             floatOrNull('dimA'),
@@ -107,10 +119,45 @@ export async function quickUpdateProduct(id: number, formData: FormData) {
     price:            parseFloat(str('price')),
     priceLocked:      formData.get('priceLocked') === 'true',
     stock:            intOrNull('stock') ?? 0,
-    landedCostUsd:    null as number | null,
   }
 
-  const landed = await computeLanded(data)
+  let effectivePriceInr: number | null
+  let effectivePriceUsd: number | null = null
+  let effectiveIsLanded = false
+
+  if (activeSupplierId) {
+    if (submittedPriceUsd != null) {
+      await db.supplierPrice.upsert({
+        where: { productId_supplierId: { productId: id, supplierId: activeSupplierId } },
+        update: { priceUsd: submittedPriceUsd, isLanded: submittedIsLanded },
+        create: { productId: id, supplierId: activeSupplierId, priceUsd: submittedPriceUsd, isLanded: submittedIsLanded },
+      })
+      effectivePriceUsd = submittedPriceUsd
+      effectiveIsLanded = submittedIsLanded
+    } else {
+      await db.supplierPrice.deleteMany({ where: { productId: id, supplierId: activeSupplierId } })
+    }
+    const base = await db.product.findUnique({ where: { id }, select: { priceInr: true } })
+    effectivePriceInr = base?.priceInr ?? null
+  } else {
+    effectivePriceInr = submittedPriceInr
+  }
+
+  const data = {
+    ...baseFields,
+    ...(activeSupplierId ? {} : { priceInr: submittedPriceInr }),
+    landedCostUsd: null as number | null,
+  }
+
+  const landed = await computeLanded({
+    priceInr:      effectivePriceInr,
+    priceUsd:      effectivePriceUsd,
+    priceIsLanded: effectiveIsLanded,
+    weightGrams:   baseFields.weightGrams,
+    dimL:          baseFields.dimL,
+    dimA:          baseFields.dimA,
+    dimH:          baseFields.dimH,
+  })
   if (landed != null) data.landedCostUsd = landed
 
   await db.product.update({ where: { id }, data })

@@ -13,12 +13,14 @@ import BundlePriceEditor from '@/components/BundlePriceEditor'
 import { addComponent, removeComponent, addToAssembly } from './component-actions'
 import { deleteProduct } from '../actions'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
+import { getActiveSupplier, getSupplierPriceMap } from '@/lib/suppliers'
 
 export default async function ProductDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const id = parseInt((await params).id)
   if (isNaN(id)) notFound()
 
-  const [product, configRows] = await Promise.all([
+  const [activeSupplier, product, configRows] = await Promise.all([
+    getActiveSupplier(),
     db.product.findUnique({
       where: { id },
       include: {
@@ -36,14 +38,19 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
 
   if (!product) notFound()
 
+  const priceMap = await getSupplierPriceMap(activeSupplier?.id ?? null)
+  const supplierOverride = priceMap.get(product.id) ?? null
+
   const cfg = configRows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
   const breakdown = calcLanded({
-    priceInr:    product.priceInr,
-    weightGrams: product.weightGrams,
-    dimL:        product.dimL,
-    dimA:        product.dimA,
-    dimH:        product.dimH,
-    margin:      product.margin,
+    priceInr:      product.priceInr,
+    priceUsd:      supplierOverride?.priceUsd ?? null,
+    priceIsLanded: supplierOverride?.isLanded ?? false,
+    weightGrams:   product.weightGrams,
+    dimL:          product.dimL,
+    dimA:          product.dimA,
+    dimH:          product.dimH,
+    margin:        product.margin,
   }, cfg)
 
   // Group components by groupName
@@ -93,7 +100,12 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
             <span className="text-gray-300">/</span>
             <span className="text-sm text-gray-600">{product.nameEs}</span>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">{product.nameEs}</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-gray-900">{product.nameEs}</h1>
+            <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+              Proveedor: {activeSupplier?.name ?? '99rpm (base)'}
+            </span>
+          </div>
           {product.nameEn && (
             <p className="text-sm text-gray-500 mt-0.5">{product.nameEn}</p>
           )}
@@ -176,9 +188,18 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
         ) : (
           <div className="space-y-1 text-sm">
             <div className="flex justify-between py-1.5 border-b border-gray-50">
-              <span className="text-gray-600">Precio India</span>
+              <span className="text-gray-600">
+                {supplierOverride != null ? 'Precio proveedor' : 'Precio India'}
+                {supplierOverride?.isLanded && (
+                  <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-green-700 bg-green-50 px-1.5 py-0.5 rounded">
+                    Landed
+                  </span>
+                )}
+              </span>
               <span className="font-mono text-gray-500">
-                {product.priceInr ? `₹${product.priceInr}` : '—'}
+                {supplierOverride != null
+                  ? `$${supplierOverride.priceUsd.toFixed(2)}`
+                  : product.priceInr ? `₹${product.priceInr}` : '—'}
               </span>
             </div>
             <div className="flex justify-between py-1.5">
@@ -279,7 +300,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                   <th className="text-left font-medium px-2 py-2">Código</th>
                   <th className="text-right font-medium px-2 py-2">Peso (g)</th>
                   <th className="text-right font-medium px-2 py-2">L×A×H (cm)</th>
-                  <th className="text-right font-medium px-2 py-2 border-l border-gray-100">₹ INR</th>
+                  <th className="text-right font-medium px-2 py-2 border-l border-gray-100">Costo origen</th>
                   <th className="text-right font-medium px-2 py-2">Producto</th>
                   <th className="text-right font-medium px-2 py-2">Shoppre</th>
                   <th className="text-right font-medium px-2 py-2">Seguro</th>
@@ -320,6 +341,8 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                         bajajCode: c.bajajCode,
                         compatibleModels: c.compatibleModels,
                         priceInr: c.priceInr,
+                        priceUsd: priceMap.get(c.id)?.priceUsd ?? null,
+                        priceIsLanded: priceMap.get(c.id)?.isLanded ?? false,
                         weightGrams: c.weightGrams,
                         dimL: c.dimL,
                         dimA: c.dimA,
@@ -356,6 +379,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                             <div className="flex items-center justify-end gap-3">
                               <QuickEditProduct
                                 cfg={cfg}
+                                activeSupplierId={activeSupplier?.id ?? null}
                                 triggerClassName="text-xs text-blue-600 hover:text-blue-800 font-medium"
                                 packQty={comp.quantity}
                                 product={costD}

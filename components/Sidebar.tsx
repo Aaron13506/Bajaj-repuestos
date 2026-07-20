@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import SupplierSelector from './SupplierSelector'
 
 const navItems = [
   {
@@ -60,6 +61,15 @@ const navItems = [
     ),
   },
   {
+    href: '/suppliers',
+    label: 'Proveedores',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6M9 11h.01M15 11h.01M9 15h.01M15 15h.01" />
+      </svg>
+    ),
+  },
+  {
     href: '/config',
     label: 'Configuración',
     icon: (
@@ -71,7 +81,17 @@ const navItems = [
   },
 ]
 
-export default function Sidebar() {
+interface SupplierOption {
+  id: number
+  name: string
+}
+
+interface SidebarProps {
+  suppliers: SupplierOption[]
+  activeSupplierId: number | null
+}
+
+export default function Sidebar({ suppliers, activeSupplierId }: SidebarProps) {
   const pathname = usePathname()
 
   return (
@@ -79,6 +99,7 @@ export default function Sidebar() {
       <div className="p-6 border-b border-gray-700">
         <h1 className="text-xl font-bold text-white">Bajaj Repuestos</h1>
         <p className="text-gray-400 text-sm mt-1">Panel de Administracion</p>
+        <SupplierSelector suppliers={suppliers} activeSupplierId={activeSupplierId} />
       </div>
       <nav className="flex-1 p-4 space-y-1">
         {navItems.map((item) => {

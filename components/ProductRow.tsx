@@ -31,22 +31,36 @@ function fmt(n: number | null | undefined, decimals = 2) {
  */
 export function CostCells({ d, cfg, quantity }: { d: QuickEditValues; cfg: ConfigMap; quantity?: number }) {
   const b = calcLanded({
-    priceInr:    d.priceInr,
-    weightGrams: d.weightGrams,
-    dimL:        d.dimL,
-    dimA:        d.dimA,
-    dimH:        d.dimH,
-    margin:      d.margin,
+    priceInr:      d.priceInr,
+    priceUsd:      d.priceUsd,
+    priceIsLanded: d.priceIsLanded,
+    weightGrams:   d.weightGrams,
+    dimL:          d.dimL,
+    dimA:          d.dimA,
+    dimH:          d.dimH,
+    margin:        d.margin,
   }, cfg)
   const multi = (quantity ?? 1) > 1
   const saleUsd = b?.priceUsd ?? parseFloat(d.price.toString())
+  const hasSupplierOverride = d.priceUsd != null
   return (
     <>
       <td className="px-4 py-3 text-right text-gray-500 border-l border-gray-100 text-xs">
-        {d.priceInr ? `₹${d.priceInr}` : '—'}
-        {multi && d.priceInr != null && (
-          <span className="block text-gray-400">total: ₹{d.priceInr * quantity!}</span>
-        )}
+        {hasSupplierOverride ? (
+          <>
+            ${d.priceUsd!.toFixed(2)}
+            {multi && (
+              <span className="block text-gray-400">total: ${(d.priceUsd! * quantity!).toFixed(2)}</span>
+            )}
+          </>
+        ) : d.priceInr ? (
+          <>
+            ₹{d.priceInr}
+            {multi && (
+              <span className="block text-gray-400">total: ₹{d.priceInr * quantity!}</span>
+            )}
+          </>
+        ) : '—'}
       </td>
       <td className="px-4 py-3 text-right text-gray-600">{b ? fmt(b.productCostUsd) : '—'}</td>
       <td className="px-4 py-3 text-right text-gray-600">{b ? fmt(b.shoppreShippingUsd) : '—'}</td>
@@ -69,7 +83,7 @@ export function CostCells({ d, cfg, quantity }: { d: QuickEditValues; cfg: Confi
   )
 }
 
-export default function ProductRow({ product, cfg }: { product: ProductRowData; cfg: ConfigMap }) {
+export default function ProductRow({ product, cfg, activeSupplierId }: { product: ProductRowData; cfg: ConfigMap; activeSupplierId: number | null }) {
   // Override optimista: al guardar mostramos los valores nuevos al instante,
   // sin esperar el round-trip a la DB remota. Se limpia cuando llegan props
   // frescas del server (router.refresh), que son la fuente autoritativa.
@@ -133,6 +147,7 @@ export default function ProductRow({ product, cfg }: { product: ProductRowData; 
           <div className="flex items-center justify-end gap-3">
             <QuickEditProduct
               cfg={cfg}
+              activeSupplierId={activeSupplierId}
               product={{
                 id: product.id,
                 nameEs: product.nameEs,
@@ -140,6 +155,8 @@ export default function ProductRow({ product, cfg }: { product: ProductRowData; 
                 bajajCode: product.bajajCode,
                 compatibleModels: product.compatibleModels,
                 priceInr: product.priceInr,
+                priceUsd: product.priceUsd,
+                priceIsLanded: product.priceIsLanded,
                 weightGrams: product.weightGrams,
                 dimL: product.dimL,
                 dimA: product.dimA,

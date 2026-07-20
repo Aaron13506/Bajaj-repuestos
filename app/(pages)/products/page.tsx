@@ -4,6 +4,7 @@ import ProductRow from '@/components/ProductRow'
 import CatalogFilters from '@/components/CatalogFilters'
 import { getCatalogFilters } from '@/lib/catalog'
 import { type ConfigMap } from '@/lib/calc'
+import { getActiveSupplier, getSupplierPriceMap } from '@/lib/suppliers'
 
 interface SearchParams {
   search?: string
@@ -41,7 +42,9 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
     ],
   }
 
-  const [products, total, configRows, filters] = await Promise.all([
+  const activeSupplier = await getActiveSupplier()
+
+  const [products, total, configRows, filters, priceMap] = await Promise.all([
     db.product.findMany({
       where,
       skip: (page - 1) * limit,
@@ -58,6 +61,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
     db.product.count({ where }),
     db.config.findMany(),
     getCatalogFilters(model),
+    getSupplierPriceMap(activeSupplier?.id ?? null),
   ])
 
   const cfg = configRows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
@@ -77,7 +81,12 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Productos</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold text-gray-900">Productos</h1>
+          <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+            Proveedor: {activeSupplier?.name ?? '99rpm (base)'}
+          </span>
+        </div>
         <div className="flex items-center gap-2">
           <Link href="/products/import" className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors">
             Importar JSON
@@ -114,7 +123,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Nombre</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Modelos</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-500">g</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-500 border-l border-gray-100">₹ INR</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-500 border-l border-gray-100">Costo origen</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-500">Producto</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-500">Shoppre</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-500">Seguro</th>
@@ -132,6 +141,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                 <ProductRow
                   key={product.id}
                   cfg={cfg}
+                  activeSupplierId={activeSupplier?.id ?? null}
                   product={{
                     id: product.id,
                     nameEs: product.nameEs,
@@ -139,6 +149,8 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                     bajajCode: product.bajajCode,
                     compatibleModels: product.compatibleModels,
                     priceInr: product.priceInr,
+                    priceUsd: priceMap.get(product.id)?.priceUsd ?? null,
+                    priceIsLanded: priceMap.get(product.id)?.isLanded ?? false,
                     weightGrams: product.weightGrams,
                     dimL: product.dimL,
                     dimA: product.dimA,
@@ -158,6 +170,8 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                       bajajCode: pc.child.bajajCode,
                       compatibleModels: pc.child.compatibleModels,
                       priceInr: pc.child.priceInr,
+                      priceUsd: priceMap.get(pc.child.id)?.priceUsd ?? null,
+                      priceIsLanded: priceMap.get(pc.child.id)?.isLanded ?? false,
                       weightGrams: pc.child.weightGrams,
                       dimL: pc.child.dimL,
                       dimA: pc.child.dimA,

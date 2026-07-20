@@ -14,6 +14,15 @@ export interface LandedBreakdown {
 
 export interface ProductForCalc {
   priceInr: number | null
+  // Costo del producto ya en USD (proveedores que no cotizan en ₹, ej. no son 99rpm).
+  // Si está presente tiene prioridad sobre priceInr — se salta la conversión INR/USD,
+  // pero Shoppre + seguro + marítimo se siguen sumando igual sobre este costo, salvo
+  // que priceIsLanded sea true (ver abajo).
+  priceUsd?: number | null
+  // Si priceUsd ya es el costo landed final (proveedor que cotiza puesto en Venezuela,
+  // ej. no hay que sumarle Shoppre/seguro/marítimo encima) — landedCostUsd = priceUsd
+  // tal cual. No tiene efecto si priceUsd es null (se usa priceInr como siempre).
+  priceIsLanded?: boolean
   weightGrams: number | null
   dimL: number | null
   dimA: number | null
@@ -21,18 +30,48 @@ export interface ProductForCalc {
   margin: number | null
 }
 
+function applyMargin(landedCostUsd: number, margin: number | null, cfg: ConfigMap): { priceUsd: number | null; priceBsd: number | null } {
+  const bsdUsd = parseFloat(cfg.bsd_usd_rate ?? '715')
+  // Margen efectivo: el de la pieza si lo tiene, si no el default global (Config).
+  // Sin default_margin en Config, se mantiene el comportamiento anterior (sin precio).
+  const globalMargin = parseFloat(cfg.default_margin ?? '')
+  const effectiveMargin = margin ?? (Number.isNaN(globalMargin) ? null : globalMargin)
+
+  if (effectiveMargin == null || effectiveMargin >= 1) return { priceUsd: null, priceBsd: null }
+  const priceUsd = landedCostUsd / (1 - effectiveMargin)
+  return { priceUsd, priceBsd: priceUsd * bsdUsd }
+}
+
 export function calcLanded(product: ProductForCalc, cfg: ConfigMap): LandedBreakdown | null {
-  if (!product.priceInr || !product.weightGrams) return null
+  const hasCost = product.priceUsd != null || !!product.priceInr
+  if (!hasCost) return null
+
+  // Proveedor que ya cotiza landed (puesto en Venezuela): el precio es el costo final,
+  // sin sumarle Shoppre/seguro/marítimo — esos ya están incluidos en su cotización.
+  if (product.priceIsLanded && product.priceUsd != null) {
+    const landedCostUsd = product.priceUsd
+    const { priceUsd, priceBsd } = applyMargin(landedCostUsd, product.margin, cfg)
+    return {
+      productCostUsd: landedCostUsd,
+      shoppreShippingUsd: 0,
+      insuranceUsd: 0,
+      maritimeUsd: 0,
+      landedCostUsd,
+      priceUsd,
+      priceBsd,
+    }
+  }
+
+  if (!product.weightGrams) return null
 
   const inrUsd        = parseFloat(cfg.inr_usd_rate          ?? '95')
-  const bsdUsd        = parseFloat(cfg.bsd_usd_rate          ?? '715')
   const isMember      = cfg.shoppre_member                   !== 'false'
   const refWeightKg   = parseFloat(cfg.reference_weight_kg   ?? '15')
   const maritimePft3  = parseFloat(cfg.miami_caracas_per_ft3 ?? '45')
   const insurancePct  = parseFloat(cfg.shoppre_insurance_pct ?? '0.03')
   const carrier       = cfg.shoppre_carrier                  ?? 'ShipGlobal USA - Duty Free'
 
-  const productCostUsd = product.priceInr / inrUsd
+  const productCostUsd = product.priceUsd != null ? product.priceUsd : product.priceInr! / inrUsd
   const fraction = product.weightGrams / (refWeightKg * 1000)
   const refRateInr = getShoppReRate(refWeightKg, carrier, isMember)
 
@@ -48,18 +87,7 @@ export function calcLanded(product: ProductForCalc, cfg: ConfigMap): LandedBreak
   // El processing fee de Shoppre es un cargo fijo por ENVÍO, no por pieza, así que no
   // se incluye en el costo landed por producto. Se aplica una sola vez en calcEnvio.
   const landedCostUsd = productCostUsd + shoppreShippingUsd + insuranceUsd + maritimeUsd
-
-  // Margen efectivo: el de la pieza si lo tiene, si no el default global (Config).
-  // Sin default_margin en Config, se mantiene el comportamiento anterior (sin precio).
-  const globalMargin = parseFloat(cfg.default_margin ?? '')
-  const margin = product.margin ?? (Number.isNaN(globalMargin) ? null : globalMargin)
-
-  let priceUsd: number | null = null
-  let priceBsd: number | null = null
-  if (margin != null && margin < 1) {
-    priceUsd = landedCostUsd / (1 - margin)
-    priceBsd = priceUsd * bsdUsd
-  }
+  const { priceUsd, priceBsd } = applyMargin(landedCostUsd, product.margin, cfg)
 
   return {
     productCostUsd,
@@ -96,6 +124,8 @@ export interface EnvioItemInput {
   dimA: number | null
   dimH: number | null
   priceInr: number | null
+  // Costo ya en USD (proveedor no-99rpm) — tiene prioridad sobre priceInr, igual que en calcLanded.
+  priceUsd?: number | null
   quantity: number
 }
 
@@ -155,7 +185,7 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap): EnvioBreakdo
       quantity: qty,
       realKg,
       volKg,
-      productCostUsd: ((it.priceInr ?? 0) / inrUsd) * qty,
+      productCostUsd: (it.priceUsd != null ? it.priceUsd : (it.priceInr ?? 0) / inrUsd) * qty,
       airUsd: 0,
       maritimeUsd: volumeFt3 * maritimePft3,
       landedUsd: 0,

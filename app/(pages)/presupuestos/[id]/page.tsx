@@ -125,6 +125,12 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
             </Link>
           )}
           <Link
+            href={`/presupuestos/${id}/comparar`}
+            className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            Comparar proveedores
+          </Link>
+          <Link
             href={`/presupuestos/${id}/proveedor`}
             className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
           >

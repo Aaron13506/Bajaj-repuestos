@@ -41,6 +41,7 @@ model Product {
   // Partes scrapeadas que hacen match por SKU (bajajCode). El cruce copia mi
   // peso/dim/margen a ScrapedPart; esto solo deja la traza de origen.
   scrapedMatches ScrapedPart[] @relation("MatchedScraped")
+  supplierPrices SupplierPrice[]
 
   @@index([bajajCode])
 }
@@ -65,6 +66,36 @@ model Config {
   key         String  @id
   value       String
   description String?
+}
+
+// Proveedor alternativo a 99rpm (fuente por defecto). Cada uno puede tener su propio
+// precio INR por SKU en SupplierPrice; sin fila ahí, se usa Product.priceInr como base.
+model Supplier {
+  id        Int             @id @default(autoincrement())
+  name      String          @unique
+  createdAt DateTime        @default(now())
+  prices    SupplierPrice[]
+}
+
+// Override de precio de un producto para un proveedor puntual, EN USD (a diferencia
+// de Product.priceInr que es el precio base de 99rpm, en rupias). Equivale al costo
+// "Producto (USD)" del desglose landed: por defecto (isLanded=false) se le siguen
+// sumando Shoppre + seguro + marítimo igual que a los productos de 99rpm. Si el
+// proveedor ya cotiza puesto en Venezuela (isLanded=true), priceUsd ES el landed final
+// y no se le suma nada más encima. Ausencia de fila para un (product, supplier) dado
+// ⇒ se usa el precio base (Product.priceInr, vía tasa INR/USD).
+model SupplierPrice {
+  id         Int      @id @default(autoincrement())
+  productId  Int
+  supplierId Int
+  priceUsd   Decimal  @db.Decimal(10, 2)
+  isLanded   Boolean  @default(false)
+  updatedAt  DateTime @updatedAt
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, supplierId])
+  @@index([supplierId])
 }
 
 model Envio {

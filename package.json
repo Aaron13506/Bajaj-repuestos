@@ -26,7 +26,8 @@
     "cross-ref": "tsx scripts/cross-ref.ts",
     "materialize": "tsx scripts/materialize-catalog.ts",
     "backfill:images": "tsx scripts/backfill-images.ts",
-    "verify:images": "tsx scripts/verify-scraped-images.ts"
+    "verify:images": "tsx scripts/verify-scraped-images.ts",
+    "fx:update": "tsx scripts/update-fx-rates.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
