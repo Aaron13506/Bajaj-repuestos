@@ -29,6 +29,25 @@ resultado completo y usable para cada pieza, aunque sea una estimación. Nunca d
 peso/dimensiones ni un campo vacío — si no hay dato directo, estimá por analogía o por geometría
 (ver más abajo) y ACLARALO, pero completá la fila igual.
 
+PASO 1 — IDENTIFICÁ LA PIEZA (obligatorio, ANTES de buscar peso):
+- Para el 99% de estos códigos Bajaj NO vas a encontrar el SKU exacto con peso publicado en
+  ningún lado — eso es normal, no un fracaso de búsqueda. Por eso el primer trabajo NO es
+  "buscar el código", es ENTENDER QUÉ PIEZA ES.
+- Antes de escribir ninguna query, decidí para cada pieza: qué tipo de componente genérico es
+  (ej. "pastilla de freno de tambor trasero", "resorte de retorno de palanca de cambio",
+  "buje de reposapiés", "cable de embrague", "reten de horquilla"), su función, el material
+  probable (metal/plástico/goma/combinación) y una clase de tamaño aproximada (chico tipo
+  tornillo, mediano tipo pastilla/reten, grande tipo amortiguador/basculante).
+- Usá el nombre, el código Bajaj y los modelos compatibles solo como PISTAS para llegar a esa
+  identificación — no como el objeto de la búsqueda. El modelo de moto (Pulsar, Discover, etc.)
+  y la marca (Bajaj) te dicen en qué VEHÍCULO va la pieza, no cuánto pesa: dos piezas del mismo
+  tipo genérico pesan casi igual sea cual sea la moto o la marca que las vende.
+- Escribí esa identificación en una línea al inicio de la ficha de cada pieza (ver formato más
+  abajo) ANTES de los hallazgos. Es lo que voy a auditar primero: si identificaste mal la pieza,
+  toda la búsqueda posterior está buscando lo que no es.
+- Recién con esa identificación en mano pasás a la investigación: buscás el TIPO de pieza
+  (cruzando cualquier marca/modelo que use ese mismo componente), no el código Bajaj a secas.
+
 CANTIDAD (contexto de búsqueda, NO cambia lo que tenés que dar):
 - El campo "quantity" (ej. x2 suspensiones, x4 arandelas) es cuántas unidades de esa pieza usa
   ESTE ensamble. Te lo paso solo como contexto — puede ayudarte a entender qué estás viendo si
@@ -43,14 +62,19 @@ CANTIDAD (contexto de búsqueda, NO cambia lo que tenés que dar):
 INVESTIGACIÓN — BUSCÁ BIEN, CRUZÁ VARIAS FUENTES:
 - El error más común acá es buscar poco y rellenar. No pares en la primera fuente que te da un
   número.
+- Partí SIEMPRE de la identificación del PASO 1, no del código Bajaj. Buscá la pieza POR LO QUE
+  ES (el tipo genérico), y dejá que aparezcan resultados de cualquier marca/modelo — eso es lo
+  que querés, no un problema a filtrar.
 - PISO POR PIEZA: al menos 3 fuentes independientes, y al menos 2 de marcas o modelos distintos.
   Si podés traer más, mejor todavía: quiero ver el abanico de valores, no un dato suelto. Un solo
   valor sin nada con qué compararlo no es un dato, es una apuesta.
-- VARIÁ los términos de búsqueda; no repitas la misma query. Probá, como mínimo:
+- VARIÁ los términos de búsqueda; no repitas la misma query. Probá, como mínimo (en este orden
+  de prioridad — el genérico primero, el código Bajaj es solo una de varias vías, no la única):
+  · el nombre GENÉRICO de la pieza según tu identificación del PASO 1 (\"clutch cable\",
+    \"brake pad\", \"fork seal\")
+  · el equivalente de otra marca (\"Honda CB160 brake pad weight\")
   · el SKU/código exacto, y también el código sin guiones ni espacios
   · el nombre en inglés del catálogo Bajaj
-  · el nombre GENÉRICO de la pieza (\"clutch cable\", \"brake pad\", \"fork seal\")
-  · el equivalente de otra marca (\"Honda CB160 brake pad weight\")
   · variantes de la métrica: \"part weight\", \"item weight\", \"shipping weight\", \"specifications\",
     \"net weight\", peso en kg y en g
 - Fuentes útiles:
@@ -109,6 +133,9 @@ QUÉ DEVOLVER (en este orden):
    escaneable:
 
    JR161036 — Pastilla de freno trasera (x1)
+   identificado como: pastilla de freno de tambor trasero, tipo genérico (metal+ferodo,
+              tamaño mediano) — se buscó como "pastilla freno tambor trasero", no solo el
+              código Bajaj
    hallazgos: 320 g (boodmo, SKU exacto) · 340 g (Amazon, equivalente Honda) · 310 g (foro) ·
               0,5 kg (AliExpress — DESCARTADO: default de marketplace)
    elegido: 320 g · material: acero+ferodo
