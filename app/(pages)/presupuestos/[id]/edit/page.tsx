@@ -10,7 +10,7 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
   const id = parseInt((await params).id)
   if (isNaN(id)) notFound()
 
-  const [presupuesto, assemblies] = await Promise.all([
+  const [presupuesto, assemblies, clientes] = await Promise.all([
     db.pedido.findUnique({
       where: { id },
       include: {
@@ -27,6 +27,10 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
       where: { isAssembly: true },
       select: { id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true, compatibleModels: true },
       orderBy: { nameEs: 'asc' },
+    }),
+    db.cliente.findMany({
+      orderBy: { nombre: 'asc' },
+      select: { id: true, nombre: true, telefono: true },
     }),
   ])
 
@@ -79,8 +83,10 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
         action={updatePresupuesto.bind(null, id)}
         tipo={presupuesto.tipo === 'propio' ? 'propio' : 'cliente'}
         initialClientName={presupuesto.clientName}
+        initialClienteId={presupuesto.clienteId}
         initialNotas={presupuesto.notas ?? ''}
         initialItems={initialItems}
+        clientes={clientes}
       />
     </div>
   )

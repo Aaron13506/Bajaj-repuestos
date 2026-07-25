@@ -41,6 +41,12 @@ interface CartItem {
   bundleItems?: BundlePiece[]
 }
 
+interface ClienteOption {
+  id: number
+  nombre: string
+  telefono: string | null
+}
+
 interface Props {
   assemblies: Assembly[]
   models: string[]
@@ -50,6 +56,9 @@ interface Props {
   initialItems?: CartItem[]
   /** 'cliente' = presupuesto para un cliente; 'propio' = stock que traigo para revender. */
   tipo?: 'cliente' | 'propio'
+  /** Clientes existentes para elegir (solo aplica cuando tipo === 'cliente'). */
+  clientes?: ClienteOption[]
+  initialClienteId?: number | null
 }
 
 export default function PresupuestoBuilder({
@@ -60,6 +69,8 @@ export default function PresupuestoBuilder({
   initialNotas = '',
   initialItems = [],
   tipo = 'cliente',
+  clientes = [],
+  initialClienteId = null,
 }: Props) {
   const isPropio = tipo === 'propio'
   const [selectedAssemblyId, setSelectedAssemblyId] = useState<number | null>(null)
@@ -71,6 +82,9 @@ export default function PresupuestoBuilder({
   const [modelFilter, setModelFilter] = useState('')
   const [asmSearch, setAsmSearch] = useState('')
   const [clientName, setClientName] = useState(initialClientName)
+  const [clienteId, setClienteId] = useState(initialClienteId != null ? String(initialClienteId) : '')
+  const [nuevoNombre, setNuevoNombre] = useState('')
+  const [nuevoTelefono, setNuevoTelefono] = useState('')
   const [notas, setNotas] = useState(initialNotas)
   const [submitting, setSubmitting] = useState(false)
 
@@ -247,12 +261,26 @@ export default function PresupuestoBuilder({
   const assemblyInCart = !!selectedAssembly && !!cart.find(c => c.productId === selectedAssembly.id)
   const isEditing = initialItems.length > 0
 
+  // 'propio' sigue con etiqueta de texto libre; 'cliente' requiere elegir un
+  // cliente existente o completar el nombre del nuevo.
+  const clienteValid = isPropio
+    ? clientName.trim().length > 0
+    : clienteId !== '' && (clienteId !== '__new__' || nuevoNombre.trim().length > 0)
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    if (!clientName.trim() || cart.length === 0 || submitting) return
+    if (!clienteValid || cart.length === 0 || submitting) return
     setSubmitting(true)
     const fd = new FormData()
-    fd.set('clientName', clientName)
+    if (isPropio) {
+      fd.set('clientName', clientName)
+    } else {
+      fd.set('clienteId', clienteId)
+      if (clienteId === '__new__') {
+        fd.set('nuevoClienteNombre', nuevoNombre.trim())
+        fd.set('nuevoClienteTelefono', nuevoTelefono.trim())
+      }
+    }
     fd.set('notas', notas)
     fd.set('tipo', tipo)
     fd.set(
@@ -650,19 +678,60 @@ export default function PresupuestoBuilder({
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 space-y-4">
             <h2 className="font-semibold text-gray-900">{isPropio ? 'Referencia' : 'Datos del cliente'}</h2>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {isPropio ? 'Etiqueta / referencia' : 'Nombre'} <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={clientName}
-                onChange={e => setClientName(e.target.value)}
-                placeholder={isPropio ? 'Ej: Stock reventa julio' : 'Nombre del cliente'}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                required
-              />
-            </div>
+            {isPropio ? (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Etiqueta / referencia <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={clientName}
+                  onChange={e => setClientName(e.target.value)}
+                  placeholder="Ej: Stock reventa julio"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  required
+                />
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Cliente <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={clienteId}
+                    onChange={e => setClienteId(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  >
+                    <option value="">Elegí un cliente…</option>
+                    {clientes.map(c => (
+                      <option key={c.id} value={c.id}>{c.nombre}</option>
+                    ))}
+                    <option value="__new__">+ Nuevo cliente</option>
+                  </select>
+                </div>
+                {clienteId === '__new__' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <input
+                      type="text"
+                      value={nuevoNombre}
+                      onChange={e => setNuevoNombre(e.target.value)}
+                      placeholder="Nombre del cliente"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      required
+                    />
+                    <input
+                      type="text"
+                      value={nuevoTelefono}
+                      onChange={e => setNuevoTelefono(e.target.value)}
+                      placeholder="Teléfono (opcional)"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Notas</label>
@@ -677,7 +746,7 @@ export default function PresupuestoBuilder({
 
             <button
               type="submit"
-              disabled={!clientName.trim() || cart.length === 0 || submitting}
+              disabled={!clienteValid || cart.length === 0 || submitting}
               className="w-full bg-blue-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               {submitting ? 'Guardando...' : isEditing ? 'Guardar cambios' : isPropio ? 'Guardar stock' : 'Guardar presupuesto'}

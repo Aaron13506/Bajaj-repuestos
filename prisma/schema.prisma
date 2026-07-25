@@ -62,6 +62,17 @@ model ProductComponent {
   @@unique([parentId, childId, groupName])
 }
 
+// Cliente recurrente: entidad maestra para agrupar todos los pedidos de una misma
+// persona bajo un solo id (evita fragmentar por typos al tipear el nombre cada vez).
+model Cliente {
+  id        Int      @id @default(autoincrement())
+  nombre    String   @unique
+  telefono  String?
+  notas     String?
+  createdAt DateTime @default(now())
+  pedidos   Pedido[]
+}
+
 model Config {
   key         String  @id
   value       String
@@ -121,6 +132,16 @@ model Pedido {
   depositUsd    Decimal?  @db.Decimal(10, 2)
   paymentMethod String?
   depositAt     DateTime?
+  // Etapa física de ESTE pedido (no del envío entero — pedidos de un mismo envío
+  // pueden estar en etapas distintas): pendiente (aún sin comprar) -> camino_shoppre
+  // -> en_shoppre -> camino_usa -> en_usa -> camino_venezuela -> en_venezuela -> entregado.
+  // shippingStatusAt marca el último cambio. Ver SHIPPING_STATUSES en lib/shipping-status.ts.
+  shippingStatus   String    @default("pendiente")
+  shippingStatusAt DateTime?
+  // clientName queda como snapshot denormalizado (lo fija el server action desde
+  // cliente.nombre); clienteId es la relación real para agrupar el historial.
+  clienteId  Int?
+  cliente    Cliente?     @relation(fields: [clienteId], references: [id], onDelete: SetNull)
   envioId    Int?
   envio      Envio?       @relation(fields: [envioId], references: [id], onDelete: SetNull)
   items      PedidoItem[]

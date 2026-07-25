@@ -8,6 +8,11 @@
   }
 }
 
+/* Los documentos que se le mandan al cliente (presupuesto, pedido, orden de
+   proveedor) se generan como PDF con jsPDF —ver lib/pdf/—, no con Ctrl+P. Acá queda
+   solo lo mínimo para que imprimir CUALQUIER página no salga roto: el shell usa
+   h-screen + overflow-auto, que si no recorta todo a un viewport. El maquetado de los
+   documentos vive en lib/pdf y en ningún otro lado. */
 @media print {
   @page {
     margin: 1cm;
@@ -17,9 +22,6 @@
     background: white !important;
   }
 
-  /* Let the document flow across pages instead of being clipped to one
-     viewport. The app shell uses h-screen + overflow-auto, which otherwise
-     cuts off long presupuestos. */
   html,
   body {
     height: auto !important;
@@ -36,23 +38,11 @@
     max-width: 100% !important;
   }
 
-  /* Keep table rows whole and repeat the header on each printed page. */
-  table {
-    break-inside: auto;
-  }
-
   thead {
     display: table-header-group;
   }
 
   tr {
     break-inside: avoid;
-  }
-
-  /* Compact spacing so a normal presupuesto fits on a single page. */
-  th,
-  td {
-    padding-top: 0.35rem !important;
-    padding-bottom: 0.35rem !important;
   }
 }

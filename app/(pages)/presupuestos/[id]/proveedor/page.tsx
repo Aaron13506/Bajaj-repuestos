@@ -1,8 +1,9 @@
 import { db } from '@/lib/db'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import PrintButton from '@/components/PrintButton'
+import ProveedorPdfButton from '@/components/ProveedorPdfButton'
 import { type BundlePiece } from '@/lib/bundle'
+import { toFileName } from '@/lib/utils'
 
 interface Line {
   sku: string
@@ -64,11 +65,14 @@ export default async function ProveedorPage({ params }: { params: Promise<{ id: 
 
   lines.sort((a, b) => a.sku.localeCompare(b.sku))
   const totalQty = lines.reduce((sum, l) => sum + l.quantity, 0)
+  const fileName = toFileName(
+    ['Orden proveedor', pedido.clientName, String(pedido.id).padStart(4, '0')],
+    'pdf'
+  )
 
   return (
     <div className="max-w-2xl">
-      {/* Screen-only header */}
-      <div className="flex items-start justify-between gap-4 mb-6 print:hidden">
+      <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Link href={`/presupuestos/${id}`} className="text-gray-400 hover:text-gray-600 text-sm">
@@ -79,20 +83,14 @@ export default async function ProveedorPage({ params }: { params: Promise<{ id: 
           </div>
           <h1 className="text-2xl font-bold text-gray-900">Orden para proveedor</h1>
         </div>
-        <PrintButton />
-      </div>
-
-      {/* Print-only letterhead — no internal order number or date, just what's being requested */}
-      <div className="hidden print:block mb-5">
-        <h1 className="text-xl font-bold text-gray-900">Bajaj Repuestos</h1>
-        <hr className="mt-3 border-gray-300" />
+        <ProveedorPdfButton fileName={fileName} data={{ clientName: pedido.clientName, lines, totalQty }} />
       </div>
 
       {/* Items table */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4 print:border-0 print:shadow-none print:rounded-none">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
         <table className="w-full">
           <thead>
-            <tr className="border-b border-gray-100 bg-gray-50 print:bg-transparent">
+            <tr className="border-b border-gray-100 bg-gray-50">
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">
                 SKU
               </th>
@@ -106,7 +104,7 @@ export default async function ProveedorPage({ params }: { params: Promise<{ id: 
           </thead>
           <tbody className="divide-y divide-gray-50">
             {lines.map(line => (
-              <tr key={line.sku + line.name} className="hover:bg-gray-50 print:hover:bg-transparent break-inside-avoid">
+              <tr key={line.sku + line.name} className="hover:bg-gray-50">
                 <td className="px-4 py-3 text-sm font-mono text-gray-700 align-top">{line.sku}</td>
                 <td className="px-4 py-3 text-sm text-gray-900 align-top">{line.name}</td>
                 <td className="px-4 py-3 text-center text-sm font-semibold text-gray-900 align-top">
@@ -119,7 +117,7 @@ export default async function ProveedorPage({ params }: { params: Promise<{ id: 
       </div>
 
       {/* Total */}
-      <div className="flex justify-end mb-4 break-inside-avoid">
+      <div className="flex justify-end mb-4">
         <div className="flex justify-between items-baseline w-48 border-t-2 border-gray-200 pt-3">
           <span className="font-bold text-gray-900">Total qty</span>
           <span className="font-bold text-xl font-mono text-gray-900">{totalQty}</span>

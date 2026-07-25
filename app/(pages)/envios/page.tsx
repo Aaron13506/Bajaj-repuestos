@@ -1,10 +1,11 @@
 import { db } from '@/lib/db'
 import Link from 'next/link'
 import { createEnvio } from './actions'
+import { envioStageSummary, SHIPPING_STATUSES } from '@/lib/shipping-status'
 
 export default async function EnviosPage() {
   const envios = await db.envio.findMany({
-    include: { pedidos: { select: { id: true } } },
+    include: { pedidos: { select: { id: true, shippingStatus: true } } },
     orderBy: { createdAt: 'desc' },
   })
 
@@ -57,13 +58,19 @@ export default async function EnviosPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {envios.map(e => (
+          {envios.map(e => {
+            const summary = envioStageSummary(e.pedidos)
+            const lead = summary?.lead
+            const pct = summary
+              ? Math.round((summary.leadIndex / (SHIPPING_STATUSES.length - 1)) * 100)
+              : 0
+            return (
             <div
               key={e.id}
-              className="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-4 flex items-center justify-between"
+              className="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-4 flex items-center justify-between gap-4"
             >
-              <div>
-                <div className="flex items-center gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-3 flex-wrap">
                   <span className="text-xs font-mono text-gray-400">#{e.id}</span>
                   <Link
                     href={`/envios/${e.id}`}
@@ -74,7 +81,26 @@ export default async function EnviosPage() {
                   <span className="text-xs text-gray-400">
                     {e.pedidos.length} {e.pedidos.length === 1 ? 'pedido' : 'pedidos'}
                   </span>
+                  {summary && lead && (
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${lead.badge}`}>
+                      {lead.icon} {summary.allDelivered ? 'Entregado' : lead.short}
+                      {summary.mixed && !summary.allDelivered && ' +'}
+                    </span>
+                  )}
                 </div>
+                {summary && summary.comprados > 0 && (
+                  <div className="mt-2 flex items-center gap-2 max-w-xs">
+                    <div className="h-1.5 flex-1 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${summary.allDelivered ? 'bg-green-500' : 'bg-blue-500'}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    {summary.pendientes > 0 && (
+                      <span className="text-[10px] text-gray-400 shrink-0">{summary.pendientes} por comprar</span>
+                    )}
+                  </div>
+                )}
                 <p className="text-xs text-gray-400 mt-1">
                   {new Date(e.createdAt).toLocaleDateString('es-VE', {
                     day: '2-digit', month: 'short', year: 'numeric',
@@ -82,7 +108,7 @@ export default async function EnviosPage() {
                   {e.notas && ` · ${e.notas}`}
                 </p>
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-4 shrink-0">
                 {e.shippingCostEst != null && (
                   <span className="text-xs text-gray-500">
                     Flete est. <span className="font-mono font-semibold text-gray-800">${parseFloat(e.shippingCostEst.toString()).toFixed(2)}</span>
@@ -93,7 +119,8 @@ export default async function EnviosPage() {
                 </Link>
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

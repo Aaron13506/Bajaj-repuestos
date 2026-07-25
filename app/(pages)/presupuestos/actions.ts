@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { type BundlePiece } from '@/lib/bundle'
+import { findOrCreateCliente, revalidateClientes } from '@/lib/clientes'
 
 interface ItemInput {
   productId: number
@@ -13,13 +14,41 @@ interface ItemInput {
   bundleItems?: BundlePiece[] | null
 }
 
+// Resuelve el Cliente elegido en el builder: existente (clienteId) o uno nuevo
+// creado al vuelo (nuevoClienteNombre). Solo aplica a tipo 'cliente' — el stock
+// propio (tipo 'propio') no lleva Cliente, sigue con clientName de texto libre.
+async function resolveCliente(formData: FormData) {
+  const clienteIdRaw = (formData.get('clienteId') as string) ?? ''
+  if (clienteIdRaw === '__new__') {
+    const nombre = (formData.get('nuevoClienteNombre') as string)?.trim()
+    if (!nombre) return null
+    const telefono = (formData.get('nuevoClienteTelefono') as string)?.trim() || null
+    const { cliente } = await findOrCreateCliente(nombre, telefono)
+    return cliente
+  }
+  const id = parseInt(clienteIdRaw)
+  if (isNaN(id)) return null
+  return db.cliente.findUnique({ where: { id } })
+}
+
 export async function createPresupuesto(formData: FormData) {
-  const clientName = (formData.get('clientName') as string).trim()
   const notas = (formData.get('notas') as string)?.trim() || null
   const tipo = (formData.get('tipo') as string) === 'propio' ? 'propio' : 'cliente'
   const items: ItemInput[] = JSON.parse(formData.get('items') as string)
 
-  if (!clientName || items.length === 0) return
+  if (items.length === 0) return
+
+  let clientName: string
+  let clienteId: number | null = null
+  if (tipo === 'propio') {
+    clientName = (formData.get('clientName') as string)?.trim()
+    if (!clientName) return
+  } else {
+    const cliente = await resolveCliente(formData)
+    if (!cliente) return
+    clientName = cliente.nombre
+    clienteId = cliente.id
+  }
 
   // El stock propio es una compra definida para revender: entra directo como
   // pedido (no necesita aprobación ni adelanto). El de cliente arranca como presupuesto.
@@ -28,6 +57,7 @@ export async function createPresupuesto(formData: FormData) {
   const pedido = await db.pedido.create({
     data: {
       clientName,
+      clienteId,
       notas,
       tipo,
       status,
@@ -43,21 +73,36 @@ export async function createPresupuesto(formData: FormData) {
   })
 
   revalidatePath('/presupuestos')
+  revalidateClientes()
   redirect(`/presupuestos/${pedido.id}`)
 }
 
 export async function updatePresupuesto(id: number, formData: FormData) {
-  const clientName = (formData.get('clientName') as string).trim()
   const notas = (formData.get('notas') as string)?.trim() || null
+  const existing = await db.pedido.findUnique({ where: { id }, select: { tipo: true } })
+  if (!existing) return
   const items: ItemInput[] = JSON.parse(formData.get('items') as string)
 
-  if (!clientName || items.length === 0) return
+  if (items.length === 0) return
+
+  let clientName: string
+  let clienteId: number | null = null
+  if (existing.tipo === 'propio') {
+    clientName = (formData.get('clientName') as string)?.trim()
+    if (!clientName) return
+  } else {
+    const cliente = await resolveCliente(formData)
+    if (!cliente) return
+    clientName = cliente.nombre
+    clienteId = cliente.id
+  }
 
   await db.pedidoItem.deleteMany({ where: { pedidoId: id } })
   await db.pedido.update({
     where: { id },
     data: {
       clientName,
+      clienteId,
       notas,
       items: {
         create: items.map(i => ({
@@ -72,6 +117,7 @@ export async function updatePresupuesto(id: number, formData: FormData) {
 
   revalidatePath('/presupuestos')
   revalidatePath(`/presupuestos/${id}`)
+  revalidateClientes()
   redirect(`/presupuestos/${id}`)
 }
 
@@ -97,10 +143,13 @@ export async function aprobarPedido(id: number, formData: FormData) {
   })
   revalidatePath('/presupuestos')
   revalidatePath(`/presupuestos/${id}`)
+  // El adelanto y el pase a 'pedido' mueven los totales del cliente.
+  revalidateClientes()
 }
 
 export async function deletePresupuesto(id: number) {
   await db.pedido.delete({ where: { id } })
   revalidatePath('/presupuestos')
+  revalidateClientes()
   redirect('/presupuestos')
 }

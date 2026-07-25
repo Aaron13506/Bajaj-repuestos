@@ -7,13 +7,17 @@ import { makeProductLookup, expandCostPieces, type ProductCost } from '@/lib/env
 import type { BundlePiece } from '@/lib/bundle'
 import {
   assignPedido,
+  assignAllConfirmados,
   removePedido,
   deleteEnvio,
   saveEstimate,
+  saveShippingStatuses,
 } from '../actions'
+import { SHIPPING_STATUSES, shippingStatusMeta } from '@/lib/shipping-status'
 
 const usd = (n: number) => `$${n.toFixed(2)}`
 const kg = (n: number) => `${n.toFixed(2)} kg`
+const fecha = (d: Date) => new Date(d).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' })
 
 // Guía de punto dulce sobre la curva real de ShipGlobal Duty Free (member).
 function airTierHint(chargeableKg: number): { tone: 'good' | 'info'; text: string } | null {
@@ -52,7 +56,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     db.pedido.findMany({
       where: { envioId: null },
       include: { items: { select: { id: true } } },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: 'asc' },
     }),
     db.product.findMany({
       select: { nameEs: true, bajajCode: true, weightGrams: true, dimL: true, dimA: true, dimH: true, priceInr: true },
@@ -139,6 +143,15 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   for (const l of calc.lines) {
     landedByPedido.set(l.pedidoId, (landedByPedido.get(l.pedidoId) ?? 0) + l.landedUsd)
   }
+
+  // Lo confirmado (status='pedido') es lo que hay que comprar sí o sí; los
+  // presupuestos sin aprobar todavía pueden caerse, así que se separan y nunca
+  // entran al agregado masivo.
+  const confirmadosSinAsignar = sinAsignar.filter(p => p.status === 'pedido')
+  const presupuestosSinAsignar = sinAsignar.filter(p => p.status === 'presupuesto')
+  const confirmadosPropios = confirmadosSinAsignar.filter(p => p.tipo === 'propio').length
+
+  const compradosCount = envio.pedidos.filter(p => p.shippingStatus !== 'pendiente').length
 
   const anyMissing = calc.lines.some(l => l.missingWeight || l.missingDims)
   const tierHint = airTierHint(calc.chargeableKg)
@@ -281,12 +294,22 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
             </dl>
           </div>
 
-          {/* Presupuestos en el envío */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
-            <div className="px-6 py-3 border-b border-gray-100 bg-gray-50">
+          {/* Presupuestos en el envío — un solo form: editás los estados que quieras y
+              guardás todo de una. El botón Quitar usa formAction para no anidar forms. */}
+          <form
+            action={saveShippingStatuses.bind(null, envio.id)}
+            className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4"
+          >
+            <div className="px-6 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between gap-3">
               <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-                Presupuestos en el envío ({envio.pedidos.length})
+                Presupuestos en el envío ({envio.pedidos.length}) · {compradosCount} comprados
               </h2>
+              <button
+                type="submit"
+                className="bg-blue-600 text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+              >
+                Guardar cambios
+              </button>
             </div>
             <table className="w-full text-sm">
               <thead>
@@ -294,6 +317,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                   <th className="text-left px-6 py-2 font-semibold">Cliente</th>
                   <th className="text-right px-4 py-2 font-semibold">Costo landed</th>
                   <th className="text-right px-4 py-2 font-semibold">Venta</th>
+                  <th className="text-left px-4 py-2 font-semibold">Estado</th>
                   <th className="px-4 py-2 w-20"></th>
                 </tr>
               </thead>
@@ -308,16 +332,34 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-gray-700">{usd(landedByPedido.get(ped.id) ?? 0)}</td>
                     <td className="px-4 py-3 text-right font-mono text-gray-700">{usd(saleByPedido.get(ped.id) ?? 0)}</td>
+                    <td className="px-4 py-3">
+                      <select
+                        name={`status-${ped.id}`}
+                        defaultValue={ped.shippingStatus}
+                        className={`text-xs font-semibold rounded-full pl-2.5 pr-6 py-1 border-0 cursor-pointer focus:ring-2 focus:ring-blue-500 ${shippingStatusMeta(ped.shippingStatus).badge}`}
+                      >
+                        {SHIPPING_STATUSES.map(s => (
+                          <option key={s.value} value={s.value}>{s.icon} {s.label}</option>
+                        ))}
+                      </select>
+                      {ped.shippingStatusAt && (
+                        <p className="text-[10px] text-gray-400 mt-1">desde {fecha(ped.shippingStatusAt)}</p>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right">
-                      <form action={removePedido.bind(null, envio.id, ped.id)}>
-                        <button type="submit" className="text-xs text-red-600 hover:text-red-800">Quitar</button>
-                      </form>
+                      <button
+                        type="submit"
+                        formAction={removePedido.bind(null, envio.id, ped.id)}
+                        className="text-xs text-red-600 hover:text-red-800"
+                      >
+                        Quitar
+                      </button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
+          </form>
 
           {/* Desglose por pieza */}
           <details className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
@@ -412,23 +454,82 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
         </>
       )}
 
-      {/* Agregar presupuestos */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-6 py-3 border-b border-gray-100 bg-gray-50">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Agregar presupuesto al envío</h2>
+      {/* Pedidos confirmados sin asignar */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
+        <div className="px-6 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between flex-wrap gap-3">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+            Pedidos confirmados sin asignar ({confirmadosSinAsignar.length})
+          </h2>
+          {confirmadosSinAsignar.length > 0 && (
+            <form
+              action={assignAllConfirmados.bind(null, envio.id)}
+              className="flex items-center gap-3"
+            >
+              <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                <input type="checkbox" name="incluirPropio" defaultChecked className="rounded border-gray-300" />
+                Incluir stock propio ({confirmadosPropios})
+              </label>
+              <button
+                type="submit"
+                className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-blue-700 transition-colors"
+              >
+                + Agregar todos los confirmados
+              </button>
+            </form>
+          )}
         </div>
-        {sinAsignar.length === 0 ? (
+        {confirmadosSinAsignar.length === 0 ? (
           <p className="px-6 py-6 text-sm text-gray-400">
-            No hay presupuestos sin asignar. <Link href="/presupuestos/new" className="text-blue-600 hover:underline">Creá uno</Link>.
+            No hay pedidos confirmados sin asignar.
           </p>
         ) : (
           <div className="divide-y divide-gray-50">
-            {sinAsignar.map(ped => (
+            {confirmadosSinAsignar.map(ped => (
               <div key={ped.id} className="px-6 py-3 flex items-center justify-between hover:bg-gray-50">
                 <div>
                   <span className="text-sm font-medium text-gray-900">{ped.clientName}</span>
                   <span className="ml-2 text-xs text-gray-400">
-                    #{ped.id} · {ped.items.length} pzas · {ped.status}
+                    #{ped.id} · {ped.items.length} pzas
+                  </span>
+                  {ped.tipo === 'propio' && (
+                    <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                      Stock propio
+                    </span>
+                  )}
+                </div>
+                <form action={assignPedido.bind(null, envio.id, ped.id)}>
+                  <button type="submit" className="text-sm text-blue-600 hover:text-blue-800 font-medium">
+                    + Agregar
+                  </button>
+                </form>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Presupuestos sin aprobar (informativo, no entran al agregado masivo) */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="px-6 py-3 border-b border-gray-100 bg-gray-50">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+            Presupuestos sin aprobar ({presupuestosSinAsignar.length})
+          </h2>
+        </div>
+        {presupuestosSinAsignar.length === 0 ? (
+          <p className="px-6 py-6 text-sm text-gray-400">
+            No hay presupuestos pendientes. <Link href="/presupuestos/new" className="text-blue-600 hover:underline">Creá uno</Link>.
+          </p>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {presupuestosSinAsignar.map(ped => (
+              <div key={ped.id} className="px-6 py-3 flex items-center justify-between hover:bg-gray-50">
+                <div>
+                  <span className="text-sm font-medium text-gray-900">{ped.clientName}</span>
+                  <span className="ml-2 text-xs text-gray-400">
+                    #{ped.id} · {ped.items.length} pzas
+                  </span>
+                  <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700">
+                    Sin aprobar
                   </span>
                 </div>
                 <form action={assignPedido.bind(null, envio.id, ped.id)}>
