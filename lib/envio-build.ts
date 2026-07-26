@@ -2,6 +2,7 @@ import type { BundlePiece } from './bundle'
 
 // Campos de costo/dimensión de un producto necesarios para costear un envío.
 export interface ProductCost {
+  id: number
   nameEs: string
   bajajCode: string | null
   weightGrams: number | null
@@ -11,8 +12,11 @@ export interface ProductCost {
   priceInr: number | null
 }
 
-// Una pieza física ya resuelta, lista para el cálculo del envío.
+// Una pieza física ya resuelta, lista para el cálculo del envío. `productId` es null
+// cuando una pieza de un conjunto no se pudo resolver contra el catálogo (SKU sin
+// match): en ese caso no hay precio de proveedor que aplicarle.
 export interface CostPiece {
+  productId: number | null
   name: string
   sku: string | null
   weightGrams: number | null
@@ -51,6 +55,7 @@ export function expandCostPieces(
 ): CostPiece[] {
   if (!bundleItems || bundleItems.length === 0) {
     return [{
+      productId: product.id,
       name: product.nameEs,
       sku: product.bajajCode,
       weightGrams: product.weightGrams,
@@ -65,6 +70,7 @@ export function expandCostPieces(
   return bundleItems.map(bp => {
     const resolved = lookup(bp.bajajCode, bp.nameEs)
     return {
+      productId: resolved?.id ?? null,
       name: bp.nameEs,
       sku: bp.bajajCode,
       weightGrams: resolved?.weightGrams ?? null,

@@ -1,18 +1,18 @@
 import { db } from '@/lib/db'
 import Link from 'next/link'
 import { createEnvio } from './actions'
-import { envioStageSummary, SHIPPING_STATUSES } from '@/lib/shipping-status'
+import { stageSummary, SHIPPING_STATUSES } from '@/lib/shipping-status'
 
 export default async function EnviosPage() {
   const envios = await db.envio.findMany({
-    include: { pedidos: { select: { id: true, shippingStatus: true } } },
+    include: { items: { select: { id: true, shippingStatus: true, pedidoId: true } } },
     orderBy: { createdAt: 'desc' },
   })
 
-  const sinAsignar = await db.pedido.count({ where: { envioId: null } })
+  const sinAsignar = await db.pedidoItem.count({ where: { envioId: null } })
 
   return (
-    <div className="max-w-3xl">
+    <div className="max-w-5xl">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Envíos</h1>
       </div>
@@ -48,7 +48,7 @@ export default async function EnviosPage() {
       </form>
 
       <p className="text-xs text-gray-500 mb-3">
-        {sinAsignar} {sinAsignar === 1 ? 'presupuesto/pedido' : 'presupuestos/pedidos'} sin asignar a un envío.
+        {sinAsignar} {sinAsignar === 1 ? 'ítem sin asignar' : 'ítems sin asignar'} a un envío.
       </p>
 
       {envios.length === 0 ? (
@@ -59,7 +59,8 @@ export default async function EnviosPage() {
       ) : (
         <div className="space-y-3">
           {envios.map(e => {
-            const summary = envioStageSummary(e.pedidos)
+            const summary = stageSummary(e.items)
+            const pedidosEnEnvio = new Set(e.items.map(i => i.pedidoId)).size
             const lead = summary?.lead
             const pct = summary
               ? Math.round((summary.leadIndex / (SHIPPING_STATUSES.length - 1)) * 100)
@@ -79,7 +80,8 @@ export default async function EnviosPage() {
                     {e.nombre ?? `Envío #${e.id}`}
                   </Link>
                   <span className="text-xs text-gray-400">
-                    {e.pedidos.length} {e.pedidos.length === 1 ? 'pedido' : 'pedidos'}
+                    {e.items.length} {e.items.length === 1 ? 'ítem' : 'ítems'}
+                    {pedidosEnEnvio > 0 && ` · ${pedidosEnEnvio} ${pedidosEnEnvio === 1 ? 'pedido' : 'pedidos'}`}
                   </span>
                   {summary && lead && (
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${lead.badge}`}>

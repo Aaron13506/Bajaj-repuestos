@@ -15,11 +15,16 @@ export default async function SuppliersPage() {
         <h1 className="text-2xl font-bold text-gray-900">Proveedores</h1>
       </div>
 
-      <p className="text-sm text-gray-500 mb-6">
+      <p className="text-sm text-gray-500 mb-2">
         Además de 99rpm (precio base de cada producto), podés agregar otros proveedores
-        con su propio precio en rupias por SKU. Elegí el proveedor activo desde el panel
+        con su propio precio en USD por SKU. Elegí el proveedor activo desde el panel
         lateral — mientras esté activo, los precios se calculan con los suyos, y con el
         precio de 99rpm para los SKU que todavía no tengan un precio cargado para él.
+      </p>
+      <p className="text-sm text-gray-500 mb-6">
+        El <strong>origen</strong> se marca una sola vez por proveedor y define la ruta de todo lo
+        que le compres: India pasa por Shoppre, China va directo al consolidador de USA. Los ítems
+        ya comprados conservan la ruta que tenían.
       </p>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
@@ -31,6 +36,14 @@ export default async function SuppliersPage() {
             placeholder="Ej: Boodmo"
             className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
+          <select
+            name="origen"
+            defaultValue="india"
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="india">🇮🇳 India</option>
+            <option value="china">🇨🇳 China</option>
+          </select>
           <button
             type="submit"
             className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
@@ -56,6 +69,14 @@ export default async function SuppliersPage() {
                   required
                   className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
+                <select
+                  name="origen"
+                  defaultValue={s.origen}
+                  className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm shrink-0 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="india">🇮🇳 India</option>
+                  <option value="china">🇨🇳 China</option>
+                </select>
                 <span className="text-xs text-gray-400 shrink-0">
                   {s._count.prices} {s._count.prices === 1 ? 'precio' : 'precios'} cargados
                 </span>

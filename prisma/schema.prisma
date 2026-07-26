@@ -84,8 +84,14 @@ model Config {
 model Supplier {
   id        Int             @id @default(autoincrement())
   name      String          @unique
+  // País de origen: define por qué ruta física entra lo que se le compra. 'india' pasa
+  // por Shoppre; 'china' va directo al consolidador de USA. Es un hecho fijo del
+  // proveedor (no del producto: el mismo SKU puede comprarse en los dos lados), y de
+  // acá lo hereda PedidoItem.origen al momento de comprar. Ver lib/shipping-status.ts.
+  origen    String          @default("india")
   createdAt DateTime        @default(now())
   prices    SupplierPrice[]
+  pedidoItems PedidoItem[]
 }
 
 // Override de precio de un producto para un proveedor puntual, EN USD (a diferencia
@@ -109,13 +115,22 @@ model SupplierPrice {
   @@index([supplierId])
 }
 
+// Una caja física que cruza a Venezuela. India y China consolidan ambos en USA, así
+// que un mismo envío puede llevar ítems de los dos orígenes: el tramo aéreo India→USA
+// se cotiza con la tabla escalón de ShipGlobal, el China→USA es un costo real que se
+// carga a mano (inboundChinaUsd), y el marítimo USA→VEN se reparte sobre todo lo que
+// va adentro. La unidad que se asigna a un envío es el PedidoItem, no el Pedido: un
+// presupuesto puede estar comprado a medias y repartido entre varias cajas.
 model Envio {
   id               Int       @id @default(autoincrement())
   nombre           String?
   notas            String?
   shippingCostEst  Decimal?  @db.Decimal(10, 2)
   shippingCostReal Decimal?  @db.Decimal(10, 2)
-  pedidos          Pedido[]
+  // Costo real del tramo China→USA. No sale de shipping_rates.json (esa tabla es de
+  // ShipGlobal, solo aplica a India); se prorratea por peso entre los ítems origen='china'.
+  inboundChinaUsd  Decimal?  @db.Decimal(10, 2)
+  items            PedidoItem[]
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 }
@@ -132,18 +147,13 @@ model Pedido {
   depositUsd    Decimal?  @db.Decimal(10, 2)
   paymentMethod String?
   depositAt     DateTime?
-  // Etapa física de ESTE pedido (no del envío entero — pedidos de un mismo envío
-  // pueden estar en etapas distintas): pendiente (aún sin comprar) -> camino_shoppre
-  // -> en_shoppre -> camino_usa -> en_usa -> camino_venezuela -> en_venezuela -> entregado.
-  // shippingStatusAt marca el último cambio. Ver SHIPPING_STATUSES en lib/shipping-status.ts.
-  shippingStatus   String    @default("pendiente")
-  shippingStatusAt DateTime?
+  // La etapa física ya NO vive acá: bajó a PedidoItem, porque un presupuesto puede
+  // estar comprado a medias y repartido entre proveedores y cajas distintas. El estado
+  // del pedido se deriva de sus ítems con stageSummary (ver lib/shipping-status.ts).
   // clientName queda como snapshot denormalizado (lo fija el server action desde
   // cliente.nombre); clienteId es la relación real para agrupar el historial.
   clienteId  Int?
   cliente    Cliente?     @relation(fields: [clienteId], references: [id], onDelete: SetNull)
-  envioId    Int?
-  envio      Envio?       @relation(fields: [envioId], references: [id], onDelete: SetNull)
   items      PedidoItem[]
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
@@ -158,10 +168,35 @@ model PedidoItem {
   // Cuando el item es un conjunto/ensamble vendido a precio único, guarda el
   // snapshot de las piezas elegidas: [{ nameEs, bajajCode, quantity }]. Null = pieza suelta.
   bundleItems Json?
-  pedido     Pedido  @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
-  product    Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  // ── Eje logístico ──────────────────────────────────────────────────────────
+  // Vivía en Pedido, pero la unidad real de compra es la LÍNEA: de un mismo
+  // presupuesto unas piezas se compran en India y otras en China, en momentos
+  // distintos y viajando en cajas distintas. El estado del Pedido pasa a ser
+  // derivado (la etapa más atrasada de sus ítems), ver pedidoStageSummary.
+  envioId          Int?
+  shippingStatus   String    @default("pendiente")
+  shippingStatusAt DateTime?
+  // Proveedor al que se le compró de verdad esta línea. Null ⇒ base 99rpm (India).
+  supplierId       Int?
+  // Snapshot de Supplier.origen al comprar: congela la ruta aunque el proveedor cambie.
+  origen           String    @default("india")
+  // Snapshot de SupplierPrice.isLanded: el proveedor cotizó puesto en Venezuela, así
+  // que la pieza NO viaja en la caja — no suma peso ni volumen al envío y salta
+  // directo a 'en_venezuela'. Nunca se infiere del monto; sale de la fila explícita.
+  isLanded         Boolean   @default(false)
+  // Lo que se pagó realmente por la línea (contraste contra el landed estimado).
+  costRealUsd      Decimal?  @db.Decimal(10, 2)
+  compradoAt       DateTime?
+
+  pedido     Pedido    @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  product    Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  envio      Envio?    @relation(fields: [envioId], references: [id], onDelete: SetNull)
+  supplier   Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
 
   @@unique([pedidoId, productId])
+  @@index([envioId])
+  @@index([shippingStatus])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

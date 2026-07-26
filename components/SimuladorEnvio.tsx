@@ -29,7 +29,8 @@ export interface SimPedido {
   id: number
   clientName: string
   status: string
-  envioId: number | null
+  /** Envíos donde ya hay ítems de este presupuesto (puede estar repartido en varios). */
+  envioIds: number[]
   saleTotal: number
   pieceCount: number
   /** Piezas físicas ya resueltas (los conjuntos vienen expandidos a sus piezas reales). */
@@ -200,7 +201,12 @@ export default function SimuladorEnvio({ products, pedidos, cfg }: Props) {
                     <span className="text-sm font-medium text-gray-900">{ped.clientName}</span>
                     <span className="ml-2 text-xs text-gray-400">
                       #{ped.id} · {pedidoPieces(ped)} pzas · {ped.status}
-                      {ped.envioId != null && <span className="text-amber-600"> · ya en envío #{ped.envioId}</span>}
+                      {ped.envioIds.length > 0 && (
+                        <span className="text-amber-600">
+                          {' · ya en '}
+                          {ped.envioIds.length === 1 ? 'envío' : 'envíos'} {ped.envioIds.map(id => `#${id}`).join(', ')}
+                        </span>
+                      )}
                     </span>
                   </div>
                   <span className="text-sm text-blue-600 font-medium shrink-0">+ Agregar</span>

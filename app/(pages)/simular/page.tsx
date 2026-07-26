@@ -64,7 +64,9 @@ export default async function SimularPage() {
       id: ped.id,
       clientName: ped.clientName,
       status: ped.status,
-      envioId: ped.envioId,
+      // Un presupuesto puede estar repartido entre varias cajas: sus ítems se asignan
+      // por separado. Se listan los envíos donde ya cayó alguna de sus piezas.
+      envioIds: [...new Set(ped.items.map(it => it.envioId).filter((id): id is number => id != null))],
       saleTotal,
       pieceCount,
       costPieces,

@@ -10,6 +10,7 @@ import { getTerminos } from '@/lib/terminos'
 import { METODOS_PAGO } from '@/lib/pagos'
 import { toFileName } from '@/lib/utils'
 import type { PresupuestoPdfData } from '@/lib/pdf/presupuesto-pdf'
+import { stageSummary, shippingStatusMeta, SHIPPING_STATUSES } from '@/lib/shipping-status'
 
 export default async function PresupuestoDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const id = parseInt((await params).id)
@@ -24,6 +25,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
             product: {
               select: { id: true, nameEs: true, bajajCode: true, description: true, imageUrl: true },
             },
+            supplier: { select: { name: true } },
           },
           orderBy: { id: 'asc' },
         },
@@ -41,6 +43,9 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
     (sum, item) => sum + parseFloat(item.salePrice.toString()) * item.quantity,
     0
   )
+
+  // Progreso de compra agregado desde los ítems (ver lib/shipping-status.ts).
+  const compra = stageSummary(presupuesto.items)
 
   const bsdRate = bsdRow ? parseFloat(bsdRow.value) : NaN
   const totalBsd = Number.isNaN(bsdRate) ? null : total * bsdRate
@@ -94,7 +99,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
   }
 
   return (
-    <div className="max-w-3xl">
+    <div className="max-w-5xl">
 
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
@@ -205,6 +210,37 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
         )}
       </div>
 
+      {/* Estado de compra — derivado de los ítems, no del pedido: de un mismo
+          presupuesto unas piezas pueden estar compradas y otras no. */}
+      {!isPresupuesto && compra && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-4">
+          <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Estado de compra</h2>
+            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${compra.lead.badge}`}>
+              {compra.lead.icon} {compra.allDelivered ? 'Entregado' : compra.lead.short}
+              {compra.mixed && !compra.allDelivered && ' +'}
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="h-2 flex-1 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full ${compra.allDelivered ? 'bg-green-500' : 'bg-blue-500'}`}
+                style={{ width: `${Math.round((compra.leadIndex / (SHIPPING_STATUSES.length - 1)) * 100)}%` }}
+              />
+            </div>
+            <span className="text-xs text-gray-500 shrink-0">
+              {compra.comprados} de {compra.total} comprados
+            </span>
+          </div>
+          {compra.pendientes > 0 && (
+            <p className="text-xs text-gray-500 mt-3">
+              Faltan comprar {compra.pendientes} {compra.pendientes === 1 ? 'pieza' : 'piezas'}.{' '}
+              <Link href="/compras" className="text-blue-600 hover:underline">Ir a Por comprar</Link>
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Items table */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
         <table className="w-full">
@@ -249,6 +285,23 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
                     <p className="text-sm font-medium text-gray-900">{item.product.nameEs}</p>
                     {item.product.bajajCode && (
                       <p className="text-xs font-mono text-gray-400">{item.product.bajajCode}</p>
+                    )}
+                    {!isPresupuesto && (
+                      <p className="mt-1 flex items-center gap-1.5 flex-wrap">
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${shippingStatusMeta(item.shippingStatus).badge}`}>
+                          {shippingStatusMeta(item.shippingStatus).icon} {shippingStatusMeta(item.shippingStatus).short}
+                        </span>
+                        {item.compradoAt && (
+                          <span className="text-[10px] text-gray-400">
+                            {item.origen === 'china' ? '🇨🇳' : '🇮🇳'} {item.supplier?.name ?? '99rpm'}
+                          </span>
+                        )}
+                        {item.envioId != null && (
+                          <Link href={`/envios/${item.envioId}`} className="text-[10px] text-blue-600 hover:underline">
+                            envío #{item.envioId}
+                          </Link>
+                        )}
+                      </p>
                     )}
                     {bundlePieces.length > 0 && (
                       <div className="mt-1.5 ml-1 pl-3 border-l-2 border-gray-100 space-y-1.5">

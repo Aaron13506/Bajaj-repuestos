@@ -11,6 +11,21 @@ export function toFileName(parts: (string | number)[], ext: string): string {
   return `${base}.${ext}`
 }
 
+// Algunos nombres del scraper quedaron con la entidad HTML sin decodificar
+// ("Logos &amp; Decals"). Los de la base ya se limpiaron, pero los snapshots de piezas
+// guardados en PedidoItem.bundleItems son inmutables por diseño, así que se limpia al
+// mostrar para no arrastrar el error a la UI ni a los PDF.
+export function limpiarNombre(s: string): string {
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .trim()
+}
+
 export function toJSON<T>(data: T): T {
   return JSON.parse(
     JSON.stringify(data, (_, value) => {

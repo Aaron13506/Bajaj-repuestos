@@ -5,11 +5,16 @@ import { useTransition } from 'react'
 interface DeleteButtonProps {
   action: () => Promise<void>
   confirmMessage?: string
+  // Para acciones destructivas que no son "eliminar" (ej. deshacer una compra).
+  label?: string
+  pendingLabel?: string
 }
 
 export default function DeleteButton({
   action,
   confirmMessage = '¿Confirmas que deseas eliminar este registro?',
+  label = 'Eliminar',
+  pendingLabel = 'Eliminando...',
 }: DeleteButtonProps) {
   const [isPending, startTransition] = useTransition()
 

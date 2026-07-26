@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import Link from 'next/link'
 import DeleteButton from '@/components/DeleteButton'
 import { deletePresupuesto } from './actions'
+import { stageSummary } from '@/lib/shipping-status'
 
 export default async function PresupuestosPage() {
   const todos = await db.pedido.findMany({
@@ -22,6 +23,7 @@ export default async function PresupuestosPage() {
     const isPresupuesto = p.status === 'presupuesto'
     const depositUsd = p.depositUsd != null ? parseFloat(p.depositUsd.toString()) : null
     const saldo = depositUsd != null ? total - depositUsd : null
+    const compra = stageSummary(p.items)
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-4 flex items-center justify-between">
         <div>
@@ -45,6 +47,14 @@ export default async function PresupuestosPage() {
             }`}>
               {isPropio ? 'Stock propio' : isPresupuesto ? 'Presupuesto' : 'Pedido'}
             </span>
+            {/* Avance de compra: solo tiene sentido una vez confirmado. Un pedido puede
+                estar comprado a medias, así que se muestra la etapa más atrasada. */}
+            {!isPresupuesto && compra && (
+              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${compra.lead.badge}`}>
+                {compra.lead.icon} {compra.allDelivered ? 'Entregado' : compra.lead.short}
+                {compra.pendientes > 0 && compra.comprados > 0 && ` · ${compra.comprados}/${compra.total}`}
+              </span>
+            )}
           </div>
           <p className="text-xs text-gray-400 mt-1">
             {new Date(p.createdAt).toLocaleDateString('es-VE', {
