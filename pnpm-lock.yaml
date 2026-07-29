@@ -29,6 +29,9 @@ importers:
       react-dom:
         specifier: ^19
         version: 19.2.7(react@19.2.7)
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
     devDependencies:
       '@types/node':
         specifier: ^20
@@ -57,9 +60,6 @@ importers:
       tailwindcss:
         specifier: ^3.4.1
         version: 3.4.19(tsx@4.22.4)
-      tsx:
-        specifier: ^4.19.2
-        version: 4.22.4
       typescript:
         specifier: ^5
         version: 5.9.3
