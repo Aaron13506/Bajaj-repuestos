@@ -30,7 +30,7 @@ function fmt(n: number | null | undefined, decimals = 2) {
  * puntual) se agrega el total de esa línea en chico, para no confundir unidad con total.
  */
 export function CostCells({ d, cfg, quantity }: { d: QuickEditValues; cfg: ConfigMap; quantity?: number }) {
-  const b = calcLanded({
+  const forCalc = {
     priceInr:      d.priceInr,
     priceUsd:      d.priceUsd,
     priceIsLanded: d.priceIsLanded,
@@ -39,7 +39,20 @@ export function CostCells({ d, cfg, quantity }: { d: QuickEditValues; cfg: Confi
     dimA:          d.dimA,
     dimH:          d.dimH,
     margin:        d.margin,
-  }, cfg)
+  }
+  const b = calcLanded(forCalc, cfg)
+  // Mismo cálculo por mar directo desde India. Es una columna comparativa: el precio que se
+  // guarda y se cotiza sigue saliendo del aéreo (b), no de acá.
+  const m = calcLanded(forCalc, cfg, 'maritimo')
+
+  // Flete de hoy = lo que se paga para mover la pieza (Shoppre aéreo + marítimo Miami→CCS).
+  // Flete por mar = un solo tramo. Se comparan estos dos, y los landed que resultan.
+  const fleteHoy = b ? b.shoppreShippingUsd + b.maritimeUsd : null
+  const fleteMar = m ? m.maritimeUsd : null
+  const deltaPct = b && m && b.landedCostUsd > 0
+    ? ((m.landedCostUsd - b.landedCostUsd) / b.landedCostUsd) * 100
+    : null
+
   const multi = (quantity ?? 1) > 1
   const saleUsd = b?.priceUsd ?? parseFloat(d.price.toString())
   const hasSupplierOverride = d.priceUsd != null
@@ -66,7 +79,41 @@ export function CostCells({ d, cfg, quantity }: { d: QuickEditValues; cfg: Confi
       <td className="px-4 py-3 text-right text-gray-600">{b ? fmt(b.shoppreShippingUsd) : '—'}</td>
       <td className="px-4 py-3 text-right text-gray-600">{b ? fmt(b.insuranceUsd) : '—'}</td>
       <td className="px-4 py-3 text-right text-gray-600">{b ? fmt(b.maritimeUsd) : '—'}</td>
+      <td className="px-4 py-3 text-right font-medium text-gray-700">{fleteHoy != null ? fmt(fleteHoy) : '—'}</td>
       <td className="px-4 py-3 text-right font-semibold text-gray-900 border-l border-gray-200">{b ? fmt(b.landedCostUsd) : '—'}</td>
+
+      {/* ── Escenario marítimo directo: flete y landed que resultarían por mar ── */}
+      <td className="px-4 py-3 text-right text-sky-800 bg-sky-50/50 border-l-2 border-sky-200">
+        {fleteMar != null ? fmt(fleteMar) : <span className="text-sky-300" title="Faltan dimensiones">—</span>}
+      </td>
+      <td className="px-4 py-3 text-right font-semibold text-sky-900 bg-sky-50/50">
+        {m ? fmt(m.landedCostUsd) : <span className="text-sky-300" title="Faltan dimensiones">—</span>}
+      </td>
+      <td className="px-4 py-3 text-right font-medium text-sky-900 bg-sky-50/50">
+        {m?.priceUsd != null ? (
+          <>
+            {fmt(m.priceUsd)}
+            {m.priceBsd != null && (
+              <span className="block text-[11px] font-normal text-sky-600">
+                Bs.{m.priceBsd.toLocaleString('es-VE', { maximumFractionDigits: 0 })}
+              </span>
+            )}
+            {multi && (
+              <span className="block text-[11px] font-normal text-sky-400">total: {fmt(m.priceUsd * quantity!)}</span>
+            )}
+          </>
+        ) : (
+          <span className="text-sky-300" title={m ? 'Sin margen definido' : 'Faltan dimensiones'}>—</span>
+        )}
+      </td>
+      {/* El Δ es el mismo para landed y para venta: el precio sale de aplicar el mismo
+          margen sobre el landed, así que la proporción entre escenarios no cambia. */}
+      <td className={`px-4 py-3 text-right font-semibold bg-sky-50/50 border-r-2 border-sky-200 ${
+        deltaPct == null ? 'text-sky-300' : deltaPct <= 0 ? 'text-green-700' : 'text-red-600'
+      }`}>
+        {deltaPct == null ? '—' : `${deltaPct > 0 ? '+' : ''}${deltaPct.toFixed(0)}%`}
+      </td>
+
       <td className="px-4 py-3 text-right text-gray-500 border-l border-gray-100">
         {d.margin != null ? `${+(d.margin * 100).toFixed(2)}%` : '—'}
       </td>

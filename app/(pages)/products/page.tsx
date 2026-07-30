@@ -128,7 +128,12 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                 <th className="text-right px-4 py-3 font-medium text-gray-500">Shoppre</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-500">Seguro</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-500">Marítimo</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-500">Flete hoy</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-500 font-semibold border-l border-gray-200">Landed</th>
+                <th className="text-right px-4 py-3 font-medium text-sky-700 bg-sky-50 border-l-2 border-sky-200" title="Flete India → Venezuela por mar directo">🚢 Flete mar</th>
+                <th className="text-right px-4 py-3 font-semibold text-sky-800 bg-sky-50" title="Costo landed si se trae por mar directo">Landed mar</th>
+                <th className="text-right px-4 py-3 font-medium text-sky-700 bg-sky-50" title="Precio de venta por mar: mismo margen aplicado sobre el landed marítimo">Venta mar</th>
+                <th className="text-right px-4 py-3 font-medium text-sky-700 bg-sky-50 border-r-2 border-sky-200" title="Diferencia contra el aéreo actual — igual para landed y para venta">Δ</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-500 border-l border-gray-100">Margen</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-500">Precio USD</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-500">Precio BsD</th>

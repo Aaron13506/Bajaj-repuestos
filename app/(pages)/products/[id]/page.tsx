@@ -42,7 +42,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   const supplierOverride = priceMap.get(product.id) ?? null
 
   const cfg = configRows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
-  const breakdown = calcLanded({
+  const forCalc = {
     priceInr:      product.priceInr,
     priceUsd:      supplierOverride?.priceUsd ?? null,
     priceIsLanded: supplierOverride?.isLanded ?? false,
@@ -51,7 +51,11 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     dimA:          product.dimA,
     dimH:          product.dimH,
     margin:        product.margin,
-  }, cfg)
+  }
+  const breakdown = calcLanded(forCalc, cfg)
+  // Mientras no haya tarifa marítima cargada, las columnas "🚢" caen a la de Miami→CCS y
+  // subestiman el flete completo desde India. Se avisa arriba de la tabla comparativa.
+  const tarifaMaritimaCargada = Number.isFinite(parseFloat(cfg.maritimo_directo_per_ft3 ?? ''))
 
   // Group components by groupName
   const groups = new Map<string, typeof product.components>()
@@ -291,6 +295,15 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
         {groups.size === 0 ? (
           <p className="text-sm text-gray-400 mb-4">Sin componentes registrados.</p>
         ) : (
+          <>
+          {!tarifaMaritimaCargada && (
+            <p className="text-xs mb-3 px-3 py-2 rounded-lg bg-amber-50 text-amber-700">
+              ⚠️ Las columnas 🚢 usan la tarifa de Miami→CCS como respaldo, que cubre solo el tramo
+              corto y subestima el flete completo desde India. Cargá{' '}
+              <Link href="/config" className="font-mono underline">maritimo_directo_per_ft3</Link>{' '}
+              en Configuración para que la comparación valga.
+            </p>
+          )}
           <div className="overflow-x-auto -mx-6 mb-6">
             <table className="w-full text-sm whitespace-nowrap">
               <thead>
@@ -305,7 +318,12 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                   <th className="text-right font-medium px-2 py-2">Shoppre</th>
                   <th className="text-right font-medium px-2 py-2">Seguro</th>
                   <th className="text-right font-medium px-2 py-2">Marítimo</th>
+                  <th className="text-right font-medium px-2 py-2">Flete hoy</th>
                   <th className="text-right font-medium px-2 py-2 border-l border-gray-200">Landed</th>
+                  <th className="text-right font-medium px-2 py-2 text-sky-700 bg-sky-50 border-l-2 border-sky-200" title="Flete India → Venezuela por mar directo">🚢 Flete mar</th>
+                  <th className="text-right font-semibold px-2 py-2 text-sky-800 bg-sky-50" title="Costo landed si se trae por mar directo">Landed mar</th>
+                  <th className="text-right font-medium px-2 py-2 text-sky-700 bg-sky-50" title="Precio de venta por mar: mismo margen aplicado sobre el landed marítimo">Venta mar</th>
+                  <th className="text-right font-medium px-2 py-2 text-sky-700 bg-sky-50 border-r-2 border-sky-200" title="Diferencia contra el aéreo actual — igual para landed y para venta">Δ</th>
                   <th className="text-right font-medium px-2 py-2 border-l border-gray-100">Margen</th>
                   <th className="text-right font-medium px-2 py-2">Precio USD</th>
                   <th className="text-right font-medium px-2 py-2">Precio BsD</th>
@@ -317,7 +335,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                   <Fragment key={groupName}>
                     {groupName !== '—' && (
                       <tr>
-                        <td colSpan={15} className="px-2 pt-4 pb-1 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                        <td colSpan={20} className="px-2 pt-4 pb-1 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                           {groupName}
                         </td>
                       </tr>
@@ -398,6 +416,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
               </tbody>
             </table>
           </div>
+          </>
         )}
 
         <AddComponentForm
@@ -407,6 +426,15 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
         />
       </div>
 
+    </div>
+  )
+}
+
+function CompareRow({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex justify-between">
+      <dt className="text-gray-600">{label}</dt>
+      <dd className="font-mono text-gray-800">${value.toFixed(2)}</dd>
     </div>
   )
 }

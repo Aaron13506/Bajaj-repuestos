@@ -2,9 +2,18 @@ import { getShoppReRate } from './shipping-rates'
 
 export type ConfigMap = Record<string, string>
 
+// Lee una key numérica de Config, cayendo a `fallback` si está vacía o no es número.
+// Las keys del modo marítimo pueden no existir todavía en la DB (es un escenario futuro),
+// así que ninguna puede romper el cálculo por ausencia.
+function num(cfg: ConfigMap, key: string, fallback: number): number {
+  const v = parseFloat(cfg[key] ?? '')
+  return Number.isFinite(v) ? v : fallback
+}
+
 export interface LandedBreakdown {
+  modo: ModoEnvio
   productCostUsd: number
-  shoppreShippingUsd: number
+  shoppreShippingUsd: number   // 0 en marítimo: no hay tramo aéreo
   insuranceUsd: number
   maritimeUsd: number
   landedCostUsd: number
@@ -42,16 +51,22 @@ function applyMargin(landedCostUsd: number, margin: number | null, cfg: ConfigMa
   return { priceUsd, priceBsd: priceUsd * bsdUsd }
 }
 
-export function calcLanded(product: ProductForCalc, cfg: ConfigMap): LandedBreakdown | null {
+export function calcLanded(
+  product: ProductForCalc,
+  cfg: ConfigMap,
+  modo: ModoEnvio = 'aereo',
+): LandedBreakdown | null {
   const hasCost = product.priceUsd != null || !!product.priceInr
   if (!hasCost) return null
 
   // Proveedor que ya cotiza landed (puesto en Venezuela): el precio es el costo final,
   // sin sumarle Shoppre/seguro/marítimo — esos ya están incluidos en su cotización.
+  // No depende del modo: esa pieza nunca viaja en nuestra caja, venga por aire o por mar.
   if (product.priceIsLanded && product.priceUsd != null) {
     const landedCostUsd = product.priceUsd
     const { priceUsd, priceBsd } = applyMargin(landedCostUsd, product.margin, cfg)
     return {
+      modo,
       productCostUsd: landedCostUsd,
       shoppreShippingUsd: 0,
       insuranceUsd: 0,
@@ -62,34 +77,49 @@ export function calcLanded(product: ProductForCalc, cfg: ConfigMap): LandedBreak
     }
   }
 
-  if (!product.weightGrams) return null
+  const esMaritimo = modo === 'maritimo'
+  const hasDims = !!(product.dimL && product.dimA && product.dimH)
 
-  const inrUsd        = parseFloat(cfg.inr_usd_rate          ?? '95')
-  const isMember      = cfg.shoppre_member                   !== 'false'
-  const refWeightKg   = parseFloat(cfg.reference_weight_kg   ?? '15')
-  const maritimePft3  = parseFloat(cfg.miami_caracas_per_ft3 ?? '45')
-  const insurancePct  = parseFloat(cfg.shoppre_insurance_pct ?? '0.03')
-  const carrier       = cfg.shoppre_carrier                  ?? 'ShipGlobal USA - Duty Free'
+  // Cada modo exige el dato que efectivamente se factura: el aéreo cobra peso, el mar cobra
+  // volumen. Sin dimensiones el flete marítimo sería 0 y el landed saldría falsamente barato
+  // — peor que no mostrar nada, porque haría ver el mar como una ganga que no es.
+  if (esMaritimo ? !hasDims : !product.weightGrams) return null
 
+  const inrUsd         = parseFloat(cfg.inr_usd_rate          ?? '95')
   const productCostUsd = product.priceUsd != null ? product.priceUsd : product.priceInr! / inrUsd
-  const fraction = product.weightGrams / (refWeightKg * 1000)
-  const refRateInr = getShoppReRate(refWeightKg, carrier, isMember)
 
-  const shoppreShippingUsd = (refRateInr / inrUsd) * fraction
-  const insuranceUsd       = productCostUsd * insurancePct
-
-  let maritimeUsd = 0
-  if (product.dimL && product.dimA && product.dimH) {
-    const volumeFt3 = (product.dimL * product.dimA * product.dimH) / 28316.846
-    maritimeUsd = volumeFt3 * maritimePft3
+  // Tramo aéreo India → USA, prorrateado sobre una caja de referencia. Por mar no existe.
+  let shoppreShippingUsd = 0
+  if (!esMaritimo) {
+    const isMember    = cfg.shoppre_member                 !== 'false'
+    const carrier     = cfg.shoppre_carrier                ?? 'ShipGlobal USA - Duty Free'
+    const refWeightKg = num(cfg, 'reference_weight_kg', 15)
+    const fraction    = product.weightGrams! / (refWeightKg * 1000)
+    const refRateInr  = getShoppReRate(refWeightKg, carrier, isMember)
+    shoppreShippingUsd = (refRateInr / inrUsd) * fraction
   }
 
-  // El processing fee de Shoppre es un cargo fijo por ENVÍO, no por pieza, así que no
-  // se incluye en el costo landed por producto. Se aplica una sola vez en calcEnvio.
+  const insurancePct = esMaritimo
+    ? num(cfg, 'maritimo_insurance_pct', 0.06)
+    : num(cfg, 'shoppre_insurance_pct', 0.03)
+  const insuranceUsd = productCostUsd * insurancePct
+
+  // Flete por volumen. En aéreo es el tramo corto Miami→CCS; en marítimo directo es el
+  // flete completo India→Venezuela, que reemplaza también al aéreo.
+  const maritimeMiami = num(cfg, 'miami_caracas_per_ft3', 45)
+  const perFt3 = esMaritimo ? num(cfg, 'maritimo_directo_per_ft3', maritimeMiami) : maritimeMiami
+  const maritimeUsd = hasDims
+    ? ((product.dimL! * product.dimA! * product.dimH!) / 28316.846) * perFt3
+    : 0
+
+  // Los cargos fijos por ENVÍO no entran al costo landed por pieza: el processing de Shoppre
+  // en aéreo, y el mínimo facturable (maritimo_min_ft3) más los gastos de origen/destino
+  // (maritimo_fee_usd) en marítimo. Todos se aplican una sola vez, en calcEnvio.
   const landedCostUsd = productCostUsd + shoppreShippingUsd + insuranceUsd + maritimeUsd
   const { priceUsd, priceBsd } = applyMargin(landedCostUsd, product.margin, cfg)
 
   return {
+    modo,
     productCostUsd,
     shoppreShippingUsd,
     insuranceUsd,
@@ -135,6 +165,17 @@ export interface EnvioItemInput {
   isLanded?: boolean
 }
 
+// Modo de traída de la caja. Son dos cadenas logísticas distintas, no una variante:
+//
+//   aereo    (hoy):   India → USA por avión (Shoppre/ShipGlobal) → Venezuela por mar.
+//   maritimo (futuro): India → Venezuela por mar, directo. No hay escala en USA, así que
+//                      no hay tramo aéreo, ni processing de Shoppre, ni membresía. El
+//                      flete se cobra por pie cúbico sobre el volumen de la caja entera.
+//
+// El peso deja de importar por completo en marítimo: la naviera cobra volumen. Por eso
+// el max(W,V) y el punto dulce de la tabla escalón no aplican en ese modo.
+export type ModoEnvio = 'aereo' | 'maritimo'
+
 export interface EnvioItemLine {
   pedidoId: number
   productId: number
@@ -143,10 +184,11 @@ export interface EnvioItemLine {
   origen: 'india' | 'china'
   isLanded: boolean
   realKg: number          // peso real total de la línea (kg)
-  volKg: number           // peso volumétrico total de la línea (kg)
+  volKg: number           // peso volumétrico total de la línea (kg) — solo aplica en aéreo
+  volumeFt3: number       // volumen real total de la línea (ft³) — la unidad que cobra el mar
   productCostUsd: number
-  airUsd: number          // costo de llegar a USA (ShipGlobal si India, inbound si China)
-  maritimeUsd: number     // su propio volumen marítimo
+  airUsd: number          // costo de llegar a USA (ShipGlobal si India, inbound si China). 0 en marítimo
+  maritimeUsd: number     // su parte del flete marítimo
   landedUsd: number       // costo landed total de la línea
   missingWeight: boolean
   missingDims: boolean
@@ -166,7 +208,10 @@ export interface LegBreakdown {
 }
 
 export interface EnvioBreakdown {
-  // Tramos a USA, medidos por separado porque cotizan distinto.
+  modo: ModoEnvio
+  // Tramos a USA, medidos por separado porque cotizan distinto. En modo marítimo los dos
+  // cuestan 0 (la caja no pasa por USA) pero se siguen midiendo en kg, para poder comparar
+  // contra el escenario aéreo sin recalcular.
   air: LegBreakdown & { inr: number }   // India → USA (ShipGlobal, tabla escalón)
   china: LegBreakdown                   // China → USA (costo real cargado a mano)
   // Totales de la caja que cruza a Venezuela (India + China; los isLanded no viajan).
@@ -179,8 +224,16 @@ export interface EnvioBreakdown {
   airUsd: number          // total a USA por los dos orígenes
   airPerKgUsd: number
   maritimeUsd: number
+  // Volumen del flete marítimo. `billableFt3` es lo que efectivamente se factura: en
+  // marítimo puede ser mayor que el real si la naviera cobra un mínimo por embarque.
+  volumeFt3: number
+  billableFt3: number
+  maritimePerFt3: number
+  minFt3Applied: boolean
   productCostUsd: number
   insuranceUsd: number
+  // Cargo fijo por embarque: processing de Shoppre en aéreo, gastos de origen/destino
+  // (handling, THC, aduana) en marítimo. Es el mismo lugar del costeo en los dos modos.
   processingUsd: number
   landedUsd: number
   // Ítems que no viajan en la caja (proveedor landed): su costo entra al total pero
@@ -192,7 +245,10 @@ export interface EnvioBreakdown {
 export interface EnvioOptions {
   // Costo real facturado del tramo China → USA. Se prorratea entre los ítems de ese
   // origen; sin este dato el tramo cuenta 0 y el envío se subcostea (la UI avisa).
+  // Irrelevante en modo marítimo: no hay tramo a USA.
   inboundChinaUsd?: number | null
+  // Cadena logística a costear. Default 'aereo' — el modo en producción hoy.
+  modo?: ModoEnvio
 }
 
 // Mide un grupo de líneas como caja independiente: peso real, volumétrico, cuál de los
@@ -223,15 +279,29 @@ function repartirTramo(lines: EnvioItemLine[], costUsd: number): LegBreakdown {
 }
 
 export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOptions = {}): EnvioBreakdown {
+  const modo          = opts.modo ?? 'aereo'
+  const esMaritimo    = modo === 'maritimo'
   const inrUsd        = parseFloat(cfg.inr_usd_rate           ?? '95')
   const isMember      = cfg.shoppre_member                    !== 'false'
-  const maritimePft3  = parseFloat(cfg.miami_caracas_per_ft3  ?? '45')
-  const insurancePct  = parseFloat(cfg.shoppre_insurance_pct  ?? '0.03')
-  const processingInr = parseFloat(cfg.shoppre_processing_inr ?? '500')
   const carrier       = cfg.shoppre_carrier                   ?? 'ShipGlobal USA - Duty Free'
   const divisor       = parseFloat(cfg.air_volumetric_divisor ?? '5000')
 
-  // Primera pasada: peso real, volumétrico, costo de producto y marítimo por línea.
+  // Tarifa del flete por mar. En aéreo es el tramo corto Miami→CCS; en marítimo directo es
+  // el flete completo India→Venezuela, que es otro número (más alto por ft³, pero reemplaza
+  // al aéreo entero). Mientras no haya cotización cargada cae a la tarifa Miami→CCS para
+  // que el simulador sea usable — la UI avisa que está usando el respaldo.
+  const maritimeMiami = num(cfg, 'miami_caracas_per_ft3', 45)
+  const maritimePft3  = esMaritimo ? num(cfg, 'maritimo_directo_per_ft3', maritimeMiami) : maritimeMiami
+  // Mínimo facturable del embarque LCL. 0 = la naviera cobra el volumen real tal cual.
+  const minFt3        = esMaritimo ? num(cfg, 'maritimo_min_ft3', 0) : 0
+  // Seguro sobre el costo de producto. El marítimo va al 6% (la carga por mar viaja meses y
+  // la prima es más cara que la del aéreo, que está en 3%).
+  const insurancePct  = esMaritimo
+    ? num(cfg, 'maritimo_insurance_pct', 0.06)
+    : num(cfg, 'shoppre_insurance_pct', 0.03)
+  const processingInr = num(cfg, 'shoppre_processing_inr', 500)
+
+  // Primera pasada: peso real, volumétrico, volumen en ft³ y costo de producto por línea.
   // Los ítems landed (ya puestos en Venezuela) no viajan: van con peso y volumen en
   // cero para que no inflen una caja en la que nunca estuvieron.
   const lines: EnvioItemLine[] = items.map(it => {
@@ -251,9 +321,12 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
       isLanded,
       realKg: viaja ? ((it.weightGrams ?? 0) / 1000) * qty : 0,
       volKg: viaja && hasDims ? (cm3 / divisor) * qty : 0,
+      volumeFt3,
       productCostUsd: (it.priceUsd != null ? it.priceUsd : (it.priceInr ?? 0) / inrUsd) * qty,
       airUsd: 0,
-      maritimeUsd: volumeFt3 * maritimePft3,
+      // El marítimo se reparte en una segunda pasada: con mínimo facturable deja de ser
+      // aditivo por pieza (la caja paga un piso aunque nadie lo llene).
+      maritimeUsd: 0,
       landedUsd: 0,
       // Un ítem que no viaja no "le falta" peso ni dimensiones: no se le piden.
       missingWeight: viaja && it.weightGrams == null,
@@ -266,15 +339,17 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   const chinaLines = enBarco.filter(l => l.origen === 'china')
 
   // Tramo India→USA: tarifa escalón de ShipGlobal sobre el peso cobrable de ESE grupo.
+  // En marítimo directo la caja nunca pasa por USA, así que el tramo vale 0 — pero se sigue
+  // midiendo en kg para poder comparar los dos escenarios lado a lado.
   const indiaChargeable = Math.max(
     indiaLines.reduce((s, l) => s + l.realKg, 0),
     indiaLines.reduce((s, l) => s + l.volKg, 0),
   )
-  const airInr = indiaChargeable > 0 ? getShoppReRate(indiaChargeable, carrier, isMember) : 0
+  const airInr = !esMaritimo && indiaChargeable > 0 ? getShoppReRate(indiaChargeable, carrier, isMember) : 0
   const airLeg = { ...repartirTramo(indiaLines, airInr / inrUsd), inr: airInr }
 
   // Tramo China→USA: no hay tabla, es el costo real facturado.
-  const chinaLeg = repartirTramo(chinaLines, opts.inboundChinaUsd ?? 0)
+  const chinaLeg = repartirTramo(chinaLines, esMaritimo ? 0 : (opts.inboundChinaUsd ?? 0))
 
   // Totales de la caja marítima: los dos orígenes viajan juntos de USA a Venezuela.
   const W = enBarco.reduce((s, l) => s + l.realKg, 0)
@@ -285,12 +360,36 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
 
   const landedDirectUsd = lines.filter(l => l.isLanded).reduce((s, l) => s + l.productCostUsd, 0)
   const productCostUsd  = lines.reduce((s, l) => s + l.productCostUsd, 0)
-  const maritimeUsd     = enBarco.reduce((s, l) => s + l.maritimeUsd, 0)
-  // Seguro y processing solo sobre lo que efectivamente viaja: el costo de los ítems
+
+  // ── Flete marítimo ────────────────────────────────────────────────────────
+  // Se factura el volumen de la caja, con un piso si la naviera cobra mínimo por embarque.
+  // El piso hace que el costo NO sea aditivo por pieza, así que se reparte proporcional al
+  // volumen de cada línea: si el mínimo infla la factura, todas las piezas lo absorben.
+  // Si no viaja nada (todo el pedido es de proveedor landed) no hay embarque, y por lo
+  // tanto tampoco mínimo que pagar: la caja no existe.
+  const volumeFt3     = enBarco.reduce((s, l) => s + l.volumeFt3, 0)
+  const billableFt3   = enBarco.length > 0 ? Math.max(volumeFt3, minFt3) : 0
+  const maritimeUsd   = billableFt3 * maritimePft3
+  const minFt3Applied = enBarco.length > 0 && minFt3 > 0 && volumeFt3 < minFt3
+
+  // Reparto: por volumen si hay dimensiones; si no hay ninguna cargada (pero igual se paga
+  // el mínimo) se cae al costo de producto para no dejar el flete sin imputar a nadie.
+  const volDenom  = volumeFt3
+  const costDenom = enBarco.reduce((s, l) => s + l.productCostUsd, 0)
+  for (const l of enBarco) {
+    if (volDenom > 0)       l.maritimeUsd = maritimeUsd * (l.volumeFt3 / volDenom)
+    else if (costDenom > 0) l.maritimeUsd = maritimeUsd * (l.productCostUsd / costDenom)
+    else                    l.maritimeUsd = enBarco.length ? maritimeUsd / enBarco.length : 0
+  }
+
+  // Seguro y cargo fijo solo sobre lo que efectivamente viaja: el costo de los ítems
   // landed ya trae todos sus cargos incluidos en la cotización del proveedor.
-  const insuranceUsd    = (productCostUsd - landedDirectUsd) * insurancePct
-  // El processing es un cargo fijo de Shoppre: solo aplica si hay algo saliendo de India.
-  const processingUsd   = indiaLines.length > 0 ? processingInr / inrUsd : 0
+  const insuranceUsd = (productCostUsd - landedDirectUsd) * insurancePct
+  // Cargo fijo por embarque. En aéreo es el processing de Shoppre (solo si sale algo de
+  // India); en marítimo son los gastos de origen/destino, que se pagan una vez por caja.
+  const processingUsd = esMaritimo
+    ? (enBarco.length > 0 ? num(cfg, 'maritimo_fee_usd', 0) : 0)
+    : (indiaLines.length > 0 ? processingInr / inrUsd : 0)
 
   const landedUsd = productCostUsd + airUsd + insuranceUsd + processingUsd + maritimeUsd
 
@@ -309,6 +408,7 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   }
 
   return {
+    modo,
     air: airLeg,
     china: chinaLeg,
     realKg: W,
@@ -320,6 +420,10 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
     airUsd,
     airPerKgUsd: chargeableKg > 0 ? airUsd / chargeableKg : 0,
     maritimeUsd,
+    volumeFt3,
+    billableFt3,
+    maritimePerFt3: maritimePft3,
+    minFt3Applied,
     productCostUsd,
     insuranceUsd,
     processingUsd,
