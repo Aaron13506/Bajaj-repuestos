@@ -31,7 +31,7 @@ extraiga los datos de una página (99rpm, Boodmo, etc.).
 | `nameEs`           | string  | **Sí**      | Nombre en español (se usa en presupuestos). |
 | `nameEn`           | string  | No          | Nombre en inglés / catálogo Bajaj. |
 | `bajajCode`        | string  | No          | Código de la pieza (ej. `JR161036`). |
-| `compatibleModels` | string  | No          | Modelos compatibles (ej. `Pulsar N250/N160`). |
+| `models`           | array   | No          | Motos compatibles, por id del enum (ej. `["PULSAR_N250_DUAL_ABS_2022_23"]`). Acepta también el nombre completo (`"Pulsar N250 Dual ABS 2022 23"`). Lo que no sea una de las 14 motos se descarta. |
 | `sourceUrl`        | string  | No          | URL de la página de origen. |
 | `description`      | string  | No          | Descripción libre. |
 | `notes`            | string  | No          | Notas o variantes. |
@@ -69,7 +69,7 @@ Un producto individual completo (con tamaño y peso):
   "nameEs": "Pastilla de freno trasera",
   "nameEn": "Rear Brake Pad",
   "bajajCode": "JR161036",
-  "compatibleModels": "Pulsar N250/N160",
+  "models": ["PULSAR_N250_DUAL_ABS_2022_23", "PULSAR_N160_DUAL_ABS_2022_23"],
   "sourceUrl": "https://www.99rpm.com/...",
   "priceInr": 450,
   "weightGrams": 320,
@@ -130,7 +130,7 @@ Al importar:
     "nameEs": "Pedal de freno trasero",
     "nameEn": "Rear Brake Pedal",
     "bajajCode": "JR161036",
-    "compatibleModels": "Pulsar N250/N160",
+    "models": ["PULSAR_N250_DUAL_ABS_2022_23", "PULSAR_N160_DUAL_ABS_2022_23"],
     "sourceUrl": "https://www.99rpm.com/...",
     "subgroups": [
       {
@@ -227,7 +227,7 @@ sin texto alrededor. Usá una de estas estructuras:
    {
      "group": {
        "nameEs": "<nombre del ensamble>",
-       "nameEn": "...", "bajajCode": "...", "compatibleModels": "...", "sourceUrl": "...",
+       "nameEn": "...", "bajajCode": "...", "models": [...], "sourceUrl": "...",
        "subgroups": [
          { "name": "<nombre de la sección, ej Fasteners>", "products": [ {pieza}, ... ] }
        ]
@@ -239,7 +239,7 @@ Campos de cada PIEZA (todos opcionales salvo nameEs):
 - nameEs            (string, OBLIGATORIO) nombre en español
 - nameEn            (string) nombre en inglés / catálogo
 - bajajCode         (string) código de la pieza
-- compatibleModels  (string) modelos compatibles
+- models            (array)  motos compatibles, por id del enum MotoModel
 - sourceUrl         (string) URL de la página
 - description       (string)
 - notes             (string)

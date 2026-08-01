@@ -2,6 +2,10 @@ import { getShoppReRate } from './shipping-rates'
 
 export type ConfigMap = Record<string, string>
 
+// cm³ en un pie cúbico. El marítimo cotiza por ft³, pero las medidas de las piezas
+// se cargan en cm, así que toda conversión de volumen pasa por acá.
+export const CM3_PER_FT3 = 28316.846
+
 export interface LandedBreakdown {
   productCostUsd: number
   shoppreShippingUsd: number
@@ -80,7 +84,7 @@ export function calcLanded(product: ProductForCalc, cfg: ConfigMap): LandedBreak
 
   let maritimeUsd = 0
   if (product.dimL && product.dimA && product.dimH) {
-    const volumeFt3 = (product.dimL * product.dimA * product.dimH) / 28316.846
+    const volumeFt3 = (product.dimL * product.dimA * product.dimH) / CM3_PER_FT3
     maritimeUsd = volumeFt3 * maritimePft3
   }
 
@@ -241,7 +245,7 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
     const hasDims = it.dimL != null && it.dimA != null && it.dimH != null
     const cm3 = hasDims ? it.dimL! * it.dimA! * it.dimH! : 0
     const viaja = !isLanded
-    const volumeFt3 = viaja && hasDims ? (cm3 / 28316.846) * qty : 0
+    const volumeFt3 = viaja && hasDims ? (cm3 / CM3_PER_FT3) * qty : 0
     return {
       pedidoId: it.pedidoId,
       productId: it.productId,

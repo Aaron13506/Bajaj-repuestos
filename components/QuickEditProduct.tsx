@@ -1,4 +1,5 @@
 'use client'
+import ModelPicker from '@/components/ModelPicker'
 
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -11,7 +12,7 @@ export interface QuickEditValues {
   nameEs: string
   nameEn: string | null
   bajajCode: string | null
-  compatibleModels: string | null
+  models: readonly string[]
   priceInr: number | null
   // Override de precio del proveedor activo, EN USD (null/undefined = sin override,
   // cae al precio base priceInr de 99rpm). Solo tiene sentido con un proveedor activo.
@@ -189,7 +190,7 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty, activeSupp
       nameEs:           fdStr('nameEs') || d.nameEs,
       nameEn:           fdStr('nameEn') || null,
       bajajCode:        fdStr('bajajCode') || null,
-      compatibleModels: fdStr('compatibleModels') || null,
+      models:           fd.getAll('models').map(String),
       priceInr:         isSupplierMode ? d.priceInr : fdInt('priceInr'),
       priceUsd:         isSupplierMode ? fdFloat('priceUsd') : (d.priceUsd ?? null),
       priceIsLanded:    isSupplierMode ? isLanded : (d.priceIsLanded ?? false),
@@ -239,9 +240,9 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty, activeSupp
                 <label className={label}>Código Bajaj</label>
                 <input name="bajajCode" defaultValue={d.bajajCode ?? ''} className={`${input} font-mono`} />
               </div>
-              <div>
-                <label className={label}>Modelos compatibles</label>
-                <input name="compatibleModels" defaultValue={d.compatibleModels ?? ''} className={input} />
+              <div className="sm:col-span-2">
+                <label className={label}>Motos</label>
+                <ModelPicker value={d.models} dense />
               </div>
             </div>
 

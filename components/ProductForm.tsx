@@ -1,4 +1,5 @@
 'use client'
+import ModelPicker from '@/components/ModelPicker'
 
 import Link from 'next/link'
 import { useRef, useState } from 'react'
@@ -18,7 +19,7 @@ interface ProductFormValues {
   nameEn?: string | null
   description?: string | null
   notes?: string | null
-  compatibleModels?: string | null
+  models?: readonly string[]
   weightGrams?: number | null
   dimL?: number | null
   dimA?: number | null
@@ -143,10 +144,9 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
             <input name="bajajCode" defaultValue={d.bajajCode ?? ''} placeholder="Ej: JR161036"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Modelos compatibles</label>
-            <input name="compatibleModels" defaultValue={d.compatibleModels ?? ''} placeholder="Ej: Pulsar N250/N160"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+          <div className="sm:col-span-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Motos</label>
+            <ModelPicker value={d.models ?? []} />
           </div>
           <div className="sm:col-span-2">
             <label className="block text-sm font-medium text-gray-700 mb-1">URL fuente (99rpm / Boodmo)</label>

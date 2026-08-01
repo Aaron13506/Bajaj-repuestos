@@ -5,6 +5,7 @@ import Link from 'next/link'
 import DeleteButton from '@/components/DeleteButton'
 import QuickEditProduct, { type QuickEditValues } from '@/components/QuickEditProduct'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
+import { formatModels } from '@/lib/modelo'
 import { deleteProduct } from '@/app/(pages)/products/actions'
 
 export interface ComponentData extends QuickEditValues {
@@ -129,7 +130,9 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
             <span className="block text-xs font-normal text-gray-400 truncate">{d.nameEn}</span>
           )}
         </td>
-        <td className="px-4 py-3 text-xs text-gray-500 max-w-[120px] truncate">{d.compatibleModels ?? '—'}</td>
+        <td className="px-4 py-3 text-xs text-gray-500 max-w-[140px] truncate" title={d.models.length ? formatModels(d.models) : undefined}>
+          {d.models.length ? formatModels(d.models) : '—'}
+        </td>
         <td className="px-4 py-3 text-right text-gray-500 text-xs">{d.weightGrams ?? '—'}</td>
 
         <CostCells d={d} cfg={cfg} />
@@ -153,7 +156,7 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
                 nameEs: product.nameEs,
                 nameEn: product.nameEn,
                 bajajCode: product.bajajCode,
-                compatibleModels: product.compatibleModels,
+                models: product.models,
                 priceInr: product.priceInr,
                 priceUsd: product.priceUsd,
                 priceIsLanded: product.priceIsLanded,
@@ -188,7 +191,9 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
               )}
             </span>
           </td>
-          <td className="px-4 py-2 text-gray-400 max-w-[120px] truncate">{c.compatibleModels ?? '—'}</td>
+          <td className="px-4 py-2 text-gray-400 max-w-[140px] truncate" title={c.models.length ? formatModels(c.models) : undefined}>
+            {c.models.length ? formatModels(c.models) : '—'}
+          </td>
           <td className="px-4 py-2 text-right text-gray-400">
             {c.weightGrams ?? '—'}
             {c.quantity > 1 && c.weightGrams != null && (

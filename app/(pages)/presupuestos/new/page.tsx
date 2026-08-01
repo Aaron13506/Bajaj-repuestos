@@ -1,6 +1,5 @@
 import { db } from '@/lib/db'
 import PresupuestoBuilder from '@/components/PresupuestoBuilder'
-import { sortModels } from '@/lib/catalog'
 import { createPresupuesto } from '../actions'
 
 export default async function NewPresupuestoPage({
@@ -14,7 +13,7 @@ export default async function NewPresupuestoPage({
   const [assemblies, clientes] = await Promise.all([
     db.product.findMany({
       where: { isAssembly: true },
-      select: { id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true, compatibleModels: true },
+      select: { id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true, models: true },
       orderBy: { nameEs: 'asc' },
     }),
     db.cliente.findMany({
@@ -23,17 +22,13 @@ export default async function NewPresupuestoPage({
     }),
   ])
 
-  const models = sortModels(
-    Array.from(new Set(assemblies.map(a => a.compatibleModels).filter((m): m is string => !!m)))
-  )
-
   const assembliesForClient = assemblies.map(a => ({
     id: a.id,
     nameEs: a.nameEs,
     bajajCode: a.bajajCode,
     price: parseFloat(a.price.toString()),
     imageUrl: a.imageUrl,
-    compatibleModels: a.compatibleModels,
+    models: a.models,
   }))
 
   return (
@@ -50,7 +45,6 @@ export default async function NewPresupuestoPage({
       </div>
       <PresupuestoBuilder
         assemblies={assembliesForClient}
-        models={models}
         action={createPresupuesto}
         tipo={tipo}
         initialClientName={tipo === 'propio' ? 'Stock propio' : ''}

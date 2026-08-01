@@ -11,6 +11,7 @@ import { METODOS_PAGO } from '@/lib/pagos'
 import { toFileName } from '@/lib/utils'
 import type { PresupuestoPdfData } from '@/lib/pdf/presupuesto-pdf'
 import { stageSummary, shippingStatusMeta, SHIPPING_STATUSES } from '@/lib/shipping-status'
+import { modeloLabel } from '@/lib/modelo'
 
 export default async function PresupuestoDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const id = parseInt((await params).id)
@@ -23,7 +24,10 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
         items: {
           include: {
             product: {
-              select: { id: true, nameEs: true, bajajCode: true, description: true, imageUrl: true },
+              select: {
+                id: true, nameEs: true, bajajCode: true, description: true, imageUrl: true,
+                models: true,
+              },
             },
             supplier: { select: { name: true } },
           },
@@ -77,14 +81,20 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
     validez: isPresupuesto ? validez : null,
     clientName: presupuesto.clientName,
     notas: presupuesto.notas,
-    items: presupuesto.items.map(item => ({
+    items: presupuesto.items.map(item => {
+      // Solo cuando el producto apunta a UNA moto (los ensambles): la lista larga de
+      // compatibilidades de una pieza suelta no le dice nada al cliente.
+      const m = modeloLabel(item.product.models)
+      return {
       nameEs: item.product.nameEs,
       bajajCode: item.product.bajajCode,
+      modelo: m && m.count === 1 ? m.full : null,
       quantity: item.quantity,
       unitPrice: parseFloat(item.salePrice.toString()),
       subtotal: parseFloat(item.salePrice.toString()) * item.quantity,
       bundlePieces: (item.bundleItems as BundlePiece[] | null) ?? [],
-    })),
+      }
+    }),
     total,
     totalBsd,
     isPresupuesto,
@@ -266,6 +276,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
               const unitPrice = parseFloat(item.salePrice.toString())
               const subtotal = unitPrice * item.quantity
               const bundlePieces = (item.bundleItems as BundlePiece[] | null) ?? []
+              const modelo = modeloLabel(item.product.models)
               return (
                 <tr key={item.id} className="hover:bg-gray-50">
                   <td className="px-3 py-3 align-top">
@@ -283,8 +294,24 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
                   </td>
                   <td className="px-3 py-3 align-top">
                     <p className="text-sm font-medium text-gray-900">{item.product.nameEs}</p>
-                    {item.product.bajajCode && (
-                      <p className="text-xs font-mono text-gray-400">{item.product.bajajCode}</p>
+                    {(item.product.bajajCode || modelo) && (
+                      <p className="flex items-center gap-1.5 flex-wrap">
+                        {item.product.bajajCode && (
+                          <span className="text-xs font-mono text-gray-400">{item.product.bajajCode}</span>
+                        )}
+                        {modelo && (
+                          <span
+                            title={modelo.full}
+                            className={`text-[10px] px-1.5 py-0.5 rounded ${
+                              modelo.count === 1
+                                ? 'bg-gray-100 text-gray-700 font-medium'
+                                : 'bg-gray-50 text-gray-400'
+                            }`}
+                          >
+                            {modelo.label}
+                          </span>
+                        )}
+                      </p>
                     )}
                     {!isPresupuesto && (
                       <p className="mt-1 flex items-center gap-1.5 flex-wrap">
@@ -315,7 +342,9 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
                             <ul className="space-y-0.5">
                               {pieces.map((p, i) => (
                                 <li key={i} className="text-xs text-gray-500">
-                                  {p.quantity * item.quantity}× {p.nameEs}
+                                  {/* Cantidad POR SET: la columna Cant. ya es el multiplicador
+                                      del conjunto, mostrar el total acá lo aplicaba dos veces. */}
+                                  {p.quantity}× {p.nameEs}
                                   {p.bajajCode && (
                                     <span className="ml-1.5 font-mono text-gray-300">{p.bajajCode}</span>
                                   )}

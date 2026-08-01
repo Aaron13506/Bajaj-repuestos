@@ -18,6 +18,14 @@ model Product {
   nameEn           String?
   description      String?
   notes            String?
+  // Motos a las que le sirve la pieza. Tipado: las 14 del catálogo, nada más — un
+  // string libre dejaba entrar alias ("N250", "Pulsar N250/N160") que no son un modelo
+  // y que inflaban la compatibilidad al contarlos. Un ensamble lleva exactamente una.
+  // La tabla de presentación (familia, variante, años) está en lib/modelo.ts, que
+  // verifica en compilación que sus ids sigan siendo los de este enum.
+  models           MotoModel[]
+  // LEGADO: el texto del que salió `models`. Se conserva como respaldo del backfill
+  // (scripts/backfill-models.ts) hasta confirmar la migración; nada lo lee ya.
   compatibleModels String?
   weightGrams      Int?
   dimL             Float?

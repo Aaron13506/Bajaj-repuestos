@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { type BundlePiece, groupBundlePieces } from '@/lib/bundle'
+import { ALL_MODELS, compatBadge, coverageByModel, formatModels, modeloLabel, shortModel, type MotoModelId } from '@/lib/modelo'
 import { getAssemblyComponents, searchProducts } from '@/app/(pages)/presupuestos/builder-actions'
 
 interface Product {
@@ -10,7 +11,7 @@ interface Product {
   bajajCode: string | null
   price: number
   imageUrl?: string | null
-  compatibleModels?: string | null
+  models?: readonly MotoModelId[]
 }
 
 interface AssemblyComponent {
@@ -27,7 +28,7 @@ interface Assembly {
   bajajCode: string | null
   price: number
   imageUrl?: string | null
-  compatibleModels: string | null
+  models: readonly MotoModelId[]
 }
 
 interface CartItem {
@@ -37,6 +38,8 @@ interface CartItem {
   unitPrice: number
   quantity: number
   imageUrl?: string | null
+  /** Motos del producto (ver lib/modelo.ts): en un ensamble, la moto a la que pertenece. */
+  models?: readonly MotoModelId[]
   /** Si está presente, la línea es un conjunto a precio único y estas son las piezas incluidas. */
   bundleItems?: BundlePiece[]
 }
@@ -49,7 +52,6 @@ interface ClienteOption {
 
 interface Props {
   assemblies: Assembly[]
-  models: string[]
   action: (formData: FormData) => Promise<void>
   initialClientName?: string
   initialNotas?: string
@@ -63,7 +65,6 @@ interface Props {
 
 export default function PresupuestoBuilder({
   assemblies,
-  models,
   action,
   initialClientName = '',
   initialNotas = '',
@@ -92,11 +93,14 @@ export default function PresupuestoBuilder({
   const [compCache, setCompCache] = useState<Record<number, AssemblyComponent[]>>({})
   const [loadingComps, setLoadingComps] = useState(false)
 
+  // Qué piezas tienen desplegada la lista de motos compatibles (por ProductComponent.id).
+  const [compatOpen, setCompatOpen] = useState<Record<number, boolean>>({})
+
   // Ensambles filtrados por moto + texto, para que la lista no sea inmanejable.
   const filteredAssemblies = useMemo(() => {
     const q = asmSearch.trim().toLowerCase()
     return assemblies.filter(a => {
-      if (modelFilter && (a.compatibleModels ?? '') !== modelFilter) return false
+      if (modelFilter && !a.models.includes(modelFilter as MotoModelId)) return false
       return !(q && !(a.nameEs.toLowerCase().includes(q) || a.bajajCode?.toLowerCase().includes(q)));
 
     })
@@ -105,11 +109,20 @@ export default function PresupuestoBuilder({
   const selectedAssembly = assemblies.find(a => a.id === selectedAssemblyId) ?? null
   const selectedComponents = selectedAssemblyId != null ? compCache[selectedAssemblyId] : undefined
 
+  // La moto desde la que se está mirando, para responder "¿esta pieza además me sirve
+  // para cuál otra?". Sale del filtro, y si no hay filtro del ensamble abierto — que es
+  // siempre de una sola moto.
+  const currentModel = useMemo(
+    () => modelFilter || selectedAssembly?.models[0] || '',
+    [modelFilter, selectedAssembly],
+  )
+
   // Selecciona un ensamble y trae sus componentes de la DB si aún no están en cache.
   async function selectAssembly(id: number | null) {
     setSelectedAssemblyId(id)
     setChecked({})
     setQuantities({})
+    setCompatOpen({})
     if (id != null && !compCache[id]) {
       setLoadingComps(true)
       try {
@@ -157,6 +170,7 @@ export default function PresupuestoBuilder({
             unitPrice: comp.child.price,
             quantity: qty,
             imageUrl: comp.child.imageUrl,
+            models: comp.child.models,
           })
         }
       }
@@ -196,6 +210,7 @@ export default function PresupuestoBuilder({
         unitPrice: piecesPriceSum,
         quantity: 1,
         imageUrl: selectedAssembly.imageUrl,
+        models: selectedAssembly.models,
         bundleItems: pieces,
       },
     ])
@@ -232,12 +247,25 @@ export default function PresupuestoBuilder({
     if (cart.find(c => c.productId === product.id)) return
     setCart(prev => [
       ...prev,
-      { productId: product.id, nameEs: product.nameEs, bajajCode: product.bajajCode, unitPrice: product.price, quantity: 1, imageUrl: product.imageUrl },
+      {
+        productId: product.id,
+        nameEs: product.nameEs,
+        bajajCode: product.bajajCode,
+        unitPrice: product.price,
+        quantity: 1,
+        imageUrl: product.imageUrl,
+        models: product.models,
+      },
     ])
     setSearch('')
   }
 
   const total = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0)
+
+  // Cobertura del carrito moto por moto. Una línea "conjunto" cuenta por el ensamble
+  // (una sola moto), no por sus piezas: el conjunto se arma para esa moto puntual.
+  const coverage = useMemo(() => coverageByModel(cart), [cart])
+  const maxCoverage = coverage[0]?.lines ?? 0
 
   // Búsqueda de piezas sueltas contra la DB (debounce 250ms), sin traer todo el catálogo.
   useEffect(() => {
@@ -317,8 +345,8 @@ export default function PresupuestoBuilder({
                 }}
               >
                 <option value="">— Todas las motos —</option>
-                {models.map(m => (
-                  <option key={m} value={m}>{m}</option>
+                {ALL_MODELS.map(m => (
+                  <option key={m.id} value={m.id}>{shortModel(m.id)}</option>
                 ))}
               </select>
               <input
@@ -358,8 +386,8 @@ export default function PresupuestoBuilder({
                       <p className="text-sm font-medium text-gray-900 truncate">{a.nameEs}</p>
                       <p className="text-xs text-gray-400 truncate">
                         {a.bajajCode && <span className="font-mono">{a.bajajCode}</span>}
-                        {a.bajajCode && a.compatibleModels && ' · '}
-                        {a.compatibleModels}
+                        {a.bajajCode && a.models.length > 0 && ' · '}
+                        {formatModels(a.models)}
                       </p>
                     </div>
                     <span className="text-sm font-mono text-gray-600 shrink-0">${a.price.toFixed(2)}</span>
@@ -402,6 +430,8 @@ export default function PresupuestoBuilder({
                       <div className="space-y-0.5">
                         {items.map(comp => {
                           const alreadyInCart = !!cart.find(c => c.productId === comp.child.id)
+                          const compat = compatBadge(comp.child.models, currentModel)
+                          const compatShown = compat?.shared && compatOpen[comp.id]
                           return (
                             <label
                               key={comp.id}
@@ -425,6 +455,30 @@ export default function PresupuestoBuilder({
                                 )}
                                 {alreadyInCart && (
                                   <span className="ml-2 text-xs text-blue-500">ya agregado</span>
+                                )}
+                                {/* Compatibilidad cruzada: la misma pieza que le sirve a otra moto.
+                                    Es la decisión de cantidad al armar stock — una pastilla que
+                                    cubre 4 motos se compra distinto que una exclusiva de esta. */}
+                                {compat && (compat.shared ? (
+                                  <button
+                                    type="button"
+                                    onClick={e => {
+                                      e.preventDefault()
+                                      e.stopPropagation()
+                                      setCompatOpen(prev => ({ ...prev, [comp.id]: !prev[comp.id] }))
+                                    }}
+                                    title={formatModels(compat.extras)}
+                                    className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
+                                  >
+                                    {compat.label} <span className={`inline-block transition-transform ${compatShown ? 'rotate-180' : ''}`}>▾</span>
+                                  </button>
+                                ) : (
+                                  <span className="ml-2 text-[10px] text-gray-300">solo esta moto</span>
+                                ))}
+                                {compatShown && (
+                                  <span className="block mt-0.5 text-[11px] text-amber-700/80 leading-snug">
+                                    también: {formatModels(compat!.extras)}
+                                  </span>
                                 )}
                               </span>
                               <input
@@ -516,8 +570,8 @@ export default function PresupuestoBuilder({
                         <p className="text-sm font-medium text-gray-900 truncate">{p.nameEs}</p>
                         <p className="text-xs text-gray-400 truncate">
                           {p.bajajCode && <span className="font-mono">{p.bajajCode}</span>}
-                          {p.bajajCode && p.compatibleModels && ' · '}
-                          {p.compatibleModels}
+                          {p.bajajCode && (p.models?.length ?? 0) > 0 && ' · '}
+                          {formatModels(p.models ?? [])}
                         </p>
                       </div>
                       <span className="text-sm font-mono text-gray-600 shrink-0">${p.price.toFixed(2)}</span>
@@ -550,7 +604,9 @@ export default function PresupuestoBuilder({
             ) : (
               <>
                 <div className="space-y-1 max-h-80 overflow-y-auto">
-                  {cart.map(item => (
+                  {cart.map(item => {
+                    const modelo = modeloLabel(item.models)
+                    return (
                     <div
                       key={item.productId}
                       className="py-2 border-b border-gray-50 last:border-0"
@@ -573,8 +629,24 @@ export default function PresupuestoBuilder({
                               </span>
                             )}
                           </p>
-                          {item.bajajCode && (
-                            <p className="text-xs font-mono text-gray-400">{item.bajajCode}</p>
+                          {(item.bajajCode || modelo) && (
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              {item.bajajCode && (
+                                <span className="text-xs font-mono text-gray-400 shrink-0">{item.bajajCode}</span>
+                              )}
+                              {modelo && (
+                                <span
+                                  title={modelo.full}
+                                  className={`text-[10px] px-1.5 py-0.5 rounded truncate ${
+                                    modelo.count === 1
+                                      ? 'bg-gray-100 text-gray-700 font-medium'
+                                      : 'bg-gray-50 text-gray-400'
+                                  }`}
+                                >
+                                  {modelo.label}
+                                </span>
+                              )}
+                            </div>
                           )}
                         </div>
                         <input
@@ -663,13 +735,62 @@ export default function PresupuestoBuilder({
                         </div>
                       )}
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
 
                 <div className="flex justify-between items-center pt-3 mt-1 border-t border-gray-200">
                   <span className="font-bold text-gray-900">Total</span>
                   <span className="text-xl font-bold font-mono text-blue-700">${total.toFixed(2)}</span>
                 </div>
+
+                {/* Cobertura: para stock propio la pregunta no es "qué le llevo al cliente"
+                    sino "a cuántas motos le sirve lo que ya cargué". Evita entrar moto por
+                    moto para descubrir que la 160 ya quedó medio cubierta desde la 250. */}
+                {isPropio && coverage.length > 0 && (
+                  <div className="mt-4 pt-3 border-t border-gray-100">
+                    <div className="flex items-baseline justify-between mb-2">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                        Cobertura por moto
+                      </h3>
+                      <span className="text-[11px] text-gray-400">
+                        {coverage.length} moto{coverage.length === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      {coverage.map(c => (
+                        <div key={c.model} className="flex items-center gap-2 text-xs">
+                          <span
+                            className={`w-40 shrink-0 truncate ${
+                              c.model === currentModel ? 'font-semibold text-gray-900' : 'text-gray-600'
+                            }`}
+                            title={c.model}
+                          >
+                            {shortModel(c.model)}
+                          </span>
+                          <span className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <span
+                              className={`block h-full rounded-full ${
+                                c.model === currentModel ? 'bg-blue-500' : 'bg-blue-200'
+                              }`}
+                              style={{ width: `${maxCoverage ? (c.lines / maxCoverage) * 100 : 0}%` }}
+                            />
+                          </span>
+                          <span
+                            className="w-24 shrink-0 text-right font-mono text-gray-500"
+                            title={`${c.shared} de estas ${c.lines} sirven además para otra moto`}
+                          >
+                            {c.lines} · {c.units} u
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-[11px] text-gray-400 leading-snug">
+                      Cada pieza cuenta en todas las motos que cubre (líneas · unidades).
+                      Lo que armaste para una moto ya deja parte de las otras resuelto.
+                    </p>
+                  </div>
+                )}
               </>
             )}
           </div>

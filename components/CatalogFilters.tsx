@@ -2,10 +2,11 @@
 
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
+import { shortModel, type MotoModelInfo } from '@/lib/modelo'
 
 interface Props {
   basePath: string          // '/groups' o '/products'
-  models: string[]          // los 14 modelos
+  models: readonly MotoModelInfo[]  // las 14 motos (el valor del filtro es el id del enum)
   categories: string[]      // categorías ya scopeadas al modelo actual
   current: { model: string; category: string; search: string; lowStock?: boolean }
   showLowStock?: boolean
@@ -55,7 +56,7 @@ export default function CatalogFilters({
       >
         <option value="">Todos los modelos</option>
         {models.map((m) => (
-          <option key={m} value={m}>{m}</option>
+          <option key={m.id} value={m.id}>{shortModel(m.id)}</option>
         ))}
       </select>
 

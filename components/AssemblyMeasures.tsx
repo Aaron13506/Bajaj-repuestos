@@ -9,7 +9,7 @@ interface Part {
   bajajCode: string | null
   nameEs: string
   nameEn: string | null
-  compatibleModels: string | null
+  models: readonly string[]
   weightGrams: number | null
   quantity: number
 }
@@ -210,7 +210,7 @@ export default function AssemblyMeasures({
       id: p.id,
       nameEs: p.nameEs,
       nameEn: p.nameEn,
-      compatibleModels: p.compatibleModels,
+      models: p.models,
       quantity: p.quantity,
     })),
     null,

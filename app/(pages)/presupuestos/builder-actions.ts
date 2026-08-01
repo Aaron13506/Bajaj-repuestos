@@ -8,7 +8,9 @@ export async function getAssemblyComponents(assemblyId: number) {
   const comps = await db.productComponent.findMany({
     where: { parentId: assemblyId },
     include: {
-      child: { select: { id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true } },
+      child: {
+        select: { id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true, models: true },
+      },
     },
     orderBy: [{ groupName: 'asc' }, { sortOrder: 'asc' }, { id: 'asc' }],
   })
@@ -22,6 +24,7 @@ export async function getAssemblyComponents(assemblyId: number) {
       bajajCode: c.child.bajajCode,
       price: parseFloat(c.child.price.toString()),
       imageUrl: c.child.imageUrl,
+      models: c.child.models,
     },
   }))
 }
@@ -38,7 +41,7 @@ export async function searchProducts(term: string) {
         { bajajCode: { contains: q, mode: 'insensitive' } },
       ],
     },
-    select: { id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true, compatibleModels: true },
+    select: { id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true, models: true },
     take: 12,
     orderBy: { nameEs: 'asc' },
   })
@@ -48,6 +51,6 @@ export async function searchProducts(term: string) {
     bajajCode: p.bajajCode,
     price: parseFloat(p.price.toString()),
     imageUrl: p.imageUrl,
-    compatibleModels: p.compatibleModels,
+    models: p.models,
   }))
 }

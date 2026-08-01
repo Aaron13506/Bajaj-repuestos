@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { toModelIds } from '@/lib/modelo'
 import { toJSON } from '@/lib/utils'
 
 export async function GET(request: NextRequest) {
@@ -47,7 +48,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { nameEs = body.name, nameEn, bajajCode, description, price, stock, sourceUrl, compatibleModels, priceInr, weightGrams } = body
+    const { nameEs = body.name, nameEn, bajajCode, description, price, stock, sourceUrl, models, compatibleModels, priceInr, weightGrams } = body
 
     if (!nameEs || price === undefined) {
       return NextResponse.json({ error: 'Campos requeridos: nameEs, price' }, { status: 400 })
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest) {
         bajajCode:        bajajCode || null,
         sourceUrl:        sourceUrl || null,
         description:      description || null,
-        compatibleModels: compatibleModels || null,
+        models:           toModelIds(models ?? compatibleModels),
         price:            parseFloat(price),
         stock:            parseInt(stock ?? '0'),
         priceInr:         priceInr ? parseInt(priceInr) : null,

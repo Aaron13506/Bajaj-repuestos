@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
 import Link from 'next/link'
-import { getCatalogFilters } from '@/lib/catalog'
+import { getCatalogFilters, whereModel } from '@/lib/catalog'
+import { formatModels } from '@/lib/modelo'
 import CatalogFilters from '@/components/CatalogFilters'
 
 interface SearchParams {
@@ -21,7 +22,7 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
   const where = {
     AND: [
       { isAssembly: true },
-      model ? { compatibleModels: { contains: model, mode: 'insensitive' as const } } : {},
+      whereModel(model),
       category ? { nameEs: { equals: category, mode: 'insensitive' as const } } : {},
       search
         ? {
@@ -53,7 +54,7 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
       where,
       skip: (page - 1) * limit,
       take: limit,
-      orderBy: [{ nameEs: 'asc' }, { compatibleModels: 'asc' }],
+      orderBy: [{ nameEs: 'asc' }, { id: 'asc' }],
       include: {
         components: {
           include: { child: { select: { id: true, nameEs: true, bajajCode: true, price: true } } },
@@ -141,8 +142,8 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
                       {group.bajajCode && (
                         <span className="ml-2 text-xs font-mono text-gray-400">{group.bajajCode}</span>
                       )}
-                      {group.compatibleModels && (
-                        <span className="ml-2 text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">{group.compatibleModels}</span>
+                      {group.models.length > 0 && (
+                        <span className="ml-2 text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">{formatModels(group.models)}</span>
                       )}
                     </div>
                   </div>
