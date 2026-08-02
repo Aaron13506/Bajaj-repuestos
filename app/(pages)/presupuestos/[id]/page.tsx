@@ -8,10 +8,11 @@ import { deletePresupuesto, aprobarPedido } from '../actions'
 import { type BundlePiece, groupBundlePieces } from '@/lib/bundle'
 import { getTerminos } from '@/lib/terminos'
 import { METODOS_PAGO } from '@/lib/pagos'
-import { toFileName } from '@/lib/utils'
+import { compararNombre, toFileName } from '@/lib/utils'
 import type { PresupuestoPdfData } from '@/lib/pdf/presupuesto-pdf'
 import { stageSummary, shippingStatusMeta, SHIPPING_STATUSES } from '@/lib/shipping-status'
 import { modeloLabel } from '@/lib/modelo'
+import { pedidoLogistics } from '@/lib/pedido-logistics'
 
 export default async function PresupuestoDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const id = parseInt((await params).id)
@@ -40,9 +41,19 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
 
   if (!presupuesto) notFound()
 
+  // Las piezas se listan alfabéticamente (mismo criterio que el builder, ver
+  // compararNombre): el orden de carga no le dice nada a quien lee el presupuesto.
+  const items = [...presupuesto.items].sort((a, b) =>
+    compararNombre(a.product.nameEs, b.product.nameEs)
+  )
+
   const isPropio = presupuesto.tipo === 'propio'
   const isPresupuesto = presupuesto.status === 'presupuesto'
   const terminos = await getTerminos(presupuesto.status)
+  // Peso y volumen: solo en el stock propio. En un presupuesto de cliente el flete ya
+  // está adentro del precio y el dato no le dice nada a nadie; en lo mío es la pregunta
+  // (cuánto espacio y cuánto peso me como en la caja y después en el depósito).
+  const logistica = isPropio ? (await pedidoLogistics([id])).porPedido.get(id) ?? null : null
   const total = presupuesto.items.reduce(
     (sum, item) => sum + parseFloat(item.salePrice.toString()) * item.quantity,
     0
@@ -81,7 +92,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
     validez: isPresupuesto ? validez : null,
     clientName: presupuesto.clientName,
     notas: presupuesto.notas,
-    items: presupuesto.items.map(item => {
+    items: items.map(item => {
       // Solo cuando el producto apunta a UNA moto (los ensambles): la lista larga de
       // compatibilidades de una pieza suelta no le dice nada al cliente.
       const m = modeloLabel(item.product.models)
@@ -220,6 +231,57 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
         )}
       </div>
 
+      {/* Peso y volumen del stock propio. Mismo cálculo que la página de envíos
+          (calcEnvio), medido sobre las piezas reales: un conjunto se expande a lo que
+          efectivamente lleva. Los ítems landed no entran — no viajan en la caja. */}
+      {logistica && logistica.piezas > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-4">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
+            Peso y volumen
+          </h2>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div>
+              <p className="text-xs text-gray-400 mb-1">Peso real</p>
+              <p className={`text-xl font-bold font-mono ${
+                logistica.realKg >= logistica.volKg ? 'text-green-700' : 'text-gray-900'
+              }`}>
+                {logistica.realKg.toFixed(2)} kg
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-1">Volumétrico</p>
+              <p className={`text-xl font-bold font-mono ${
+                logistica.volKg > logistica.realKg ? 'text-red-700' : 'text-gray-900'
+              }`}>
+                {logistica.volKg.toFixed(2)} kg
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-1">Cobrable max(W,V)</p>
+              <p className="text-xl font-bold font-mono text-blue-700">
+                {logistica.chargeableKg.toFixed(2)} kg
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-1">Volumen</p>
+              <p className="text-xl font-bold font-mono text-gray-900">
+                {logistica.ft3.toFixed(2)} ft³
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5 font-mono">
+                {logistica.cbm.toFixed(3)} CBM
+              </p>
+            </div>
+          </div>
+          {logistica.incompletas > 0 && (
+            <p className="text-xs text-amber-600 mt-4">
+              ⚠ {logistica.incompletas} de {logistica.piezas}{' '}
+              {logistica.incompletas === 1 ? 'pieza no tiene' : 'piezas no tienen'} peso o
+              medidas cargadas: el total real es mayor que éste.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Estado de compra — derivado de los ítems, no del pedido: de un mismo
           presupuesto unas piezas pueden estar compradas y otras no. */}
       {!isPresupuesto && compra && (
@@ -272,7 +334,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {presupuesto.items.map(item => {
+            {items.map(item => {
               const unitPrice = parseFloat(item.salePrice.toString())
               const subtotal = unitPrice * item.quantity
               const bundlePieces = (item.bundleItems as BundlePiece[] | null) ?? []

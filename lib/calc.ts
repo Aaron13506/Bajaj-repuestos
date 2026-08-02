@@ -148,6 +148,7 @@ export interface EnvioItemLine {
   isLanded: boolean
   realKg: number          // peso real total de la línea (kg)
   volKg: number           // peso volumétrico total de la línea (kg)
+  ft3: number             // volumen real total de la línea (ft³), el que cobra el marítimo
   productCostUsd: number
   airUsd: number          // costo de llegar a USA (ShipGlobal si India, inbound si China)
   maritimeUsd: number     // su propio volumen marítimo
@@ -177,6 +178,10 @@ export interface EnvioBreakdown {
   realKg: number
   volKg: number
   chargeableKg: number
+  // Volumen físico de la caja. El volumétrico (volKg) es una tarifa aérea; esto es el
+  // espacio que ocupa de verdad, que es lo que cobra el marítimo y lo que hay que
+  // guardar en el depósito.
+  ft3: number
   binding: 'weight' | 'volume'
   ratioVW: number | null
   airInr: number
@@ -255,6 +260,7 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
       isLanded,
       realKg: viaja ? ((it.weightGrams ?? 0) / 1000) * qty : 0,
       volKg: viaja && hasDims ? (cm3 / divisor) * qty : 0,
+      ft3: volumeFt3,
       productCostUsd: (it.priceUsd != null ? it.priceUsd : (it.priceInr ?? 0) / inrUsd) * qty,
       airUsd: 0,
       maritimeUsd: volumeFt3 * maritimePft3,
@@ -318,6 +324,7 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
     realKg: W,
     volKg: V,
     chargeableKg,
+    ft3: enBarco.reduce((s, l) => s + l.ft3, 0),
     binding,
     ratioVW: W > 0 ? V / W : null,
     airInr,

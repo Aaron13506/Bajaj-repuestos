@@ -29,6 +29,39 @@ export async function getAssemblyComponents(assemblyId: number) {
   }))
 }
 
+// Ensambles que CONTIENEN una pieza con este SKU. El filtro del armador corre sobre los
+// headers ya cargados (nombre y código del ensamble), así que el SKU de una pieza —que es
+// con lo que llega el cliente: tiene el código de la pieza, no el del ensamble— nunca
+// puede matchear ahí. Solo se busca por bajajCode y no por nombre de pieza: "sensor"
+// devolvería medio catálogo, mientras que un SKU identifica una pieza puntual.
+export async function searchAssembliesByPiece(term: string) {
+  const q = term.trim()
+  if (q.length < 2) return []
+  const comps = await db.productComponent.findMany({
+    where: {
+      parent: { isAssembly: true },
+      child: { bajajCode: { contains: q, mode: 'insensitive' } },
+    },
+    select: { parentId: true, child: { select: { nameEs: true, bajajCode: true } } },
+    // Una pieza genérica (un tornillo) vive en cientos de ensambles; el tope evita
+    // traer esa cola entera para una lista que igual no se puede recorrer a mano.
+    take: 400,
+    orderBy: { id: 'asc' },
+  })
+  // Un ensamble puede repetir la misma pieza en varios subgrupos: nos quedamos con
+  // la primera aparición, que es la que se muestra como motivo del match.
+  const byParent = new Map<number, { parentId: number; pieceName: string; pieceCode: string }>()
+  for (const c of comps) {
+    if (byParent.has(c.parentId)) continue
+    byParent.set(c.parentId, {
+      parentId: c.parentId,
+      pieceName: c.child.nameEs,
+      pieceCode: c.child.bajajCode ?? '',
+    })
+  }
+  return Array.from(byParent.values())
+}
+
 // Búsqueda de piezas sueltas por nombre o código (server-side), en vez de mandar los
 // 5.5k productos al navegador.
 export async function searchProducts(term: string) {

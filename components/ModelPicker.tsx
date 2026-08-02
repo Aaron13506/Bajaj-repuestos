@@ -14,7 +14,7 @@ interface Props {
 
 /**
  * Selector de las motos de una pieza. Reemplaza al viejo input de texto libre: ahí se
- * podía escribir "Pulsar N250/N160", que no es ninguno de los 14 modelos y no servía
+ * podía escribir "Pulsar N250/N160", que no es ninguno de los 15 modelos y no servía
  * para cruzar compatibilidad. Acá solo se puede elegir de la lista.
  *
  * Agrupado por familia con un atajo por fila, porque así se carga de verdad: una pieza

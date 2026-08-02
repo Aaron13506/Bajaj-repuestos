@@ -3,7 +3,8 @@
 import { useState, useMemo, useEffect } from 'react'
 import { type BundlePiece, groupBundlePieces } from '@/lib/bundle'
 import { ALL_MODELS, compatBadge, coverageByModel, formatModels, modeloLabel, shortModel, type MotoModelId } from '@/lib/modelo'
-import { getAssemblyComponents, searchProducts } from '@/app/(pages)/presupuestos/builder-actions'
+import { getAssemblyComponents, searchAssembliesByPiece, searchProducts } from '@/app/(pages)/presupuestos/builder-actions'
+import { compararNombre } from '@/lib/utils'
 
 interface Product {
   id: number
@@ -96,15 +97,42 @@ export default function PresupuestoBuilder({
   // Qué piezas tienen desplegada la lista de motos compatibles (por ProductComponent.id).
   const [compatOpen, setCompatOpen] = useState<Record<number, boolean>>({})
 
+  // Ensambles que contienen una pieza con el SKU buscado (assemblyId → pieza que matcheó).
+  // Se resuelve contra la DB porque acá solo están los headers, sin componentes.
+  const [pieceMatches, setPieceMatches] = useState<Map<number, { pieceName: string; pieceCode: string }>>(new Map())
+  const [searchingPieces, setSearchingPieces] = useState(false)
+
+  useEffect(() => {
+    const q = asmSearch.trim()
+    if (q.length < 2) { setPieceMatches(new Map()); setSearchingPieces(false); return }
+    let cancelled = false
+    setSearchingPieces(true)
+    const t = setTimeout(async () => {
+      try {
+        const rows = await searchAssembliesByPiece(q)
+        if (!cancelled) {
+          setPieceMatches(new Map(rows.map(r => [r.parentId, { pieceName: r.pieceName, pieceCode: r.pieceCode }])))
+        }
+      } finally {
+        if (!cancelled) setSearchingPieces(false)
+      }
+    }, 250)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [asmSearch])
+
   // Ensambles filtrados por moto + texto, para que la lista no sea inmanejable.
+  // El texto matchea contra el nombre y el código del ensamble, y contra el SKU de
+  // cualquiera de sus piezas (pieceMatches).
   const filteredAssemblies = useMemo(() => {
     const q = asmSearch.trim().toLowerCase()
     return assemblies.filter(a => {
       if (modelFilter && !a.models.includes(modelFilter as MotoModelId)) return false
-      return !(q && !(a.nameEs.toLowerCase().includes(q) || a.bajajCode?.toLowerCase().includes(q)));
-
+      if (!q) return true
+      return a.nameEs.toLowerCase().includes(q)
+        || !!a.bajajCode?.toLowerCase().includes(q)
+        || pieceMatches.has(a.id)
     })
-  }, [assemblies, modelFilter, asmSearch])
+  }, [assemblies, modelFilter, asmSearch, pieceMatches])
 
   const selectedAssembly = assemblies.find(a => a.id === selectedAssemblyId) ?? null
   const selectedComponents = selectedAssemblyId != null ? compCache[selectedAssemblyId] : undefined
@@ -260,6 +288,13 @@ export default function PresupuestoBuilder({
     setSearch('')
   }
 
+  // El carrito se guarda en el orden en que se fue armando, pero se muestra y se
+  // graba alfabéticamente: es como se lee después en el presupuesto y en el PDF.
+  const sortedCart = useMemo(
+    () => [...cart].sort((a, b) => compararNombre(a.nameEs, b.nameEs)),
+    [cart],
+  )
+
   const total = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0)
 
   // Cobertura del carrito moto por moto. Una línea "conjunto" cuenta por el ensamble
@@ -295,6 +330,16 @@ export default function PresupuestoBuilder({
     ? clientName.trim().length > 0
     : clienteId !== '' && (clienteId !== '__new__' || nuevoNombre.trim().length > 0)
 
+  // Enter dentro de un input NO debe guardar. El armador entero es un solo <form> y
+  // guardar redirige al presupuesto, así que el submit implícito del navegador —tipear
+  // un SKU en el buscador y apretar Enter, corregir una cantidad y apretar Enter—
+  // cerraba el editor a mitad de la carga. Se guarda solo con el botón.
+  // El textarea de notas y los botones quedan afuera: ahí Enter tiene su significado.
+  function blockImplicitSubmit(e: React.KeyboardEvent<HTMLFormElement>) {
+    if (e.key !== 'Enter') return
+    if ((e.target as HTMLElement).tagName === 'INPUT') e.preventDefault()
+  }
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!clienteValid || cart.length === 0 || submitting) return
@@ -313,7 +358,7 @@ export default function PresupuestoBuilder({
     fd.set('tipo', tipo)
     fd.set(
       'items',
-      JSON.stringify(cart.map(c => ({
+      JSON.stringify(sortedCart.map(c => ({
         productId: c.productId,
         quantity: c.quantity,
         salePrice: c.unitPrice,
@@ -324,7 +369,7 @@ export default function PresupuestoBuilder({
   }
 
   return (
-    <form onSubmit={handleSubmit}>
+    <form onSubmit={handleSubmit} onKeyDown={blockImplicitSubmit}>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
 
         {/* ── Left: selectors ── */}
@@ -353,16 +398,20 @@ export default function PresupuestoBuilder({
                 type="text"
                 value={asmSearch}
                 onChange={e => setAsmSearch(e.target.value)}
-                placeholder="Buscar ensamble por nombre o código..."
+                placeholder="Buscar por nombre, código o SKU de una pieza..."
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
 
             <div className="border border-gray-300 rounded-lg mb-1 max-h-80 overflow-y-auto divide-y divide-gray-50">
               {filteredAssemblies.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-6">Sin resultados</p>
+                <p className="text-sm text-gray-400 text-center py-6">
+                  {searchingPieces ? 'Buscando…' : 'Sin resultados'}
+                </p>
               ) : (
-                filteredAssemblies.map(a => (
+                filteredAssemblies.map(a => {
+                  const match = pieceMatches.get(a.id)
+                  return (
                   <button
                     key={a.id}
                     type="button"
@@ -389,10 +438,18 @@ export default function PresupuestoBuilder({
                         {a.bajajCode && a.models.length > 0 && ' · '}
                         {formatModels(a.models)}
                       </p>
+                      {/* Por qué apareció: el SKU buscado es de una pieza de adentro,
+                          no del ensamble. Sin esto la fila parece no tener relación. */}
+                      {match && (
+                        <p className="text-[11px] text-amber-700 truncate">
+                          contiene <span className="font-mono">{match.pieceCode}</span> · {match.pieceName}
+                        </p>
+                      )}
                     </div>
                     <span className="text-sm font-mono text-gray-600 shrink-0">${a.price.toFixed(2)}</span>
                   </button>
-                ))
+                  )
+                })
               )}
             </div>
             <p className="text-xs text-gray-400 mb-4">
@@ -439,6 +496,9 @@ export default function PresupuestoBuilder({
                             >
                               <input
                                 type="checkbox"
+                                // `checked` arranca vacío: sin el !! la primera marca pasa
+                                // de undefined a booleano y React lo lee como cambio de
+                                // input no controlado a controlado.
                                 checked={checked[comp.id]}
                                 disabled={alreadyInCart}
                                 onChange={e =>
@@ -604,7 +664,7 @@ export default function PresupuestoBuilder({
             ) : (
               <>
                 <div className="space-y-1 max-h-80 overflow-y-auto">
-                  {cart.map(item => {
+                  {sortedCart.map(item => {
                     const modelo = modeloLabel(item.models)
                     return (
                     <div

@@ -3,6 +3,7 @@ import Link from 'next/link'
 import DeleteButton from '@/components/DeleteButton'
 import { deletePresupuesto } from './actions'
 import { stageSummary } from '@/lib/shipping-status'
+import { pedidoLogistics } from '@/lib/pedido-logistics'
 
 export default async function PresupuestosPage() {
   const todos = await db.pedido.findMany({
@@ -14,6 +15,12 @@ export default async function PresupuestosPage() {
   const pedidos = todos.filter(p => p.tipo !== 'propio' && p.status === 'pedido')
   const propios = todos.filter(p => p.tipo === 'propio')
 
+  // Peso y volumen de lo propio, medido en una sola pasada (ver pedido-logistics):
+  // por pedido para cada fila, y el total de todo lo que traigo por mi cuenta.
+  const { total: propiosTotal, porPedido: logPropios } = await pedidoLogistics(
+    propios.map(p => p.id)
+  )
+
   function Row({ p }: { p: (typeof todos)[0] }) {
     const total = p.items.reduce(
       (sum, item) => sum + parseFloat(item.salePrice.toString()) * item.quantity,
@@ -24,6 +31,7 @@ export default async function PresupuestosPage() {
     const depositUsd = p.depositUsd != null ? parseFloat(p.depositUsd.toString()) : null
     const saldo = depositUsd != null ? total - depositUsd : null
     const compra = stageSummary(p.items)
+    const log = isPropio ? logPropios.get(p.id) : undefined
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-4 flex items-center justify-between">
         <div>
@@ -64,6 +72,14 @@ export default async function PresupuestosPage() {
             })}
             {p.notas && ` · ${p.notas}`}
           </p>
+          {log && log.piezas > 0 && (
+            <p className="text-xs text-gray-500 mt-1 font-mono">
+              {log.chargeableKg.toFixed(2)} kg · {log.ft3.toFixed(2)} ft³
+              {log.incompletas > 0 && (
+                <span className="text-amber-600 font-sans"> · {log.incompletas} sin medir</span>
+              )}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-4">
           <div className="text-right">
@@ -138,9 +154,26 @@ export default async function PresupuestosPage() {
 
           {propios.length > 0 && (
             <div>
-              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                Stock propio ({propios.length})
-              </h2>
+              <div className="flex items-baseline justify-between gap-3 mb-3 flex-wrap">
+                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+                  Stock propio ({propios.length})
+                </h2>
+                {propiosTotal.piezas > 0 && (
+                  <p className="text-xs text-gray-500">
+                    <span className="font-mono font-semibold text-gray-700">
+                      {propiosTotal.chargeableKg.toFixed(2)} kg
+                    </span>
+                    <span className="text-gray-400"> cobrables · </span>
+                    <span className="font-mono font-semibold text-gray-700">
+                      {propiosTotal.ft3.toFixed(2)} ft³
+                    </span>
+                    <span className="text-gray-400">
+                      {' '}({propiosTotal.realKg.toFixed(2)} kg reales
+                      {propiosTotal.incompletas > 0 && `, ${propiosTotal.incompletas} piezas sin medir`})
+                    </span>
+                  </p>
+                )}
+              </div>
               <div className="space-y-3">
                 {propios.map(p => <Row key={p.id} p={p} />)}
               </div>

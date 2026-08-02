@@ -18,7 +18,7 @@ model Product {
   nameEn           String?
   description      String?
   notes            String?
-  // Motos a las que le sirve la pieza. Tipado: las 14 del catálogo, nada más — un
+  // Motos a las que le sirve la pieza. Tipado: las 15 del catálogo, nada más — un
   // string libre dejaba entrar alias ("N250", "Pulsar N250/N160") que no son un modelo
   // y que inflaban la compatibilidad al contarlos. Un ensamble lleva exactamente una.
   // La tabla de presentación (familia, variante, años) está en lib/modelo.ts, que
@@ -235,6 +235,7 @@ enum MotoModel {
   PULSAR_180_BS3_2009_16_UG4     // 539
   PULSAR_150_BS4                 // 515
   PULSAR_150_UG4                 // 449
+  BOXER_BM150                    // 536 — única no-Pulsar del catálogo
 }
 
 // ENSAMBLE: una página de producto de 99rpm = un bundle Magento (con subgrupos).

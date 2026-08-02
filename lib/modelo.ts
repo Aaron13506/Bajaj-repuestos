@@ -3,7 +3,7 @@
 // `Product.models` es `MotoModel[]` (enum de Prisma). Un ensamble lleva exactamente una
 // moto — esa es su identidad, y es lo único que distingue dos conjuntos con el mismo
 // nombre ("Spark Plugs") que en realidad son de motos distintas. Una pieza suelta lleva
-// todas las motos que la usan (hasta las 14), y de ahí sale la compatibilidad cruzada:
+// todas las motos que la usan (hasta las 15), y de ahí sale la compatibilidad cruzada:
 // la misma pastilla que sirve para la N250 y para la N160 es una sola fila.
 //
 // Sin campo propio en Pedido/PedidoItem: las motos se derivan del producto al mostrar,
@@ -12,7 +12,7 @@
 // Módulo puro (sin `db`): lo importa tanto el server como el armador, que es cliente.
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Las 14 motos. `id` es EXACTAMENTE el valor del enum MotoModel del schema
+// Las 15 motos. `id` es EXACTAMENTE el valor del enum MotoModel del schema
 // (lib/catalog.ts falla la compilación si se desincronizan), así que esta tabla es la
 // traducción única entre lo guardado y todo lo que se ve.
 //
@@ -21,6 +21,9 @@
 // aparecen cuando hacen falta para desempatar dos variantes homónimas.
 // ─────────────────────────────────────────────────────────────────────────────
 export const MOTO_MODELS = [
+  // La única no-Pulsar: va primera porque el resto es la línea Pulsar ordenada por
+  // cilindrada, y meter una commuter en el medio del orden rompe esa lectura.
+  { id: 'BOXER_BM150',                    label: 'Boxer BM150',                    family: 'Boxer', variant: 'BM150',      years: null      },
   { id: 'PULSAR_150_BS4',                 label: 'Pulsar 150 BS4',                 family: '150',   variant: 'BS4',        years: null      },
   { id: 'PULSAR_150_UG4',                 label: 'Pulsar 150 UG4',                 family: '150',   variant: 'UG4',        years: null      },
   { id: 'PULSAR_180_BS3_2009_16_UG4',     label: 'Pulsar 180 BS3 2009 16 UG4',     family: '180',   variant: 'BS3 UG4',    years: '2009-16' },
@@ -48,7 +51,7 @@ const BY_ID = new Map<string, MotoModelInfo>(MOTO_MODELS.map(m => [m.id, m]))
 const BY_LABEL = new Map<string, MotoModelInfo>(MOTO_MODELS.map(m => [m.label, m]))
 const ORDER = new Map<string, number>(MOTO_MODELS.map((m, i) => [m.id, i]))
 
-/** true si el string es uno de los 14 ids del enum (para validar entrada externa). */
+/** true si el string es uno de los 15 ids del enum (para validar entrada externa). */
 export function isMotoModelId(v: unknown): v is MotoModelId {
   return typeof v === 'string' && BY_ID.has(v)
 }
