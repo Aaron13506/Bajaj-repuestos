@@ -17,6 +17,11 @@ pnpm q quote --file=<ruta|->   # lo mismo desde JSON [{ sku, qty }] o stdin
 pnpm q search <texto>          # buscar por nombre o SKU
 pnpm q missing                 # piezas sin peso o sin medidas
 
+# Precios externos (los corre el cron horario de Heroku: pnpm fx:update)
+pnpm fx:update                 # tasas INR/USD + BsD/USD, y de paso las tarifas de flete
+pnpm rates:update [--force]    # solo tarifas Shoppre → Config.shoppre_rates_usd
+pnpm rates:baseline            # regenera shipping_rates.json (el fallback del bundle)
+
 # Database
 pnpm db:push      # Push schema changes without migration (dev)
 pnpm db:migrate   # Create and apply a migration
@@ -71,11 +76,13 @@ Copy `.env.example` to `.env`. Required variables:
 
 ### Cost calculation (`lib/calc.ts`)
 
-`calcLanded(product, cfg)` computes a full landed-cost breakdown for the supply chain: **India → USA (Shoppre) → Venezuela (maritime)**. It pulls rates from `shipping_rates.json` via `lib/shipping-rates.ts` (step-function table keyed by carrier and weight). Config keys control all rates (INR/USD rate, BsD/USD rate, Shoppre membership, maritime cost per ft³, insurance %, processing fee). The landed cost is **product + Shoppre air shipping + insurance + processing + maritime** — no import duty (the maritime route is duty-free). Returns `null` if `priceInr` or `weightGrams` is missing.
+`calcLanded(product, cfg)` computes a full landed-cost breakdown for the supply chain: **India → USA (Shoppre) → Venezuela (maritime)**. It pulls the air rate from `lib/shipping-rates.ts` (step-function table keyed by carrier and weight), **quoted in USD** — Shoppre's own API returns the converted price, so the air leg never passes through `inr_usd_rate`. Storing it in rupees made the freight cost move every time the rupee moved, even when Shoppre hadn't touched its tariff. `inr_usd_rate` still applies to what actually *is* in rupees: `priceInr` and `shoppre_processing_inr`. Config keys control all rates (INR/USD rate, BsD/USD rate, Shoppre membership, maritime cost per ft³, insurance %, processing fee). The landed cost is **product + Shoppre air shipping + insurance + processing + maritime** — no import duty (the maritime route is duty-free). Returns `null` if `priceInr` or `weightGrams` is missing.
 
 `calcEnvio(items, cfg, opts)` costs a real box, and splits the inbound legs because they price differently: the **India** group pays ShipGlobal's step-function on *its own* chargeable weight, the **China** group splits `inboundChinaUsd` (the real invoice), and both share the maritime leg. Items with `isLanded` are excluded from weight, volume, insurance and freight entirely — they never travel in the box. Each leg is reported separately in `breakdown.air` / `breakdown.china`.
 
 `CM3_PER_FT3` is the single conversion constant — the maritime leg quotes per ft³ but part dimensions are stored in cm, so every volume conversion goes through it. Never re-derive it inline.
+
+**Where the rate table lives (`lib/shipping-rates.ts`):** the live table is `Config.shoppre_rates_usd`, refreshed by the hourly Heroku cron (`pnpm fx:update` → `scripts/update-shipping-rates.ts` → `scripts/shoppre-scraper.js`); Heroku's filesystem is ephemeral, so it can't be a file, and `Config` is the channel that already reaches `calcLanded`/`calcEnvio` through `cfg`. `shipping_rates.json` is the **bundled fallback** for when that key is missing or corrupt — regenerate with `pnpm rates:baseline`. Both use the same shape: `[maxKg, basicUsd]` steps per carrier, since the tariff *is* a step function (216 scraped weights collapse to 144 steps, ~1.9 KB — it ships in the payload of every page that costs something). The member price is derived, not stored: a fixed 5% Shoppre applies client-side. The scraper covers 0.5 → 22 kg; above that the lookup falls back to the last step. The cron self-throttles to one scrape every 3 days (`SHOPPRE_RATES_MAX_AGE_H`, default 72) because freight tariffs move in weeks, not hours.
 
 **`lib/quote-metrics.ts`** resolves a plain `{ sku, qty }[]` into `EnvioItemInput[]` and hands it to `calcEnvio`. This is the entry point for any "how much does this quote weigh / how many ft³" question — from the CLI (`pnpm q`), from a page, or from a Server Action. It exists so those answers come from `Config` and `calcEnvio` rather than from a one-off script with hardcoded rates: a hand-rolled query silently drifts from what the app shows the moment a config value changes.
 

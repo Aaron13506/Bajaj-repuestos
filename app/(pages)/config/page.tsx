@@ -6,7 +6,7 @@ const FIELD_META: Record<string, { label: string; hint: string; type?: string; m
   inr_usd_rate:           { label: 'Tasa INR / USD',               hint: 'Rupias indias por 1 USD — ver XE.com' },
   bsd_usd_rate:           { label: 'Tasa BsD / USD',               hint: 'Bolívares por 1 USD (BCV o paralelo)' },
   shoppre_member:         { label: 'Membresía Shoppre',            hint: '"true" para usar tarifa con descuento, "false" para tarifa normal' },
-  shoppre_carrier:        { label: 'Transportista Shoppre',        hint: '"ShipGlobal USA - Duty Free" o "Economy Shipping"' },
+  shoppre_carrier:        { label: 'Transportista Shoppre',        hint: '"ShipGlobal USA - Duty Free", "Economy Shipping" o "Shoppre Trusted Carrier - Express Shipping"' },
   reference_weight_kg:    { label: 'Peso de referencia (kg)',      hint: 'Peso total del envío de referencia para prorratear costos Shoppre' },
   air_volumetric_divisor: { label: 'Divisor volumétrico aéreo',     hint: 'vol_kg = L×A×H(cm) / divisor. Shoppre/ShipGlobal: 5000 (IATA clásico: 6000)' },
   miami_caracas_per_ft3:  { label: 'Marítimo Miami → CCS (USD/ft³)', hint: 'Costo del flete marítimo por pie cúbico' },

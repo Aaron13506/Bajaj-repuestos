@@ -1,4 +1,4 @@
-import { getShoppReRate } from './shipping-rates'
+import { getShoppReRateUsd } from './shipping-rates'
 
 export type ConfigMap = Record<string, string>
 
@@ -77,9 +77,10 @@ export function calcLanded(product: ProductForCalc, cfg: ConfigMap): LandedBreak
 
   const productCostUsd = product.priceUsd != null ? product.priceUsd : product.priceInr! / inrUsd
   const fraction = product.weightGrams / (refWeightKg * 1000)
-  const refRateInr = getShoppReRate(refWeightKg, carrier, isMember)
+  // Shoppre cotiza el flete en USD: la tarifa entra tal cual, sin pasar por inr_usd_rate.
+  const refRateUsd = getShoppReRateUsd(refWeightKg, carrier, isMember, cfg)
 
-  const shoppreShippingUsd = (refRateInr / inrUsd) * fraction
+  const shoppreShippingUsd = refRateUsd * fraction
   const insuranceUsd       = productCostUsd * insurancePct
 
   let maritimeUsd = 0
@@ -172,7 +173,7 @@ export interface LegBreakdown {
 
 export interface EnvioBreakdown {
   // Tramos a USA, medidos por separado porque cotizan distinto.
-  air: LegBreakdown & { inr: number }   // India → USA (ShipGlobal, tabla escalón)
+  air: LegBreakdown                     // India → USA (ShipGlobal, tabla escalón en USD)
   china: LegBreakdown                   // China → USA (costo real cargado a mano)
   // Totales de la caja que cruza a Venezuela (India + China; los isLanded no viajan).
   realKg: number
@@ -184,7 +185,6 @@ export interface EnvioBreakdown {
   ft3: number
   binding: 'weight' | 'volume'
   ratioVW: number | null
-  airInr: number
   airUsd: number          // total a USA por los dos orígenes
   airPerKgUsd: number
   maritimeUsd: number
@@ -280,8 +280,8 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
     indiaLines.reduce((s, l) => s + l.realKg, 0),
     indiaLines.reduce((s, l) => s + l.volKg, 0),
   )
-  const airInr = indiaChargeable > 0 ? getShoppReRate(indiaChargeable, carrier, isMember) : 0
-  const airLeg = { ...repartirTramo(indiaLines, airInr / inrUsd), inr: airInr }
+  const airRateUsd = indiaChargeable > 0 ? getShoppReRateUsd(indiaChargeable, carrier, isMember, cfg) : 0
+  const airLeg = repartirTramo(indiaLines, airRateUsd)
 
   // Tramo China→USA: no hay tabla, es el costo real facturado.
   const chinaLeg = repartirTramo(chinaLines, opts.inboundChinaUsd ?? 0)
@@ -327,7 +327,6 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
     ft3: enBarco.reduce((s, l) => s + l.ft3, 0),
     binding,
     ratioVW: W > 0 ? V / W : null,
-    airInr,
     airUsd,
     airPerKgUsd: chargeableKg > 0 ? airUsd / chargeableKg : 0,
     maritimeUsd,

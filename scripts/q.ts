@@ -127,7 +127,7 @@ async function cmdQuote(args: string[]) {
   console.log(`  Volumen ........... ${n(b.lines.length ? r.volume.ft3 : 0, 4)} ft³  ·  ${n(r.volume.cbm, 5)} CBM`)
   console.log(`  ─`)
   console.log(`  Producto .......... $${n(b.productCostUsd)}`)
-  console.log(`  Aéreo a USA ....... $${n(b.airUsd)}   (India ₹${n(b.airInr, 0)}${b.china.items ? ` · China $${n(b.china.costUsd)}` : ''})`)
+  console.log(`  Aéreo a USA ....... $${n(b.airUsd)}   (India $${n(b.air.costUsd)}${b.china.items ? ` · China $${n(b.china.costUsd)}` : ''})`)
   console.log(`  Marítimo .......... $${n(b.maritimeUsd)}   (${r.cfg.miami_caracas_per_ft3 ?? '45'} USD/ft³)`)
   console.log(`  Seguro + proc. .... $${n(b.insuranceUsd + b.processingUsd)}`)
   console.log(`  LANDED ............ $${n(b.landedUsd)}`)

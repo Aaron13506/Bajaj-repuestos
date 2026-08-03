@@ -454,7 +454,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
             <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">Costo del envío (landed)</h2>
             <dl className="space-y-2 text-sm">
               <Row label="Costo de producto" value={usd(calc.productCostUsd)} />
-              <Row label={`Aéreo India→USA · ${calc.air.inr.toLocaleString('es-VE')} INR`} value={usd(calc.air.costUsd)} />
+              <Row label={`Aéreo India→USA · ${calc.air.chargeableKg.toFixed(1)} kg cobrables`} value={usd(calc.air.costUsd)} />
               {hayChina && <Row label="Flete China→USA (real)" value={usd(calc.china.costUsd)} />}
               <Row label="Marítimo USA→VEN (volumen)" value={usd(calc.maritimeUsd)} />
               <Row label="Seguro" value={usd(calc.insuranceUsd)} />

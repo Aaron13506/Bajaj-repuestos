@@ -390,7 +390,7 @@ export default function SimuladorEnvio({ products, pedidos, cfg }: Props) {
               <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">Costo aproximado (landed)</h2>
               <dl className="space-y-2 text-sm">
                 <Row label="Costo de producto (India)" value={usd(calc.productCostUsd)} />
-                <Row label={`Aéreo India→USA · ${calc.airInr.toLocaleString('es-VE')} INR`} value={usd(calc.airUsd)} />
+                <Row label={`Aéreo India→USA · ${calc.air.chargeableKg.toFixed(1)} kg cobrables`} value={usd(calc.airUsd)} />
                 <Row label="Marítimo USA→VEN (volumen)" value={usd(calc.maritimeUsd)} />
                 <Row label="Seguro" value={usd(calc.insuranceUsd)} />
                 <Row label="Processing" value={usd(calc.processingUsd)} />
