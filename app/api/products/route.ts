@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { toModelIds } from '@/lib/modelo'
+import { toModelIds, fullModel } from '@/lib/modelo'
 import { toJSON } from '@/lib/utils'
 
 export async function GET(request: NextRequest) {
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
         bajajCode:        bajajCode || null,
         sourceUrl:        sourceUrl || null,
         description:      description || null,
-        models:           toModelIds(models ?? compatibleModels),
+        compatibleModels: toModelIds(models ?? compatibleModels).map(fullModel).join(', ') || null,
         price:            parseFloat(price),
         stock:            parseInt(stock ?? '0'),
         priceInr:         priceInr ? parseInt(priceInr) : null,

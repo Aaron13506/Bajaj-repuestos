@@ -4,7 +4,7 @@ import ProductRow from '@/components/ProductRow'
 import { costHeaders } from '@/lib/cost-columns'
 import CatalogFilters from '@/components/CatalogFilters'
 import { getCatalogFilters, whereModel } from '@/lib/catalog'
-import { searchModels } from '@/lib/modelo'
+import { searchModels, fullModel, toModelIds } from '@/lib/modelo'
 import { type ConfigMap } from '@/lib/calc'
 import { getSupplierPriceMap } from '@/lib/suppliers'
 
@@ -28,9 +28,9 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
   const page = Math.max(1, parseInt(sp.page ?? '1'))
   const limit = 20
 
-  // El buscador también encuentra por moto ("n250", "dual abs"): como `models` es enum,
-  // el texto se traduce a ids antes de la query en vez de hacer LIKE sobre el nombre.
-  const modelSearchIds = searchModels(search)
+  // El buscador también encuentra por moto ("n250", "dual abs"): el texto se traduce a
+  // motos conocidas y de ahí a sus etiquetas, que es lo que guarda compatibleModels.
+  const modelSearchLabels = searchModels(search).map(fullModel)
 
   const where = {
     AND: [
@@ -39,7 +39,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
           { nameEs: { contains: search, mode: 'insensitive' as const } },
           { nameEn: { contains: search, mode: 'insensitive' as const } },
           { bajajCode: { contains: search, mode: 'insensitive' as const } },
-          ...modelSearchIds.map(id => ({ models: { has: id } })),
+          ...modelSearchLabels.map(label => ({ compatibleModels: { contains: label, mode: 'insensitive' as const } })),
         ]
       } : {},
       whereModel(model),
@@ -167,7 +167,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                     nameEs: product.nameEs,
                     nameEn: product.nameEn,
                     bajajCode: product.bajajCode,
-                    models: product.models,
+                    models: toModelIds(product.compatibleModels),
                     priceInr: product.priceInr,
                     priceUsd: priceMap.get(product.id)?.priceUsd ?? null,
                     priceIsLanded: priceMap.get(product.id)?.isLanded ?? false,
@@ -189,7 +189,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                       nameEs: pc.child.nameEs,
                       nameEn: pc.child.nameEn,
                       bajajCode: pc.child.bajajCode,
-                      models: pc.child.models,
+                      models: toModelIds(pc.child.compatibleModels),
                       priceInr: pc.child.priceInr,
                       priceUsd: priceMap.get(pc.child.id)?.priceUsd ?? null,
                       priceIsLanded: priceMap.get(pc.child.id)?.isLanded ?? false,

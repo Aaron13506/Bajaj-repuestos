@@ -1,7 +1,7 @@
 'use server'
 
 import { db } from '@/lib/db'
-import { toModelIds } from '@/lib/modelo'
+import { toModelIds, fullModel } from '@/lib/modelo'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
 import { revalidatePath } from 'next/cache'
 
@@ -99,7 +99,7 @@ function buildProductData(it: RawProduct, cfg: ConfigMap, defaultMargin: number,
     nameEs,
     nameEn:           toStr(it.nameEn),
     bajajCode:        toStr(it.bajajCode),
-    models:           toModelIds(it.models ?? it.compatibleModels),
+    compatibleModels: toModelIds(it.models ?? it.compatibleModels).map(fullModel).join(', ') || null,
     sourceUrl:        toStr(it.sourceUrl),
     description:      toStr(it.description),
     notes:            toStr(it.notes),

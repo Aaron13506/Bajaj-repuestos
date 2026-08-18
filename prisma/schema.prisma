@@ -19,14 +19,20 @@ model Product {
   nameEn           String?
   description      String?
   notes            String?
-  // Motos a las que le sirve la pieza. Tipado: las 15 del catálogo, nada más — un
-  // string libre dejaba entrar alias ("N250", "Pulsar N250/N160") que no son un modelo
-  // y que inflaban la compatibilidad al contarlos. Un ensamble lleva exactamente una.
-  // La tabla de presentación (familia, variante, años) está en lib/modelo.ts, que
-  // verifica en compilación que sus ids sigan siendo los de este enum.
-  models           MotoModel[]
-  // LEGADO: el texto del que salió `models`. Se conserva como respaldo del backfill
-  // (scripts/backfill-models.ts) hasta confirmar la migración; nada lo lee ya.
+  // Motos a las que le sirve la pieza, como texto: las etiquetas separadas por comas
+  // ("Pulsar N250 Dual ABS 2022 23, Pulsar N160 Dual ABS 2022 23"). Un ensamble lleva
+  // UNA — esa es su identidad, y es lo único que distingue dos conjuntos homónimos de
+  // motos distintas. Una pieza suelta lleva todas las que la usan, y de ahí sale la
+  // compatibilidad cruzada.
+  //
+  // Hubo un intento de tiparlo con el enum MotoModel (`Product.models`) y se revirtió:
+  // la columna se dropeó de la DB y el texto quedó como única fuente. El enum obligaba a
+  // una migración por cada moto nueva, y el catálogo crece — la Boxer BM150 entró después
+  // y fue justamente lo que lo rompió. `MotoModel` sigue vivo pero solo para
+  // ScrapedProduct.model, donde el valor lo fija el scrape y no la carga a mano.
+  //
+  // lib/modelo.ts traduce este texto a las motos tipadas para mostrarlo (`toModelIds`),
+  // así la presentación sigue siendo consistente sin atar la columna al enum.
   compatibleModels String?
   weightGrams      Int?
   dimL             Float?

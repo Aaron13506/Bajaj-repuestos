@@ -162,7 +162,7 @@ export async function componentesDeEnsamble(assemblyId: number, envioId: number)
     include: {
       child: {
         select: {
-          id: true, nameEs: true, bajajCode: true, priceInr: true, models: true,
+          id: true, nameEs: true, bajajCode: true, priceInr: true, compatibleModels: true,
           weightGrams: true, dimL: true, dimA: true, dimH: true, discontinuedAt: true,
         },
       },
@@ -188,7 +188,7 @@ export async function componentesDeEnsamble(assemblyId: number, envioId: number)
         // "Front Brake Lever", uno por bici), pero sus piezas coinciden de a pedazos: la
         // manilla sirve a 8 motos y el microswitch se parte en dos SKUs. Sin este dato,
         // recorrer la segunda moto es adivinar si estás repitiendo o sumando algo nuevo.
-        models: c.child.models,
+        compatibleModels: c.child.compatibleModels,
         // Costo de compra unitario y cantidad mínima con el proveedor de este embarque.
         costoUsd,
         moq,
@@ -242,7 +242,7 @@ export async function reabrirEmbarque(envioId: number) {
 // Buscador para el armador del embarque (server-side, como el de presupuestos: son ~5.8k
 // productos y no tiene sentido mandarlos al navegador).
 const CAMPOS_BUSQUEDA = {
-  id: true, nameEs: true, bajajCode: true, priceInr: true, models: true,
+  id: true, nameEs: true, bajajCode: true, priceInr: true, compatibleModels: true,
   weightGrams: true, dimL: true, dimA: true, dimH: true, imageUrl: true, discontinuedAt: true,
 } as const
 
@@ -286,7 +286,7 @@ export async function buscarProductos(term: string, envioId: number) {
       // El otro número de la misma pieza. Se muestra siempre que exista, no solo cuando
       // fue el que matcheó: es el código con el que hay que pedirla al proveedor.
       altCode: alternos.get(p.id) ?? null,
-      models: p.models,
+      compatibleModels: p.compatibleModels,
       costoUsd,
       moq,
       dimL: p.dimL,

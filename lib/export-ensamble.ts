@@ -1,4 +1,4 @@
-import { formatModels, type MotoModelId } from '@/lib/modelo'
+import { parseModelos } from '@/lib/modelos'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Copiar un ensamble como JSON.
@@ -54,7 +54,7 @@ export interface PiezaFuente {
     id: number
     nameEs: string
     bajajCode: string | null
-    models: readonly MotoModelId[]
+    compatibleModels: string | null
     costoUsd: number | null
     moq: number | null
     /** Volumen de una unidad en m³; 0 cuando le faltan dimensiones. */
@@ -80,20 +80,20 @@ const redondear = (n: number, decimales: number) => {
  * todavía no llevás: ese `0` explícito es la mitad útil de la lista.
  */
 export function ensambleAJson(
-  ensamble: { nameEs: string; models: readonly MotoModelId[] },
+  ensamble: { nameEs: string; compatibleModels: string | null },
   piezas: PiezaFuente[],
   modelo?: string | null,
   enCaja?: Map<number, number>,
 ): EnsambleJson {
   return {
-    modelo: modelo?.trim() || formatModels(ensamble.models) || null,
+    modelo: modelo?.trim() || parseModelos(ensamble.compatibleModels).join(', ') || null,
     ensamble: ensamble.nameEs,
     piezas: piezas.map(p => ({
       categoria: p.groupName || '—',
       nombre: p.child.nameEs,
       codigo: p.child.bajajCode,
       precio: p.child.costoUsd != null ? redondear(p.child.costoUsd, 2) : null,
-      compat_modelos: [...p.child.models],
+      compat_modelos: parseModelos(p.child.compatibleModels),
       // m³ → cm³. Se redondea a 2 decimales: un tornillo puede medir menos de 1 cm³ y
       // truncarlo a entero lo dejaría en 0, que se lee como "no ocupa nada".
       cm3: p.child.volumeM3 > 0 ? redondear(p.child.volumeM3 * 1_000_000, 2) : null,

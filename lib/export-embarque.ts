@@ -1,4 +1,4 @@
-import { formatModels, type MotoModelId } from '@/lib/modelo'
+import { parseModelos } from '@/lib/modelos'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Copiar el contenido de un embarque como JSON.
@@ -60,7 +60,7 @@ export interface LineaFuente {
   bajajCode: string | null
   altCode: string | null
   moq: number | null
-  models: readonly MotoModelId[]
+  compatibleModels: string | null
   quantity: number
   /** Por UNIDAD. 0 = dato faltante (el armador no distingue null de 0 en estos tres). */
   volumeUnitM3: number
@@ -104,7 +104,7 @@ export function embarqueAJson(meta: MetaEmbarque, lineas: LineaFuente[]): Embarq
       // dejaría en 0, que se lee como "no ocupa nada".
       cm3: l.volumeUnitM3 > 0 ? redondear(l.volumeUnitM3 * 1_000_000, 2) : null,
       kg: l.weightUnitKg > 0 ? redondear(l.weightUnitKg, 3) : null,
-      compat_modelos: [...l.models],
+      compat_modelos: parseModelos(l.compatibleModels),
     }
   })
 

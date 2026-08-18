@@ -2,14 +2,15 @@
 // componentes (con anidamiento) y suma el costo de origen de cada pieza por cantidad.
 import { db } from '../lib/db'
 import { calcLanded } from '../lib/calc'
-import { sortModels, type MotoModelId } from '../lib/modelo'
+import { parseModelos, modelosDistintos } from '../lib/modelos'
+import { sortModels } from '../lib/catalog'
 
 interface Nodo {
   id: number
   isAssembly: boolean
   nameEs: string
   bajajCode: string | null
-  models: MotoModelId[]
+  compatibleModels: string | null
   priceInr: number | null
   weightGrams: number | null
   dimL: number | null
@@ -25,7 +26,7 @@ async function main() {
 
   const prods = await db.product.findMany({
     select: {
-      id: true, isAssembly: true, nameEs: true, bajajCode: true, models: true,
+      id: true, isAssembly: true, nameEs: true, bajajCode: true, compatibleModels: true,
       priceInr: true, weightGrams: true, dimL: true, dimA: true, dimH: true, margin: true, price: true,
     },
   })
@@ -73,7 +74,7 @@ async function main() {
   const factorLanded = landedMedido / origenMedido
 
   const ensambles = prods.filter(p => p.isAssembly)
-  const modelos = sortModels([...new Set(ensambles.flatMap(e => e.models))])
+  const modelos = sortModels(modelosDistintos(ensambles.map(e => e.compatibleModels)))
 
   interface Fila {
     modelo: string
@@ -89,7 +90,7 @@ async function main() {
   const detalle = new Map<string, { nombre: string; code: string | null; piezas: number; origenUsd: number }[]>()
 
   for (const modelo of modelos) {
-    const asms = ensambles.filter(e => e.models.includes(modelo))
+    const asms = ensambles.filter(e => parseModelos(e.compatibleModels).includes(modelo))
     const acumSku = new Map<number, number>()
     const det: { nombre: string; code: string | null; piezas: number; origenUsd: number }[] = []
 

@@ -1,7 +1,7 @@
 'use server'
 
 import { db } from '@/lib/db'
-import { isMotoModelId } from '@/lib/modelo'
+import { isMotoModelId, fullModel } from '@/lib/modelo'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
@@ -42,7 +42,7 @@ function parseProductForm(formData: FormData) {
     nameEn:           (formData.get('nameEn') as string) || null,
     description:      (formData.get('description') as string) || null,
     notes:            (formData.get('notes') as string) || null,
-    models:           formData.getAll('models').filter(isMotoModelId),
+    compatibleModels: formData.getAll('models').filter(isMotoModelId).map(fullModel).join(', ') || null,
     weightGrams:      weightGrams ? parseInt(weightGrams) : null,
     dimL:             dimL ? parseFloat(dimL) : null,
     dimA:             dimA ? parseFloat(dimA) : null,
@@ -111,7 +111,7 @@ export async function quickUpdateProduct(id: number, activeSupplierId: number | 
     nameEs:           str('nameEs'),
     nameEn:           str('nameEn') || null,
     bajajCode:        str('bajajCode') || null,
-    models:           formData.getAll('models').filter(isMotoModelId),
+    compatibleModels: formData.getAll('models').filter(isMotoModelId).map(fullModel).join(', ') || null,
     weightGrams:      intOrNull('weightGrams'),
     dimL:             floatOrNull('dimL'),
     dimA:             floatOrNull('dimA'),

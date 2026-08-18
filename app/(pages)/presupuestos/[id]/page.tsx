@@ -14,7 +14,7 @@ import { METODOS_PAGO } from '@/lib/pagos'
 import { compararNombre, toFileName } from '@/lib/utils'
 import type { PresupuestoPdfData } from '@/lib/pdf/presupuesto-pdf'
 import { stageSummary, shippingStatusMeta, SHIPPING_STATUSES } from '@/lib/shipping-status'
-import { modeloLabel, type MotoModelId } from '@/lib/modelo'
+import { modeloLabel, type MotoModelId, toModelIds } from '@/lib/modelo'
 import { pedidoLogistics } from '@/lib/pedido-logistics'
 
 export default async function PresupuestoDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -30,7 +30,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
             product: {
               select: {
                 id: true, nameEs: true, nameEn: true, bajajCode: true, description: true,
-                imageUrl: true, models: true, weightGrams: true,
+                imageUrl: true, compatibleModels: true, weightGrams: true,
                 dimL: true, dimA: true, dimH: true, priceInr: true,
               },
             },
@@ -82,14 +82,14 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
   const sueltas: PiezaMedible[] = []
   const comoPieza = (p: {
     id: number; bajajCode: string | null; nameEs: string; nameEn?: string | null
-    models?: readonly MotoModelId[]; weightGrams: number | null
+    compatibleModels?: string | null; weightGrams: number | null
     dimL: number | null; dimA: number | null; dimH: number | null
   }, quantity: number): PiezaMedible => ({
     id: p.id,
     bajajCode: p.bajajCode,
     nameEs: p.nameEs,
     nameEn: p.nameEn ?? null,
-    models: p.models ?? [],
+    compatibleModels: p.compatibleModels ?? null,
     quantity,
     weightGrams: p.weightGrams,
     dimL: p.dimL,
@@ -158,7 +158,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
     items: items.map(item => {
       // Solo cuando el producto apunta a UNA moto (los ensambles): la lista larga de
       // compatibilidades de una pieza suelta no le dice nada al cliente.
-      const m = modeloLabel(item.product.models)
+      const m = modeloLabel(toModelIds(item.product.compatibleModels))
       return {
       nameEs: item.product.nameEs,
       bajajCode: item.product.bajajCode,
@@ -413,7 +413,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
               const unitPrice = parseFloat(item.salePrice.toString())
               const subtotal = unitPrice * item.quantity
               const bundlePieces = (item.bundleItems as BundlePiece[] | null) ?? []
-              const modelo = modeloLabel(item.product.models)
+              const modelo = modeloLabel(toModelIds(item.product.compatibleModels))
               return (
                 <tr key={item.id} className="hover:bg-gray-50">
                   <td className="px-3 py-3 align-top">

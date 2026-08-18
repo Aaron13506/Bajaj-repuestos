@@ -14,7 +14,8 @@ import { cbmParams, type ConfigMap } from '@/lib/calc'
 import { getSupplierPriceMap } from '@/lib/suppliers'
 import { cumpleMoq } from '@/lib/moq'
 import { alternosDe } from '@/lib/alt-sku'
-import { sortModels, formatModels, type MotoModelId } from '@/lib/modelo'
+import { sortModels } from '@/lib/catalog'
+import { modelosDistintos, parseModelos } from '@/lib/modelos'
 import { deleteEnvio } from '../actions'
 import { cerrarEmbarque, reabrirEmbarque } from '../linea-actions'
 
@@ -24,8 +25,9 @@ const usd = (n: number) => `$${n.toFixed(2)}`
 const m3 = (n: number) => (n >= 0.001 || n === 0 ? `${n.toFixed(3)} m³` : `${Math.round(n * 1_000_000)} cm³`)
 // Motos que sirve una pieza, solo cuando es más de una: de las 4.258 piezas del catálogo,
 // 1.922 sirven a una sola moto, así que "1 moto" sería ruido en la mayoría de las filas.
-const chipMotos = (models: readonly MotoModelId[]) => {
-  return models.length > 1 ? { n: models.length, lista: formatModels(models) } : null
+const chipMotos = (compatibleModels: string | null) => {
+  const motos = parseModelos(compatibleModels)
+  return motos.length > 1 ? { n: motos.length, lista: motos.join(', ') } : null
 }
 
 // Ficha de un embarque MARÍTIMO. Es un documento distinto del aéreo, no una variante:
@@ -40,7 +42,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
           include: {
             product: {
               select: {
-                id: true, nameEs: true, nameEn: true, bajajCode: true, models: true,
+                id: true, nameEs: true, nameEn: true, bajajCode: true, compatibleModels: true,
                 weightGrams: true, dimL: true, dimA: true, dimH: true, priceInr: true,
                 discontinuedAt: true,
               },
@@ -74,11 +76,11 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
   const assemblies: AssemblyOption[] = esBorrador
     ? await db.product.findMany({
         where: { isAssembly: true },
-        select: { id: true, nameEs: true, bajajCode: true, imageUrl: true, models: true },
+        select: { id: true, nameEs: true, bajajCode: true, imageUrl: true, compatibleModels: true },
         orderBy: { nameEs: 'asc' },
       })
     : []
-  const models = sortModels([...new Set(assemblies.flatMap(a => a.models))])
+  const models = sortModels(modelosDistintos(assemblies.map(a => a.compatibleModels)))
 
   // Las líneas propias no tienen conjuntos ni precio de venta: son producto y cantidad.
   const resumen = resumirCbm(
@@ -112,7 +114,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
       // Múltiplo de compra del proveedor de ESTA caja. null = no lo declara, o todavía no
       // hay proveedor elegido.
       moq: priceMap.get(l.productId)?.moq ?? null,
-      models: l.product.models,
+      compatibleModels: l.product.compatibleModels,
       quantity: l.quantity,
       dimL: l.product.dimL,
       dimA: l.product.dimA,
@@ -222,7 +224,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
     bajajCode: l.product.bajajCode,
     nameEs: l.product.nameEs,
     nameEn: l.product.nameEn,
-    models: l.product.models,
+    compatibleModels: l.product.compatibleModels,
     quantity: l.quantity,
     weightGrams: l.product.weightGrams,
     dimL: l.product.dimL,
@@ -474,7 +476,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {lineas.map(l => {
-                const motos = chipMotos(l.models)
+                const motos = chipMotos(l.compatibleModels)
                 return (
                 <tr key={l.id}>
                   <td className="px-4 py-2.5">

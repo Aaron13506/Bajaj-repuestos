@@ -29,6 +29,7 @@
  * PASS 1b les UNE la moto nueva sin pisar las que ya tenían.
  */
 import { PrismaClient, type MotoModel } from '@prisma/client'
+import { fullModel, parseModels, modelByLabel, sortModels } from '../lib/modelo'
 
 try { process.loadEnvFile() } catch {}
 const prisma = new PrismaClient({
@@ -44,18 +45,19 @@ async function pool<T>(items: T[], n: number, fn: (item: T) => Promise<void>): P
 
 const norm = (s: string | null | undefined) => (s ?? '').toString().trim().toUpperCase()
 
-// ScrapedProduct.model YA es el enum MotoModel, el mismo que guarda Product.models: no
-// hay traducción que hacer. (Antes esto pasaba por una etiqueta legible porque la columna
-// era texto libre; con la columna tipada el valor viaja tal cual.)
+// ScrapedProduct.model es el enum MotoModel; Product.compatibleModels guarda las
+// ETIQUETAS legibles. fullModel (lib/modelo.ts) hace la traducción, que es la misma
+// tabla que usa la UI para mostrarlas — así lo materializado y lo que se ve coinciden.
 
 function partData(pt: { name: string; sku: string | null; priceInr: number | null; models?: MotoModel[]; discontinued?: boolean }) {
+  const etiquetas = (pt.models ?? []).map(fullModel).join(', ') || null
   // sin peso ⇒ sin costo landed ⇒ price 0 y margin null (se completa al cargar peso por SKU)
   return {
     isAssembly: false,
     nameEs: pt.name || '(sin nombre)',
     nameEn: pt.name || null,
     bajajCode: pt.sku && pt.sku.trim() ? pt.sku.trim() : null,
-    models: pt.models ?? [],
+    compatibleModels: etiquetas,
     priceInr: pt.priceInr ?? null,
     margin: null,
     landedCostUsd: null,
@@ -145,7 +147,7 @@ async function main() {
   let marcadas = 0
   await pool(toEnrich, CONCURRENCY, async ([k, info]) => {
     const id = partBySku.get(k)!
-    const cur = await prisma.product.findUnique({ where: { id }, select: { nameEn: true, priceInr: true, sourceUrl: true, models: true, discontinuedAt: true } })
+    const cur = await prisma.product.findUnique({ where: { id }, select: { nameEn: true, priceInr: true, sourceUrl: true, compatibleModels: true, discontinuedAt: true } })
     if (!cur) return
     const data: Record<string, unknown> = {}
     if (!cur.nameEn && info.name) data.nameEn = info.name
@@ -157,10 +159,12 @@ async function main() {
     if (cur.priceInr == null && info.priceInr != null) data.priceInr = info.priceInr
     if (!cur.sourceUrl && info.sourceUrl) data.sourceUrl = info.sourceUrl
     // unión: modelos ya curados + modelos del scrape (sin duplicar, sin pisar)
-    const models = new Set<MotoModel>(cur.models)
-    const before = models.size
-    for (const m of modelsBySku.get(k) ?? new Set<MotoModel>()) models.add(m)
-    if (models.size > before) data.models = [...models]
+    // Unión con lo ya curado, sobre las ETIQUETAS: se sigue sin pisar lo cargado a mano,
+    // solo se suman las motos que el scrape encontró y no estaban.
+    const etiquetas = new Set(parseModels(cur.compatibleModels))
+    const before = etiquetas.size
+    for (const m of modelsBySku.get(k) ?? new Set<MotoModel>()) etiquetas.add(fullModel(m))
+    if (etiquetas.size > before) data.compatibleModels = sortModels([...etiquetas].map(l => modelByLabel(l)?.id).filter((x): x is MotoModel => !!x)).map(fullModel).join(', ')
     if (Object.keys(data).length) { await prisma.product.update({ where: { id }, data }); enriched++ }
   })
   console.log(`Curados a revisar: ${toEnrich.length} · enriquecidos: ${enriched}`)
@@ -193,7 +197,7 @@ async function main() {
           nameEn: sp.title,
           sourceUrl: sp.sourceUrl,
           imageUrl: sp.imageS3Url ?? null,
-          models: [sp.model],
+          compatibleModels: fullModel(sp.model),
           margin: null, landedCostUsd: null, price: 0, stock: 0,
         },
       })

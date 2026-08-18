@@ -1,6 +1,6 @@
 import { db } from '@/lib/db'
 import Link from 'next/link'
-import { formatModels } from '@/lib/modelo'
+import { formatModels, toModelIds } from '@/lib/modelo'
 
 async function getStats() {
   // Las cinco consultas son independientes entre sí, así que van en una sola tanda: la
@@ -78,7 +78,7 @@ export default async function DashboardPage() {
                 <div key={p.id} className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-gray-800">{p.nameEs}</p>
-                    <p className="text-xs text-gray-500">{p.models.length ? formatModels(p.models) : <span className="italic">Sin moto</span>}</p>
+                    <p className="text-xs text-gray-500">{toModelIds(p.compatibleModels).length ? formatModels(toModelIds(p.compatibleModels)) : <span className="italic">Sin moto</span>}</p>
                   </div>
                   <span className="text-sm font-medium text-gray-700">${parseFloat(p.price.toString()).toFixed(2)}</span>
                 </div>

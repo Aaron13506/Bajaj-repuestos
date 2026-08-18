@@ -1,6 +1,7 @@
 'use server'
 
 import { db } from '@/lib/db'
+import { toModelIds } from '@/lib/modelo'
 import { lookupDeConjuntos, expandCostPieces, type ProductCost } from '@/lib/envio-build'
 import type { BundlePiece } from '@/lib/bundle'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
@@ -14,7 +15,7 @@ export async function getAssemblyComponents(assemblyId: number) {
       child: {
         select: {
           id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true,
-          models: true, discontinuedAt: true,
+          compatibleModels: true, discontinuedAt: true,
         },
       },
     },
@@ -30,7 +31,7 @@ export async function getAssemblyComponents(assemblyId: number) {
       bajajCode: c.child.bajajCode,
       price: parseFloat(c.child.price.toString()),
       imageUrl: c.child.imageUrl,
-      models: c.child.models,
+      models: toModelIds(c.child.compatibleModels),
       // Bajaj no la fabrica más. Acá pesa incluso más que en un embarque: el negocio es por
       // encargo, así que cotizarla es prometerle a un cliente algo que no se va a poder
       // comprar — y con seña cobrada.
@@ -224,7 +225,7 @@ export async function searchProducts(term: string) {
     },
     select: {
       id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true,
-      models: true, discontinuedAt: true,
+      compatibleModels: true, discontinuedAt: true,
     },
     take: 12,
     orderBy: { nameEs: 'asc' },
@@ -235,7 +236,7 @@ export async function searchProducts(term: string) {
     bajajCode: p.bajajCode,
     price: parseFloat(p.price.toString()),
     imageUrl: p.imageUrl,
-    models: p.models,
+    models: toModelIds(p.compatibleModels),
     // Sigue apareciendo en la búsqueda, tachada y sin poder agregarse: si la estás
     // buscando es porque el cliente la pidió, y lo que necesitás saber es que ya no se
     // fabrica — no que "no hay resultados".

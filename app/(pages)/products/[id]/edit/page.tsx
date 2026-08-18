@@ -1,4 +1,5 @@
 import { db } from '@/lib/db'
+import { toModelIds } from '@/lib/modelo'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import ProductForm from '@/components/ProductForm'
@@ -43,7 +44,7 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
           nameEn:           product.nameEn,
           description:      product.description,
           notes:            product.notes,
-          models: product.models,
+          models: toModelIds(product.compatibleModels),
           weightGrams:      product.weightGrams,
           dimL:             product.dimL,
           dimA:             product.dimA,

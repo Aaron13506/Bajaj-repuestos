@@ -1,4 +1,5 @@
 import { db } from '@/lib/db'
+import { toModelIds } from '@/lib/modelo'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import PresupuestoBuilder from '@/components/PresupuestoBuilder'
@@ -16,7 +17,7 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
         items: {
           include: {
             product: {
-              select: { id: true, nameEs: true, bajajCode: true, imageUrl: true, models: true },
+              select: { id: true, nameEs: true, bajajCode: true, imageUrl: true, compatibleModels: true },
             },
           },
           orderBy: { id: 'asc' },
@@ -26,7 +27,7 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
     // Solo headers de ensamble; los componentes se cargan on-demand al seleccionar uno.
     db.product.findMany({
       where: { isAssembly: true },
-      select: { id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true, models: true },
+      select: { id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true, compatibleModels: true },
       orderBy: { nameEs: 'asc' },
     }),
     db.cliente.findMany({
@@ -47,7 +48,7 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
     unitPrice: parseFloat(item.salePrice.toString()),
     quantity: item.quantity,
     imageUrl: item.product.imageUrl,
-    models: item.product.models,
+    models: toModelIds(item.product.compatibleModels),
     bundleItems: (item.bundleItems as BundlePiece[] | null) ?? undefined,
   }))
 
@@ -57,7 +58,7 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
     bajajCode: a.bajajCode,
     price: parseFloat(a.price.toString()),
     imageUrl: a.imageUrl,
-    models: a.models,
+    models: toModelIds(a.compatibleModels),
   }))
 
   return (

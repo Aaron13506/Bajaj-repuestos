@@ -33,8 +33,7 @@
     "cbm:config": "tsx scripts/seed-cbm-config.ts",
     "rates:update": "tsx scripts/update-shipping-rates.ts",
     "rates:baseline": "tsx scripts/update-shipping-rates.ts --baseline",
-    "q": "tsx scripts/q.ts",
-    "backfill:models": "tsx scripts/backfill-models.ts"
+    "q": "tsx scripts/q.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

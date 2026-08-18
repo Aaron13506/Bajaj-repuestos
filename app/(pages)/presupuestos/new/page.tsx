@@ -1,4 +1,5 @@
 import { db } from '@/lib/db'
+import { toModelIds } from '@/lib/modelo'
 import Link from 'next/link'
 import PresupuestoBuilder from '@/components/PresupuestoBuilder'
 import { createPresupuesto } from '../actions'
@@ -15,7 +16,7 @@ export default async function NewPresupuestoPage({
   const [assemblies, clientes] = await Promise.all([
     db.product.findMany({
       where: { isAssembly: true },
-      select: { id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true, models: true },
+      select: { id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true, compatibleModels: true },
       orderBy: { nameEs: 'asc' },
     }),
     db.cliente.findMany({
@@ -30,7 +31,7 @@ export default async function NewPresupuestoPage({
     bajajCode: a.bajajCode,
     price: parseFloat(a.price.toString()),
     imageUrl: a.imageUrl,
-    models: a.models,
+    models: toModelIds(a.compatibleModels),
   }))
 
   return (

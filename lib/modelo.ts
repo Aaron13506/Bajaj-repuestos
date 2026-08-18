@@ -1,10 +1,19 @@
+import type { $Enums } from '@prisma/client'
+
 // Las motos del catálogo y cómo se muestran.
 //
-// `Product.models` es `MotoModel[]` (enum de Prisma). Un ensamble lleva exactamente una
-// moto — esa es su identidad, y es lo único que distingue dos conjuntos con el mismo
-// nombre ("Spark Plugs") que en realidad son de motos distintas. Una pieza suelta lleva
-// todas las motos que la usan (hasta las 15), y de ahí sale la compatibilidad cruzada:
-// la misma pastilla que sirve para la N250 y para la N160 es una sola fila.
+// Lo guardado es TEXTO: `Product.compatibleModels`, las etiquetas separadas por comas.
+// Este módulo es la traducción entre ese texto y las motos tipadas — `toModelIds` lo
+// parsea y descarta lo que no sea una etiqueta conocida, así la presentación (familia,
+// variante, años, colapso por familia) sigue siendo consistente sin que la columna tenga
+// que ser un enum. Hubo un intento de tiparla (`Product.models`) y se revirtió: obligaba
+// a una migración por cada moto nueva y el catálogo crece.
+//
+// Un ensamble lleva exactamente una moto — esa es su identidad, y es lo único que
+// distingue dos conjuntos con el mismo nombre ("Spark Plugs") que en realidad son de
+// motos distintas. Una pieza suelta lleva todas las motos que la usan (hasta las 15), y
+// de ahí sale la compatibilidad cruzada: la misma pastilla que sirve para la N250 y para
+// la N160 es una sola fila.
 //
 // Sin campo propio en Pedido/PedidoItem: las motos se derivan del producto al mostrar,
 // así el armador, el detalle y el PDF siempre dicen lo mismo.
@@ -46,6 +55,15 @@ export type MotoFamily = typeof MOTO_MODELS[number]['family']
 export type MotoModelInfo = typeof MOTO_MODELS[number]
 
 export const ALL_MODELS: readonly MotoModelInfo[] = MOTO_MODELS
+
+// `MotoModel` ya no tipa a Product, pero sigue vivo en `ScrapedProduct.model`, y de ahí
+// salen las motos al materializar el catálogo. Si los ids de esta tabla y los del enum se
+// desincronizan, un ensamble scrapeado quedaría con una moto que acá no existe y se
+// mostraría vacío. Esto lo convierte en un error de compilación en vez de un hueco en la
+// pantalla. (Import de solo-tipo: no arrastra el cliente de Prisma a los componentes.)
+type Assert<T extends true> = T
+type Equal<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
+type _ModelosEnSync = Assert<Equal<MotoModelId, $Enums.MotoModel>>
 
 const BY_ID = new Map<string, MotoModelInfo>(MOTO_MODELS.map(m => [m.id, m]))
 const BY_LABEL = new Map<string, MotoModelInfo>(MOTO_MODELS.map(m => [m.label, m]))

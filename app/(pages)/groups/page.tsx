@@ -1,7 +1,7 @@
 import { db } from '@/lib/db'
 import Link from 'next/link'
 import { getCatalogFilters, whereModel } from '@/lib/catalog'
-import { formatModels } from '@/lib/modelo'
+import { formatModels, toModelIds } from '@/lib/modelo'
 import CatalogFilters from '@/components/CatalogFilters'
 
 interface SearchParams {
@@ -142,8 +142,8 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
                       {group.bajajCode && (
                         <span className="ml-2 text-xs font-mono text-gray-400">{group.bajajCode}</span>
                       )}
-                      {group.models.length > 0 && (
-                        <span className="ml-2 text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">{formatModels(group.models)}</span>
+                      {toModelIds(group.compatibleModels).length > 0 && (
+                        <span className="ml-2 text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">{formatModels(toModelIds(group.compatibleModels))}</span>
                       )}
                     </div>
                   </div>
