@@ -54,6 +54,12 @@ interface CartItem {
   imageUrl?: string | null
   /** Motos del producto (ver lib/modelo.ts): en un ensamble, la moto a la que pertenece. */
   models?: readonly MotoModelId[]
+  /**
+   * Bajaj dejó de fabricarla. Puede venir marcada de un presupuesto YA guardado: se cotizó
+   * cuando todavía se conseguía y el SKU se marcó después. Por eso viaja en la línea y no
+   * solo en el buscador — al reabrir hay que verla tachada, no descubrirlo al guardar.
+   */
+  descontinuada?: boolean
   /** Si está presente, la línea es un conjunto a precio único y estas son las piezas incluidas. */
   bundleItems?: BundlePiece[]
   /**
@@ -444,6 +450,12 @@ export default function PresupuestoBuilder({
     ? clientName.trim().length > 0
     : clienteId !== '' && (clienteId !== '__new__' || nuevoNombre.trim().length > 0)
 
+  // Descontinuadas que YA están en el carrito. Solo pueden venir de un presupuesto guardado
+  // antes de que se marcara el SKU (agregarlas está bloqueado). El servidor también corta
+  // —ver bloquearDescontinuadas en actions.ts—, pero acá se ve cuáles son y se pueden sacar,
+  // en vez de chocar contra un error recién al guardar.
+  const nlsEnCarrito = cart.filter(c => c.descontinuada)
+
   // Enter dentro de un input NO debe guardar. El armador entero es un solo <form> y
   // guardar redirige al presupuesto, así que el submit implícito del navegador —tipear
   // un SKU en el buscador y apretar Enter, corregir una cantidad y apretar Enter—
@@ -456,7 +468,7 @@ export default function PresupuestoBuilder({
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    if (!clienteValid || cart.length === 0 || submitting) return
+    if (!clienteValid || cart.length === 0 || nlsEnCarrito.length > 0 || submitting) return
     setSubmitting(true)
     const fd = new FormData()
     if (isPropio) {
@@ -810,8 +822,9 @@ export default function PresupuestoBuilder({
                           />
                         )}
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">
+                          <p className={`text-sm font-medium truncate ${item.descontinuada ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
                             {item.nameEs}
+                            <ChipDescontinuada activo={item.descontinuada} />
                             {item.bundleItems && (
                               <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
                                 Conjunto
@@ -1155,9 +1168,21 @@ export default function PresupuestoBuilder({
               />
             </div>
 
+            {nlsEnCarrito.length > 0 && (
+              <p className="text-[11px] bg-red-50 border border-red-200 text-red-900 rounded-lg px-2.5 py-2 mb-2">
+                <span className="font-semibold">
+                  {nlsEnCarrito.length === 1 ? 'Una pieza descontinuada' : `${nlsEnCarrito.length} piezas descontinuadas`} en el presupuesto.
+                </span>{' '}
+                Bajaj dejó de fabricar{nlsEnCarrito.length === 1 ? 'la' : 'las'} después de que se cotizó, así que ya no
+                {nlsEnCarrito.length === 1 ? ' la consigue' : ' las consigue'} ningún proveedor.
+                Sacá{nlsEnCarrito.length === 1 ? 'la' : 'las'} para poder guardar:{' '}
+                <span className="font-medium">{nlsEnCarrito.map(c => c.bajajCode ?? c.nameEs).join(', ')}</span>
+              </p>
+            )}
+
             <button
               type="submit"
-              disabled={!clienteValid || cart.length === 0 || submitting}
+              disabled={!clienteValid || cart.length === 0 || nlsEnCarrito.length > 0 || submitting}
               className="w-full bg-blue-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               {submitting ? 'Guardando...' : isEditing ? 'Guardar cambios' : isPropio ? 'Guardar stock' : 'Guardar presupuesto'}

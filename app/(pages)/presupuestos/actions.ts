@@ -14,6 +14,39 @@ interface ItemInput {
   bundleItems?: BundlePiece[] | null
 }
 
+/**
+ * Corta si alguna línea es una pieza que Bajaj dejó de fabricar.
+ *
+ * El armador ya las bloquea en pantalla, pero eso no alcanza: la pieza pudo marcarse
+ * DESPUÉS de que el presupuesto se guardó, y al reabrirlo para tocar una cantidad se
+ * reescribiría igual. Es la misma razón por la que el embarque marítimo corta en
+ * `sincronizarLineas` — el bloqueo es una regla del negocio, no un detalle de la pantalla.
+ *
+ * Acá pesa más que en un embarque: un embarque es mercancía propia y se saca sin costo,
+ * un presupuesto es un compromiso con un cliente y suele tener el 50% cobrado de seña.
+ *
+ * Tira en vez de devolver un error porque estas acciones son `action` de un form y no
+ * devuelven nada. Es el último cerrojo, no la vía normal de enterarse: lo normal es verlas
+ * tachadas en el armador. Que falle ruidosamente es preferible a guardar la promesa.
+ */
+async function bloquearDescontinuadas(items: { productId: number }[]) {
+  const ids = [...new Set(items.map(i => i.productId))]
+  if (ids.length === 0) return
+  const nls = await db.product.findMany({
+    where: { id: { in: ids }, discontinuedAt: { not: null } },
+    select: { nameEs: true, bajajCode: true },
+  })
+  if (nls.length === 0) return
+  const lista = nls.map(p => p.bajajCode ?? p.nameEs).join(', ')
+  const una = nls.length === 1
+  throw new Error(
+    `No se puede guardar: ${nls.length} pieza${una ? '' : 's'} descontinuada${una ? '' : 's'} (${lista}). ` +
+    `Bajaj no ${una ? 'la fabrica' : 'las fabrica'} más y no ${una ? 'la consigue' : 'las consigue'} ningún ` +
+    `proveedor, así que cotizar${una ? 'la' : 'las'} es prometer algo que no se va a poder comprar. ` +
+    `Sacá${una ? 'la' : 'las'} del presupuesto.`
+  )
+}
+
 // Resuelve el Cliente elegido en el builder: existente (clienteId) o uno nuevo
 // creado al vuelo (nuevoClienteNombre). Solo aplica a tipo 'cliente' — el stock
 // propio (tipo 'propio') no lleva Cliente, sigue con clientName de texto libre.
@@ -37,6 +70,7 @@ export async function createPresupuesto(formData: FormData) {
   const items: ItemInput[] = JSON.parse(formData.get('items') as string)
 
   if (items.length === 0) return
+  await bloquearDescontinuadas(items)
 
   let clientName: string
   let clienteId: number | null = null
@@ -90,6 +124,7 @@ export async function updatePresupuesto(id: number, formData: FormData) {
   const items: ItemInput[] = JSON.parse(formData.get('items') as string)
 
   if (items.length === 0) return
+  await bloquearDescontinuadas(items)
 
   let clientName: string
   let clienteId: number | null = null

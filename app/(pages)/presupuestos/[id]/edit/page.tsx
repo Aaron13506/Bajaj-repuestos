@@ -17,7 +17,10 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
         items: {
           include: {
             product: {
-              select: { id: true, nameEs: true, bajajCode: true, imageUrl: true, compatibleModels: true },
+              select: {
+                id: true, nameEs: true, bajajCode: true, imageUrl: true,
+                compatibleModels: true, discontinuedAt: true,
+              },
             },
           },
           orderBy: { id: 'asc' },
@@ -49,6 +52,9 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
     quantity: item.quantity,
     imageUrl: item.product.imageUrl,
     models: toModelIds(item.product.compatibleModels),
+    // Se pudo marcar DESPUÉS de cotizarla: el armador la muestra tachada en vez de
+    // dejar que parezca normal hasta que el servidor rechace el guardado.
+    descontinuada: item.product.discontinuedAt != null,
     bundleItems: (item.bundleItems as BundlePiece[] | null) ?? undefined,
   }))
 
