@@ -25,25 +25,32 @@
     "db:seed:service": "tsx prisma/seed-scraped.ts --file=service-parts.json",
     "cross-ref": "tsx scripts/cross-ref.ts",
     "materialize": "tsx scripts/materialize-catalog.ts",
+    "prices:99rpm": "tsx scripts/update-prices-99rpm.ts",
     "backfill:images": "tsx scripts/backfill-images.ts",
+    "recover:images": "tsx scripts/recover-missing-images.ts",
     "verify:images": "tsx scripts/verify-scraped-images.ts",
-    "fx:update": "tsx scripts/update-fx-rates.ts"
+    "fx:update": "tsx scripts/update-fx-rates.ts",
+    "cbm:config": "tsx scripts/seed-cbm-config.ts",
+    "backfill:boxer": "tsx scripts/backfill-boxer-models.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1079.0",
+    "@prisma/adapter-pg": "5.22.0",
     "@prisma/client": "^5.22.0",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
     "next": "16.2.6",
+    "pg": "8.13.1",
     "react": "^19",
     "react-dom": "^19",
     "tsx": "^4.19.2"
   },
   "devDependencies": {
     "@types/node": "^20",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "autoprefixer": "^10.0.1",

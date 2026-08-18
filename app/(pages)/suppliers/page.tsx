@@ -22,6 +22,10 @@ export default async function SuppliersPage() {
         precio de 99rpm para los SKU que todavía no tengan un precio cargado para él.
       </p>
       <p className="text-sm text-gray-500 mb-6">
+        El <strong>FOB</strong> es lo que cada proveedor cobra por sacar la carga: es fijo por embarque
+        marítimo y no escala con el volumen. Vacío usa el default global de <a href="/config" className="underline">Configuración</a>.
+        Por aire no aplica — ahí se compra siempre a 99rpm.
+        <br />
         El <strong>origen</strong> se marca una sola vez por proveedor y define la ruta de todo lo
         que le compres: India pasa por Shoppre, China va directo al consolidador de USA. Los ítems
         ya comprados conservan la ruta que tenían.
@@ -44,6 +48,17 @@ export default async function SuppliersPage() {
             <option value="india">🇮🇳 India</option>
             <option value="china">🇨🇳 China</option>
           </select>
+          <label className="flex items-center gap-1 border border-gray-300 rounded-lg px-2 py-2 text-sm shrink-0" title="FOB propio en USD por embarque marítimo. Vacío = usa el default global">
+            <span className="text-gray-400">FOB $</span>
+            <input
+              name="fobUsd"
+              type="number"
+              min={0}
+              step="0.01"
+              placeholder="500"
+              className="w-20 outline-none"
+            />
+          </label>
           <button
             type="submit"
             className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
@@ -77,6 +92,18 @@ export default async function SuppliersPage() {
                   <option value="india">🇮🇳 India</option>
                   <option value="china">🇨🇳 China</option>
                 </select>
+                <label className="flex items-center gap-1 border border-gray-300 rounded-lg px-2 py-1.5 text-sm shrink-0" title="FOB propio en USD por embarque marítimo. Vacío = usa el default global de Config">
+                  <span className="text-gray-400">FOB $</span>
+                  <input
+                    name="fobUsd"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    defaultValue={s.fobUsd != null ? parseFloat(s.fobUsd.toString()) : ''}
+                    placeholder="default"
+                    className="w-20 outline-none"
+                  />
+                </label>
                 <span className="text-xs text-gray-400 shrink-0">
                   {s._count.prices} {s._count.prices === 1 ? 'precio' : 'precios'} cargados
                 </span>

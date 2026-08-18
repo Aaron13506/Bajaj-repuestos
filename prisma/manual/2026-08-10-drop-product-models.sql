@@ -1,0 +1,37 @@
+-- ─────────────────────────────────────────────────────────────────────────────
+-- DROP de Product.models  ·  PREPARADO, NO EJECUTADO
+--
+-- Correr con:
+--   npx prisma db execute --file prisma/manual/2026-08-10-drop-product-models.sql --schema prisma/schema.prisma
+--
+-- QUÉ ES: `Product.models` (MotoModel[]) quedó de un intento de tipar las motas con un
+-- enum. El trabajo se aplicó a la DB pero su schema.prisma nunca se commiteó, así que la
+-- columna existe con datos y NINGÚN código la lee — el cliente de Prisma ni siquiera la
+-- expone. Es la única diferencia que queda entre la DB y el schema.
+--
+-- POR QUÉ NO SE PODÍA DROPEAR ANTES (2026-08-10): la columna guardaba datos que el texto
+-- `compatibleModels` no tenía:
+--   · 598 productos con BOXER_BM150 en el enum y CERO menciones a Boxer en el texto
+--     (436 de ellos habrían quedado sin ninguna moto asociada, invisibles en el filtro)
+--   ·   2 piezas con modelos en el enum y el texto en NULL
+--   ·   6 productos cuyo texto era un alias ("N250", "N250/N160", "Pulsar N250") que el
+--       enum ya tenía resuelto en variantes concretas
+--
+-- QUÉ SE HIZO ANTES DE HABILITAR ESTE DROP:
+--   1. `BOXER_BM150` agregado al enum MotoModel de schema.prisma (la DB ya lo tenía; sin
+--      esto, cualquier migración que recreara el tipo fallaba contra las 81 filas Boxer
+--      de ScrapedProduct).
+--   2. `pnpm backfill:boxer --apply` — volcó las tres cosas de arriba a compatibleModels.
+--   3. `getCatalogFilters` (lib/catalog.ts) ahora parte compatibleModels por comas, así un
+--      ensamble multi-modelo no genera una opción de dropdown con tres motos pegadas.
+--
+-- VERIFICADO DESPUÉS: de las 5778 filas con `models`, 0 referencias del enum quedan sin
+-- reflejo en `compatibleModels`. El dropdown del filtro muestra los 15 modelos canónicos,
+-- ninguno espurio. La columna es 100% redundante.
+--
+-- ANTES DE CORRERLO, confirmá en la app que el filtro de motos muestra "Boxer BM150" y
+-- que al elegirlo aparecen sus 81 ensambles. Este DROP no tiene vuelta atrás: el rollback
+-- es restaurar de un backup de Supabase, no un comando.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+ALTER TABLE "Product" DROP COLUMN "models";

@@ -1,3 +1,4 @@
+import { db } from './db'
 import type { BundlePiece } from './bundle'
 
 // Campos de costo/dimensión de un producto necesarios para costear un envío.
@@ -5,6 +6,10 @@ export interface ProductCost {
   id: number
   nameEs: string
   bajajCode: string | null
+  // Contexto para la investigación de medidas con IA (ver components/MedidasIA).
+  // Opcionales: la ficha del envío no los necesita y no los trae.
+  nameEn?: string | null
+  compatibleModels?: string | null
   weightGrams: number | null
   dimL: number | null
   dimA: number | null
@@ -28,6 +33,30 @@ export interface CostPiece {
 }
 
 export type ProductLookup = (bajajCode: string | null, nameEs: string) => ProductCost | undefined
+
+// Lookup acotado a las piezas que aparecen en estos conjuntos. La ficha de un envío se
+// puede permitir traer el catálogo entero, pero un presupuesto suele tener 20 SKU: se
+// consultan solo esos en vez de los ~5800 productos.
+export async function lookupDeConjuntos(bundles: (BundlePiece[] | null | undefined)[]): Promise<ProductLookup> {
+  const codes = new Set<string>()
+  const names = new Set<string>()
+  for (const piezas of bundles) {
+    for (const p of piezas ?? []) {
+      if (p.bajajCode) codes.add(p.bajajCode)
+      else names.add(p.nameEs)
+    }
+  }
+  if (codes.size === 0 && names.size === 0) return () => undefined
+
+  const products = await db.product.findMany({
+    where: { OR: [{ bajajCode: { in: [...codes] } }, { nameEs: { in: [...names] } }] },
+    select: {
+      id: true, nameEs: true, bajajCode: true, nameEn: true, compatibleModels: true,
+      weightGrams: true, dimL: true, dimA: true, dimH: true, priceInr: true,
+    },
+  })
+  return makeProductLookup(products)
+}
 
 // Construye un lookup por bajajCode (preferido) y por nombre (respaldo) a partir
 // de la lista de productos.

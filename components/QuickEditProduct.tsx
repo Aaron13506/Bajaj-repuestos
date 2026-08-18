@@ -27,6 +27,12 @@ export interface QuickEditValues {
   price: number
   priceLocked?: boolean
   stock: number
+  /**
+   * Bajaj no la fabrica más: no la consigue ningún proveedor, así que no entra a un embarque
+   * ni a un presupuesto. Solo se lee — se marca por lista de SKU en /products/discontinued,
+   * porque el dato llega de a decenas (99rpm rotula el despiece entero), no de a una.
+   */
+  descontinuada?: boolean
 }
 
 interface Props {
@@ -51,6 +57,11 @@ interface Props {
    * edita el override de ESE proveedor (SupplierPrice) en vez del precio base de 99rpm.
    */
   activeSupplierId?: number | null
+  /**
+   * Modo logístico activo. El landed que este editor calcula (y que se guarda, y del que
+   * sale el precio de venta) depende de cómo se trae la pieza: por aire pesa el peso, por
+   * mar pesa el volumen. Sin esta prop cae a 'aereo', el comportamiento de siempre.
+   */
 }
 
 export default function QuickEditProduct({ product, cfg, triggerClassName, triggerLabel = 'Editar', onOptimistic, packQty, activeSupplierId }: Props) {
@@ -93,10 +104,15 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty, activeSupp
 
   const [isLanded, setIsLanded] = useState(d.priceIsLanded ?? false)
 
+  // Con qué cadena se costea lo que se está editando: el precio de 99rpm (₹) es el de la
+  // ruta aérea, y el de un proveedor alternativo solo existe por barco — esos proveedores
+  // no llegan al mínimo de Shoppre, así que su landed aéreo sería un número inventado.
+  const modoCosto = isSupplierMode ? 'maritimo_cbm' : 'aereo'
+
   const initialLanded = calcLanded({
     priceInr: d.priceInr, priceUsd: d.priceUsd, priceIsLanded: d.priceIsLanded, weightGrams: d.weightGrams,
     dimL: d.dimL, dimA: d.dimA, dimH: d.dimH, margin: null,
-  }, cfg)?.landedCostUsd ?? null
+  }, cfg, modoCosto)?.landedCostUsd ?? null
 
   const priceInrRef = useRef<HTMLInputElement>(null)
   const priceUsdRef = useRef<HTMLInputElement>(null)
@@ -122,7 +138,7 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty, activeSupp
       dimA:          num(dimARef),
       dimH:          num(dimHRef),
       margin:        null,
-    }, cfg)
+    }, cfg, modoCosto)
     return b ? b.landedCostUsd : null
   }
 

@@ -1,6 +1,8 @@
 import { db } from '@/lib/db'
+import Link from 'next/link'
 import PresupuestoBuilder from '@/components/PresupuestoBuilder'
 import { sortModels } from '@/lib/catalog'
+import { modelosDistintos } from '@/lib/modelos'
 import { createPresupuesto } from '../actions'
 
 export default async function NewPresupuestoPage({
@@ -8,7 +10,8 @@ export default async function NewPresupuestoPage({
 }: {
   searchParams: Promise<{ tipo?: string }>
 }) {
-  const tipo = (await searchParams).tipo === 'propio' ? 'propio' : 'cliente'
+  const sp = await searchParams
+  const tipo = sp.tipo === 'propio' ? 'propio' : 'cliente'
 
   // Solo headers de ensamble; los componentes se cargan on-demand al seleccionar uno.
   const [assemblies, clientes] = await Promise.all([
@@ -23,9 +26,7 @@ export default async function NewPresupuestoPage({
     }),
   ])
 
-  const models = sortModels(
-    Array.from(new Set(assemblies.map(a => a.compatibleModels).filter((m): m is string => !!m)))
-  )
+  const models = sortModels(modelosDistintos(assemblies.map(a => a.compatibleModels)))
 
   const assembliesForClient = assemblies.map(a => ({
     id: a.id,
@@ -44,7 +45,10 @@ export default async function NewPresupuestoPage({
         </h1>
         {tipo === 'propio' && (
           <p className="text-sm text-gray-500 mt-1">
-            Piezas que traés para revender por tu cuenta. Suman al peso y volumen del envío, sin cliente ni adelanto.
+            Piezas que traés para revender <span className="font-medium">por la ruta aérea</span>, junto con los
+            pedidos de cliente. Para traer stock por barco usá un{' '}
+            <Link href="/envios" className="text-blue-600 hover:underline">embarque marítimo</Link>, que se arma
+            aparte y se costea por volumen.
           </p>
         )}
       </div>

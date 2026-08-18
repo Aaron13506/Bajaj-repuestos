@@ -5,6 +5,8 @@ import DeleteButton from '@/components/DeleteButton'
 import EnvioItemsTable, { type EnvioItemRow } from '@/components/EnvioItemsTable'
 import PendingButton from '@/components/PendingButton'
 import { calcEnvio, type EnvioItemInput, type ConfigMap } from '@/lib/calc'
+import { modoDeEnvio, MODOS } from '@/lib/modo'
+import EnvioMaritimo from './maritimo'
 import { makeProductLookup, expandCostPieces, type ProductCost } from '@/lib/envio-build'
 import type { BundlePiece } from '@/lib/bundle'
 import {
@@ -19,6 +21,9 @@ import {
 
 const usd = (n: number) => `$${n.toFixed(2)}`
 const kg = (n: number) => `${n.toFixed(2)} kg`
+// El m³ se muestra con 3 decimales: una pieza suelta ronda los 0.00x m³ y con 2
+// decimales todo el catálogo se vería como "0.00".
+const m3 = (n: number) => `${n.toFixed(3)} m³`
 const fecha = (d: Date) => new Date(d).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' })
 
 // Guía de punto dulce sobre la curva real de ShipGlobal Duty Free (member).
@@ -43,6 +48,13 @@ function airTierHint(chargeableKg: number): { tone: 'good' | 'info'; text: strin
 export default async function EnvioDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const id = parseInt((await params).id)
   if (isNaN(id)) notFound()
+
+  // Los dos carriles son documentos distintos, no variantes del mismo: el marítimo lleva
+  // mercancía propia (EnvioLinea) y se arma pieza por pieza, el aéreo agrupa pedidos de
+  // cliente. Se bifurca acá arriba en vez de llenar la ficha de condicionales.
+  const ruta = await db.envio.findUnique({ where: { id }, select: { modo: true } })
+  if (!ruta) notFound()
+  if (ruta.modo === 'maritimo_cbm') return <EnvioMaritimo envioId={id} />
 
   const [envio, cfgRows, sinAsignar, allProducts, supplierPrices, suppliers] = await Promise.all([
     db.envio.findUnique({
@@ -121,7 +133,11 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   }))
 
   const inboundChinaUsd = envio.inboundChinaUsd != null ? parseFloat(envio.inboundChinaUsd.toString()) : null
-  const calc = calcEnvio(items, cfg, { inboundChinaUsd })
+  // El envío se costea con SU modo (snapshot al crearlo), no con el modo global activo:
+  // una caja aérea ya armada sigue costeándose como aérea aunque hoy operes en CBM.
+  const modoEnvio = modoDeEnvio(envio.modo)
+  const esCbm = modoEnvio === 'maritimo_cbm'
+  const calc = calcEnvio(items, cfg, { inboundChinaUsd, modo: modoEnvio })
 
   // Lista de compra: consolida las piezas por SKU (o nombre si no tiene SKU) sumando
   // cantidades, para saber exactamente qué y cuánto comprar. Separada por origen,
@@ -218,7 +234,9 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   const anyMissing = calc.lines.some(l => l.missingWeight || l.missingDims)
   const tierHint = airTierHint(calc.air.chargeableKg)
   const ratioPct = calc.air.ratioVW != null ? calc.air.ratioVW * 100 : null
-  const shippingEst = calc.airUsd + calc.maritimeUsd
+  // Flete estimado de la caja. `fobUsd` es 0 fuera del modo CBM, así que esto no cambia
+  // nada en aéreo; en CBM el FOB es parte del costo de traerla y tiene que ir adentro.
+  const shippingEst = calc.airUsd + calc.maritimeUsd + calc.fobUsd
   const fmtBound =
     calc.air.binding === 'weight'
       ? { label: 'Atado por PESO', cls: 'bg-green-100 text-green-700' }
@@ -237,11 +255,26 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
             <span className="text-gray-300">/</span>
             <span className="text-sm text-gray-600">#{envio.id}</span>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">{envio.nombre ?? `Envío #${envio.id}`}</h1>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-2xl font-bold text-gray-900">{envio.nombre ?? `Envío #${envio.id}`}</h1>
+            {/* Modo con el que se costeó esta caja. Se congeló al crearla, así que puede
+                diferir del modo global activo — de ahí que se muestre siempre. */}
+            <span
+              title={MODOS.find(m => m.value === modoEnvio)?.hint}
+              className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                esCbm ? 'bg-cyan-100 text-cyan-800' : 'bg-indigo-100 text-indigo-800'
+              }`}
+            >
+              {MODOS.find(m => m.value === modoEnvio)?.icon}{' '}
+              {MODOS.find(m => m.value === modoEnvio)?.label}
+            </span>
+          </div>
           {envio.notas && <p className="text-sm text-gray-500 mt-1">{envio.notas}</p>}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {calc.chargeableKg > 0 && (
+          {/* En CBM el peso es irrelevante: una caja puede tener flete sin que haya un
+              solo gramo cargado, así que el botón se habilita por lo que se va a pagar. */}
+          {shippingEst > 0 && (
             <form action={saveEstimate.bind(null, envio.id, shippingEst)}>
               <button
                 type="submit"
@@ -269,6 +302,90 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               etiqueta/valor): en pantalla ancha van lado a lado en vez de apilarse y
               empujar la tabla de ítems fuera de la vista. */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-4 items-start">
+          {esCbm ? (
+          /* Modo CBM: no hay tramos a USA. Lo único que gobierna el costo es cuánto
+             volumen lleva la caja contra el mínimo que la naviera factura igual. */
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+                🚢 Embarque marítimo · llenado
+              </h2>
+              {calc.minM3Applied && (
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">
+                  Pagando el mínimo
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div>
+                <p className="text-xs text-gray-400 mb-1">Volumen real</p>
+                <p className="text-xl font-bold font-mono text-gray-900">{m3(calc.volumeM3)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 mb-1">Facturable</p>
+                <p className={`text-xl font-bold font-mono ${calc.minM3Applied ? 'text-amber-700' : 'text-gray-900'}`}>
+                  {m3(calc.billableM3)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 mb-1">Tarifa</p>
+                <p className="text-xl font-bold font-mono text-gray-900">{usd(calc.cbmRatePerM3)}<span className="text-xs text-gray-400">/m³</span></p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 mb-1">Costo real / m³</p>
+                <p className="text-xl font-bold font-mono text-blue-700">
+                  {calc.volumeM3 > 0 ? usd((calc.maritimeUsd + calc.fobUsd) / calc.volumeM3) : '—'}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <div className="flex items-center justify-between text-xs mb-1">
+                <span className="text-gray-500">Llenado del volumen facturable</span>
+                <span className="font-mono font-semibold text-gray-700">{(calc.cbmFillPct * 100).toFixed(0)}%</span>
+              </div>
+              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${
+                    calc.cbmFillPct >= 0.9 ? 'bg-green-500' : calc.cbmFillPct >= 0.6 ? 'bg-amber-400' : 'bg-red-500'
+                  }`}
+                  style={{ width: `${Math.min(calc.cbmFillPct * 100, 100)}%` }}
+                />
+              </div>
+              <p className="text-xs mt-2 text-gray-600">
+                {calc.minM3Applied
+                  ? `⚠️ Vas a pagar ${m3(calc.billableM3)} mandando ${m3(calc.volumeM3)}: te sobran ${m3(calc.billableM3 - calc.volumeM3)} ya pagados. Meté más piezas antes de cerrar — viajan sin costo de flete adicional.`
+                  : calc.cbmFillPct >= 0.9
+                    ? '✓ La caja va llena: estás pagando volumen que efectivamente usás.'
+                    : 'Estás por encima del mínimo, así que cada m³ extra se cobra — pero el FOB fijo se sigue diluyendo entre más piezas.'}
+              </p>
+            </div>
+
+            {calc.fobUsd > 0 && (
+              <p className="text-xs mt-3 px-3 py-2 rounded-lg bg-blue-50 text-blue-700">
+                El FOB de India ({usd(calc.fobUsd)}) es fijo por embarque: hoy pesa{' '}
+                <span className="font-mono font-semibold">
+                  {calc.volumeM3 > 0 ? `${usd(calc.fobUsd / calc.volumeM3)}/m³` : '—'}
+                </span>
+                . Cuanto más llenes, menos le toca a cada pieza.
+              </p>
+            )}
+
+            {calc.cbmRatePerM3 === 0 && (
+              <p className="text-xs mt-3 px-3 py-2 rounded-lg bg-amber-50 text-amber-700">
+                ⚠️ No hay tarifa por m³ cargada: el flete está contando 0 y el envío queda subcosteado.{' '}
+                <Link href="/config" className="font-mono underline">cbm_rate_usd</Link> en Configuración.
+              </p>
+            )}
+
+            {anyMissing && (
+              <p className="text-xs mt-3 px-3 py-2 rounded-lg bg-amber-50 text-amber-700">
+                ⚠️ Hay piezas sin dimensiones cargadas — no suman volumen y el llenado real es mayor al que ves.
+              </p>
+            )}
+          </div>
+          ) : (
+          <>
           {/* Tramo India → USA (ShipGlobal): el único que cotiza por tabla escalón */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
             <div className="flex items-center justify-between mb-4">
@@ -393,17 +510,31 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               </form>
             </div>
           )}
+          </>
+          )}
 
           {/* Desglose de costo */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
             <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">Costo del envío (landed)</h2>
             <dl className="space-y-2 text-sm">
               <Row label="Costo de producto" value={usd(calc.productCostUsd)} />
-              <Row label={`Aéreo India→USA · ${calc.air.inr.toLocaleString('es-VE')} INR`} value={usd(calc.air.costUsd)} />
-              {hayChina && <Row label="Flete China→USA (real)" value={usd(calc.china.costUsd)} />}
-              <Row label="Marítimo USA→VEN (volumen)" value={usd(calc.maritimeUsd)} />
-              <Row label="Seguro" value={usd(calc.insuranceUsd)} />
-              <Row label="Processing" value={usd(calc.processingUsd)} />
+              {esCbm ? (
+                <>
+                  <Row
+                    label={`Marítimo India→VEN · ${m3(calc.billableM3)} × ${usd(calc.cbmRatePerM3)}/m³`}
+                    value={usd(calc.maritimeUsd)}
+                  />
+                  <Row label="FOB India (fijo por embarque)" value={usd(calc.fobUsd)} />
+                </>
+              ) : (
+                <>
+                  <Row label={`Aéreo India→USA · ${calc.air.inr.toLocaleString('es-VE')} INR`} value={usd(calc.air.costUsd)} />
+                  {hayChina && <Row label="Flete China→USA (real)" value={usd(calc.china.costUsd)} />}
+                  <Row label="Marítimo USA→VEN (volumen)" value={usd(calc.maritimeUsd)} />
+                  <Row label="Seguro" value={usd(calc.insuranceUsd)} />
+                  <Row label="Processing" value={usd(calc.processingUsd)} />
+                </>
+              )}
               {calc.landedDirectUsd > 0 && (
                 <Row label="Compras puestas en Venezuela (no viajan)" value={usd(calc.landedDirectUsd)} />
               )}

@@ -25,7 +25,8 @@ export async function saveConfig(formData: FormData) {
       create: { key, value: normalized },
     })
   }
-  revalidatePath('/config')
-  revalidatePath('/products')
+  // Las tarifas del Config entran en el landed de cada pieza, así que un cambio acá
+  // repercute en catálogo, ensambles, presupuestos y envíos por igual.
+  revalidatePath('/', 'layout')
   redirect('/config?saved=1')
 }

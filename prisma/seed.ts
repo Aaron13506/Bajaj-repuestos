@@ -13,6 +13,11 @@ const configs = [
   { key: 'shoppre_processing_inr', value: '500',   description: 'Processing fee fijo de Shoppre por envío (INR)' },
   { key: 'shoppre_carrier',        value: 'ShipGlobal USA - Duty Free', description: 'Transportista Shoppre: "ShipGlobal USA - Duty Free" o "Economy Shipping"' },
   { key: 'default_margin_pct',     value: '40',    description: 'Margen de ganancia por defecto (%) al crear un producto; el precio se calcula solo y luego se puede ajustar' },
+  // Modo Marítimo CBM — India → Venezuela directo por mar. Solo aplican con ese modo activo.
+  { key: 'cbm_rate_usd',           value: '1000',  description: 'Tarifa plana India → Venezuela en USD por m³ (incluye flete, seguro, origen, destino y aduana). Escala lineal: 2 m³ = 2000' },
+  { key: 'cbm_fob_india_usd',      value: '500',   description: 'FOB en India: monto fijo por embarque, no escala con el volumen' },
+  { key: 'cbm_min_m3',             value: '1',     description: 'Mínimo facturable de la naviera en m³ por embarque (LCL)' },
+  { key: 'cbm_referencia_m3',      value: '1',     description: 'Embarque de referencia en m³ para prorratear el FOB al costear una pieza suelta en el catálogo' },
 ]
 
 const products = [

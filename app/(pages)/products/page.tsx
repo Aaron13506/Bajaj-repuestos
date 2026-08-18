@@ -1,10 +1,11 @@
 import { db } from '@/lib/db'
 import Link from 'next/link'
 import ProductRow from '@/components/ProductRow'
+import { costHeaders } from '@/lib/cost-columns'
 import CatalogFilters from '@/components/CatalogFilters'
 import { getCatalogFilters } from '@/lib/catalog'
 import { type ConfigMap } from '@/lib/calc'
-import { getActiveSupplier, getSupplierPriceMap } from '@/lib/suppliers'
+import { getSupplierPriceMap } from '@/lib/suppliers'
 
 interface SearchParams {
   search?: string
@@ -12,6 +13,9 @@ interface SearchParams {
   category?: string
   page?: string
   lowStock?: string
+  /** Contra qué proveedor comparar la columna 🚢. Es un filtro de ESTA pantalla, no un
+   *  estado global: el proveedor de verdad lo elige cada embarque. */
+  proveedor?: string
 }
 
 export default async function ProductsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
@@ -42,9 +46,10 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
     ],
   }
 
-  const activeSupplier = await getActiveSupplier()
+  const proveedorId = parseInt(sp.proveedor ?? '')
+  const compararContra = Number.isFinite(proveedorId) ? proveedorId : null
 
-  const [products, total, configRows, filters, priceMap] = await Promise.all([
+  const [products, total, configRows, filters, priceMap, suppliers] = await Promise.all([
     db.product.findMany({
       where,
       skip: (page - 1) * limit,
@@ -61,8 +66,12 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
     db.product.count({ where }),
     db.config.findMany(),
     getCatalogFilters(model),
-    getSupplierPriceMap(activeSupplier?.id ?? null),
+    getSupplierPriceMap(compararContra),
+    // Va dentro de la tanda: quedaba colgando después del Promise.all y era, sola, un
+    // viaje entero a us-west-2 sin que nada dependiera de ella.
+    db.supplier.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }),
   ])
+  const supplierName = suppliers.find(s => s.id === compararContra)?.name ?? null
 
   const cfg = configRows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
   const totalPages = Math.ceil(total / limit)
@@ -74,6 +83,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
     if (model) params.set('model', model)
     if (category) params.set('category', category)
     if (onlyLowStock) params.set('lowStock', '1')
+    if (compararContra != null) params.set('proveedor', String(compararContra))
     params.set('page', String(p))
     return `/products?${params.toString()}`
   }
@@ -83,11 +93,19 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold text-gray-900">Productos</h1>
+
+          {/* Las dos rutas se muestran siempre, lado a lado: el precio de venta sale del
+              aéreo (siempre 99rpm), y el marítimo está al lado para decidir dónde
+              abastecerse. Contra QUIÉN se compara el marítimo es un filtro de esta
+              pantalla — el proveedor real lo elige cada embarque. */}
           <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
-            Proveedor: {activeSupplier?.name ?? '99rpm (base)'}
+            ✈️ 99rpm · 🚢 {supplierName ?? '99rpm'}
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <Link href="/products/discontinued" className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors">
+            Descontinuadas
+          </Link>
           <Link href="/products/import" className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors">
             Importar JSON
           </Link>
@@ -104,6 +122,8 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
         categories={filters.categories}
         current={{ model, category, search, lowStock: onlyLowStock }}
         showLowStock
+        suppliers={suppliers}
+        currentSupplierId={compararContra}
         searchPlaceholder="Buscar por nombre, código o modelo..."
       />
 
@@ -123,20 +143,10 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Nombre</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Modelos</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-500">g</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-500 border-l border-gray-100">Costo origen</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-500">Producto</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-500">Shoppre</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-500">Seguro</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-500">Marítimo</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-500">Flete hoy</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-500 font-semibold border-l border-gray-200">Landed</th>
-                <th className="text-right px-4 py-3 font-medium text-sky-700 bg-sky-50 border-l-2 border-sky-200" title="Flete India → Venezuela por mar directo">🚢 Flete mar</th>
-                <th className="text-right px-4 py-3 font-semibold text-sky-800 bg-sky-50" title="Costo landed si se trae por mar directo">Landed mar</th>
-                <th className="text-right px-4 py-3 font-medium text-sky-700 bg-sky-50" title="Precio de venta por mar: mismo margen aplicado sobre el landed marítimo">Venta mar</th>
-                <th className="text-right px-4 py-3 font-medium text-sky-700 bg-sky-50 border-r-2 border-sky-200" title="Diferencia contra el aéreo actual — igual para landed y para venta">Δ</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-500 border-l border-gray-100">Margen</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-500">Precio USD</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-500">Precio BsD</th>
+                {/* El set de columnas de costo depende del modo (ver costHeaders). */}
+                {costHeaders().map(c => (
+                  <th key={c.label} className={c.className} title={c.title}>{c.label}</th>
+                ))}
                 <th className="text-right px-4 py-3 font-medium text-gray-500 border-l border-gray-100">Stock</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-500">Acciones</th>
               </tr>
@@ -146,7 +156,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                 <ProductRow
                   key={product.id}
                   cfg={cfg}
-                  activeSupplierId={activeSupplier?.id ?? null}
+                  activeSupplierId={compararContra}
                   product={{
                     id: product.id,
                     nameEs: product.nameEs,
@@ -163,6 +173,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                     margin: product.margin,
                     price: parseFloat(product.price.toString()),
                     priceLocked: product.priceLocked,
+                    descontinuada: product.discontinuedAt != null,
                     stock: product.stock,
                     isAssembly: product.isAssembly,
                     componentsCount: product._count.components,
@@ -184,6 +195,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                       margin: pc.child.margin,
                       price: parseFloat(pc.child.price.toString()),
                       priceLocked: pc.child.priceLocked,
+                      descontinuada: pc.child.discontinuedAt != null,
                       stock: pc.child.stock,
                     })),
                   }}

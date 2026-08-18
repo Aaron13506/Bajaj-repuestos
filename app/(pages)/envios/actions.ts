@@ -4,12 +4,27 @@ import { db } from '@/lib/db'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { isValidStatus, normalizeToRoute, routeFor } from '@/lib/shipping-status'
+import { isModoApp } from '@/lib/modo'
 
+// Crea una caja. La RUTA se elige acá y no se vuelve a tocar: es lo que decide con qué
+// cadena logística se costea y, sobre todo, qué se puede meter adentro.
+//
+//   aéreo    → nace confirmado y se llena asignándole PEDIDOS (carga comercial).
+//   marítimo → nace en BORRADOR y se llena pieza por pieza con mercancía propia.
 export async function createEnvio(formData: FormData) {
   const nombre = (formData.get('nombre') as string)?.trim() || null
   const notas = (formData.get('notas') as string)?.trim() || null
+  const raw = formData.get('modo') as string
+  const modo = isModoApp(raw) ? raw : 'aereo'
+  const estado = modo === 'maritimo_cbm' ? 'borrador' : 'confirmado'
 
-  const envio = await db.envio.create({ data: { nombre, notas } })
+  // El proveedor solo existe en el marítimo: por aire se le compra siempre a 99rpm, que es
+  // el único que llega al mínimo de Shoppre. Se congela acá porque decide el precio de cada
+  // pieza Y el FOB de la caja — dos cosas que no pueden cambiar solas después.
+  const supplierRaw = parseInt((formData.get('supplierId') as string) ?? '')
+  const supplierId = modo === 'maritimo_cbm' && Number.isFinite(supplierRaw) ? supplierRaw : null
+
+  const envio = await db.envio.create({ data: { nombre, notas, modo, estado, supplierId } })
 
   revalidatePath('/envios')
   redirect(`/envios/${envio.id}`)

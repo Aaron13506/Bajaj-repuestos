@@ -134,19 +134,55 @@ function imagePath(html: string): string | null {
 }
 
 const clean = (s: string) => s.replace(/\*\*/g, '').replace(/\s+/g, ' ').trim()
-const isSku = (s: string) => /^[A-Z0-9]{5,10}$/.test(s.trim())
 
-interface Part { groupTitle: string; name: string; sku: string; altSku?: string; priceInr: number; qty: number; sortOrder: number }
+/**
+ * Un token del nombre que en realidad es el código Bajaj de la pieza.
+ *
+ * INSENSIBLE A LA CAJA a propósito: 99rpm no es consistente y publica el mismo tipo de
+ * código en mayúscula ("DH101509") o capitalizado ("Dh101414"). Cuando esto exigía
+ * mayúsculas, el capitalizado no se reconocía como código, se quedaba adentro del nombre
+ * y la pieza nacía SIN SKU — invisible para el cruce con la lista del proveedor, y
+ * duplicada una vez por cada ensamble que la usa (materialize solo deduplica por código).
+ *
+ * El dígito obligatorio es lo que sostiene el relajo de la caja: sin él, una palabra
+ * suelta del nombre partida por "|" ("Silver", "Rubber") pasaría por código. Todos los
+ * códigos Bajaj del catálogo tienen al menos uno.
+ */
+const isSku = (s: string) => /^[A-Za-z0-9]{5,10}$/.test(s.trim()) && /\d/.test(s)
+
+/**
+ * Selecciones que 99rpm rotula como descontinuadas.
+ *
+ * El dato NO está en el JSON del bundle: la página lo agrega al final del `<label>` de cada
+ * selección, como texto plano — "… ₹ 241</span> (Discontinued/Supply-Disruption/NLS)". Por
+ * eso hay que leer el HTML aunque el resto de la pieza salga del JSON.
+ *
+ * Devuelve ids de selección (`bundle-option-<opción>-<selección>`), que son las mismas
+ * claves con las que vienen las selecciones en el bundle.
+ */
+function discontinuedSelections(html: string): Set<string> {
+  const out = new Set<string>()
+  // El id aparece dos veces por pieza (en el <input> y en el <label>); las dos capturas
+  // terminan leyendo el mismo texto hasta </label>, así que el Set alcanza para dedup.
+  const re = /bundle-option-\d+-(\d+)"[^>]*>([\s\S]{0,600}?)<\/label>/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(html))) {
+    if (/Discontinued|Supply-Disruption|\bNLS\b/i.test(m[2])) out.add(m[1])
+  }
+  return out
+}
+
+interface Part { groupTitle: string; name: string; sku: string; altSku?: string; priceInr: number; qty: number; sortOrder: number; discontinued: boolean }
 
 /** Aplana el bundle Magento en grupos/piezas. */
-function parseBundle(bundle: any): { parts: Part[]; totalInr: number } {
+function parseBundle(bundle: any, nls: Set<string> = new Set()): { parts: Part[]; totalInr: number } {
   const parts: Part[] = []
   const options = bundle?.options ?? {}
   const opts = Object.values<any>(options).sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
   let sort = 0
   for (const opt of opts) {
     const groupTitle = clean(String(opt.title ?? ''))
-    for (const sel of Object.values<any>(opt.selections ?? {})) {
+    for (const [selId, sel] of Object.entries<any>(opt.selections ?? {})) {
       const raw = String(sel.name ?? '')
       const toks = raw.split('|').map((t) => t.trim()).filter(Boolean)
       const skus = toks.filter(isSku)
@@ -154,11 +190,16 @@ function parseBundle(bundle: any): { parts: Part[]; totalInr: number } {
       parts.push({
         groupTitle,
         name: clean(nameToks.join(' | ')) || clean(raw),
-        sku: skus[0] ?? '',
-        altSku: skus[1],
+        // En MAYÚSCULA: el código es el mismo lo escriba 99rpm como lo escriba, y todo el
+        // cruce por SKU (catálogo, listas de proveedor) compara normalizado a mayúscula.
+        sku: (skus[0] ?? '').toUpperCase(),
+        altSku: skus[1]?.toUpperCase(),
         priceInr: Math.round(Number(sel.price ?? 0)),
         qty: Number(sel.qty ?? 1),
         sortOrder: sort++,
+        // Bajaj dejó de fabricarla: no la consigue ningún proveedor, así que viaja con la
+        // pieza y no con el ensamble que la contiene.
+        discontinued: nls.has(selId),
       })
     }
   }
@@ -190,7 +231,7 @@ async function scrapeProduct(url: string): Promise<any | null> {
   if (!html) return null
   const bundle = extractBundle(html)
   if (!bundle) return null
-  const { parts, totalInr } = parseBundle(bundle)
+  const { parts, totalInr } = parseBundle(bundle, discontinuedSelections(html))
   return {
     sourceUrl: url,
     slug: slugOf(url),
@@ -249,7 +290,8 @@ async function main() {
     if (!prod) { process.stderr.write(`  [${n}] SIN bundle: ${url}\n`); continue }
     prod.models = [...urlModels.get(url)!]
     products.push(prod)
-    process.stderr.write(`  [${n}/${allUrls.length}] ${prod.slug} · ${prod.parts.length} piezas · INR ${prod.totalInr} · ${prod.models.length} modelos\n`)
+    const nls = prod.parts.filter((p: Part) => p.discontinued).length
+    process.stderr.write(`  [${n}/${allUrls.length}] ${prod.slug} · ${prod.parts.length} piezas · INR ${prod.totalInr} · ${prod.models.length} modelos${nls ? ` · ${nls} descontinuadas` : ''}\n`)
   }
 
   const outDir = path.join(process.cwd(), 'data', 'scrape')
@@ -257,7 +299,12 @@ async function main() {
   const outName = outArg ?? (probe ? 'probe.json' : 'products.json')
   const outFile = path.join(outDir, outName)
   await writeFile(outFile, JSON.stringify(products, null, 2))
+  // Los SKU descontinuados se cuentan ÚNICOS: la misma pieza aparece en varios ensambles y
+  // el número que importa es cuántas piezas del catálogo dejaron de fabricarse.
+  const nlsSkus = new Set<string>()
+  for (const p of products) for (const part of p.parts as Part[]) if (part.discontinued && part.sku) nlsSkus.add(part.sku)
   process.stderr.write(`\n✓ ${products.length} productos → ${outFile}\n`)
+  process.stderr.write(`  ${nlsSkus.size} SKU únicos rotulados como descontinuados por 99rpm\n`)
 }
 
 main().catch((e) => { console.error(e); process.exit(1) })

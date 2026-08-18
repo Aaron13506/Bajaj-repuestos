@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
@@ -31,6 +32,13 @@ model Product {
   // NO pisan `price`; solo actualizan landedCostUsd y ajustan el margen para reflejar
   // el precio elegido. Aplica tanto a piezas como al precio del conjunto (ensamble).
   priceLocked      Boolean  @default(false)
+  // Descontinuado de FÁBRICA. Bajaj dejó de producir la pieza, así que no la consigue
+  // ningún proveedor: no es una falta de stock de uno, es que no existe para nadie. Por eso
+  // vive acá y no en SupplierPrice — un precio cargado de antes no la vuelve comprable.
+  //
+  // Fecha y no booleano: registra CUÁNDO nos enteramos, que es lo que permite releer un
+  // presupuesto viejo ("cuando se lo cotizamos todavía se conseguía"). NULL = vigente.
+  discontinuedAt   DateTime?
   stock            Int      @default(0)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
@@ -42,6 +50,7 @@ model Product {
   // peso/dim/margen a ScrapedPart; esto solo deja la traza de origen.
   scrapedMatches ScrapedPart[] @relation("MatchedScraped")
   supplierPrices SupplierPrice[]
+  envioLineas    EnvioLinea[]
 
   @@index([bajajCode])
 }
@@ -89,9 +98,14 @@ model Supplier {
   // proveedor (no del producto: el mismo SKU puede comprarse en los dos lados), y de
   // acá lo hereda PedidoItem.origen al momento de comprar. Ver lib/shipping-status.ts.
   origen    String          @default("india")
+  // FOB propio de este proveedor, en USD por embarque. Es un cargo fijo (no escala con el
+  // volumen) y lo cobra CADA proveedor a su manera, así que no puede vivir en Config como
+  // un número único. Null ⇒ se usa el default global (cbm_fob_india_usd).
+  fobUsd    Decimal?        @db.Decimal(10, 2)
   createdAt DateTime        @default(now())
   prices    SupplierPrice[]
   pedidoItems PedidoItem[]
+  envios    Envio[]
 }
 
 // Override de precio de un producto para un proveedor puntual, EN USD (a diferencia
@@ -107,6 +121,16 @@ model SupplierPrice {
   supplierId Int
   priceUsd   Decimal  @db.Decimal(10, 2)
   isLanded   Boolean  @default(false)
+  // Cantidad MÍNIMA de compra que impone ESTE proveedor para esta pieza ("VEH_DLR Set
+  // Qty" en la lista de Bajaj, que es el tamaño de paquete con el que Bajaj despacha a
+  // sus concesionarios). Es un piso, no un múltiplo: con mínimo 5 no se puede pedir 3,
+  // pero 7 sí. Es un dato del par (producto, proveedor) y no del producto, porque cada
+  // distribuidor pone sus condiciones.
+  //
+  // priceUsd sigue siendo POR PIEZA: el MOQ sube la CANTIDAD que hay que comprar, nunca
+  // el precio unitario. Null ⇒ el proveedor no lo declara (distinto de 1, que es "me
+  // confirmó que se vende por unidad").
+  moq        Int?
   updatedAt  DateTime @updatedAt
   product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
   supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
@@ -125,14 +149,61 @@ model Envio {
   id               Int       @id @default(autoincrement())
   nombre           String?
   notas            String?
+  // Cadena logística con la que se costeó ESTA caja: 'aereo' (India → USA en avión →
+  // Venezuela) o 'maritimo_cbm' (India → Venezuela directo, tarifa por m³ + FOB fijo).
+  // Es un SNAPSHOT tomado al crear el envío desde el modo global activo (ver lib/modo.ts):
+  // alternar el switch no debe re-costear una caja que ya viajó. Las filas anteriores a
+  // los modos quedan en 'aereo', que es exactamente como se costearon.
+  modo             String    @default("aereo")
+  // 'borrador'   = todavía se está llenando (solo marítimo: se arma pieza por pieza).
+  // 'confirmado' = cerrado, ya viaja. Las cajas anteriores a los borradores nacen acá,
+  // que es como estaban: creadas y en curso.
+  estado           String    @default("confirmado")
+  // Proveedor al que se le compra ESTE embarque. Solo aplica al marítimo: por aire se
+  // compra siempre a 99rpm (los demás proveedores no llegan al mínimo de Shoppre), así que
+  // ahí no hay nada que elegir. Se congela al crear la caja porque decide dos cosas del
+  // costo — el precio de cada pieza y el FOB — y una caja ya cerrada no puede re-costearse
+  // sola porque alguien cambió el selector del sidebar.
+  supplierId       Int?
   shippingCostEst  Decimal?  @db.Decimal(10, 2)
   shippingCostReal Decimal?  @db.Decimal(10, 2)
   // Costo real del tramo China→USA. No sale de shipping_rates.json (esa tabla es de
   // ShipGlobal, solo aplica a India); se prorratea por peso entre los ítems origen='china'.
   inboundChinaUsd  Decimal?  @db.Decimal(10, 2)
+  // Carga COMERCIAL: piezas que ya se le vendieron a alguien. Es el carril aéreo.
   items            PedidoItem[]
+  // Carga PROPIA: mercancía que traigo para stock. Es el carril marítimo.
+  lineas           EnvioLinea[]
+  supplier         Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
+
+  @@index([supplierId])
+}
+
+// Una línea de mercancía PROPIA dentro de un embarque.
+//
+// No es un PedidoItem y no debe serlo: PedidoItem es una línea COMERCIAL — tiene precio de
+// venta, cliente detrás y a veces un adelanto cobrado. Lo que traigo para stock no le fue
+// prometido a nadie, así que no tiene precio que congelar (cuando llega, su precio de venta
+// sale del catálogo como el de cualquier pieza). Meterlo en un Pedido obligaba a inventar
+// un cliente y un precio, y ese precio quedaba viejo apenas cambiaba la tarifa.
+//
+// Por eso también no lleva estado de transporte propio: el embarque marítimo viaja entero,
+// como una sola caja, a diferencia del aéreo donde cada ítem puede ir por su lado.
+model EnvioLinea {
+  id        Int      @id @default(autoincrement())
+  envioId   Int
+  productId Int
+  quantity  Int      @default(1)
+  notas     String?
+  createdAt DateTime @default(now())
+
+  envio   Envio   @relation(fields: [envioId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([envioId, productId])
+  @@index([envioId])
 }
 
 model Pedido {
@@ -227,6 +298,10 @@ enum MotoModel {
   PULSAR_180_BS3_2009_16_UG4     // 539
   PULSAR_150_BS4                 // 515
   PULSAR_150_UG4                 // 449
+  // Otra familia (commuter, no Pulsar). Entró al catálogo después del enum original y ya
+  // existe en la DB con 81 ensambles scrapeados: declararla acá es lo que evita que una
+  // migración futura recree el tipo sin este valor y falle contra esas filas.
+  BOXER_BM150                    // 596
 }
 
 // ENSAMBLE: una página de producto de 99rpm = un bundle Magento (con subgrupos).
@@ -277,6 +352,10 @@ model ScrapedPart {
   sortOrder  Int     @default(0)
   imageUrl   String? // imagen específica del componente si existe
   imageS3Key String?
+  // 99rpm rotula la pieza como "(Discontinued/Supply-Disruption/NLS)" en el label de su
+  // selección. Booleano y no fecha: esta tabla es el espejo del último scrape, se reescribe
+  // entera, y lo que interesa es qué decía la página esa vez. La fecha vive en Product.
+  discontinued Boolean @default(false)
 
   // ── peso/dim: se llenan por cruce de SKU (scripts/cross-ref.ts) ──
   weightGrams      Int?

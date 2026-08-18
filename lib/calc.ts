@@ -19,6 +19,11 @@ export interface LandedBreakdown {
   landedCostUsd: number
   priceUsd: number | null
   priceBsd: number | null
+  // ── Solo modo CBM ──────────────────────────────────────────────────────────
+  // Volumen de la pieza y qué fracción del embarque de referencia ocupa. Es el dato
+  // que permite ver "cuánto llena" una pieza o un ensamble sin abrir un envío.
+  volumeM3: number | null
+  cbmFillPct: number | null
 }
 
 export interface ProductForCalc {
@@ -74,10 +79,13 @@ export function calcLanded(
       landedCostUsd,
       priceUsd,
       priceBsd,
+      volumeM3: null,
+      cbmFillPct: null,
     }
   }
 
-  const esMaritimo = modo === 'maritimo'
+  const esCbm      = modo === 'maritimo_cbm'
+  const esMaritimo = modo === 'maritimo' || esCbm
   const hasDims = !!(product.dimL && product.dimA && product.dimH)
 
   // Cada modo exige el dato que efectivamente se factura: el aéreo cobra peso, el mar cobra
@@ -87,6 +95,35 @@ export function calcLanded(
 
   const inrUsd         = parseFloat(cfg.inr_usd_rate          ?? '95')
   const productCostUsd = product.priceUsd != null ? product.priceUsd : product.priceInr! / inrUsd
+
+  // ── Modo CBM ──────────────────────────────────────────────────────────────
+  // El FOB es fijo por embarque y la naviera cobra un mínimo de m³, así que el costo
+  // NO es aditivo por pieza: una pieza suelta no tiene landed propio hasta saber en qué
+  // embarque viaja. Se resuelve igual que el aéreo con reference_weight_kg — prorrateando
+  // sobre un EMBARQUE DE REFERENCIA (cbm_referencia_m3, por defecto el mínimo de 1 m³).
+  // Una pieza que ocupa el 8.4% de ese embarque paga el 8.4% de (flete + FOB).
+  if (esCbm) {
+    const p          = cbmParams(cfg)
+    const volumeM3   = (product.dimL! * product.dimA! * product.dimH!) / CM3_PER_M3
+    const maritimeUsd = volumeM3 * cbmCostPerM3(p)
+
+    // La tarifa plana ya incluye seguro, origen, destino y aduana: no se suma nada encima.
+    const landedCostUsd = productCostUsd + maritimeUsd
+    const { priceUsd, priceBsd } = applyMargin(landedCostUsd, product.margin, cfg)
+
+    return {
+      modo,
+      productCostUsd,
+      shoppreShippingUsd: 0,
+      insuranceUsd: 0,
+      maritimeUsd,
+      landedCostUsd,
+      priceUsd,
+      priceBsd,
+      volumeM3,
+      cbmFillPct: volumeM3 / p.refM3,
+    }
+  }
 
   // Tramo aéreo India → USA, prorrateado sobre una caja de referencia. Por mar no existe.
   let shoppreShippingUsd = 0
@@ -127,6 +164,11 @@ export function calcLanded(
     landedCostUsd,
     priceUsd,
     priceBsd,
+    // El volumen se informa siempre que haya dimensiones (sirve para comparar contra el
+    // escenario CBM), pero el % de llenado solo tiene sentido cuando el m³ es la unidad
+    // que se factura.
+    volumeM3: hasDims ? (product.dimL! * product.dimA! * product.dimH!) / CM3_PER_M3 : null,
+    cbmFillPct: null,
   }
 }
 
@@ -165,16 +207,56 @@ export interface EnvioItemInput {
   isLanded?: boolean
 }
 
-// Modo de traída de la caja. Son dos cadenas logísticas distintas, no una variante:
+// Modo de traída de la caja. Son cadenas logísticas distintas, no variantes de una:
 //
 //   aereo    (hoy):   India → USA por avión (Shoppre/ShipGlobal) → Venezuela por mar.
-//   maritimo (futuro): India → Venezuela por mar, directo. No hay escala en USA, así que
-//                      no hay tramo aéreo, ni processing de Shoppre, ni membresía. El
-//                      flete se cobra por pie cúbico sobre el volumen de la caja entera.
+//   maritimo (escenario): India → Venezuela por mar, directo, cotizado por pie cúbico.
+//                      Existe solo como comparación en el simulador; se conserva tal cual.
+//   maritimo_cbm (real): India → Venezuela por mar, directo, con la cotización real:
+//                      una TARIFA PLANA POR m³ que incluye todo el trayecto, más el FOB
+//                      de India, que es un MONTO FIJO POR EMBARQUE. La naviera factura un
+//                      mínimo de m³ (LCL) aunque la caja vaya a medio llenar.
 //
-// El peso deja de importar por completo en marítimo: la naviera cobra volumen. Por eso
-// el max(W,V) y el punto dulce de la tabla escalón no aplican en ese modo.
-export type ModoEnvio = 'aereo' | 'maritimo'
+// El peso deja de importar por completo en los modos marítimos: la naviera cobra volumen.
+// Por eso el max(W,V) y el punto dulce de la tabla escalón no aplican ahí.
+export type ModoEnvio = 'aereo' | 'maritimo' | 'maritimo_cbm'
+
+// cm³ → m³. El catálogo guarda dimensiones en centímetros; la naviera cotiza en metros
+// cúbicos, así que esta es la única conversión que hace falta en el modo CBM.
+const CM3_PER_M3 = 1_000_000
+
+// Parámetros del modo CBM, leídos de Config con defaults que no rompen nada si faltan.
+export interface CbmParams {
+  ratePerM3: number   // tarifa plana India → Venezuela, todo incluido
+  fobUsd: number      // FOB en India: fijo por embarque, NO escala con el volumen
+  minM3: number       // mínimo facturable de la naviera (LCL, típico 1 m³)
+  refM3: number       // embarque de referencia para prorratear el FOB en el catálogo
+}
+
+// `fobOverride` es el FOB del proveedor al que se le compra el embarque. Cada proveedor
+// cobra el suyo, así que el valor de Config es solo el respaldo para cuando no hay
+// proveedor elegido (o no tiene FOB propio cargado).
+export function cbmParams(cfg: ConfigMap, fobOverride?: number | null): CbmParams {
+  const minM3 = num(cfg, 'cbm_min_m3', 1)
+  // El embarque de referencia nunca puede ser menor que el mínimo facturable: si lo fuera,
+  // el catálogo prorratearía sobre un volumen que la naviera jamás llegaría a cobrar.
+  const refM3 = Math.max(num(cfg, 'cbm_referencia_m3', 1), minM3, 0.01)
+  return {
+    ratePerM3: num(cfg, 'cbm_rate_usd', 0),
+    fobUsd:    fobOverride != null && Number.isFinite(fobOverride)
+      ? fobOverride
+      : num(cfg, 'cbm_fob_india_usd', 0),
+    minM3,
+    refM3,
+  }
+}
+
+// Costo por m³ de un embarque de referencia lleno a `refM3`. El flete escala con el
+// volumen pero el FOB no, así que el costo por m³ BAJA a medida que se llena la caja:
+// es exactamente la razón por la que conviene consolidar antes de embarcar.
+export function cbmCostPerM3(p: CbmParams): number {
+  return (Math.max(p.refM3, p.minM3) * p.ratePerM3 + p.fobUsd) / p.refM3
+}
 
 export interface EnvioItemLine {
   pedidoId: number
@@ -186,6 +268,7 @@ export interface EnvioItemLine {
   realKg: number          // peso real total de la línea (kg)
   volKg: number           // peso volumétrico total de la línea (kg) — solo aplica en aéreo
   volumeFt3: number       // volumen real total de la línea (ft³) — la unidad que cobra el mar
+  volumeM3: number        // el mismo volumen en m³ — la unidad que cotiza la naviera en CBM
   productCostUsd: number
   airUsd: number          // costo de llegar a USA (ShipGlobal si India, inbound si China). 0 en marítimo
   maritimeUsd: number     // su parte del flete marítimo
@@ -230,6 +313,18 @@ export interface EnvioBreakdown {
   billableFt3: number
   maritimePerFt3: number
   minFt3Applied: boolean
+  // ── Modo CBM ───────────────────────────────────────────────────────────────
+  // Mismo volumen expresado en la unidad que factura la naviera, con su mínimo LCL.
+  // `cbmFillPct` es el llenado del embarque (volumen real / facturable): por debajo de
+  // 1.0 estás pagando aire, y es la señal de que conviene esperar a consolidar más.
+  volumeM3: number
+  billableM3: number
+  cbmRatePerM3: number
+  minM3Applied: boolean
+  cbmFillPct: number
+  // FOB de India: monto fijo por embarque. Se informa aparte del flete porque es el
+  // cargo que se diluye al llenar (el flete por m³ no).
+  fobUsd: number
   productCostUsd: number
   insuranceUsd: number
   // Cargo fijo por embarque: processing de Shoppre en aéreo, gastos de origen/destino
@@ -280,7 +375,8 @@ function repartirTramo(lines: EnvioItemLine[], costUsd: number): LegBreakdown {
 
 export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOptions = {}): EnvioBreakdown {
   const modo          = opts.modo ?? 'aereo'
-  const esMaritimo    = modo === 'maritimo'
+  const esCbm         = modo === 'maritimo_cbm'
+  const esMaritimo    = modo === 'maritimo' || esCbm
   const inrUsd        = parseFloat(cfg.inr_usd_rate           ?? '95')
   const isMember      = cfg.shoppre_member                    !== 'false'
   const carrier       = cfg.shoppre_carrier                   ?? 'ShipGlobal USA - Duty Free'
@@ -293,12 +389,17 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   const maritimeMiami = num(cfg, 'miami_caracas_per_ft3', 45)
   const maritimePft3  = esMaritimo ? num(cfg, 'maritimo_directo_per_ft3', maritimeMiami) : maritimeMiami
   // Mínimo facturable del embarque LCL. 0 = la naviera cobra el volumen real tal cual.
-  const minFt3        = esMaritimo ? num(cfg, 'maritimo_min_ft3', 0) : 0
-  // Seguro sobre el costo de producto. El marítimo va al 6% (la carga por mar viaja meses y
-  // la prima es más cara que la del aéreo, que está en 3%).
-  const insurancePct  = esMaritimo
-    ? num(cfg, 'maritimo_insurance_pct', 0.06)
-    : num(cfg, 'shoppre_insurance_pct', 0.03)
+  const minFt3        = modo === 'maritimo' ? num(cfg, 'maritimo_min_ft3', 0) : 0
+  // Parámetros de la cotización real por m³ (solo modo CBM).
+  const cbm           = cbmParams(cfg)
+  // Seguro sobre el costo de producto. El escenario marítimo en ft³ va al 6% (la carga por
+  // mar viaja meses y la prima es más cara que la del aéreo, que está en 3%). En CBM el
+  // seguro NO se suma aparte: la tarifa plana ya lo incluye todo.
+  const insurancePct  = esCbm
+    ? 0
+    : modo === 'maritimo'
+      ? num(cfg, 'maritimo_insurance_pct', 0.06)
+      : num(cfg, 'shoppre_insurance_pct', 0.03)
   const processingInr = num(cfg, 'shoppre_processing_inr', 500)
 
   // Primera pasada: peso real, volumétrico, volumen en ft³ y costo de producto por línea.
@@ -322,6 +423,7 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
       realKg: viaja ? ((it.weightGrams ?? 0) / 1000) * qty : 0,
       volKg: viaja && hasDims ? (cm3 / divisor) * qty : 0,
       volumeFt3,
+      volumeM3: viaja && hasDims ? (cm3 / CM3_PER_M3) * qty : 0,
       productCostUsd: (it.priceUsd != null ? it.priceUsd : (it.priceInr ?? 0) / inrUsd) * qty,
       airUsd: 0,
       // El marítimo se reparte en una segunda pasada: con mínimo facturable deja de ser
@@ -368,16 +470,26 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   // Si no viaja nada (todo el pedido es de proveedor landed) no hay embarque, y por lo
   // tanto tampoco mínimo que pagar: la caja no existe.
   const volumeFt3     = enBarco.reduce((s, l) => s + l.volumeFt3, 0)
+  const volumeM3      = enBarco.reduce((s, l) => s + l.volumeM3, 0)
   const billableFt3   = enBarco.length > 0 ? Math.max(volumeFt3, minFt3) : 0
-  const maritimeUsd   = billableFt3 * maritimePft3
   const minFt3Applied = enBarco.length > 0 && minFt3 > 0 && volumeFt3 < minFt3
+
+  // Volumen facturable en CBM: la naviera cobra un piso por embarque (LCL), así que una
+  // caja a medio llenar paga aire. Si no viaja nada, no hay embarque ni mínimo que pagar.
+  const billableM3   = enBarco.length > 0 ? Math.max(volumeM3, cbm.minM3) : 0
+  const minM3Applied = enBarco.length > 0 && cbm.minM3 > 0 && volumeM3 < cbm.minM3
+
+  // En CBM el flete es la tarifa plana sobre el volumen facturable; el FOB va aparte
+  // (es fijo por embarque y se suma como cargo del envío, más abajo).
+  const maritimeUsd = esCbm ? billableM3 * cbm.ratePerM3 : billableFt3 * maritimePft3
 
   // Reparto: por volumen si hay dimensiones; si no hay ninguna cargada (pero igual se paga
   // el mínimo) se cae al costo de producto para no dejar el flete sin imputar a nadie.
-  const volDenom  = volumeFt3
+  const volDenom  = esCbm ? volumeM3 : volumeFt3
   const costDenom = enBarco.reduce((s, l) => s + l.productCostUsd, 0)
   for (const l of enBarco) {
-    if (volDenom > 0)       l.maritimeUsd = maritimeUsd * (l.volumeFt3 / volDenom)
+    const vol = esCbm ? l.volumeM3 : l.volumeFt3
+    if (volDenom > 0)       l.maritimeUsd = maritimeUsd * (vol / volDenom)
     else if (costDenom > 0) l.maritimeUsd = maritimeUsd * (l.productCostUsd / costDenom)
     else                    l.maritimeUsd = enBarco.length ? maritimeUsd / enBarco.length : 0
   }
@@ -386,10 +498,14 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   // landed ya trae todos sus cargos incluidos en la cotización del proveedor.
   const insuranceUsd = (productCostUsd - landedDirectUsd) * insurancePct
   // Cargo fijo por embarque. En aéreo es el processing de Shoppre (solo si sale algo de
-  // India); en marítimo son los gastos de origen/destino, que se pagan una vez por caja.
-  const processingUsd = esMaritimo
-    ? (enBarco.length > 0 ? num(cfg, 'maritimo_fee_usd', 0) : 0)
-    : (indiaLines.length > 0 ? processingInr / inrUsd : 0)
+  // India); en el escenario en ft³ son los gastos de origen/destino; en CBM es el FOB de
+  // India. Los tres se pagan una sola vez por caja y se reparten entre lo que viaja.
+  const fobUsd = esCbm && enBarco.length > 0 ? cbm.fobUsd : 0
+  const processingUsd = esCbm
+    ? fobUsd
+    : modo === 'maritimo'
+      ? (enBarco.length > 0 ? num(cfg, 'maritimo_fee_usd', 0) : 0)
+      : (indiaLines.length > 0 ? processingInr / inrUsd : 0)
 
   const landedUsd = productCostUsd + airUsd + insuranceUsd + processingUsd + maritimeUsd
 
@@ -424,6 +540,13 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
     billableFt3,
     maritimePerFt3: maritimePft3,
     minFt3Applied,
+    volumeM3,
+    billableM3,
+    cbmRatePerM3: cbm.ratePerM3,
+    minM3Applied,
+    // Llenado del embarque: 1.0 = va lleno hasta el volumen que igual vas a pagar.
+    cbmFillPct: billableM3 > 0 ? volumeM3 / billableM3 : 0,
+    fobUsd,
     productCostUsd,
     insuranceUsd,
     processingUsd,

@@ -1,8 +1,15 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
+import ChipDescontinuada from '@/components/ChipDescontinuada'
 import { type BundlePiece, groupBundlePieces } from '@/lib/bundle'
-import { getAssemblyComponents, searchProducts } from '@/app/(pages)/presupuestos/builder-actions'
+import { sirveParaModelo } from '@/lib/modelos'
+import {
+  getAssemblyComponents,
+  searchProducts,
+  costearCarrito,
+  type CostoCarrito,
+} from '@/app/(pages)/presupuestos/builder-actions'
 
 interface Product {
   id: number
@@ -11,6 +18,12 @@ interface Product {
   price: number
   imageUrl?: string | null
   compatibleModels?: string | null
+  /**
+   * Bajaj no la fabrica más: no la consigue ningún proveedor. Cotizarla sería prometer una
+   * pieza que no se va a poder comprar — y el negocio es por encargo, con seña cobrada, así
+   * que la promesa ya tiene plata del cliente adentro. Por eso no se puede agregar.
+   */
+  descontinuada?: boolean
 }
 
 interface AssemblyComponent {
@@ -39,6 +52,12 @@ interface CartItem {
   imageUrl?: string | null
   /** Si está presente, la línea es un conjunto a precio único y estas son las piezas incluidas. */
   bundleItems?: BundlePiece[]
+  /**
+   * El precio lo fijó una persona a mano (o viene de un presupuesto ya emitido). Las líneas
+   * sin tocar siguen automáticamente al precio sugerido por el costo landed; las tocadas
+   * no se pisan nunca — un precio ya conversado con el cliente no puede moverse solo.
+   */
+  touched?: boolean
 }
 
 interface ClienteOption {
@@ -59,6 +78,8 @@ interface Props {
   /** Clientes existentes para elegir (solo aplica cuando tipo === 'cliente'). */
   clientes?: ClienteOption[]
   initialClienteId?: number | null
+  /** 'plan' = se armó desde el planificador y hay que volver ahí al guardar. */
+  volver?: string
 }
 
 export default function PresupuestoBuilder({
@@ -71,12 +92,15 @@ export default function PresupuestoBuilder({
   tipo = 'cliente',
   clientes = [],
   initialClienteId = null,
+  volver,
 }: Props) {
   const isPropio = tipo === 'propio'
   const [selectedAssemblyId, setSelectedAssemblyId] = useState<number | null>(null)
   const [checked, setChecked] = useState<Record<number, boolean>>({})
   const [quantities, setQuantities] = useState<Record<number, number>>({})
-  const [cart, setCart] = useState<CartItem[]>(initialItems)
+  // Lo que ya estaba en el presupuesto entra como precio fijado: son precios que ya se
+  // cotizaron, y recalcularlos solos cambiaría un número que el cliente ya vio.
+  const [cart, setCart] = useState<CartItem[]>(() => initialItems.map(i => ({ ...i, touched: true })))
   const [search, setSearch] = useState('')
   const [searchResults, setSearchResults] = useState<Product[]>([])
   const [modelFilter, setModelFilter] = useState('')
@@ -96,7 +120,7 @@ export default function PresupuestoBuilder({
   const filteredAssemblies = useMemo(() => {
     const q = asmSearch.trim().toLowerCase()
     return assemblies.filter(a => {
-      if (modelFilter && (a.compatibleModels ?? '') !== modelFilter) return false
+      if (modelFilter && !sirveParaModelo(a.compatibleModels, modelFilter)) return false
       return !(q && !(a.nameEs.toLowerCase().includes(q) || a.bajajCode?.toLowerCase().includes(q)));
 
     })
@@ -136,7 +160,10 @@ export default function PresupuestoBuilder({
     // Una misma pieza puede estar marcada en varios subgrupos: sumamos cantidades por pieza.
     const byChild = new Map<number, { comp: AssemblyComponent; qty: number }>()
     for (const comp of selectedComponents ?? []) {
-      if (!checked[comp.id]) continue
+      // El checkbox de una descontinuada está deshabilitado, pero puede haberse marcado
+      // como tal mientras tenías el ensamble abierto: el filtro va acá, que es por donde
+      // pasa todo lo que entra al carrito.
+      if (!checked[comp.id] || comp.child.descontinuada) continue
       const qty = quantities[comp.id] ?? comp.quantity
       const existing = byChild.get(comp.child.id)
       if (existing) existing.qty += qty
@@ -173,7 +200,9 @@ export default function PresupuestoBuilder({
     const pieces: BundlePiece[] = []
     let piecesPriceSum = 0
     for (const comp of selectedComponents ?? []) {
-      if (!checked[comp.id]) continue
+      // Igual que en las piezas sueltas: una descontinuada no entra ni escondida adentro de
+      // un conjunto — ahí sería peor, porque el precio único la tapa.
+      if (!checked[comp.id] || comp.child.descontinuada) continue
       const qty = quantities[comp.id] ?? comp.quantity
       pieces.push({
         nameEs: comp.child.nameEs,
@@ -212,9 +241,11 @@ export default function PresupuestoBuilder({
     setCart(prev => prev.map(c => c.productId === productId ? { ...c, quantity: qty } : c))
   }
 
+  // Un precio escrito a mano queda marcado como fijado: a partir de ahí el costeo deja de
+  // moverlo, aunque cambie la tarifa o el proveedor.
   function updateCartPrice(productId: number, price: number) {
     if (isNaN(price) || price < 0) return
-    setCart(prev => prev.map(c => c.productId === productId ? { ...c, unitPrice: price } : c))
+    setCart(prev => prev.map(c => c.productId === productId ? { ...c, unitPrice: price, touched: true } : c))
   }
 
   // Cantidad de una pieza puntual dentro de un conjunto (por set; se multiplica ×
@@ -230,6 +261,9 @@ export default function PresupuestoBuilder({
 
   function addProductToCart(product: Product) {
     if (cart.find(c => c.productId === product.id)) return
+    // No se cotiza lo que no se puede comprar. El botón ya está deshabilitado; esto cubre
+    // el caso de que la pieza se marque con la búsqueda abierta.
+    if (product.descontinuada) return
     setCart(prev => [
       ...prev,
       { productId: product.id, nameEs: product.nameEs, bajajCode: product.bajajCode, unitPrice: product.price, quantity: 1, imageUrl: product.imageUrl },
@@ -238,6 +272,86 @@ export default function PresupuestoBuilder({
   }
 
   const total = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0)
+
+  // ── Costeo en vivo (volumen + landed) ──────────────────────────────────────
+  // Se recalcula solo cuando cambia la COMPOSICIÓN del carrito (piezas y cantidades),
+  // nunca cuando cambia un precio: el landed no depende del precio de venta, y atarlo
+  // al precio metería al costeo en un ciclo consigo mismo.
+  const [costo, setCosto] = useState<CostoCarrito | null>(null)
+  const [costeando, setCosteando] = useState(false)
+
+  const composicion = useMemo(
+    () => JSON.stringify(
+      cart.map(c => [c.productId, c.quantity, c.bundleItems?.map(p => [p.bajajCode, p.nameEs, p.quantity]) ?? null]),
+    ),
+    [cart],
+  )
+
+  useEffect(() => {
+    const lineas = JSON.parse(composicion) as [number, number, [string | null, string, number][] | null][]
+    if (lineas.length === 0) { setCosto(null); return }
+    let cancelled = false
+    setCosteando(true)
+    const t = setTimeout(async () => {
+      try {
+        const r = await costearCarrito(
+          lineas.map(([productId, quantity, piezas]) => ({
+            productId,
+            quantity,
+            salePrice: 0,   // la venta se agrega en el cliente: no hace falta mandarla
+            // groupName no entra en la composición serializada porque no afecta al costo
+            // (el subgrupo es una etiqueta de presentación); se repone vacío para el tipo.
+            bundleItems: piezas?.map(([bajajCode, nameEs, qty]) => ({ bajajCode, nameEs, quantity: qty, groupName: '' })) ?? null,
+          })),
+        )
+        if (!cancelled) setCosto(r)
+      } finally {
+        if (!cancelled) setCosteando(false)
+      }
+    }, 250)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [composicion])
+
+  const costoPorLinea = useMemo(
+    () => new Map((costo?.lineas ?? []).map(l => [l.productId, l])),
+    [costo],
+  )
+
+  // Las líneas sin precio fijado siguen al sugerido por el landed: agregar una pieza deja
+  // el precio del modelo de costos puesto, sin tener que aplicarlo a mano.
+  useEffect(() => {
+    if (costoPorLinea.size === 0) return
+    setCart(prev => {
+      let cambio = false
+      const next = prev.map(c => {
+        if (c.touched) return c
+        const sugerido = costoPorLinea.get(c.productId)?.sugeridoUnitUsd
+        if (sugerido == null || Math.abs(sugerido - c.unitPrice) < 0.005) return c
+        cambio = true
+        return { ...c, unitPrice: +sugerido.toFixed(2) }
+      })
+      return cambio ? next : prev
+    })
+  }, [costoPorLinea])
+
+  // Precios sugeridos que difieren de lo cotizado, para poder alinear de un golpe lo que
+  // se fijó a mano cuando cambió la tarifa o el proveedor.
+  const desalineadas = cart.filter(c => {
+    const s = costoPorLinea.get(c.productId)?.sugeridoUnitUsd
+    return s != null && Math.abs(s - c.unitPrice) >= 0.01
+  })
+
+  function aplicarSugeridos() {
+    setCart(prev => prev.map(c => {
+      const s = costoPorLinea.get(c.productId)?.sugeridoUnitUsd
+      return s != null ? { ...c, unitPrice: +s.toFixed(2), touched: true } : c
+    }))
+  }
+
+  const landedTotal = cart.reduce(
+    (s, c) => s + (costoPorLinea.get(c.productId)?.landedUsd ?? 0), 0,
+  )
+  const margenTotal = total > 0 ? (total - landedTotal) / total : null
 
   // Búsqueda de piezas sueltas contra la DB (debounce 250ms), sin traer todo el catálogo.
   useEffect(() => {
@@ -283,6 +397,7 @@ export default function PresupuestoBuilder({
     }
     fd.set('notas', notas)
     fd.set('tipo', tipo)
+    if (volver) fd.set('volver', volver)
     fd.set(
       'items',
       JSON.stringify(cart.map(c => ({
@@ -402,28 +517,37 @@ export default function PresupuestoBuilder({
                       <div className="space-y-0.5">
                         {items.map(comp => {
                           const alreadyInCart = !!cart.find(c => c.productId === comp.child.id)
+                          const nls = !!comp.child.descontinuada
+                          const bloqueada = alreadyInCart || nls
                           return (
                             <label
                               key={comp.id}
-                              className={`flex items-center gap-3 py-2 px-2 rounded-lg cursor-pointer ${alreadyInCart ? 'opacity-40 cursor-not-allowed' : 'hover:bg-gray-50'}`}
+                              className={`flex items-center gap-3 py-2 px-2 rounded-lg ${
+                                nls ? 'opacity-60 cursor-not-allowed bg-red-50/40'
+                                  : alreadyInCart ? 'opacity-40 cursor-not-allowed'
+                                  : 'cursor-pointer hover:bg-gray-50'
+                              }`}
                             >
                               <input
                                 type="checkbox"
                                 checked={checked[comp.id]}
-                                disabled={alreadyInCart}
+                                disabled={bloqueada}
                                 onChange={e =>
                                   setChecked(prev => ({ ...prev, [comp.id]: e.target.checked }))
                                 }
-                                className="w-4 h-4 rounded border-gray-300 text-blue-600 shrink-0"
+                                className="w-4 h-4 rounded border-gray-300 text-blue-600 shrink-0 disabled:cursor-not-allowed"
                               />
                               <span className="flex-1 min-w-0">
-                                <span className="text-sm text-gray-900">{comp.child.nameEs}</span>
+                                <span className={`text-sm ${nls ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
+                                  {comp.child.nameEs}
+                                </span>
+                                <ChipDescontinuada activo={nls} />
                                 {comp.child.bajajCode && (
                                   <span className="ml-2 text-xs font-mono text-gray-400">
                                     {comp.child.bajajCode}
                                   </span>
                                 )}
-                                {alreadyInCart && (
+                                {alreadyInCart && !nls && (
                                   <span className="ml-2 text-xs text-blue-500">ya agregado</span>
                                 )}
                               </span>
@@ -438,7 +562,7 @@ export default function PresupuestoBuilder({
                                   }))
                                 }
                                 onClick={e => e.stopPropagation()}
-                                disabled={!checked[comp.id] || alreadyInCart}
+                                disabled={!checked[comp.id] || bloqueada}
                                 className="w-14 border border-gray-200 rounded px-2 py-0.5 text-sm text-center disabled:opacity-40"
                               />
                               <span className="text-sm text-gray-600 w-16 text-right font-mono">
@@ -500,7 +624,9 @@ export default function PresupuestoBuilder({
                       key={p.id}
                       type="button"
                       onClick={() => addProductToCart(p)}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-gray-50 transition-colors"
+                      disabled={!!p.descontinuada}
+                      title={p.descontinuada ? 'Bajaj no la fabrica más: no se le puede comprar a ningún proveedor' : undefined}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-gray-50 disabled:cursor-not-allowed disabled:bg-red-50/40 disabled:hover:bg-red-50/40 transition-colors"
                     >
                       {p.imageUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -513,7 +639,10 @@ export default function PresupuestoBuilder({
                         <div className="w-10 h-10 rounded border border-gray-100 bg-gray-50 shrink-0" />
                       )}
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">{p.nameEs}</p>
+                        <p className="text-sm font-medium truncate">
+                          <span className={p.descontinuada ? 'text-gray-500 line-through' : 'text-gray-900'}>{p.nameEs}</span>
+                          <ChipDescontinuada activo={p.descontinuada} />
+                        </p>
                         <p className="text-xs text-gray-400 truncate">
                           {p.bajajCode && <span className="font-mono">{p.bajajCode}</span>}
                           {p.bajajCode && p.compatibleModels && ' · '}
@@ -576,6 +705,47 @@ export default function PresupuestoBuilder({
                           {item.bajajCode && (
                             <p className="text-xs font-mono text-gray-400">{item.bajajCode}</p>
                           )}
+                          {/* Costo real de traer esta línea. Es lo que decide si el precio
+                              de al lado deja plata o la pierde. */}
+                          {(() => {
+                            const c = costoPorLinea.get(item.productId)
+                            if (!c) return null
+                            const venta = item.unitPrice * item.quantity
+                            const margen = venta > 0 ? (venta - c.landedUsd) / venta : null
+                            const sugeridoUnit = c.sugeridoUnitUsd
+                            return (
+                              <p className="text-[11px] mt-0.5 flex items-center gap-1.5 flex-wrap">
+                                <span className="font-mono text-gray-500">{c.weightKg.toFixed(2)} kg</span>
+                                <span className="text-gray-300">·</span>
+                                <span className="font-mono text-gray-500">landed ${c.landedUsd.toFixed(2)}</span>
+                                {margen != null && (
+                                  <>
+                                    <span className="text-gray-300">·</span>
+                                    <span className={`font-mono font-semibold ${
+                                      margen >= 0.25 ? 'text-green-600' : margen >= 0 ? 'text-amber-600' : 'text-red-600'
+                                    }`}>
+                                      {(margen * 100).toFixed(0)}%
+                                    </span>
+                                  </>
+                                )}
+                                {c.sinPeso > 0 && (
+                                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                                    {c.sinPeso} sin peso
+                                  </span>
+                                )}
+                                {sugeridoUnit != null && Math.abs(sugeridoUnit - item.unitPrice) >= 0.01 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => updateCartPrice(item.productId, +sugeridoUnit.toFixed(2))}
+                                    className="text-blue-600 hover:underline"
+                                    title="Precio que sale de aplicar el margen sobre el costo landed"
+                                  >
+                                    usar ${sugeridoUnit.toFixed(2)}
+                                  </button>
+                                )}
+                              </p>
+                            )
+                          })()}
                         </div>
                         <input
                           type="number"
@@ -670,6 +840,66 @@ export default function PresupuestoBuilder({
                   <span className="font-bold text-gray-900">Total</span>
                   <span className="text-xl font-bold font-mono text-blue-700">${total.toFixed(2)}</span>
                 </div>
+
+                {/* Lo que cuesta traer lo cotizado, por la ruta aérea — que es por donde
+                    salen los pedidos de cliente. El m³ y el FOB son del carril marítimo
+                    (mercancía propia) y no tienen nada que hacer acá. */}
+                {costo && (
+                  <div className="mt-3 pt-3 border-t border-gray-100 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                        ✈️ Costo por la ruta aérea
+                        {costeando && <span className="ml-2 font-normal normal-case text-gray-400">calculando…</span>}
+                      </h3>
+                      {costo.proveedor && (
+                        <span className="text-[11px] text-gray-400 font-mono">{costo.proveedor}</span>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <p className="text-[11px] text-gray-400">Peso</p>
+                        <p className="text-base font-bold font-mono text-gray-900">{costo.weightKg.toFixed(2)} kg</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] text-gray-400">Landed</p>
+                        <p className="text-base font-bold font-mono text-gray-900">${landedTotal.toFixed(2)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] text-gray-400">Margen</p>
+                        <p className={`text-base font-bold font-mono ${
+                          margenTotal == null ? 'text-gray-400'
+                            : margenTotal >= 0.25 ? 'text-green-600'
+                            : margenTotal >= 0 ? 'text-amber-600' : 'text-red-600'
+                        }`}>
+                          {margenTotal != null ? `${(margenTotal * 100).toFixed(1)}%` : '—'}
+                        </p>
+                        <p className="text-[10px] text-gray-400">ganancia ${(total - landedTotal).toFixed(2)}</p>
+                      </div>
+                    </div>
+
+                    {costo.sinPeso > 0 && (
+                      <p className="text-[11px] bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-2.5 py-2">
+                        <span className="font-semibold">{costo.sinPeso} pieza{costo.sinPeso === 1 ? '' : 's'} sin peso.</span>{' '}
+                        No entran al costo: el landed real va a ser mayor que el que ves.
+                        {isEditing
+                          ? ' Cargá las medidas desde la ficha del presupuesto.'
+                          : ' Guardá y cargá las medidas desde su ficha, de a un ensamble.'}
+                      </p>
+                    )}
+
+                    {desalineadas.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={aplicarSugeridos}
+                        className="w-full text-xs border border-blue-200 text-blue-700 bg-blue-50 rounded-lg px-3 py-2 hover:bg-blue-100 transition-colors"
+                      >
+                        Aplicar precios sugeridos a {desalineadas.length}{' '}
+                        {desalineadas.length === 1 ? 'línea' : 'líneas'} (margen sobre el landed)
+                      </button>
+                    )}
+                  </div>
+                )}
               </>
             )}
           </div>

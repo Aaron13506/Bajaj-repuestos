@@ -5,22 +5,34 @@ import { notFound } from 'next/navigation'
 import DeleteButton from '@/components/DeleteButton'
 import QuickEditProduct from '@/components/QuickEditProduct'
 import { CostCells } from '@/components/ProductRow'
+import ChipDescontinuada from '@/components/ChipDescontinuada'
+import { costHeaders } from '@/lib/cost-columns'
 import AddComponentForm from '@/components/AddComponentForm'
 import AddToAssemblyForm from '@/components/AddToAssemblyForm'
-import AssemblyMeasures from '@/components/AssemblyMeasures'
+import MedidasIA from '@/components/MedidasIA'
 import AssemblyImage from '@/components/AssemblyImage'
 import BundlePriceEditor from '@/components/BundlePriceEditor'
 import { addComponent, removeComponent, addToAssembly } from './component-actions'
 import { deleteProduct } from '../actions'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
-import { getActiveSupplier, getSupplierPriceMap } from '@/lib/suppliers'
+import { getSupplierPriceMap } from '@/lib/suppliers'
 
-export default async function ProductDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ProductDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ proveedor?: string }>
+}) {
   const id = parseInt((await params).id)
   if (isNaN(id)) notFound()
 
-  const [activeSupplier, product, configRows] = await Promise.all([
-    getActiveSupplier(),
+  // Contra qué proveedor comparar la columna marítima. Filtro de pantalla, no estado
+  // global: el proveedor con el que se compra de verdad lo elige cada embarque.
+  const proveedorId = parseInt((await searchParams).proveedor ?? '')
+  const compararContra = Number.isFinite(proveedorId) ? proveedorId : null
+
+  const [product, configRows] = await Promise.all([
     db.product.findUnique({
       where: { id },
       include: {
@@ -38,24 +50,33 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
 
   if (!product) notFound()
 
-  const priceMap = await getSupplierPriceMap(activeSupplier?.id ?? null)
+  const priceMap = await getSupplierPriceMap(compararContra)
   const supplierOverride = priceMap.get(product.id) ?? null
 
   const cfg = configRows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
-  const forCalc = {
+  const fisico = {
+    weightGrams: product.weightGrams,
+    dimL:        product.dimL,
+    dimA:        product.dimA,
+    dimH:        product.dimH,
+    margin:      product.margin,
+  }
+  // Aéreo: siempre 99rpm (ningún otro proveedor llega al mínimo de Shoppre).
+  // Marítimo: el proveedor elegido, que es a quien se le compra por barco.
+  const forCalc = { ...fisico, priceInr: product.priceInr, priceUsd: null, priceIsLanded: false }
+  const forMar = {
+    ...fisico,
     priceInr:      product.priceInr,
     priceUsd:      supplierOverride?.priceUsd ?? null,
     priceIsLanded: supplierOverride?.isLanded ?? false,
-    weightGrams:   product.weightGrams,
-    dimL:          product.dimL,
-    dimA:          product.dimA,
-    dimH:          product.dimH,
-    margin:        product.margin,
   }
-  const breakdown = calcLanded(forCalc, cfg)
-  // Mientras no haya tarifa marítima cargada, las columnas "🚢" caen a la de Miami→CCS y
-  // subestiman el flete completo desde India. Se avisa arriba de la tabla comparativa.
-  const tarifaMaritimaCargada = Number.isFinite(parseFloat(cfg.maritimo_directo_per_ft3 ?? ''))
+  // El desglose de la ficha es el AÉREO: es la ruta por la que sale lo que se vende, y de
+  // ahí sale el precio. El marítimo aparece como columna de comparación en la tabla de
+  // componentes, que es donde la pregunta "¿conviene por barco?" tiene sentido.
+  const breakdown = calcLanded(forCalc, cfg, 'aereo')
+  const breakdownMar = calcLanded(forMar, cfg, 'maritimo_cbm')
+  // Sin tarifa por m³ el flete marítimo cuenta 0 y esa comparación sale falsamente barata.
+  const tarifaMaritimaCargada = parseFloat(cfg.cbm_rate_usd ?? '') > 0
 
   // Group components by groupName
   const groups = new Map<string, typeof product.components>()
@@ -85,6 +106,11 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     nameEn: child.nameEn,
     compatibleModels: child.compatibleModels,
     weightGrams: child.weightGrams,
+    // Las dimensiones viajan junto al peso: por mar el volumen es lo que se factura, así
+    // que una pieza con peso pero sin caja sigue estando sin medir.
+    dimL: child.dimL,
+    dimA: child.dimA,
+    dimH: child.dimH,
     quantity: qtyByChild.get(child.id) ?? 1,
   }))
 
@@ -104,12 +130,28 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
             <span className="text-gray-300">/</span>
             <span className="text-sm text-gray-600">{product.nameEs}</span>
           </div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold text-gray-900">{product.nameEs}</h1>
-            <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
-              Proveedor: {activeSupplier?.name ?? '99rpm (base)'}
-            </span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className={`text-2xl font-bold ${product.discontinuedAt ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
+              {product.nameEs}
+            </h1>
+            {/* Va en el título y no en la ficha de costos: el costo sigue calculándose y se
+                ve razonable, y esa es justamente la trampa — el número existe pero la compra
+                no. Enterarse recién al intentar agregarla al embarque es tarde. */}
+            {product.discontinuedAt && (
+              <span
+                className="text-xs font-semibold px-2.5 py-1 rounded-full bg-red-100 text-red-800"
+                title={`Marcada el ${product.discontinuedAt.toISOString().slice(0, 10)}`}
+              >
+                Descontinuada de fábrica
+              </span>
+            )}
           </div>
+          {product.discontinuedAt && (
+            <p className="text-sm text-red-700 mt-1">
+              Bajaj no la fabrica más: no la consigue ningún proveedor, así que no entra en embarques ni en
+              presupuestos.{product.stock > 0 && ` Te quedan ${product.stock} en stock — eso sí se puede vender.`}
+            </p>
+          )}
           {product.nameEn && (
             <p className="text-sm text-gray-500 mt-0.5">{product.nameEn}</p>
           )}
@@ -210,21 +252,44 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
               <span className="text-gray-600">Producto (USD)</span>
               <span className="font-mono">${breakdown.productCostUsd.toFixed(2)}</span>
             </div>
-            <div className="flex justify-between py-1.5">
-              <span className="text-gray-600">Envío Shoppre India → USA</span>
-              <span className="font-mono">${breakdown.shoppreShippingUsd.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between py-1.5">
-              <span className="text-gray-600">Seguro Shoppre</span>
-              <span className="font-mono">${breakdown.insuranceUsd.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between py-1.5">
-              <span className="text-gray-600">Flete marítimo Miami → CCS</span>
-              <span className="font-mono">${breakdown.maritimeUsd.toFixed(2)}</span>
-            </div>
+                <div className="flex justify-between py-1.5">
+                  <span className="text-gray-600">Envío Shoppre India → USA</span>
+                  <span className="font-mono">${breakdown.shoppreShippingUsd.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between py-1.5">
+                  <span className="text-gray-600">Seguro Shoppre</span>
+                  <span className="font-mono">${breakdown.insuranceUsd.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between py-1.5">
+                  <span className="text-gray-600">Flete marítimo Miami → CCS</span>
+                  <span className="font-mono">${breakdown.maritimeUsd.toFixed(2)}</span>
+                </div>
             <div className="flex justify-between py-2 border-t border-gray-200 font-semibold text-gray-900">
-              <span>Costo landed (USD)</span>
+              <span>✈️ Costo landed (USD)</span>
               <span className="font-mono">${breakdown.landedCostUsd.toFixed(2)}</span>
+            </div>
+
+            {/* La misma pieza por la otra ruta. No cambia el precio de venta (eso sale del
+                aéreo, que es por donde salen los pedidos), pero es la respuesta a si
+                conviene traerla por barco para stock. */}
+            <div className="mt-2 rounded-lg bg-sky-50 border border-sky-100 px-3 py-2 space-y-1">
+              <div className="flex justify-between text-sky-900">
+                <span>🚢 Landed por mar (CBM)</span>
+                <span className="font-mono font-semibold">
+                  {breakdownMar ? `$${breakdownMar.landedCostUsd.toFixed(2)}` : '—'}
+                </span>
+              </div>
+              <div className="flex justify-between text-xs text-sky-700">
+                <span>{breakdownMar?.volumeM3 != null ? `${breakdownMar.volumeM3.toFixed(3)} m³ · flete $${breakdownMar.maritimeUsd.toFixed(2)}` : 'Faltan dimensiones'}</span>
+                {breakdownMar && breakdown.landedCostUsd > 0 && (
+                  <span className={`font-semibold ${
+                    breakdownMar.landedCostUsd < breakdown.landedCostUsd ? 'text-green-700' : 'text-red-600'
+                  }`}>
+                    {breakdownMar.landedCostUsd < breakdown.landedCostUsd ? '−' : '+'}
+                    {Math.abs(((breakdownMar.landedCostUsd - breakdown.landedCostUsd) / breakdown.landedCostUsd) * 100).toFixed(0)}% vs aéreo
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="flex justify-between py-1.5 border-t border-gray-100 text-gray-600">
@@ -279,7 +344,12 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
             priceLocked={product.priceLocked}
             partsSum={partsSum}
           />
-          <AssemblyMeasures assemblyId={id} parts={uniqueParts} />
+          {/* Un solo grupo: este ensamble. El componente es el mismo que usan los
+              presupuestos y los envíos, donde sí hay varios ensambles que elegir. */}
+          <MedidasIA
+            assemblyId={id}
+            grupos={[{ key: String(id), titulo: product.nameEs, subtitulo: product.bajajCode, piezas: uniqueParts }]}
+          />
         </>
       )}
 
@@ -298,10 +368,9 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
           <>
           {!tarifaMaritimaCargada && (
             <p className="text-xs mb-3 px-3 py-2 rounded-lg bg-amber-50 text-amber-700">
-              ⚠️ Las columnas 🚢 usan la tarifa de Miami→CCS como respaldo, que cubre solo el tramo
-              corto y subestima el flete completo desde India. Cargá{' '}
-              <Link href="/config" className="font-mono underline">maritimo_directo_per_ft3</Link>{' '}
-              en Configuración para que la comparación valga.
+              ⚠️ No hay tarifa por m³ cargada: las columnas 🚢 cuentan flete 0 y el landed marítimo
+              de estas piezas sale falsamente barato. Cargá{' '}
+              <Link href="/config" className="font-mono underline">cbm_rate_usd</Link> en Configuración.
             </p>
           )}
           <div className="overflow-x-auto -mx-6 mb-6">
@@ -313,20 +382,9 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                   <th className="text-left font-medium px-2 py-2">Código</th>
                   <th className="text-right font-medium px-2 py-2">Peso (g)</th>
                   <th className="text-right font-medium px-2 py-2">L×A×H (cm)</th>
-                  <th className="text-right font-medium px-2 py-2 border-l border-gray-100">Costo origen</th>
-                  <th className="text-right font-medium px-2 py-2">Producto</th>
-                  <th className="text-right font-medium px-2 py-2">Shoppre</th>
-                  <th className="text-right font-medium px-2 py-2">Seguro</th>
-                  <th className="text-right font-medium px-2 py-2">Marítimo</th>
-                  <th className="text-right font-medium px-2 py-2">Flete hoy</th>
-                  <th className="text-right font-medium px-2 py-2 border-l border-gray-200">Landed</th>
-                  <th className="text-right font-medium px-2 py-2 text-sky-700 bg-sky-50 border-l-2 border-sky-200" title="Flete India → Venezuela por mar directo">🚢 Flete mar</th>
-                  <th className="text-right font-semibold px-2 py-2 text-sky-800 bg-sky-50" title="Costo landed si se trae por mar directo">Landed mar</th>
-                  <th className="text-right font-medium px-2 py-2 text-sky-700 bg-sky-50" title="Precio de venta por mar: mismo margen aplicado sobre el landed marítimo">Venta mar</th>
-                  <th className="text-right font-medium px-2 py-2 text-sky-700 bg-sky-50 border-r-2 border-sky-200" title="Diferencia contra el aéreo actual — igual para landed y para venta">Δ</th>
-                  <th className="text-right font-medium px-2 py-2 border-l border-gray-100">Margen</th>
-                  <th className="text-right font-medium px-2 py-2">Precio USD</th>
-                  <th className="text-right font-medium px-2 py-2">Precio BsD</th>
+                  {costHeaders('compact').map(c => (
+                    <th key={c.label} className={c.className} title={c.title}>{c.label}</th>
+                  ))}
                   <th className="text-right font-medium px-2 py-2">Acciones</th>
                 </tr>
               </thead>
@@ -368,15 +426,20 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                         margin: c.margin,
                         price: parseFloat(c.price.toString()),
                         priceLocked: c.priceLocked,
+                        descontinuada: c.discontinuedAt != null,
                         stock: c.stock,
                       }
                       return (
                         <tr key={comp.id} className="hover:bg-gray-50">
                           <td className="px-2 py-2 text-right text-gray-400">{comp.quantity}×</td>
                           <td className="px-2 py-2">
-                            <Link href={`/products/${c.id}`} className="font-medium text-gray-900 hover:text-blue-600">
+                            <Link
+                              href={`/products/${c.id}`}
+                              className={`font-medium hover:text-blue-600 ${c.discontinuedAt ? 'text-gray-500 line-through' : 'text-gray-900'}`}
+                            >
                               {c.nameEs}
                             </Link>
+                            <ChipDescontinuada activo={c.discontinuedAt != null} />
                             {c.nameEn && <span className="block text-xs text-gray-400">{c.nameEn}</span>}
                           </td>
                           <td className="px-2 py-2 font-mono text-xs text-gray-500">{c.bajajCode ?? '—'}</td>
@@ -397,7 +460,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
                             <div className="flex items-center justify-end gap-3">
                               <QuickEditProduct
                                 cfg={cfg}
-                                activeSupplierId={activeSupplier?.id ?? null}
+                                activeSupplierId={compararContra}
                                 triggerClassName="text-xs text-blue-600 hover:text-blue-800 font-medium"
                                 packQty={comp.quantity}
                                 product={costD}

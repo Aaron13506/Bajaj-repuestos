@@ -46,11 +46,15 @@ interface Props {
   products: SimProduct[]
   pedidos: SimPedido[]
   cfg: ConfigMap
+  // Escenario en el que abre el simulador: el modo activo de la app.
+  modoInicial?: ModoEnvio
 }
 
 const usd = (n: number) => `$${n.toFixed(2)}`
 const kg = (n: number) => `${n.toFixed(2)} kg`
 const ft3 = (n: number) => `${n.toFixed(2)} ft³`
+// 3 decimales: una caja chica ronda los 0.0xx m³ y con 2 se vería todo igual.
+const m3 = (n: number) => `${n.toFixed(3)} m³`
 
 // Guía de punto dulce sobre la curva real de ShipGlobal Duty Free (member).
 function airTierHint(chargeableKg: number): { tone: 'good' | 'info'; text: string } | null {
@@ -71,11 +75,13 @@ function airTierHint(chargeableKg: number): { tone: 'good' | 'info'; text: strin
   return { tone: 'good', text: 'Estás en el tramo más eficiente de ShipGlobal (~1 421 INR/kg).' }
 }
 
-export default function SimuladorEnvio({ products, pedidos, cfg }: Props) {
+export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = 'aereo' }: Props) {
   const [selectedPedidoIds, setSelectedPedidoIds] = useState<number[]>([])
   const [manual, setManual] = useState<ManualLine[]>([])
   const [search, setSearch] = useState('')
-  const [modo, setModo] = useState<ModoEnvio>('aereo')
+  // Arranca en el modo con el que se está operando, pero acá sí se puede saltar entre los
+  // tres escenarios sin cambiar nada global: el simulador es justamente para comparar.
+  const [modo, setModo] = useState<ModoEnvio>(modoInicial)
 
   const selectedPedidos = useMemo(
     () => selectedPedidoIds.map(id => pedidos.find(p => p.id === id)!).filter(Boolean),
@@ -150,9 +156,13 @@ export default function SimuladorEnvio({ products, pedidos, cfg }: Props) {
   const itemsKey = JSON.stringify(items)
   const calcAereo    = useMemo(() => calcEnvio(items, cfg, { modo: 'aereo' }),    [itemsKey, cfg])
   const calcMaritimo = useMemo(() => calcEnvio(items, cfg, { modo: 'maritimo' }), [itemsKey, cfg])
+  const calcCbm      = useMemo(() => calcEnvio(items, cfg, { modo: 'maritimo_cbm' }), [itemsKey, cfg])
 
-  const esMaritimo = modo === 'maritimo'
-  const calc = esMaritimo ? calcMaritimo : calcAereo
+  const esCbm = modo === 'maritimo_cbm'
+  // `esMaritimo` cubre los dos escenarios por mar: en ambos se cobra volumen y el peso deja
+  // de importar. Lo específico de CBM (tarifa por m³, FOB fijo, mínimo LCL) va con `esCbm`.
+  const esMaritimo = modo === 'maritimo' || esCbm
+  const calc = esCbm ? calcCbm : esMaritimo ? calcMaritimo : calcAereo
 
   // El marítimo directo todavía no tiene tarifa cargada: calcEnvio cae a la de Miami→CCS,
   // que subcotiza mucho el tramo completo desde India. Hay que decirlo, no esconderlo.
@@ -169,15 +179,18 @@ export default function SimuladorEnvio({ products, pedidos, cfg }: Props) {
     selectedPedidos.reduce((s, ped) => s + ped.saleTotal, 0) +
     manual.reduce((s, c) => s + c.product.price * c.quantity, 0)
 
-  const shippingEst = calc.airUsd + calc.maritimeUsd
+  // `fobUsd` es 0 fuera de CBM, así que esto no cambia el aéreo ni el escenario en ft³.
+  const shippingEst = calc.airUsd + calc.maritimeUsd + calc.fobUsd
   // Por mar el peso no se cobra: una pieza sin peso cargado no distorsiona nada, pero una
   // sin dimensiones sí, porque el flete ES el volumen.
   const anyMissing = calc.lines.some(l => l.missingDims || (!esMaritimo && l.missingWeight))
   const ratioPct = calc.ratioVW != null ? calc.ratioVW * 100 : null
   const tierHint = airTierHint(calc.chargeableKg)
 
-  // Comparación entre escenarios: positivo = el mar sale más barato.
-  const ahorroMaritimo = calcAereo.landedUsd - calcMaritimo.landedUsd
+  // Comparación contra el aéreo del escenario por mar que esté activo: positivo = el mar
+  // sale más barato. Se mide contra `calc` y no contra calcMaritimo fijo, si no al mirar
+  // el escenario CBM se leería el ahorro del escenario en ft³, que es otro número.
+  const ahorroMaritimo = calcAereo.landedUsd - (esCbm ? calcCbm : calcMaritimo).landedUsd
   const ahorroPct = calcAereo.landedUsd > 0 ? (ahorroMaritimo / calcAereo.landedUsd) * 100 : 0
   const fmtBound =
     calc.binding === 'weight'
@@ -350,9 +363,9 @@ export default function SimuladorEnvio({ products, pedidos, cfg }: Props) {
             {/* Modo de traída: la cadena de hoy contra el escenario marítimo directo */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
               <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Modo de traída</h2>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <ModoButton
-                  active={!esMaritimo}
+                  active={modo === 'aereo'}
                   onClick={() => setModo('aereo')}
                   title="✈️ Aéreo"
                   sub="India → USA en avión, luego mar a VEN"
@@ -360,11 +373,19 @@ export default function SimuladorEnvio({ products, pedidos, cfg }: Props) {
                   total={usd(calcAereo.landedUsd)}
                 />
                 <ModoButton
-                  active={esMaritimo}
+                  active={modo === 'maritimo_cbm'}
+                  onClick={() => setModo('maritimo_cbm')}
+                  title="🚢 CBM"
+                  sub="Tarifa plana por m³ + FOB fijo de India"
+                  tag="real"
+                  total={usd(calcCbm.landedUsd)}
+                />
+                <ModoButton
+                  active={modo === 'maritimo'}
                   onClick={() => setModo('maritimo')}
-                  title="🚢 Marítimo"
-                  sub="India → Venezuela por mar, directo"
-                  tag="futuro"
+                  title="🚢 Mar (ft³)"
+                  sub="Escenario viejo, cotizado por pie cúbico"
+                  tag="escenario"
                   total={usd(calcMaritimo.landedUsd)}
                 />
               </div>
@@ -377,7 +398,15 @@ export default function SimuladorEnvio({ products, pedidos, cfg }: Props) {
                 </p>
               )}
 
-              {esMaritimo && tarifaEsRespaldo && (
+              {esCbm && calc.cbmRatePerM3 === 0 && (
+                <p className="text-xs mt-2 px-3 py-2 rounded-lg bg-amber-50 text-amber-700">
+                  ⚠️ No hay tarifa por m³ cargada, así que el flete cuenta 0 y este escenario sale
+                  falsamente barato. Cargá <span className="font-mono">cbm_rate_usd</span> (y el{' '}
+                  <span className="font-mono">cbm_fob_india_usd</span>) en Configuración.
+                </p>
+              )}
+
+              {modo === 'maritimo' && tarifaEsRespaldo && (
                 <p className="text-xs mt-2 px-3 py-2 rounded-lg bg-amber-50 text-amber-700">
                   ⚠️ Todavía no cargaste la tarifa marítima: se está usando la de Miami→CCS
                   ({usd(calc.maritimePerFt3)}/ft³), que cubre solo el tramo corto y subestima el flete
@@ -399,17 +428,23 @@ export default function SimuladorEnvio({ products, pedidos, cfg }: Props) {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <div>
                     <p className="text-xs text-gray-400 mb-1">Volumen real</p>
-                    <p className="text-lg font-bold font-mono text-gray-900">{ft3(calc.volumeFt3)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-400 mb-1">Facturable</p>
-                    <p className={`text-lg font-bold font-mono ${calc.minFt3Applied ? 'text-amber-600' : 'text-sky-700'}`}>
-                      {ft3(calc.billableFt3)}
+                    <p className="text-lg font-bold font-mono text-gray-900">
+                      {esCbm ? m3(calc.volumeM3) : ft3(calc.volumeFt3)}
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">Tarifa / ft³</p>
-                    <p className="text-lg font-bold font-mono text-gray-900">{usd(calc.maritimePerFt3)}</p>
+                    <p className="text-xs text-gray-400 mb-1">Facturable</p>
+                    <p className={`text-lg font-bold font-mono ${
+                      (esCbm ? calc.minM3Applied : calc.minFt3Applied) ? 'text-amber-600' : 'text-sky-700'
+                    }`}>
+                      {esCbm ? m3(calc.billableM3) : ft3(calc.billableFt3)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400 mb-1">{esCbm ? 'Tarifa / m³' : 'Tarifa / ft³'}</p>
+                    <p className="text-lg font-bold font-mono text-gray-900">
+                      {usd(esCbm ? calc.cbmRatePerM3 : calc.maritimePerFt3)}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-400 mb-1">Flete marítimo</p>
@@ -417,16 +452,47 @@ export default function SimuladorEnvio({ products, pedidos, cfg }: Props) {
                   </div>
                 </div>
 
+                {/* Medidor de llenado: la señal de cuándo conviene cerrar el embarque. */}
+                {esCbm && (
+                  <div className="mt-5">
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="text-gray-500">Llenado del volumen facturable</span>
+                      <span className="font-mono font-semibold text-gray-700">{(calc.cbmFillPct * 100).toFixed(0)}%</span>
+                    </div>
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${
+                          calc.cbmFillPct >= 0.9 ? 'bg-green-500' : calc.cbmFillPct >= 0.6 ? 'bg-amber-400' : 'bg-red-500'
+                        }`}
+                        style={{ width: `${Math.min(calc.cbmFillPct * 100, 100)}%` }}
+                      />
+                    </div>
+                    {calc.fobUsd > 0 && (
+                      <p className="text-xs mt-2 text-gray-600">
+                        El FOB de India ({usd(calc.fobUsd)}) es fijo por embarque: hoy pesa{' '}
+                        <span className="font-mono text-gray-800">
+                          {calc.volumeM3 > 0 ? `${usd(calc.fobUsd / calc.volumeM3)}/m³` : '—'}
+                        </span>
+                        . Cada pieza que sumes lo diluye.
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 <p className="text-xs mt-4 text-gray-500">
                   Peso real de la caja: <span className="font-mono text-gray-700">{kg(calc.realKg)}</span> — por mar
                   no se cobra. Todo el juego de max(peso, volumétrico) y el punto dulce de la tabla escalón
                   de ShipGlobal dejan de aplicar.
                 </p>
 
-                {calc.minFt3Applied && (
+                {(esCbm ? calc.minM3Applied : calc.minFt3Applied) && (
                   <p className="text-xs mt-3 px-3 py-2 rounded-lg bg-amber-50 text-amber-700">
-                    ⚠️ La caja no llega al mínimo del embarque: pagás {ft3(calc.billableFt3)} teniendo
-                    {' '}{ft3(calc.volumeFt3)}. Te sobran <span className="font-mono">{ft3(calc.billableFt3 - calc.volumeFt3)}</span>
+                    ⚠️ La caja no llega al mínimo del embarque: pagás{' '}
+                    {esCbm ? m3(calc.billableM3) : ft3(calc.billableFt3)} teniendo{' '}
+                    {esCbm ? m3(calc.volumeM3) : ft3(calc.volumeFt3)}. Te sobran{' '}
+                    <span className="font-mono">
+                      {esCbm ? m3(calc.billableM3 - calc.volumeM3) : ft3(calc.billableFt3 - calc.volumeFt3)}
+                    </span>
                     {' '}ya pagados — conviene sumar piezas voluminosas antes de embarcar.
                   </p>
                 )}
@@ -506,11 +572,19 @@ export default function SimuladorEnvio({ products, pedidos, cfg }: Props) {
             {/* Desglose de costo */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
               <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
-                Costo aproximado (landed) · {esMaritimo ? 'marítimo directo' : 'aéreo'}
+                Costo aproximado (landed) · {esCbm ? 'marítimo CBM' : esMaritimo ? 'marítimo directo' : 'aéreo'}
               </h2>
               <dl className="space-y-2 text-sm">
                 <Row label="Costo de producto (India)" value={usd(calc.productCostUsd)} />
-                {esMaritimo ? (
+                {esCbm ? (
+                  <>
+                    <Row
+                      label={`Marítimo India→VEN · ${calc.billableM3.toFixed(3)} m³ × ${usd(calc.cbmRatePerM3)}`}
+                      value={usd(calc.maritimeUsd)}
+                    />
+                    <Row label="FOB India (fijo por embarque)" value={usd(calc.fobUsd)} />
+                  </>
+                ) : esMaritimo ? (
                   <>
                     <Row
                       label={`Marítimo India→VEN · ${calc.billableFt3.toFixed(2)} ft³ × ${usd(calc.maritimePerFt3)}`}
@@ -532,7 +606,7 @@ export default function SimuladorEnvio({ products, pedidos, cfg }: Props) {
                   <dd className="font-bold text-xl font-mono text-blue-700">{usd(calc.landedUsd)}</dd>
                 </div>
                 <div className="flex justify-between text-xs text-gray-500">
-                  <dt>{esMaritimo ? 'Solo flete (marítimo)' : 'Solo flete (aéreo + marítimo)'}</dt>
+                  <dt>{esCbm ? 'Solo flete (marítimo + FOB)' : esMaritimo ? 'Solo flete (marítimo)' : 'Solo flete (aéreo + marítimo)'}</dt>
                   <dd className="font-mono">{usd(shippingEst)}</dd>
                 </div>
                 {saleTotal > 0 && (

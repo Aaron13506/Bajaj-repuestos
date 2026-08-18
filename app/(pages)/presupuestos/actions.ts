@@ -74,6 +74,12 @@ export async function createPresupuesto(formData: FormData) {
 
   revalidatePath('/presupuestos')
   revalidateClientes()
+  // Si el lote se armó desde el planificador de embarques, se vuelve ahí: lo que sigue es
+  // ver cuánto suma al m³ acumulado, no la ficha del documento suelto.
+  if ((formData.get('volver') as string) === 'plan') {
+    revalidatePath('/envios/plan')
+    redirect('/envios/plan')
+  }
   redirect(`/presupuestos/${pedido.id}`)
 }
 

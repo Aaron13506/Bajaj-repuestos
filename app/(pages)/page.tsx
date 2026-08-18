@@ -2,24 +2,23 @@ import { db } from '@/lib/db'
 import Link from 'next/link'
 
 async function getStats() {
-  const [totalProducts, lowStock] = await Promise.all([
+  // Las cinco consultas son independientes entre sí, así que van en una sola tanda: la
+  // base está en us-west-2 y encadenarlas hacía pagar la latencia cinco veces seguidas.
+  const [totalProducts, lowStock, agg, recentProducts, lowStockProducts] = await Promise.all([
     db.product.count(),
     db.product.count({ where: { stock: { lt: 5 } } }),
+    db.product.aggregate({ _sum: { price: true } }),
+    db.product.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    }),
+    db.product.findMany({
+      where: { stock: { lt: 5 } },
+      orderBy: { stock: 'asc' },
+      take: 5,
+    }),
   ])
-
-  const agg = await db.product.aggregate({ _sum: { price: true } })
   const totalValue = parseFloat((agg._sum.price ?? 0).toString())
-
-  const recentProducts = await db.product.findMany({
-    orderBy: { createdAt: 'desc' },
-    take: 5,
-  })
-
-  const lowStockProducts = await db.product.findMany({
-    where: { stock: { lt: 5 } },
-    orderBy: { stock: 'asc' },
-    take: 5,
-  })
 
   return { totalProducts, lowStock, totalValue, recentProducts, lowStockProducts }
 }

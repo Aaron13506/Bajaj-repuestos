@@ -2,7 +2,6 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import SupplierSelector from './SupplierSelector'
 
 const navItems = [
   {
@@ -51,8 +50,10 @@ const navItems = [
     ),
   },
   {
+    // Acá se planifica el embarque: un envío marítimo en borrador ES el planificador
+    // (se llena, se mide el m³ contra el mínimo y recién ahí se cierra).
     href: '/envios',
-    label: 'Envíos',
+    label: 'Envíos y embarques',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -61,8 +62,10 @@ const navItems = [
     ),
   },
   {
+    // Calculadora de peso y volumen del carril AÉREO (Shoppre). La ruta va en el nombre:
+    // por mar no se simula peso, se mide volumen, y eso vive dentro del embarque.
     href: '/simular',
-    label: 'Simular envío',
+    label: 'Simular aéreo',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m-6 4h6m-6 4h4M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z" />
@@ -90,17 +93,10 @@ const navItems = [
   },
 ]
 
-interface SupplierOption {
-  id: number
-  name: string
-}
-
-interface SidebarProps {
-  suppliers: SupplierOption[]
-  activeSupplierId: number | null
-}
-
-export default function Sidebar({ suppliers, activeSupplierId }: SidebarProps) {
+// El sidebar no elige proveedor: el proveedor es un dato de CADA embarque (define sus
+// precios y su FOB) y se elige ahí. Un selector global daba la ilusión de que cambiarlo
+// re-costeaba lo que estabas mirando, cuando la caja ya tenía el suyo congelado.
+export default function Sidebar() {
   const pathname = usePathname()
 
   return (
@@ -108,14 +104,15 @@ export default function Sidebar({ suppliers, activeSupplierId }: SidebarProps) {
       <div className="p-6 border-b border-gray-700">
         <h1 className="text-xl font-bold text-white">Bajaj Repuestos</h1>
         <p className="text-gray-400 text-sm mt-1">Panel de Administracion</p>
-        <SupplierSelector suppliers={suppliers} activeSupplierId={activeSupplierId} />
       </div>
       <nav className="flex-1 p-4 space-y-1">
         {navItems.map((item) => {
-          const isActive =
-            item.href === '/'
-              ? pathname === '/'
-              : pathname.startsWith(item.href)
+          // Gana el prefijo MÁS LARGO que matchee: /envios/plan tiene entrada propia y no
+          // debe prender también la de /envios.
+          const match = navItems
+            .filter(i => i.href !== '/' && pathname.startsWith(i.href))
+            .sort((a, b) => b.href.length - a.href.length)[0]
+          const isActive = item.href === '/' ? pathname === '/' : match?.href === item.href
           return (
             <Link
               key={item.href}

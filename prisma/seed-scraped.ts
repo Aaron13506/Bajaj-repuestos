@@ -167,6 +167,10 @@ async function main() {
           priceInr: pt.priceInr ?? 0,
           qty: pt.qty ?? 1,
           sortOrder: pt.sortOrder ?? 0,
+          // Rótulo de 99rpm. Los scrapes viejos no lo traen: ahí `undefined` deja el default
+          // (false), que es lo correcto — "no lo sé" no es "está vigente", pero tampoco
+          // alcanza para marcar. Quien decide es materialize-catalog, que solo suma.
+          discontinued: pt.discontinued ?? false,
         })),
       })
       parts += groupParts.length

@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import PresupuestoBuilder from '@/components/PresupuestoBuilder'
 import { sortModels } from '@/lib/catalog'
+import { modelosDistintos } from '@/lib/modelos'
 import { updatePresupuesto } from '../../actions'
 import { type BundlePiece } from '@/lib/bundle'
 
@@ -49,9 +50,7 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
     bundleItems: (item.bundleItems as BundlePiece[] | null) ?? undefined,
   }))
 
-  const models = sortModels(
-    Array.from(new Set(assemblies.map(a => a.compatibleModels).filter((m): m is string => !!m)))
-  )
+  const models = sortModels(modelosDistintos(assemblies.map(a => a.compatibleModels)))
 
   const assembliesForClient = assemblies.map(a => ({
     id: a.id,

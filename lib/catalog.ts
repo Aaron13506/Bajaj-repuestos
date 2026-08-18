@@ -1,7 +1,9 @@
 import { db } from './db'
 
-// Orden lógico de los 14 modelos (por cilindrada/familia) para los dropdowns de filtro.
+// Orden lógico de los modelos (por cilindrada/familia) para los dropdowns de filtro.
 // Los valores son las etiquetas legibles tal como se guardan en Product.compatibleModels.
+// La Boxer va al final: es otra familia (commuter), y dejarla acá abajo mantiene intacto
+// el orden por cilindrada de las Pulsar, que son la mayor parte del catálogo.
 export const MODEL_ORDER = [
   'Pulsar 150 BS4',
   'Pulsar 150 UG4',
@@ -17,6 +19,7 @@ export const MODEL_ORDER = [
   'Pulsar N250 Single ABS 2021 23',
   'Pulsar N250 Dual ABS 2022 23',
   'Pulsar N250 USD Fork 2024 25',
+  'Boxer BM150',
 ]
 
 export function sortModels(models: string[]): string[] {
@@ -28,7 +31,11 @@ export function sortModels(models: string[]): string[] {
 }
 
 // Opciones para los filtros del catálogo, derivadas de los ensambles reales:
-//  - models: los 14 modelos distintos (cada ensamble = 1 modelo en compatibleModels)
+//  - models: los modelos distintos. Casi todo ensamble tiene UNO solo, pero algunos
+//    sirven para varias motos a la vez (los accesorios N250/N160), y esos guardan la
+//    lista separada por comas. Por eso se parte y se aplana en vez de tomar el string
+//    entero: si no, un ensamble multi-modelo aparecería como una opción de dropdown con
+//    tres motos pegadas, que no matchea nada al filtrar.
 //  - categories: las categorías (nameEs del ensamble, ej "Swing Arm") — SCOPEADAS al
 //    modelo si se pasa uno, para que Categoría muestre solo las de ese modelo (cascada).
 export async function getCatalogFilters(model?: string): Promise<{ models: string[]; categories: string[] }> {
@@ -47,7 +54,12 @@ export async function getCatalogFilters(model?: string): Promise<{ models: strin
       select: { nameEs: true },
     }),
   ])
-  const models = sortModels(modelRows.map((r) => r.compatibleModels!).filter(Boolean))
+  const models = sortModels([...new Set(
+    modelRows
+      .flatMap((r) => (r.compatibleModels ?? '').split(','))
+      .map((m) => m.trim())
+      .filter(Boolean)
+  )])
   const categories = catRows.map((r) => r.nameEs).filter(Boolean).sort((a, b) => a.localeCompare(b))
   return { models, categories }
 }

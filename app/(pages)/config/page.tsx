@@ -18,6 +18,12 @@ const FIELD_META: Record<string, { label: string; hint: string; type?: string; m
   maritimo_min_ft3:         { label: 'Mínimo facturable marítimo (ft³)',       hint: 'Piso de volumen que cobra la naviera por embarque. 0 = cobra el volumen real, sin mínimo' },
   maritimo_fee_usd:         { label: 'Gastos fijos marítimo (USD)',            hint: 'Cargo fijo por caja: origen, destino, handling, aduana. 0 si ya están dentro del USD/ft³' },
   maritimo_insurance_pct:   { label: 'Seguro marítimo (fracción)',             hint: '% sobre el costo de producto. Vacío = 0.06 (6%), la prima por mar' },
+  // ── Modo Marítimo CBM (India → Venezuela por mar, cotización real por m³).
+  // Solo tienen efecto con el modo CBM activo (se alterna en el sidebar).
+  cbm_rate_usd:           { label: 'Tarifa marítima (USD por m³)',   hint: 'Tarifa plana India → Venezuela por metro cúbico. Incluye todo el trayecto: flete, seguro, origen, destino y aduana' },
+  cbm_fob_india_usd:      { label: 'FOB India (USD por embarque)',   hint: 'Monto FIJO por embarque, no escala con el volumen. Llenar más la caja lo diluye entre más piezas y baja el landed de cada una' },
+  cbm_min_m3:             { label: 'Mínimo facturable (m³)',         hint: 'Piso de volumen que cobra la naviera por embarque aunque mandes menos. Vacío = 1 m³ (típico LCL)' },
+  cbm_referencia_m3:      { label: 'Embarque de referencia (m³)',    hint: 'Volumen supuesto para prorratear el FOB al costear una pieza suelta en el catálogo. Vacío = 1 m³. Subilo si consolidás embarques más grandes: baja el landed de todo el catálogo' },
   default_margin_pct:     { label: 'Margen por defecto (%)',       hint: 'Margen de ganancia al crear un producto; luego se ajusta por producto' },
   terminos_presupuesto:   { label: 'Términos y condiciones — Presupuesto', hint: 'Texto que aparece al pie del presupuesto al imprimir / guardar como PDF', multiline: true },
   terminos_pedido:        { label: 'Términos y condiciones — Pedido oficial', hint: 'Texto que aparece al pie del pedido confirmado al imprimir / guardar como PDF', multiline: true },
@@ -44,8 +50,10 @@ export default async function ConfigPage({
     if (!configMap[key]) configMap[key] = { value: '', description: null }
   }
 
-  // Custom keys not in FIELD_META (user may have added extra)
-  const extraKeys = Object.keys(configMap).filter(k => !FIELD_META[k])
+  // Keys que el usuario agregó a mano y no están en FIELD_META. `app_modo` quedó de
+  // cuando existía un modo global de la app; si sobrevive alguna fila, se oculta: la ruta
+  // hoy la define cada envío, no una preferencia global.
+  const extraKeys = Object.keys(configMap).filter(k => !FIELD_META[k] && k !== 'app_modo')
 
   const allKeys = [...DEFAULT_KEYS, ...extraKeys]
 

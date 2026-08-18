@@ -4,8 +4,11 @@ import { notFound } from 'next/navigation'
 import DeleteButton from '@/components/DeleteButton'
 import PresupuestoPdfButton from '@/components/PresupuestoPdfButton'
 import AprobarPedidoForm from '@/components/AprobarPedidoForm'
+import MedidasIA, { type GrupoMedidas, type PiezaMedible } from '@/components/MedidasIA'
 import { deletePresupuesto, aprobarPedido } from '../actions'
 import { type BundlePiece, groupBundlePieces } from '@/lib/bundle'
+import { lookupDeConjuntos } from '@/lib/envio-build'
+import type { ConfigMap } from '@/lib/calc'
 import { getTerminos } from '@/lib/terminos'
 import { METODOS_PAGO } from '@/lib/pagos'
 import { toFileName } from '@/lib/utils'
@@ -16,14 +19,18 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
   const id = parseInt((await params).id)
   if (isNaN(id)) notFound()
 
-  const [presupuesto, bsdRow] = await Promise.all([
+  const [presupuesto, configRows] = await Promise.all([
     db.pedido.findUnique({
       where: { id },
       include: {
         items: {
           include: {
             product: {
-              select: { id: true, nameEs: true, bajajCode: true, description: true, imageUrl: true },
+              select: {
+                id: true, nameEs: true, nameEn: true, bajajCode: true, description: true,
+                imageUrl: true, compatibleModels: true, weightGrams: true,
+                dimL: true, dimA: true, dimH: true, priceInr: true,
+              },
             },
             supplier: { select: { name: true } },
           },
@@ -31,10 +38,13 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
         },
       },
     }),
-    db.config.findUnique({ where: { key: 'bsd_usd_rate' } }),
+    db.config.findMany(),
   ])
 
   if (!presupuesto) notFound()
+
+  const cfg = configRows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
+  const bsdRow = configRows.find(r => r.key === 'bsd_usd_rate') ?? null
 
   const isPropio = presupuesto.tipo === 'propio'
   const isPresupuesto = presupuesto.status === 'presupuesto'
@@ -46,6 +56,62 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
 
   // Progreso de compra agregado desde los ítems (ver lib/shipping-status.ts).
   const compra = stageSummary(presupuesto.items)
+
+  // ── Volumen y costo por mar ────────────────────────────────────────────────
+  // El presupuesto es donde se decide el precio, así que es donde tiene que verse el
+  // landed: cuánto m³ compromete cada línea y cuánto flete arrastra. Los conjuntos se
+  // expanden a sus piezas reales (un ensamble ocupa lo que ocupan sus piezas).
+  const lookup = await lookupDeConjuntos(presupuesto.items.map(it => it.bundleItems as BundlePiece[] | null))
+
+  // Grupos para la carga de medidas: UN GRUPO POR ENSAMBLE. Las piezas de un conjunto se
+  // investigan juntas (son de la misma familia y tamaño); las piezas sueltas del
+  // presupuesto van todas a un grupo aparte. Es el tamaño de tanda que la IA maneja bien.
+  const grupos: GrupoMedidas[] = []
+  const sueltas: PiezaMedible[] = []
+  const comoPieza = (p: {
+    id: number; bajajCode: string | null; nameEs: string; nameEn?: string | null
+    compatibleModels?: string | null; weightGrams: number | null
+    dimL: number | null; dimA: number | null; dimH: number | null
+  }, quantity: number): PiezaMedible => ({
+    id: p.id,
+    bajajCode: p.bajajCode,
+    nameEs: p.nameEs,
+    nameEn: p.nameEn ?? null,
+    compatibleModels: p.compatibleModels ?? null,
+    quantity,
+    weightGrams: p.weightGrams,
+    dimL: p.dimL,
+    dimA: p.dimA,
+    dimH: p.dimH,
+  })
+
+  for (const it of presupuesto.items) {
+    const piezasBundle = (it.bundleItems as BundlePiece[] | null) ?? []
+    if (piezasBundle.length === 0) {
+      sueltas.push(comoPieza(it.product, it.quantity))
+      continue
+    }
+    // Solo las piezas que resolvieron contra el catálogo: a las que no matchearon por SKU
+    // no hay producto al que cargarle la medida.
+    const piezas = piezasBundle
+      .map(bp => {
+        const resuelto = lookup(bp.bajajCode, bp.nameEs)
+        return resuelto ? comoPieza(resuelto, bp.quantity * it.quantity) : null
+      })
+      .filter((p): p is PiezaMedible => p != null)
+    if (piezas.length > 0) {
+      grupos.push({
+        key: `item-${it.id}`,
+        titulo: it.product.nameEs,
+        subtitulo: it.product.bajajCode,
+        piezas,
+      })
+    }
+  }
+  if (sueltas.length > 0) {
+    grupos.push({ key: 'sueltas', titulo: 'Piezas sueltas', piezas: sueltas })
+  }
+
 
   const bsdRate = bsdRow ? parseFloat(bsdRow.value) : NaN
   const totalBsd = Number.isNaN(bsdRate) ? null : total * bsdRate
@@ -238,6 +304,18 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
               <Link href="/compras" className="text-blue-600 hover:underline">Ir a Por comprar</Link>
             </p>
           )}
+        </div>
+      )}
+
+      {/* Carga de medidas, de a un ensamble. Sin dimensiones no hay volumen, y sin
+          volumen el flete por mar de esas piezas cuenta cero. */}
+      {grupos.length > 0 && (
+        <div id="medidas" className="mb-4 scroll-mt-4">
+          <MedidasIA
+            grupos={grupos}
+            revalidate={`/presupuestos/${id}`}
+            titulo="Cargar peso y medidas de este presupuesto"
+          />
         </div>
       )}
 

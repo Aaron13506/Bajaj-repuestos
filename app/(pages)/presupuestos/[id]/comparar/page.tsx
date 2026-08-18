@@ -107,7 +107,10 @@ export default async function CompararProveedoresPage({ params }: { params: Prom
       dimA:          product.dimA,
       dimH:          product.dimH,
       margin:        null,
-    }, cfg)
+      // Se compara en la ruta AÉREA: un presupuesto es para un cliente, y los pedidos de
+      // cliente salen por avión. La comparación por mar vive en el catálogo, que es donde
+      // se decide el abastecimiento propio.
+    }, cfg, 'aereo')
     if (!breakdown) return null
     return { baseUsd: breakdown.productCostUsd, landedUsd: breakdown.landedCostUsd }
   }

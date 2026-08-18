@@ -4,8 +4,13 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import DeleteButton from '@/components/DeleteButton'
 import QuickEditProduct, { type QuickEditValues } from '@/components/QuickEditProduct'
+import ChipDescontinuada from '@/components/ChipDescontinuada'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
 import { deleteProduct } from '@/app/(pages)/products/actions'
+
+// Los encabezados de las columnas de costo viven en lib/cost-columns: este módulo es
+// 'use client' y las tablas que los usan se arman en el server, que no puede llamar a una
+// función exportada desde un módulo cliente. Las CELDAS que los llenan sí viven acá.
 
 export interface ComponentData extends QuickEditValues {
   quantity: number
@@ -30,20 +35,25 @@ function fmt(n: number | null | undefined, decimals = 2) {
  * puntual) se agrega el total de esa línea en chico, para no confundir unidad con total.
  */
 export function CostCells({ d, cfg, quantity }: { d: QuickEditValues; cfg: ConfigMap; quantity?: number }) {
-  const forCalc = {
-    priceInr:      d.priceInr,
-    priceUsd:      d.priceUsd,
-    priceIsLanded: d.priceIsLanded,
-    weightGrams:   d.weightGrams,
-    dimL:          d.dimL,
-    dimA:          d.dimA,
-    dimH:          d.dimH,
-    margin:        d.margin,
+  const fisico = {
+    weightGrams: d.weightGrams,
+    dimL:        d.dimL,
+    dimA:        d.dimA,
+    dimH:        d.dimH,
+    margin:      d.margin,
   }
-  const b = calcLanded(forCalc, cfg)
-  // Mismo cálculo por mar directo desde India. Es una columna comparativa: el precio que se
-  // guarda y se cotiza sigue saliendo del aéreo (b), no de acá.
-  const m = calcLanded(forCalc, cfg, 'maritimo')
+  // El AÉREO se cotiza siempre contra 99rpm: es el único distribuidor que llega al mínimo
+  // de Shoppre, así que el precio de un proveedor alternativo no describe nada por avión.
+  const forAereo = { ...fisico, priceInr: d.priceInr, priceUsd: null, priceIsLanded: false }
+  // El MARÍTIMO sí usa el proveedor elegido: por barco se le compra a quien convenga, y
+  // ahí su precio en USD es el costo real de la pieza.
+  const forMar = { ...fisico, priceInr: d.priceInr, priceUsd: d.priceUsd, priceIsLanded: d.priceIsLanded }
+  // Las DOS rutas, siempre, una al lado de la otra. No hay interruptor que elegir: el
+  // aéreo es el que manda en el precio de venta (es por donde salen los pedidos de
+  // cliente), y el marítimo está al lado porque es la pregunta que uno se hace al
+  // abastecerse — cuánto más barato sale la misma pieza si puede esperar el barco.
+  const b = calcLanded(forAereo, cfg, 'aereo')
+  const m = calcLanded(forMar, cfg, 'maritimo_cbm')
 
   // Flete de hoy = lo que se paga para mover la pieza (Shoppre aéreo + marítimo Miami→CCS).
   // Flete por mar = un solo tramo. Se comparan estos dos, y los landed que resultan.
@@ -56,25 +66,47 @@ export function CostCells({ d, cfg, quantity }: { d: QuickEditValues; cfg: Confi
   const multi = (quantity ?? 1) > 1
   const saleUsd = b?.priceUsd ?? parseFloat(d.price.toString())
   const hasSupplierOverride = d.priceUsd != null
+
+  // Costo de origen: el de 99rpm en ₹ (la base aérea) y, si hay proveedor con precio
+  // cargado, el suyo en USD debajo — que es el que manda por barco.
+  const costoOrigen = (
+    <td className="px-4 py-3 text-right text-gray-500 border-l border-gray-100 text-xs">
+      {d.priceInr ? (
+        <>
+          ₹{d.priceInr}
+          {multi && <span className="block text-gray-400">total: ₹{d.priceInr * quantity!}</span>}
+        </>
+      ) : !hasSupplierOverride ? '—' : null}
+      {hasSupplierOverride && (
+        <span className="block text-sky-700" title="Precio del proveedor elegido — solo aplica por barco">
+          🚢 ${d.priceUsd!.toFixed(2)}
+          {multi && <span className="block text-sky-400">total: ${(d.priceUsd! * quantity!).toFixed(2)}</span>}
+        </span>
+      )}
+    </td>
+  )
+
+  // Margen y precio de venta, que salen del landed del modo activo.
+  const cola = (
+    <>
+      <td className="px-4 py-3 text-right text-gray-500 border-l border-gray-100">
+        {d.margin != null ? `${+(d.margin * 100).toFixed(2)}%` : '—'}
+      </td>
+      <td className="px-4 py-3 text-right font-medium text-gray-900">
+        {fmt(saleUsd)}
+        {multi && (
+          <span className="block text-[11px] font-normal text-gray-400">total: {fmt(saleUsd * quantity!)}</span>
+        )}
+      </td>
+      <td className="px-4 py-3 text-right text-gray-700">
+        {b?.priceBsd != null ? `Bs.${b.priceBsd.toLocaleString('es-VE', { maximumFractionDigits: 0 })}` : '—'}
+      </td>
+    </>
+  )
+
   return (
     <>
-      <td className="px-4 py-3 text-right text-gray-500 border-l border-gray-100 text-xs">
-        {hasSupplierOverride ? (
-          <>
-            ${d.priceUsd!.toFixed(2)}
-            {multi && (
-              <span className="block text-gray-400">total: ${(d.priceUsd! * quantity!).toFixed(2)}</span>
-            )}
-          </>
-        ) : d.priceInr ? (
-          <>
-            ₹{d.priceInr}
-            {multi && (
-              <span className="block text-gray-400">total: ₹{d.priceInr * quantity!}</span>
-            )}
-          </>
-        ) : '—'}
-      </td>
+      {costoOrigen}
       <td className="px-4 py-3 text-right text-gray-600">{b ? fmt(b.productCostUsd) : '—'}</td>
       <td className="px-4 py-3 text-right text-gray-600">{b ? fmt(b.shoppreShippingUsd) : '—'}</td>
       <td className="px-4 py-3 text-right text-gray-600">{b ? fmt(b.insuranceUsd) : '—'}</td>
@@ -82,8 +114,16 @@ export function CostCells({ d, cfg, quantity }: { d: QuickEditValues; cfg: Confi
       <td className="px-4 py-3 text-right font-medium text-gray-700">{fleteHoy != null ? fmt(fleteHoy) : '—'}</td>
       <td className="px-4 py-3 text-right font-semibold text-gray-900 border-l border-gray-200">{b ? fmt(b.landedCostUsd) : '—'}</td>
 
-      {/* ── Escenario marítimo directo: flete y landed que resultarían por mar ── */}
-      <td className="px-4 py-3 text-right text-sky-800 bg-sky-50/50 border-l-2 border-sky-200">
+      {/* ── Ruta marítima (CBM): lo que costaría la misma pieza por barco ── */}
+      <td className="px-4 py-3 text-right text-sky-800 bg-sky-50/50 border-l-2 border-sky-200 text-xs font-mono">
+        {m?.volumeM3 != null ? (
+          <>
+            {m.volumeM3.toFixed(3)}
+            {multi && <span className="block text-sky-400">total: {(m.volumeM3 * quantity!).toFixed(3)}</span>}
+          </>
+        ) : <span className="text-sky-300" title="Faltan dimensiones">—</span>}
+      </td>
+      <td className="px-4 py-3 text-right text-sky-800 bg-sky-50/50">
         {fleteMar != null ? fmt(fleteMar) : <span className="text-sky-300" title="Faltan dimensiones">—</span>}
       </td>
       <td className="px-4 py-3 text-right font-semibold text-sky-900 bg-sky-50/50">
@@ -113,19 +153,7 @@ export function CostCells({ d, cfg, quantity }: { d: QuickEditValues; cfg: Confi
       }`}>
         {deltaPct == null ? '—' : `${deltaPct > 0 ? '+' : ''}${deltaPct.toFixed(0)}%`}
       </td>
-
-      <td className="px-4 py-3 text-right text-gray-500 border-l border-gray-100">
-        {d.margin != null ? `${+(d.margin * 100).toFixed(2)}%` : '—'}
-      </td>
-      <td className="px-4 py-3 text-right font-medium text-gray-900">
-        {fmt(saleUsd)}
-        {multi && (
-          <span className="block text-[11px] font-normal text-gray-400">total: {fmt(saleUsd * quantity!)}</span>
-        )}
-      </td>
-      <td className="px-4 py-3 text-right text-gray-700">
-        {b?.priceBsd != null ? `Bs.${b.priceBsd.toLocaleString('es-VE', { maximumFractionDigits: 0 })}` : '—'}
-      </td>
+      {cola}
     </>
   )
 }
@@ -163,9 +191,13 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
                 <span className={`inline-block transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
               </button>
             )}
-            <Link href={`/products/${d.id}`} className="hover:text-blue-600 transition-colors truncate">
+            <Link
+              href={`/products/${d.id}`}
+              className={`hover:text-blue-600 transition-colors truncate ${d.descontinuada ? 'text-gray-500 line-through' : ''}`}
+            >
               {d.nameEs}
             </Link>
+            <ChipDescontinuada activo={d.descontinuada} />
             {product.isAssembly && (
               <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
                 Ensamble{product.componentsCount > 0 ? ` · ${product.componentsCount}` : ''}
@@ -179,7 +211,7 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
         <td className="px-4 py-3 text-xs text-gray-500 max-w-[120px] truncate">{d.compatibleModels ?? '—'}</td>
         <td className="px-4 py-3 text-right text-gray-500 text-xs">{d.weightGrams ?? '—'}</td>
 
-        <CostCells d={d} cfg={cfg} />
+        <CostCells d={d} cfg={cfg}  />
 
         <td className="px-4 py-3 text-right border-l border-gray-100">
           <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
@@ -194,6 +226,7 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
           <div className="flex items-center justify-end gap-3">
             <QuickEditProduct
               cfg={cfg}
+              
               activeSupplierId={activeSupplierId}
               product={{
                 id: product.id,
@@ -226,9 +259,13 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
           <td className="px-4 py-2 text-gray-700 max-w-[180px] truncate">
             <span className="flex items-center gap-1.5">
               <span className="text-gray-300">└</span>
-              <Link href={`/products/${c.id}`} className="hover:text-blue-600 transition-colors truncate">
+              <Link
+                href={`/products/${c.id}`}
+                className={`hover:text-blue-600 transition-colors truncate ${c.descontinuada ? 'text-gray-500 line-through' : ''}`}
+              >
                 {c.nameEs}
               </Link>
+              <ChipDescontinuada activo={c.descontinuada} />
               {c.quantity > 1 && <span className="shrink-0 text-gray-400">×{c.quantity}</span>}
               {c.groupName && (
                 <span className="shrink-0 text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{c.groupName}</span>
@@ -243,7 +280,7 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
             )}
           </td>
 
-          <CostCells d={c} cfg={cfg} quantity={c.quantity} />
+          <CostCells d={c} cfg={cfg} quantity={c.quantity}  />
 
           <td className="px-4 py-2 text-right border-l border-gray-100">
             <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
