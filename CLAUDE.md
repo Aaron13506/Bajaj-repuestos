@@ -10,6 +10,18 @@ pnpm dev          # Start Next.js dev server
 pnpm build        # Production build
 pnpm lint         # ESLint via next lint
 
+# Catálogo — consulta de peso, medidas y volumen (sin levantar la app)
+pnpm q sku <SKU...>            # ficha: peso, medidas, ft³/u, CBM/u, ₹, stock
+pnpm q quote <SKU:qty>...      # totales de una lista: kg, volumétrico, ft³, CBM, landed
+pnpm q quote --file=<ruta|->   # lo mismo desde JSON [{ sku, qty }] o stdin
+pnpm q search <texto>          # buscar por nombre o SKU
+pnpm q missing                 # piezas sin peso o sin medidas
+
+# Precios externos (los corre el cron horario de Heroku: pnpm fx:update)
+pnpm fx:update                 # tasas INR/USD + BsD/USD, y de paso las tarifas de flete
+pnpm rates:update [--force]    # solo tarifas Shoppre → Config.shoppre_rates_usd
+pnpm rates:baseline            # regenera shipping_rates.json (el fallback del bundle)
+
 # Database
 pnpm db:push      # Push schema changes without migration (dev)
 pnpm db:migrate   # Create and apply a migration
@@ -48,6 +60,7 @@ Copy `.env.example` to `.env`. Required variables:
 ### Domain model
 
 - **Product** — a part or an assembly (`isAssembly: true`). Stores India source price (`priceInr`), weight/dimensions for shipping cost, and a sale `price`. `discontinuedAt` marks a part Bajaj **stopped manufacturing**: it is a fact of the factory, not of a supplier, so it lives here and not on `SupplierPrice` — a price loaded before the SKU died does not make it buyable again. Consequently it is a **hard block on both sides**: the maritime builder refuses it (client *and* in `sincronizarLineas`, because a line can be marked after it was loaded) and the quote builder refuses it too, since the business is *por encargo* — quoting one promises a client a part nobody can source, with a deposit already taken. Selling remaining `stock` is still fine: discontinued means you cannot *restock*, not that what you hold is unsellable. The date records when we found out, which is what lets you re-read an old quote without concluding it promised the impossible.
+- **`Product.models`** (`MotoModel[]`) — the bikes a product fits. An assembly carries exactly one (that *is* its identity: two "Spark Plugs" groups differ only by bike); a loose part carries every bike that uses it, and **that is the cross-compatibility**: one brake pad serving the N250 and the N160 is a single row, not two. 59% of parts cover ≥2 bikes. Replaced a free-text `compatibleModels`, which let in strings that were not a model at all (`"Pulsar N250/N160"`) and inflated compatibility when counted. The legacy column is kept only as the backfill's backup — nothing reads it. **`lib/modelo.ts`** is the presentation table (family, variant, years) and the only translation between the stored enum and anything displayed; `lib/catalog.ts` asserts at compile time that its ids still match the Prisma enum, and exposes `whereModel()` for the `has` filter. Display goes through `formatModels`, which collapses by family — "N160 Single y Dual ABS", "N250 (todas)" — because thirteen full labels is 400 unreadable characters.
 - **ProductComponent** — many-to-many self-join on `Product`. One parent can have many children, grouped by `groupName` and ordered by `sortOrder`. The unique constraint is `(parentId, childId, groupName)` — the same child can appear in multiple groups of the same parent.
 - **Config** — key-value table for runtime settings (exchange rates, shipping parameters). Read at render time and passed to `calcLanded`.
 - **Supplier / SupplierPrice** — alternative sources. `Supplier.origen` (`india` | `china`) is a fixed fact about the supplier and determines the physical route of anything bought from it. A `SupplierPrice` row is the signal that a SKU *can* be sourced from that supplier; `isLanded` means they quote delivered in Venezuela (never inferred from the amount — only set explicitly). `moq` is that supplier's **minimum order quantity** for that SKU — a floor, not a multiple (min 5 forbids 3 but allows 7): `priceUsd` stays **per piece** and the MOQ raises the *quantity* you are forced to buy, never the unit price (`null` = they don't declare it, which is not the same as 1). Both live on the (product, supplier) pair, so neither touches 99rpm's base price nor the air lane — they only describe what buying a shipment from that supplier really costs.
@@ -71,7 +84,7 @@ Copy `.env.example` to `.env`. Required variables:
 
 ### Cost calculation (`lib/calc.ts`)
 
-`calcLanded(product, cfg)` computes a full landed-cost breakdown for the supply chain: **India → USA (Shoppre) → Venezuela (maritime)**. It pulls rates from `shipping_rates.json` via `lib/shipping-rates.ts` (step-function table keyed by carrier and weight). Config keys control all rates (INR/USD rate, BsD/USD rate, Shoppre membership, maritime cost per ft³, insurance %, processing fee). The landed cost is **product + Shoppre air shipping + insurance + processing + maritime** — no import duty (the maritime route is duty-free). Returns `null` if `priceInr` or `weightGrams` is missing.
+`calcLanded(product, cfg)` computes a full landed-cost breakdown for the supply chain: **India → USA (Shoppre) → Venezuela (maritime)**. It pulls the air rate from `lib/shipping-rates.ts` (step-function table keyed by carrier and weight), **quoted in USD** — Shoppre's own API returns the converted price, so the air leg never passes through `inr_usd_rate`. Storing it in rupees made the freight cost move every time the rupee moved, even when Shoppre hadn't touched its tariff. `inr_usd_rate` still applies to what actually *is* in rupees: `priceInr` and `shoppre_processing_inr`. Config keys control all rates (INR/USD rate, BsD/USD rate, Shoppre membership, maritime cost per ft³, insurance %, processing fee). The landed cost is **product + Shoppre air shipping + insurance + processing + maritime** — no import duty (the maritime route is duty-free). Returns `null` if `priceInr` or `weightGrams` is missing.
 
 `calcEnvio(items, cfg, opts)` costs a real box, and splits the inbound legs because they price differently: the **India** group pays ShipGlobal's step-function on *its own* chargeable weight, the **China** group splits `inboundChinaUsd` (the real invoice), and both share the maritime leg. Items with `isLanded` are excluded from weight, volume, insurance and freight entirely — they never travel in the box. Each leg is reported separately in `breakdown.air` / `breakdown.china`.
 
@@ -101,6 +114,11 @@ It is **dry by default**; `--apply` writes. Three guards, because a scrape is no
 By sea the **volume is what is billed**, so a part without dimensions cannot be costed at all — weight and dimensions are therefore always loaded together. `applyMeasures` parses the AI response (tolerating reasoning and sources around the JSON block), matches by `id` or `bajajCode`, and recomputes the sale price with the air chain (see above).
 
 `MedidasIA` is the one loader UI, used from the assembly detail, the quote and the maritime shipment. The batch size is the design decision: **one assembly at a time**. Part-by-part is unusable with 30-SKU quotes; the whole quote at once degrades the AI's answer exactly where auditing costs the most. `MEASURES_PROMPT` (`lib/prompts.ts`) is the single copy of the research prompt — duplicating it would let the catalog fill with non-comparable data.
+`CM3_PER_FT3` is the single conversion constant — the maritime leg quotes per ft³ but part dimensions are stored in cm, so every volume conversion goes through it. Never re-derive it inline.
+
+**Where the rate table lives (`lib/shipping-rates.ts`):** the live table is `Config.shoppre_rates_usd`, refreshed by the hourly Heroku cron (`pnpm fx:update` → `scripts/update-shipping-rates.ts` → `scripts/shoppre-scraper.js`); Heroku's filesystem is ephemeral, so it can't be a file, and `Config` is the channel that already reaches `calcLanded`/`calcEnvio` through `cfg`. `shipping_rates.json` is the **bundled fallback** for when that key is missing or corrupt — regenerate with `pnpm rates:baseline`. Both use the same shape: `[maxKg, basicUsd]` steps per carrier, since the tariff *is* a step function (216 scraped weights collapse to 144 steps, ~1.9 KB — it ships in the payload of every page that costs something). The member price is derived, not stored: a fixed 5% Shoppre applies client-side. The scraper covers 0.5 → 22 kg; above that the lookup falls back to the last step. The cron self-throttles to one scrape every 3 days (`SHOPPRE_RATES_MAX_AGE_H`, default 72) because freight tariffs move in weeks, not hours.
+
+**`lib/quote-metrics.ts`** resolves a plain `{ sku, qty }[]` into `EnvioItemInput[]` and hands it to `calcEnvio`. This is the entry point for any "how much does this quote weigh / how many ft³" question — from the CLI (`pnpm q`), from a page, or from a Server Action. It exists so those answers come from `Config` and `calcEnvio` rather than from a one-off script with hardcoded rates: a hand-rolled query silently drifts from what the app shows the moment a config value changes.
 
 ### Pages
 

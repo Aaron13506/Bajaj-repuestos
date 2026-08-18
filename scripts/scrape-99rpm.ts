@@ -45,6 +45,7 @@ const MODELS: Record<number, string> = {
   539: 'PULSAR_180_BS3_2009_16_UG4',
   515: 'PULSAR_150_BS4',
   449: 'PULSAR_150_UG4',
+  536: 'BOXER_BM150',
 }
 
 // Listados que se enumeran por vehicle_type. Ambos devuelven páginas-bundle.

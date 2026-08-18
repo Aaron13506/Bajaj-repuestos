@@ -2,8 +2,6 @@ import { db } from '@/lib/db'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import PresupuestoBuilder from '@/components/PresupuestoBuilder'
-import { sortModels } from '@/lib/catalog'
-import { modelosDistintos } from '@/lib/modelos'
 import { updatePresupuesto } from '../../actions'
 import { type BundlePiece } from '@/lib/bundle'
 
@@ -17,7 +15,9 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
       include: {
         items: {
           include: {
-            product: { select: { id: true, nameEs: true, bajajCode: true, imageUrl: true } },
+            product: {
+              select: { id: true, nameEs: true, bajajCode: true, imageUrl: true, models: true },
+            },
           },
           orderBy: { id: 'asc' },
         },
@@ -26,7 +26,7 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
     // Solo headers de ensamble; los componentes se cargan on-demand al seleccionar uno.
     db.product.findMany({
       where: { isAssembly: true },
-      select: { id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true, compatibleModels: true },
+      select: { id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true, models: true },
       orderBy: { nameEs: 'asc' },
     }),
     db.cliente.findMany({
@@ -47,10 +47,9 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
     unitPrice: parseFloat(item.salePrice.toString()),
     quantity: item.quantity,
     imageUrl: item.product.imageUrl,
+    models: item.product.models,
     bundleItems: (item.bundleItems as BundlePiece[] | null) ?? undefined,
   }))
-
-  const models = sortModels(modelosDistintos(assemblies.map(a => a.compatibleModels)))
 
   const assembliesForClient = assemblies.map(a => ({
     id: a.id,
@@ -58,7 +57,7 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
     bajajCode: a.bajajCode,
     price: parseFloat(a.price.toString()),
     imageUrl: a.imageUrl,
-    compatibleModels: a.compatibleModels,
+    models: a.models,
   }))
 
   return (
@@ -78,7 +77,6 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
 
       <PresupuestoBuilder
         assemblies={assembliesForClient}
-        models={models}
         action={updatePresupuesto.bind(null, id)}
         tipo={presupuesto.tipo === 'propio' ? 'propio' : 'cliente'}
         initialClientName={presupuesto.clientName}

@@ -1,6 +1,7 @@
 'use server'
 
 import { db } from '@/lib/db'
+import { toModelIds } from '@/lib/modelo'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
 import { revalidatePath } from 'next/cache'
 
@@ -20,7 +21,8 @@ interface RawProduct {
   name?: unknown            // alias tolerado
   nameEn?: unknown
   bajajCode?: unknown
-  compatibleModels?: unknown
+  models?: unknown
+  compatibleModels?: unknown   // alias tolerado: texto libre de la versión vieja
   sourceUrl?: unknown
   description?: unknown
   notes?: unknown
@@ -97,7 +99,7 @@ function buildProductData(it: RawProduct, cfg: ConfigMap, defaultMargin: number,
     nameEs,
     nameEn:           toStr(it.nameEn),
     bajajCode:        toStr(it.bajajCode),
-    compatibleModels: toStr(it.compatibleModels),
+    models:           toModelIds(it.models ?? it.compatibleModels),
     sourceUrl:        toStr(it.sourceUrl),
     description:      toStr(it.description),
     notes:            toStr(it.notes),

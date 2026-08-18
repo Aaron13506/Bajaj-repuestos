@@ -1,4286 +1,588 @@
-[
-  {
-    "weight_kg": 0.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 2422,
-    "member_inr": 2301
-  },
-  {
-    "weight_kg": 0.5,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 1968,
-    "member_inr": 1870
-  },
-  {
-    "weight_kg": 0.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 2905,
-    "member_inr": 2759
-  },
-  {
-    "weight_kg": 0.6,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 2139,
-    "member_inr": 2032
-  },
-  {
-    "weight_kg": 0.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 2905,
-    "member_inr": 2759
-  },
-  {
-    "weight_kg": 0.7,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 2928,
-    "member_inr": 2782
-  },
-  {
-    "weight_kg": 0.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 2905,
-    "member_inr": 2759
-  },
-  {
-    "weight_kg": 0.8,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 2478,
-    "member_inr": 2354
-  },
-  {
-    "weight_kg": 0.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 2905,
-    "member_inr": 2759
-  },
-  {
-    "weight_kg": 0.9,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 2647,
-    "member_inr": 2515
-  },
-  {
-    "weight_kg": 1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 2905,
-    "member_inr": 2759
-  },
-  {
-    "weight_kg": 1,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 2928,
-    "member_inr": 2782
-  },
-  {
-    "weight_kg": 1.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 3407,
-    "member_inr": 3236
-  },
-  {
-    "weight_kg": 1.1,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 2937,
-    "member_inr": 2790
-  },
-  {
-    "weight_kg": 1.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 3407,
-    "member_inr": 3236
-  },
-  {
-    "weight_kg": 1.2,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 3102,
-    "member_inr": 2947
-  },
-  {
-    "weight_kg": 1.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 3407,
-    "member_inr": 3236
-  },
-  {
-    "weight_kg": 1.3,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 3265,
-    "member_inr": 3101
-  },
-  {
-    "weight_kg": 1.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 3407,
-    "member_inr": 3236
-  },
-  {
-    "weight_kg": 1.4,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 3520,
-    "member_inr": 3344
-  },
-  {
-    "weight_kg": 1.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 3407,
-    "member_inr": 3236
-  },
-  {
-    "weight_kg": 1.5,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 3684,
-    "member_inr": 3500
-  },
-  {
-    "weight_kg": 1.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 3909,
-    "member_inr": 3713
-  },
-  {
-    "weight_kg": 1.6,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 3848,
-    "member_inr": 3655
-  },
-  {
-    "weight_kg": 1.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 3909,
-    "member_inr": 3713
-  },
-  {
-    "weight_kg": 1.7,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 4012,
-    "member_inr": 3811
-  },
-  {
-    "weight_kg": 1.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 3909,
-    "member_inr": 3713
-  },
-  {
-    "weight_kg": 1.8,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 4175,
-    "member_inr": 3966
-  },
-  {
-    "weight_kg": 1.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 3909,
-    "member_inr": 3713
-  },
-  {
-    "weight_kg": 1.9,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 4443,
-    "member_inr": 4221
-  },
-  {
-    "weight_kg": 2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 3909,
-    "member_inr": 3713
-  },
-  {
-    "weight_kg": 2,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 4606,
-    "member_inr": 4376
-  },
-  {
-    "weight_kg": 2.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 4411,
-    "member_inr": 4190
-  },
-  {
-    "weight_kg": 2.1,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 5537,
-    "member_inr": 5260
-  },
-  {
-    "weight_kg": 2.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 4411,
-    "member_inr": 4190
-  },
-  {
-    "weight_kg": 2.2,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 5537,
-    "member_inr": 5260
-  },
-  {
-    "weight_kg": 2.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 4411,
-    "member_inr": 4190
-  },
-  {
-    "weight_kg": 2.3,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 5537,
-    "member_inr": 5260
-  },
-  {
-    "weight_kg": 2.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 4411,
-    "member_inr": 4190
-  },
-  {
-    "weight_kg": 2.4,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 5537,
-    "member_inr": 5260
-  },
-  {
-    "weight_kg": 2.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 4411,
-    "member_inr": 4190
-  },
-  {
-    "weight_kg": 2.5,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 5537,
-    "member_inr": 5260
-  },
-  {
-    "weight_kg": 2.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 5375,
-    "member_inr": 5106
-  },
-  {
-    "weight_kg": 2.6,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 6439,
-    "member_inr": 6117
-  },
-  {
-    "weight_kg": 2.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 5375,
-    "member_inr": 5106
-  },
-  {
-    "weight_kg": 2.7,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 6439,
-    "member_inr": 6117
-  },
-  {
-    "weight_kg": 2.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 5375,
-    "member_inr": 5106
-  },
-  {
-    "weight_kg": 2.8,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 6439,
-    "member_inr": 6117
-  },
-  {
-    "weight_kg": 2.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 5375,
-    "member_inr": 5106
-  },
-  {
-    "weight_kg": 2.9,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 6439,
-    "member_inr": 6117
-  },
-  {
-    "weight_kg": 3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 5375,
-    "member_inr": 5106
-  },
-  {
-    "weight_kg": 3,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 6439,
-    "member_inr": 6117
-  },
-  {
-    "weight_kg": 3.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 5879,
-    "member_inr": 5585
-  },
-  {
-    "weight_kg": 3.1,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 7346,
-    "member_inr": 6979
-  },
-  {
-    "weight_kg": 3.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 5879,
-    "member_inr": 5585
-  },
-  {
-    "weight_kg": 3.2,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 7346,
-    "member_inr": 6979
-  },
-  {
-    "weight_kg": 3.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 5879,
-    "member_inr": 5585
-  },
-  {
-    "weight_kg": 3.3,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 7346,
-    "member_inr": 6979
-  },
-  {
-    "weight_kg": 3.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 5879,
-    "member_inr": 5585
-  },
-  {
-    "weight_kg": 3.4,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 7346,
-    "member_inr": 6979
-  },
-  {
-    "weight_kg": 3.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 5879,
-    "member_inr": 5585
-  },
-  {
-    "weight_kg": 3.5,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 7346,
-    "member_inr": 6979
-  },
-  {
-    "weight_kg": 3.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 6382,
-    "member_inr": 6063
-  },
-  {
-    "weight_kg": 3.6,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 8226,
-    "member_inr": 7814
-  },
-  {
-    "weight_kg": 3.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 6382,
-    "member_inr": 6063
-  },
-  {
-    "weight_kg": 3.7,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 8226,
-    "member_inr": 7814
-  },
-  {
-    "weight_kg": 3.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 6382,
-    "member_inr": 6063
-  },
-  {
-    "weight_kg": 3.8,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 8226,
-    "member_inr": 7814
-  },
-  {
-    "weight_kg": 3.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 6382,
-    "member_inr": 6063
-  },
-  {
-    "weight_kg": 3.9,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 8226,
-    "member_inr": 7814
-  },
-  {
-    "weight_kg": 4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 6382,
-    "member_inr": 6063
-  },
-  {
-    "weight_kg": 4,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 8226,
-    "member_inr": 7814
-  },
-  {
-    "weight_kg": 4.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 6886,
-    "member_inr": 6542
-  },
-  {
-    "weight_kg": 4.1,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 9123,
-    "member_inr": 8667
-  },
-  {
-    "weight_kg": 4.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 6886,
-    "member_inr": 6542
-  },
-  {
-    "weight_kg": 4.2,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 9123,
-    "member_inr": 8667
-  },
-  {
-    "weight_kg": 4.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 6886,
-    "member_inr": 6542
-  },
-  {
-    "weight_kg": 4.3,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 9123,
-    "member_inr": 8667
-  },
-  {
-    "weight_kg": 4.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 6886,
-    "member_inr": 6542
-  },
-  {
-    "weight_kg": 4.4,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 9123,
-    "member_inr": 8667
-  },
-  {
-    "weight_kg": 4.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 6886,
-    "member_inr": 6542
-  },
-  {
-    "weight_kg": 4.5,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 9123,
-    "member_inr": 8667
-  },
-  {
-    "weight_kg": 4.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 7390,
-    "member_inr": 7020
-  },
-  {
-    "weight_kg": 4.6,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 10044,
-    "member_inr": 9542
-  },
-  {
-    "weight_kg": 4.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 7390,
-    "member_inr": 7020
-  },
-  {
-    "weight_kg": 4.7,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 10044,
-    "member_inr": 9542
-  },
-  {
-    "weight_kg": 4.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 7390,
-    "member_inr": 7020
-  },
-  {
-    "weight_kg": 4.8,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 10044,
-    "member_inr": 9542
-  },
-  {
-    "weight_kg": 4.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 7390,
-    "member_inr": 7020
-  },
-  {
-    "weight_kg": 4.9,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 10044,
-    "member_inr": 9542
-  },
-  {
-    "weight_kg": 5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 7390,
-    "member_inr": 7020
-  },
-  {
-    "weight_kg": 5,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 10044,
-    "member_inr": 9542
-  },
-  {
-    "weight_kg": 5.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 7686,
-    "member_inr": 7302
-  },
-  {
-    "weight_kg": 5.1,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 9803,
-    "member_inr": 9313
-  },
-  {
-    "weight_kg": 5.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 7686,
-    "member_inr": 7302
-  },
-  {
-    "weight_kg": 5.2,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 9803,
-    "member_inr": 9313
-  },
-  {
-    "weight_kg": 5.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 7686,
-    "member_inr": 7302
-  },
-  {
-    "weight_kg": 5.3,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 9803,
-    "member_inr": 9313
-  },
-  {
-    "weight_kg": 5.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 7686,
-    "member_inr": 7302
-  },
-  {
-    "weight_kg": 5.4,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 9803,
-    "member_inr": 9313
-  },
-  {
-    "weight_kg": 5.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 7686,
-    "member_inr": 7302
-  },
-  {
-    "weight_kg": 5.5,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 9803,
-    "member_inr": 9313
-  },
-  {
-    "weight_kg": 5.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 8118,
-    "member_inr": 7712
-  },
-  {
-    "weight_kg": 5.6,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 10357,
-    "member_inr": 9839
-  },
-  {
-    "weight_kg": 5.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 8118,
-    "member_inr": 7712
-  },
-  {
-    "weight_kg": 5.7,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 10357,
-    "member_inr": 9839
-  },
-  {
-    "weight_kg": 5.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 8118,
-    "member_inr": 7712
-  },
-  {
-    "weight_kg": 5.8,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 10357,
-    "member_inr": 9839
-  },
-  {
-    "weight_kg": 5.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 8118,
-    "member_inr": 7712
-  },
-  {
-    "weight_kg": 5.9,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 10357,
-    "member_inr": 9839
-  },
-  {
-    "weight_kg": 6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 8118,
-    "member_inr": 7712
-  },
-  {
-    "weight_kg": 6,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 10357,
-    "member_inr": 9839
-  },
-  {
-    "weight_kg": 6.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 8551,
-    "member_inr": 8123
-  },
-  {
-    "weight_kg": 6.1,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 11529,
-    "member_inr": 10953
-  },
-  {
-    "weight_kg": 6.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 8551,
-    "member_inr": 8123
-  },
-  {
-    "weight_kg": 6.2,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 11529,
-    "member_inr": 10953
-  },
-  {
-    "weight_kg": 6.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 8551,
-    "member_inr": 8123
-  },
-  {
-    "weight_kg": 6.3,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 11529,
-    "member_inr": 10953
-  },
-  {
-    "weight_kg": 6.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 8551,
-    "member_inr": 8123
-  },
-  {
-    "weight_kg": 6.4,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 11529,
-    "member_inr": 10953
-  },
-  {
-    "weight_kg": 6.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 8551,
-    "member_inr": 8123
-  },
-  {
-    "weight_kg": 6.5,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 11529,
-    "member_inr": 10953
-  },
-  {
-    "weight_kg": 6.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 8983,
-    "member_inr": 8534
-  },
-  {
-    "weight_kg": 6.6,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 12083,
-    "member_inr": 11479
-  },
-  {
-    "weight_kg": 6.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 8983,
-    "member_inr": 8534
-  },
-  {
-    "weight_kg": 6.7,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 12083,
-    "member_inr": 11479
-  },
-  {
-    "weight_kg": 6.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 8983,
-    "member_inr": 8534
-  },
-  {
-    "weight_kg": 6.8,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 12083,
-    "member_inr": 11479
-  },
-  {
-    "weight_kg": 6.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 8983,
-    "member_inr": 8534
-  },
-  {
-    "weight_kg": 6.9,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 12083,
-    "member_inr": 11479
-  },
-  {
-    "weight_kg": 7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 8983,
-    "member_inr": 8534
-  },
-  {
-    "weight_kg": 7,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 12083,
-    "member_inr": 11479
-  },
-  {
-    "weight_kg": 7.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 9416,
-    "member_inr": 8945
-  },
-  {
-    "weight_kg": 7.1,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 13255,
-    "member_inr": 12592
-  },
-  {
-    "weight_kg": 7.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 9416,
-    "member_inr": 8945
-  },
-  {
-    "weight_kg": 7.2,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 13255,
-    "member_inr": 12592
-  },
-  {
-    "weight_kg": 7.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 9416,
-    "member_inr": 8945
-  },
-  {
-    "weight_kg": 7.3,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 13255,
-    "member_inr": 12592
-  },
-  {
-    "weight_kg": 7.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 9416,
-    "member_inr": 8945
-  },
-  {
-    "weight_kg": 7.4,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 13255,
-    "member_inr": 12592
-  },
-  {
-    "weight_kg": 7.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 9416,
-    "member_inr": 8945
-  },
-  {
-    "weight_kg": 7.5,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 13255,
-    "member_inr": 12592
-  },
-  {
-    "weight_kg": 7.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 9848,
-    "member_inr": 9355
-  },
-  {
-    "weight_kg": 7.6,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 13809,
-    "member_inr": 13118
-  },
-  {
-    "weight_kg": 7.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 9848,
-    "member_inr": 9355
-  },
-  {
-    "weight_kg": 7.7,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 13809,
-    "member_inr": 13118
-  },
-  {
-    "weight_kg": 7.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 9848,
-    "member_inr": 9355
-  },
-  {
-    "weight_kg": 7.8,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 13809,
-    "member_inr": 13118
-  },
-  {
-    "weight_kg": 7.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 9848,
-    "member_inr": 9355
-  },
-  {
-    "weight_kg": 7.9,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 13809,
-    "member_inr": 13118
-  },
-  {
-    "weight_kg": 8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 9848,
-    "member_inr": 9355
-  },
-  {
-    "weight_kg": 8,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 13809,
-    "member_inr": 13118
-  },
-  {
-    "weight_kg": 8.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 10280,
-    "member_inr": 9766
-  },
-  {
-    "weight_kg": 8.1,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 14981,
-    "member_inr": 14232
-  },
-  {
-    "weight_kg": 8.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 10280,
-    "member_inr": 9766
-  },
-  {
-    "weight_kg": 8.2,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 14981,
-    "member_inr": 14232
-  },
-  {
-    "weight_kg": 8.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 10280,
-    "member_inr": 9766
-  },
-  {
-    "weight_kg": 8.3,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 14981,
-    "member_inr": 14232
-  },
-  {
-    "weight_kg": 8.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 10280,
-    "member_inr": 9766
-  },
-  {
-    "weight_kg": 8.4,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 14981,
-    "member_inr": 14232
-  },
-  {
-    "weight_kg": 8.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 10280,
-    "member_inr": 9766
-  },
-  {
-    "weight_kg": 8.5,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 14981,
-    "member_inr": 14232
-  },
-  {
-    "weight_kg": 8.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 10713,
-    "member_inr": 10177
-  },
-  {
-    "weight_kg": 8.6,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 15535,
-    "member_inr": 14758
-  },
-  {
-    "weight_kg": 8.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 10713,
-    "member_inr": 10177
-  },
-  {
-    "weight_kg": 8.7,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 15535,
-    "member_inr": 14758
-  },
-  {
-    "weight_kg": 8.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 10713,
-    "member_inr": 10177
-  },
-  {
-    "weight_kg": 8.8,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 15535,
-    "member_inr": 14758
-  },
-  {
-    "weight_kg": 8.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 10713,
-    "member_inr": 10177
-  },
-  {
-    "weight_kg": 8.9,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 15535,
-    "member_inr": 14758
-  },
-  {
-    "weight_kg": 9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 10713,
-    "member_inr": 10177
-  },
-  {
-    "weight_kg": 9,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 15535,
-    "member_inr": 14758
-  },
-  {
-    "weight_kg": 9.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 11145,
-    "member_inr": 10588
-  },
-  {
-    "weight_kg": 9.1,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 16707,
-    "member_inr": 15872
-  },
-  {
-    "weight_kg": 9.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 11145,
-    "member_inr": 10588
-  },
-  {
-    "weight_kg": 9.2,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 16707,
-    "member_inr": 15872
-  },
-  {
-    "weight_kg": 9.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 11145,
-    "member_inr": 10588
-  },
-  {
-    "weight_kg": 9.3,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 16707,
-    "member_inr": 15872
-  },
-  {
-    "weight_kg": 9.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 11145,
-    "member_inr": 10588
-  },
-  {
-    "weight_kg": 9.4,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 16707,
-    "member_inr": 15872
-  },
-  {
-    "weight_kg": 9.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 11145,
-    "member_inr": 10588
-  },
-  {
-    "weight_kg": 9.5,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 16707,
-    "member_inr": 15872
-  },
-  {
-    "weight_kg": 9.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 11577,
-    "member_inr": 10998
-  },
-  {
-    "weight_kg": 9.6,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 17261,
-    "member_inr": 16398
-  },
-  {
-    "weight_kg": 9.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 11577,
-    "member_inr": 10998
-  },
-  {
-    "weight_kg": 9.7,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 17261,
-    "member_inr": 16398
-  },
-  {
-    "weight_kg": 9.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 11577,
-    "member_inr": 10998
-  },
-  {
-    "weight_kg": 9.8,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 17261,
-    "member_inr": 16398
-  },
-  {
-    "weight_kg": 9.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 11577,
-    "member_inr": 10998
-  },
-  {
-    "weight_kg": 9.9,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 17261,
-    "member_inr": 16398
-  },
-  {
-    "weight_kg": 10,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 11577,
-    "member_inr": 10998
-  },
-  {
-    "weight_kg": 10,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 17261,
-    "member_inr": 16398
-  },
-  {
-    "weight_kg": 10.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 12833,
-    "member_inr": 12191
-  },
-  {
-    "weight_kg": 10.1,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 17274,
-    "member_inr": 16410
-  },
-  {
-    "weight_kg": 10.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 12833,
-    "member_inr": 12191
-  },
-  {
-    "weight_kg": 10.2,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 17274,
-    "member_inr": 16410
-  },
-  {
-    "weight_kg": 10.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 12833,
-    "member_inr": 12191
-  },
-  {
-    "weight_kg": 10.3,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 17274,
-    "member_inr": 16410
-  },
-  {
-    "weight_kg": 10.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 12833,
-    "member_inr": 12191
-  },
-  {
-    "weight_kg": 10.4,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 17274,
-    "member_inr": 16410
-  },
-  {
-    "weight_kg": 10.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 12833,
-    "member_inr": 12191
-  },
-  {
-    "weight_kg": 10.5,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 17274,
-    "member_inr": 16410
-  },
-  {
-    "weight_kg": 10.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 13346,
-    "member_inr": 12679
-  },
-  {
-    "weight_kg": 10.6,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 17367,
-    "member_inr": 16499
-  },
-  {
-    "weight_kg": 10.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 13346,
-    "member_inr": 12679
-  },
-  {
-    "weight_kg": 10.7,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 17367,
-    "member_inr": 16499
-  },
-  {
-    "weight_kg": 10.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 13346,
-    "member_inr": 12679
-  },
-  {
-    "weight_kg": 10.8,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 17367,
-    "member_inr": 16499
-  },
-  {
-    "weight_kg": 10.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 13346,
-    "member_inr": 12679
-  },
-  {
-    "weight_kg": 10.9,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 17367,
-    "member_inr": 16499
-  },
-  {
-    "weight_kg": 11,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 13346,
-    "member_inr": 12679
-  },
-  {
-    "weight_kg": 11,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 17367,
-    "member_inr": 16499
-  },
-  {
-    "weight_kg": 11.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 13859,
-    "member_inr": 13166
-  },
-  {
-    "weight_kg": 11.1,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 18853,
-    "member_inr": 17910
-  },
-  {
-    "weight_kg": 11.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 13859,
-    "member_inr": 13166
-  },
-  {
-    "weight_kg": 11.2,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 18853,
-    "member_inr": 17910
-  },
-  {
-    "weight_kg": 11.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 13859,
-    "member_inr": 13166
-  },
-  {
-    "weight_kg": 11.3,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 18853,
-    "member_inr": 17910
-  },
-  {
-    "weight_kg": 11.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 13859,
-    "member_inr": 13166
-  },
-  {
-    "weight_kg": 11.4,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 18853,
-    "member_inr": 17910
-  },
-  {
-    "weight_kg": 11.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 13859,
-    "member_inr": 13166
-  },
-  {
-    "weight_kg": 11.5,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 18853,
-    "member_inr": 17910
-  },
-  {
-    "weight_kg": 11.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 14372,
-    "member_inr": 13653
-  },
-  {
-    "weight_kg": 11.6,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 18946,
-    "member_inr": 17999
-  },
-  {
-    "weight_kg": 11.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 14372,
-    "member_inr": 13653
-  },
-  {
-    "weight_kg": 11.7,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 18946,
-    "member_inr": 17999
-  },
-  {
-    "weight_kg": 11.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 14372,
-    "member_inr": 13653
-  },
-  {
-    "weight_kg": 11.8,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 18946,
-    "member_inr": 17999
-  },
-  {
-    "weight_kg": 11.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 14372,
-    "member_inr": 13653
-  },
-  {
-    "weight_kg": 11.9,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 18946,
-    "member_inr": 17999
-  },
-  {
-    "weight_kg": 12,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 14372,
-    "member_inr": 13653
-  },
-  {
-    "weight_kg": 12,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 18946,
-    "member_inr": 17999
-  },
-  {
-    "weight_kg": 12.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 14885,
-    "member_inr": 14141
-  },
-  {
-    "weight_kg": 12.1,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 20431,
-    "member_inr": 19410
-  },
-  {
-    "weight_kg": 12.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 14885,
-    "member_inr": 14141
-  },
-  {
-    "weight_kg": 12.2,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 20431,
-    "member_inr": 19410
-  },
-  {
-    "weight_kg": 12.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 14885,
-    "member_inr": 14141
-  },
-  {
-    "weight_kg": 12.3,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 20431,
-    "member_inr": 19410
-  },
-  {
-    "weight_kg": 12.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 14885,
-    "member_inr": 14141
-  },
-  {
-    "weight_kg": 12.4,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 20431,
-    "member_inr": 19410
-  },
-  {
-    "weight_kg": 12.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 14885,
-    "member_inr": 14141
-  },
-  {
-    "weight_kg": 12.5,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 20431,
-    "member_inr": 19410
-  },
-  {
-    "weight_kg": 12.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 15398,
-    "member_inr": 14628
-  },
-  {
-    "weight_kg": 12.6,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 20525,
-    "member_inr": 19499
-  },
-  {
-    "weight_kg": 12.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 15398,
-    "member_inr": 14628
-  },
-  {
-    "weight_kg": 12.7,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 20525,
-    "member_inr": 19499
-  },
-  {
-    "weight_kg": 12.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 15398,
-    "member_inr": 14628
-  },
-  {
-    "weight_kg": 12.8,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 20525,
-    "member_inr": 19499
-  },
-  {
-    "weight_kg": 12.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 15398,
-    "member_inr": 14628
-  },
-  {
-    "weight_kg": 12.9,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 20525,
-    "member_inr": 19499
-  },
-  {
-    "weight_kg": 13,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 15398,
-    "member_inr": 14628
-  },
-  {
-    "weight_kg": 13,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 20525,
-    "member_inr": 19499
-  },
-  {
-    "weight_kg": 13.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 15911,
-    "member_inr": 15116
-  },
-  {
-    "weight_kg": 13.1,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 22010,
-    "member_inr": 20910
-  },
-  {
-    "weight_kg": 13.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 15911,
-    "member_inr": 15116
-  },
-  {
-    "weight_kg": 13.2,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 22010,
-    "member_inr": 20910
-  },
-  {
-    "weight_kg": 13.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 15911,
-    "member_inr": 15116
-  },
-  {
-    "weight_kg": 13.3,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 22010,
-    "member_inr": 20910
-  },
-  {
-    "weight_kg": 13.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 15911,
-    "member_inr": 15116
-  },
-  {
-    "weight_kg": 13.4,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 22010,
-    "member_inr": 20910
-  },
-  {
-    "weight_kg": 13.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 15911,
-    "member_inr": 15116
-  },
-  {
-    "weight_kg": 13.5,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 22010,
-    "member_inr": 20910
-  },
-  {
-    "weight_kg": 13.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 16424,
-    "member_inr": 15603
-  },
-  {
-    "weight_kg": 13.6,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 22104,
-    "member_inr": 20999
-  },
-  {
-    "weight_kg": 13.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 16424,
-    "member_inr": 15603
-  },
-  {
-    "weight_kg": 13.7,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 22104,
-    "member_inr": 20999
-  },
-  {
-    "weight_kg": 13.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 16424,
-    "member_inr": 15603
-  },
-  {
-    "weight_kg": 13.8,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 22104,
-    "member_inr": 20999
-  },
-  {
-    "weight_kg": 13.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 16424,
-    "member_inr": 15603
-  },
-  {
-    "weight_kg": 13.9,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 22104,
-    "member_inr": 20999
-  },
-  {
-    "weight_kg": 14,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 16424,
-    "member_inr": 15603
-  },
-  {
-    "weight_kg": 14,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 22104,
-    "member_inr": 20999
-  },
-  {
-    "weight_kg": 14.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 16938,
-    "member_inr": 16091
-  },
-  {
-    "weight_kg": 14.1,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 23589,
-    "member_inr": 22410
-  },
-  {
-    "weight_kg": 14.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 16938,
-    "member_inr": 16091
-  },
-  {
-    "weight_kg": 14.2,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 23589,
-    "member_inr": 22410
-  },
-  {
-    "weight_kg": 14.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 16938,
-    "member_inr": 16091
-  },
-  {
-    "weight_kg": 14.3,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 23589,
-    "member_inr": 22410
-  },
-  {
-    "weight_kg": 14.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 16938,
-    "member_inr": 16091
-  },
-  {
-    "weight_kg": 14.4,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 23589,
-    "member_inr": 22410
-  },
-  {
-    "weight_kg": 14.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 16938,
-    "member_inr": 16091
-  },
-  {
-    "weight_kg": 14.5,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 23589,
-    "member_inr": 22410
-  },
-  {
-    "weight_kg": 14.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 17451,
-    "member_inr": 16578
-  },
-  {
-    "weight_kg": 14.6,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 23683,
-    "member_inr": 22498
-  },
-  {
-    "weight_kg": 14.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 17451,
-    "member_inr": 16578
-  },
-  {
-    "weight_kg": 14.7,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 23683,
-    "member_inr": 22498
-  },
-  {
-    "weight_kg": 14.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 17451,
-    "member_inr": 16578
-  },
-  {
-    "weight_kg": 14.8,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 23683,
-    "member_inr": 22498
-  },
-  {
-    "weight_kg": 14.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 17451,
-    "member_inr": 16578
-  },
-  {
-    "weight_kg": 14.9,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 23683,
-    "member_inr": 22498
-  },
-  {
-    "weight_kg": 15,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 17451,
-    "member_inr": 16578
-  },
-  {
-    "weight_kg": 15,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 23683,
-    "member_inr": 22498
-  },
-  {
-    "weight_kg": 15.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 17964,
-    "member_inr": 17066
-  },
-  {
-    "weight_kg": 15.1,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 24432,
-    "member_inr": 23210
-  },
-  {
-    "weight_kg": 15.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 17964,
-    "member_inr": 17066
-  },
-  {
-    "weight_kg": 15.2,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 24432,
-    "member_inr": 23210
-  },
-  {
-    "weight_kg": 15.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 17964,
-    "member_inr": 17066
-  },
-  {
-    "weight_kg": 15.3,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 24432,
-    "member_inr": 23210
-  },
-  {
-    "weight_kg": 15.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 17964,
-    "member_inr": 17066
-  },
-  {
-    "weight_kg": 15.4,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 24432,
-    "member_inr": 23210
-  },
-  {
-    "weight_kg": 15.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 17964,
-    "member_inr": 17066
-  },
-  {
-    "weight_kg": 15.5,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 24432,
-    "member_inr": 23210
-  },
-  {
-    "weight_kg": 15.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 18477,
-    "member_inr": 17553
-  },
-  {
-    "weight_kg": 15.6,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 24525,
-    "member_inr": 23299
-  },
-  {
-    "weight_kg": 15.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 18477,
-    "member_inr": 17553
-  },
-  {
-    "weight_kg": 15.7,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 24525,
-    "member_inr": 23299
-  },
-  {
-    "weight_kg": 15.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 18477,
-    "member_inr": 17553
-  },
-  {
-    "weight_kg": 15.8,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 24525,
-    "member_inr": 23299
-  },
-  {
-    "weight_kg": 15.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 18477,
-    "member_inr": 17553
-  },
-  {
-    "weight_kg": 15.9,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 24525,
-    "member_inr": 23299
-  },
-  {
-    "weight_kg": 16,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 18477,
-    "member_inr": 17553
-  },
-  {
-    "weight_kg": 16,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 24525,
-    "member_inr": 23299
-  },
-  {
-    "weight_kg": 16.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 18990,
-    "member_inr": 18041
-  },
-  {
-    "weight_kg": 16.1,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 25965,
-    "member_inr": 24667
-  },
-  {
-    "weight_kg": 16.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 18990,
-    "member_inr": 18041
-  },
-  {
-    "weight_kg": 16.2,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 25965,
-    "member_inr": 24667
-  },
-  {
-    "weight_kg": 16.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 18990,
-    "member_inr": 18041
-  },
-  {
-    "weight_kg": 16.3,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 25965,
-    "member_inr": 24667
-  },
-  {
-    "weight_kg": 16.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 18990,
-    "member_inr": 18041
-  },
-  {
-    "weight_kg": 16.4,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 25965,
-    "member_inr": 24667
-  },
-  {
-    "weight_kg": 16.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 18990,
-    "member_inr": 18041
-  },
-  {
-    "weight_kg": 16.5,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 25965,
-    "member_inr": 24667
-  },
-  {
-    "weight_kg": 16.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 19503,
-    "member_inr": 18528
-  },
-  {
-    "weight_kg": 16.6,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 26059,
-    "member_inr": 24756
-  },
-  {
-    "weight_kg": 16.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 19503,
-    "member_inr": 18528
-  },
-  {
-    "weight_kg": 16.7,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 26059,
-    "member_inr": 24756
-  },
-  {
-    "weight_kg": 16.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 19503,
-    "member_inr": 18528
-  },
-  {
-    "weight_kg": 16.8,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 26059,
-    "member_inr": 24756
-  },
-  {
-    "weight_kg": 16.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 19503,
-    "member_inr": 18528
-  },
-  {
-    "weight_kg": 16.9,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 26059,
-    "member_inr": 24756
-  },
-  {
-    "weight_kg": 17,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 19503,
-    "member_inr": 18528
-  },
-  {
-    "weight_kg": 17,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 26059,
-    "member_inr": 24756
-  },
-  {
-    "weight_kg": 17.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 20016,
-    "member_inr": 19015
-  },
-  {
-    "weight_kg": 17.1,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 27497,
-    "member_inr": 26122
-  },
-  {
-    "weight_kg": 17.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 20016,
-    "member_inr": 19015
-  },
-  {
-    "weight_kg": 17.2,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 27497,
-    "member_inr": 26122
-  },
-  {
-    "weight_kg": 17.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 20016,
-    "member_inr": 19015
-  },
-  {
-    "weight_kg": 17.3,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 27497,
-    "member_inr": 26122
-  },
-  {
-    "weight_kg": 17.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 20016,
-    "member_inr": 19015
-  },
-  {
-    "weight_kg": 17.4,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 27497,
-    "member_inr": 26122
-  },
-  {
-    "weight_kg": 17.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 20016,
-    "member_inr": 19015
-  },
-  {
-    "weight_kg": 17.5,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 27497,
-    "member_inr": 26122
-  },
-  {
-    "weight_kg": 17.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 20529,
-    "member_inr": 19503
-  },
-  {
-    "weight_kg": 17.6,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 27591,
-    "member_inr": 26211
-  },
-  {
-    "weight_kg": 17.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 20529,
-    "member_inr": 19503
-  },
-  {
-    "weight_kg": 17.7,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 27591,
-    "member_inr": 26211
-  },
-  {
-    "weight_kg": 17.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 20529,
-    "member_inr": 19503
-  },
-  {
-    "weight_kg": 17.8,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 27591,
-    "member_inr": 26211
-  },
-  {
-    "weight_kg": 17.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 20529,
-    "member_inr": 19503
-  },
-  {
-    "weight_kg": 17.9,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 27591,
-    "member_inr": 26211
-  },
-  {
-    "weight_kg": 18,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 20529,
-    "member_inr": 19503
-  },
-  {
-    "weight_kg": 18,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 27591,
-    "member_inr": 26211
-  },
-  {
-    "weight_kg": 18.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 21042,
-    "member_inr": 19990
-  },
-  {
-    "weight_kg": 18.1,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 28331,
-    "member_inr": 26915
-  },
-  {
-    "weight_kg": 18.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 21042,
-    "member_inr": 19990
-  },
-  {
-    "weight_kg": 18.2,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 28331,
-    "member_inr": 26915
-  },
-  {
-    "weight_kg": 18.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 21042,
-    "member_inr": 19990
-  },
-  {
-    "weight_kg": 18.3,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 28331,
-    "member_inr": 26915
-  },
-  {
-    "weight_kg": 18.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 21042,
-    "member_inr": 19990
-  },
-  {
-    "weight_kg": 18.4,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 28331,
-    "member_inr": 26915
-  },
-  {
-    "weight_kg": 18.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 21042,
-    "member_inr": 19990
-  },
-  {
-    "weight_kg": 18.5,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 28331,
-    "member_inr": 26915
-  },
-  {
-    "weight_kg": 18.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 21556,
-    "member_inr": 20478
-  },
-  {
-    "weight_kg": 18.6,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 28425,
-    "member_inr": 27004
-  },
-  {
-    "weight_kg": 18.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 21556,
-    "member_inr": 20478
-  },
-  {
-    "weight_kg": 18.7,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 28425,
-    "member_inr": 27004
-  },
-  {
-    "weight_kg": 18.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 21556,
-    "member_inr": 20478
-  },
-  {
-    "weight_kg": 18.8,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 28425,
-    "member_inr": 27004
-  },
-  {
-    "weight_kg": 18.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 21556,
-    "member_inr": 20478
-  },
-  {
-    "weight_kg": 18.9,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 28425,
-    "member_inr": 27004
-  },
-  {
-    "weight_kg": 19,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 21556,
-    "member_inr": 20478
-  },
-  {
-    "weight_kg": 19,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 28425,
-    "member_inr": 27004
-  },
-  {
-    "weight_kg": 19.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 22069,
-    "member_inr": 20965
-  },
-  {
-    "weight_kg": 19.1,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 29827,
-    "member_inr": 28335
-  },
-  {
-    "weight_kg": 19.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 22069,
-    "member_inr": 20965
-  },
-  {
-    "weight_kg": 19.2,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 29827,
-    "member_inr": 28335
-  },
-  {
-    "weight_kg": 19.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 22069,
-    "member_inr": 20965
-  },
-  {
-    "weight_kg": 19.3,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 29827,
-    "member_inr": 28335
-  },
-  {
-    "weight_kg": 19.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 22069,
-    "member_inr": 20965
-  },
-  {
-    "weight_kg": 19.4,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 29827,
-    "member_inr": 28335
-  },
-  {
-    "weight_kg": 19.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 22069,
-    "member_inr": 20965
-  },
-  {
-    "weight_kg": 19.5,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 29827,
-    "member_inr": 28335
-  },
-  {
-    "weight_kg": 19.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 22582,
-    "member_inr": 21453
-  },
-  {
-    "weight_kg": 19.6,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 29920,
-    "member_inr": 28424
-  },
-  {
-    "weight_kg": 19.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 22582,
-    "member_inr": 21453
-  },
-  {
-    "weight_kg": 19.7,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 29920,
-    "member_inr": 28424
-  },
-  {
-    "weight_kg": 19.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 22582,
-    "member_inr": 21453
-  },
-  {
-    "weight_kg": 19.8,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 29920,
-    "member_inr": 28424
-  },
-  {
-    "weight_kg": 19.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 22582,
-    "member_inr": 21453
-  },
-  {
-    "weight_kg": 19.9,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 29920,
-    "member_inr": 28424
-  },
-  {
-    "weight_kg": 20,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 22582,
-    "member_inr": 21453
-  },
-  {
-    "weight_kg": 20,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 29920,
-    "member_inr": 28424
-  },
-  {
-    "weight_kg": 20.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 23095,
-    "member_inr": 21940
-  },
-  {
-    "weight_kg": 20.1,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 31323,
-    "member_inr": 29757
-  },
-  {
-    "weight_kg": 20.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 23095,
-    "member_inr": 21940
-  },
-  {
-    "weight_kg": 20.2,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 31323,
-    "member_inr": 29757
-  },
-  {
-    "weight_kg": 20.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 23095,
-    "member_inr": 21940
-  },
-  {
-    "weight_kg": 20.3,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 31323,
-    "member_inr": 29757
-  },
-  {
-    "weight_kg": 20.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 23095,
-    "member_inr": 21940
-  },
-  {
-    "weight_kg": 20.4,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 31323,
-    "member_inr": 29757
-  },
-  {
-    "weight_kg": 20.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 23095,
-    "member_inr": 21940
-  },
-  {
-    "weight_kg": 20.5,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 31323,
-    "member_inr": 29757
-  },
-  {
-    "weight_kg": 20.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 25085,
-    "member_inr": 23831
-  },
-  {
-    "weight_kg": 20.6,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 31417,
-    "member_inr": 29846
-  },
-  {
-    "weight_kg": 20.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 25085,
-    "member_inr": 23831
-  },
-  {
-    "weight_kg": 20.7,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 31417,
-    "member_inr": 29846
-  },
-  {
-    "weight_kg": 20.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 25085,
-    "member_inr": 23831
-  },
-  {
-    "weight_kg": 20.8,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 31417,
-    "member_inr": 29846
-  },
-  {
-    "weight_kg": 20.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 25085,
-    "member_inr": 23831
-  },
-  {
-    "weight_kg": 20.9,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 31417,
-    "member_inr": 29846
-  },
-  {
-    "weight_kg": 21,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 25085,
-    "member_inr": 23831
-  },
-  {
-    "weight_kg": 21,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 31417,
-    "member_inr": 29846
-  },
-  {
-    "weight_kg": 21.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 25663,
-    "member_inr": 24380
-  },
-  {
-    "weight_kg": 21.1,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 32819,
-    "member_inr": 31178
-  },
-  {
-    "weight_kg": 21.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 25663,
-    "member_inr": 24380
-  },
-  {
-    "weight_kg": 21.2,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 32819,
-    "member_inr": 31178
-  },
-  {
-    "weight_kg": 21.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 25663,
-    "member_inr": 24380
-  },
-  {
-    "weight_kg": 21.3,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 32819,
-    "member_inr": 31178
-  },
-  {
-    "weight_kg": 21.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 25663,
-    "member_inr": 24380
-  },
-  {
-    "weight_kg": 21.4,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 32819,
-    "member_inr": 31178
-  },
-  {
-    "weight_kg": 21.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 25663,
-    "member_inr": 24380
-  },
-  {
-    "weight_kg": 21.5,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 32819,
-    "member_inr": 31178
-  },
-  {
-    "weight_kg": 21.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 26241,
-    "member_inr": 24929
-  },
-  {
-    "weight_kg": 21.6,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 32912,
-    "member_inr": 31266
-  },
-  {
-    "weight_kg": 21.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 26241,
-    "member_inr": 24929
-  },
-  {
-    "weight_kg": 21.7,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 32912,
-    "member_inr": 31266
-  },
-  {
-    "weight_kg": 21.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 26241,
-    "member_inr": 24929
-  },
-  {
-    "weight_kg": 21.8,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 32912,
-    "member_inr": 31266
-  },
-  {
-    "weight_kg": 21.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 26241,
-    "member_inr": 24929
-  },
-  {
-    "weight_kg": 21.9,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 32912,
-    "member_inr": 31266
-  },
-  {
-    "weight_kg": 22,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 26241,
-    "member_inr": 24929
-  },
-  {
-    "weight_kg": 22,
-    "carrier": "ShipGlobal USA - Duty Free",
-    "transit": "10-14* Business Days",
-    "basic_inr": 32912,
-    "member_inr": 31266
-  },
-  {
-    "weight_kg": 22.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 26819,
-    "member_inr": 25478
-  },
-  {
-    "weight_kg": 22.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 26819,
-    "member_inr": 25478
-  },
-  {
-    "weight_kg": 22.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 26819,
-    "member_inr": 25478
-  },
-  {
-    "weight_kg": 22.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 26819,
-    "member_inr": 25478
-  },
-  {
-    "weight_kg": 22.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 26819,
-    "member_inr": 25478
-  },
-  {
-    "weight_kg": 22.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 27398,
-    "member_inr": 26028
-  },
-  {
-    "weight_kg": 22.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 27398,
-    "member_inr": 26028
-  },
-  {
-    "weight_kg": 22.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 27398,
-    "member_inr": 26028
-  },
-  {
-    "weight_kg": 22.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 27398,
-    "member_inr": 26028
-  },
-  {
-    "weight_kg": 23,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 27398,
-    "member_inr": 26028
-  },
-  {
-    "weight_kg": 23.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 27976,
-    "member_inr": 26577
-  },
-  {
-    "weight_kg": 23.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 27976,
-    "member_inr": 26577
-  },
-  {
-    "weight_kg": 23.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 27976,
-    "member_inr": 26577
-  },
-  {
-    "weight_kg": 23.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 27976,
-    "member_inr": 26577
-  },
-  {
-    "weight_kg": 23.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 27976,
-    "member_inr": 26577
-  },
-  {
-    "weight_kg": 23.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 28554,
-    "member_inr": 27126
-  },
-  {
-    "weight_kg": 23.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 28554,
-    "member_inr": 27126
-  },
-  {
-    "weight_kg": 23.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 28554,
-    "member_inr": 27126
-  },
-  {
-    "weight_kg": 23.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 28554,
-    "member_inr": 27126
-  },
-  {
-    "weight_kg": 24,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 28554,
-    "member_inr": 27126
-  },
-  {
-    "weight_kg": 24.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 29132,
-    "member_inr": 27675
-  },
-  {
-    "weight_kg": 24.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 29132,
-    "member_inr": 27675
-  },
-  {
-    "weight_kg": 24.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 29132,
-    "member_inr": 27675
-  },
-  {
-    "weight_kg": 24.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 29132,
-    "member_inr": 27675
-  },
-  {
-    "weight_kg": 24.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 29132,
-    "member_inr": 27675
-  },
-  {
-    "weight_kg": 24.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 29710,
-    "member_inr": 28225
-  },
-  {
-    "weight_kg": 24.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 29710,
-    "member_inr": 28225
-  },
-  {
-    "weight_kg": 24.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 29710,
-    "member_inr": 28225
-  },
-  {
-    "weight_kg": 24.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 29710,
-    "member_inr": 28225
-  },
-  {
-    "weight_kg": 25,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 29710,
-    "member_inr": 28225
-  },
-  {
-    "weight_kg": 25.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 30288,
-    "member_inr": 28774
-  },
-  {
-    "weight_kg": 25.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 30288,
-    "member_inr": 28774
-  },
-  {
-    "weight_kg": 25.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 30288,
-    "member_inr": 28774
-  },
-  {
-    "weight_kg": 25.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 30288,
-    "member_inr": 28774
-  },
-  {
-    "weight_kg": 25.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 30288,
-    "member_inr": 28774
-  },
-  {
-    "weight_kg": 25.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 30866,
-    "member_inr": 29323
-  },
-  {
-    "weight_kg": 25.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 30866,
-    "member_inr": 29323
-  },
-  {
-    "weight_kg": 25.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 30866,
-    "member_inr": 29323
-  },
-  {
-    "weight_kg": 25.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 30866,
-    "member_inr": 29323
-  },
-  {
-    "weight_kg": 26,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 30866,
-    "member_inr": 29323
-  },
-  {
-    "weight_kg": 26.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 31445,
-    "member_inr": 29872
-  },
-  {
-    "weight_kg": 26.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 31445,
-    "member_inr": 29872
-  },
-  {
-    "weight_kg": 26.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 31445,
-    "member_inr": 29872
-  },
-  {
-    "weight_kg": 26.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 31445,
-    "member_inr": 29872
-  },
-  {
-    "weight_kg": 26.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 31445,
-    "member_inr": 29872
-  },
-  {
-    "weight_kg": 26.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 32023,
-    "member_inr": 30422
-  },
-  {
-    "weight_kg": 26.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 32023,
-    "member_inr": 30422
-  },
-  {
-    "weight_kg": 26.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 32023,
-    "member_inr": 30422
-  },
-  {
-    "weight_kg": 26.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 32023,
-    "member_inr": 30422
-  },
-  {
-    "weight_kg": 27,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 32023,
-    "member_inr": 30422
-  },
-  {
-    "weight_kg": 27.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 32601,
-    "member_inr": 30971
-  },
-  {
-    "weight_kg": 27.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 32601,
-    "member_inr": 30971
-  },
-  {
-    "weight_kg": 27.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 32601,
-    "member_inr": 30971
-  },
-  {
-    "weight_kg": 27.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 32601,
-    "member_inr": 30971
-  },
-  {
-    "weight_kg": 27.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 32601,
-    "member_inr": 30971
-  },
-  {
-    "weight_kg": 27.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 33179,
-    "member_inr": 31520
-  },
-  {
-    "weight_kg": 27.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 33179,
-    "member_inr": 31520
-  },
-  {
-    "weight_kg": 27.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 33179,
-    "member_inr": 31520
-  },
-  {
-    "weight_kg": 27.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 33179,
-    "member_inr": 31520
-  },
-  {
-    "weight_kg": 28,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 33179,
-    "member_inr": 31520
-  },
-  {
-    "weight_kg": 28.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 33757,
-    "member_inr": 32069
-  },
-  {
-    "weight_kg": 28.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 33757,
-    "member_inr": 32069
-  },
-  {
-    "weight_kg": 28.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 33757,
-    "member_inr": 32069
-  },
-  {
-    "weight_kg": 28.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 33757,
-    "member_inr": 32069
-  },
-  {
-    "weight_kg": 28.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 33757,
-    "member_inr": 32069
-  },
-  {
-    "weight_kg": 28.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 34335,
-    "member_inr": 32618
-  },
-  {
-    "weight_kg": 28.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 34335,
-    "member_inr": 32618
-  },
-  {
-    "weight_kg": 28.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 34335,
-    "member_inr": 32618
-  },
-  {
-    "weight_kg": 28.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 34335,
-    "member_inr": 32618
-  },
-  {
-    "weight_kg": 29,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 34335,
-    "member_inr": 32618
-  },
-  {
-    "weight_kg": 29.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 34913,
-    "member_inr": 33168
-  },
-  {
-    "weight_kg": 29.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 34913,
-    "member_inr": 33168
-  },
-  {
-    "weight_kg": 29.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 34913,
-    "member_inr": 33168
-  },
-  {
-    "weight_kg": 29.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 34913,
-    "member_inr": 33168
-  },
-  {
-    "weight_kg": 29.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 34913,
-    "member_inr": 33168
-  },
-  {
-    "weight_kg": 29.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 35492,
-    "member_inr": 33717
-  },
-  {
-    "weight_kg": 29.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 35492,
-    "member_inr": 33717
-  },
-  {
-    "weight_kg": 29.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 35492,
-    "member_inr": 33717
-  },
-  {
-    "weight_kg": 29.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 35492,
-    "member_inr": 33717
-  },
-  {
-    "weight_kg": 30,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 35492,
-    "member_inr": 33717
-  },
-  {
-    "weight_kg": 30.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 36070,
-    "member_inr": 34266
-  },
-  {
-    "weight_kg": 30.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 36070,
-    "member_inr": 34266
-  },
-  {
-    "weight_kg": 30.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 36070,
-    "member_inr": 34266
-  },
-  {
-    "weight_kg": 30.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 36070,
-    "member_inr": 34266
-  },
-  {
-    "weight_kg": 30.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 36070,
-    "member_inr": 34266
-  },
-  {
-    "weight_kg": 30.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 36648,
-    "member_inr": 34815
-  },
-  {
-    "weight_kg": 30.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 36648,
-    "member_inr": 34815
-  },
-  {
-    "weight_kg": 30.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 36648,
-    "member_inr": 34815
-  },
-  {
-    "weight_kg": 30.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 36648,
-    "member_inr": 34815
-  },
-  {
-    "weight_kg": 31,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 36648,
-    "member_inr": 34815
-  },
-  {
-    "weight_kg": 31.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 37226,
-    "member_inr": 35365
-  },
-  {
-    "weight_kg": 31.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 37226,
-    "member_inr": 35365
-  },
-  {
-    "weight_kg": 31.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 37226,
-    "member_inr": 35365
-  },
-  {
-    "weight_kg": 31.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 37226,
-    "member_inr": 35365
-  },
-  {
-    "weight_kg": 31.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 37226,
-    "member_inr": 35365
-  },
-  {
-    "weight_kg": 31.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 37804,
-    "member_inr": 35914
-  },
-  {
-    "weight_kg": 31.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 37804,
-    "member_inr": 35914
-  },
-  {
-    "weight_kg": 31.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 37804,
-    "member_inr": 35914
-  },
-  {
-    "weight_kg": 31.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 37804,
-    "member_inr": 35914
-  },
-  {
-    "weight_kg": 32,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 37804,
-    "member_inr": 35914
-  },
-  {
-    "weight_kg": 32.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 38382,
-    "member_inr": 36463
-  },
-  {
-    "weight_kg": 32.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 38382,
-    "member_inr": 36463
-  },
-  {
-    "weight_kg": 32.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 38382,
-    "member_inr": 36463
-  },
-  {
-    "weight_kg": 32.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 38382,
-    "member_inr": 36463
-  },
-  {
-    "weight_kg": 32.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 38382,
-    "member_inr": 36463
-  },
-  {
-    "weight_kg": 32.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 38960,
-    "member_inr": 37012
-  },
-  {
-    "weight_kg": 32.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 38960,
-    "member_inr": 37012
-  },
-  {
-    "weight_kg": 32.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 38960,
-    "member_inr": 37012
-  },
-  {
-    "weight_kg": 32.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 38960,
-    "member_inr": 37012
-  },
-  {
-    "weight_kg": 33,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 38960,
-    "member_inr": 37012
-  },
-  {
-    "weight_kg": 33.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 39538,
-    "member_inr": 37562
-  },
-  {
-    "weight_kg": 33.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 39538,
-    "member_inr": 37562
-  },
-  {
-    "weight_kg": 33.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 39538,
-    "member_inr": 37562
-  },
-  {
-    "weight_kg": 33.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 39538,
-    "member_inr": 37562
-  },
-  {
-    "weight_kg": 33.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 39538,
-    "member_inr": 37562
-  },
-  {
-    "weight_kg": 33.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 40117,
-    "member_inr": 38111
-  },
-  {
-    "weight_kg": 33.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 40117,
-    "member_inr": 38111
-  },
-  {
-    "weight_kg": 33.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 40117,
-    "member_inr": 38111
-  },
-  {
-    "weight_kg": 33.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 40117,
-    "member_inr": 38111
-  },
-  {
-    "weight_kg": 34,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 40117,
-    "member_inr": 38111
-  },
-  {
-    "weight_kg": 34.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 40695,
-    "member_inr": 38660
-  },
-  {
-    "weight_kg": 34.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 40695,
-    "member_inr": 38660
-  },
-  {
-    "weight_kg": 34.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 40695,
-    "member_inr": 38660
-  },
-  {
-    "weight_kg": 34.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 40695,
-    "member_inr": 38660
-  },
-  {
-    "weight_kg": 34.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 40695,
-    "member_inr": 38660
-  },
-  {
-    "weight_kg": 34.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 41273,
-    "member_inr": 39209
-  },
-  {
-    "weight_kg": 34.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 41273,
-    "member_inr": 39209
-  },
-  {
-    "weight_kg": 34.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 41273,
-    "member_inr": 39209
-  },
-  {
-    "weight_kg": 34.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 41273,
-    "member_inr": 39209
-  },
-  {
-    "weight_kg": 35,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 41273,
-    "member_inr": 39209
-  },
-  {
-    "weight_kg": 35.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 41851,
-    "member_inr": 39758
-  },
-  {
-    "weight_kg": 35.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 41851,
-    "member_inr": 39758
-  },
-  {
-    "weight_kg": 35.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 41851,
-    "member_inr": 39758
-  },
-  {
-    "weight_kg": 35.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 41851,
-    "member_inr": 39758
-  },
-  {
-    "weight_kg": 35.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 41851,
-    "member_inr": 39758
-  },
-  {
-    "weight_kg": 35.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 42429,
-    "member_inr": 40308
-  },
-  {
-    "weight_kg": 35.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 42429,
-    "member_inr": 40308
-  },
-  {
-    "weight_kg": 35.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 42429,
-    "member_inr": 40308
-  },
-  {
-    "weight_kg": 35.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 42429,
-    "member_inr": 40308
-  },
-  {
-    "weight_kg": 36,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 42429,
-    "member_inr": 40308
-  },
-  {
-    "weight_kg": 36.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 43007,
-    "member_inr": 40857
-  },
-  {
-    "weight_kg": 36.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 43007,
-    "member_inr": 40857
-  },
-  {
-    "weight_kg": 36.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 43007,
-    "member_inr": 40857
-  },
-  {
-    "weight_kg": 36.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 43007,
-    "member_inr": 40857
-  },
-  {
-    "weight_kg": 36.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 43007,
-    "member_inr": 40857
-  },
-  {
-    "weight_kg": 36.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 43585,
-    "member_inr": 41406
-  },
-  {
-    "weight_kg": 36.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 43585,
-    "member_inr": 41406
-  },
-  {
-    "weight_kg": 36.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 43585,
-    "member_inr": 41406
-  },
-  {
-    "weight_kg": 36.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 43585,
-    "member_inr": 41406
-  },
-  {
-    "weight_kg": 37,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 43585,
-    "member_inr": 41406
-  },
-  {
-    "weight_kg": 37.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 44163,
-    "member_inr": 41955
-  },
-  {
-    "weight_kg": 37.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 44163,
-    "member_inr": 41955
-  },
-  {
-    "weight_kg": 37.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 44163,
-    "member_inr": 41955
-  },
-  {
-    "weight_kg": 37.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 44163,
-    "member_inr": 41955
-  },
-  {
-    "weight_kg": 37.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 44163,
-    "member_inr": 41955
-  },
-  {
-    "weight_kg": 37.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 44742,
-    "member_inr": 42504
-  },
-  {
-    "weight_kg": 37.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 44742,
-    "member_inr": 42504
-  },
-  {
-    "weight_kg": 37.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 44742,
-    "member_inr": 42504
-  },
-  {
-    "weight_kg": 37.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 44742,
-    "member_inr": 42504
-  },
-  {
-    "weight_kg": 38,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 44742,
-    "member_inr": 42504
-  },
-  {
-    "weight_kg": 38.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 45320,
-    "member_inr": 43054
-  },
-  {
-    "weight_kg": 38.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 45320,
-    "member_inr": 43054
-  },
-  {
-    "weight_kg": 38.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 45320,
-    "member_inr": 43054
-  },
-  {
-    "weight_kg": 38.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 45320,
-    "member_inr": 43054
-  },
-  {
-    "weight_kg": 38.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 45320,
-    "member_inr": 43054
-  },
-  {
-    "weight_kg": 38.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 45898,
-    "member_inr": 43603
-  },
-  {
-    "weight_kg": 38.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 45898,
-    "member_inr": 43603
-  },
-  {
-    "weight_kg": 38.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 45898,
-    "member_inr": 43603
-  },
-  {
-    "weight_kg": 38.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 45898,
-    "member_inr": 43603
-  },
-  {
-    "weight_kg": 39,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 45898,
-    "member_inr": 43603
-  },
-  {
-    "weight_kg": 39.1,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 46476,
-    "member_inr": 44152
-  },
-  {
-    "weight_kg": 39.2,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 46476,
-    "member_inr": 44152
-  },
-  {
-    "weight_kg": 39.3,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 46476,
-    "member_inr": 44152
-  },
-  {
-    "weight_kg": 39.4,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 46476,
-    "member_inr": 44152
-  },
-  {
-    "weight_kg": 39.5,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 46476,
-    "member_inr": 44152
-  },
-  {
-    "weight_kg": 39.6,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 47054,
-    "member_inr": 44701
-  },
-  {
-    "weight_kg": 39.7,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 47054,
-    "member_inr": 44701
-  },
-  {
-    "weight_kg": 39.8,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 47054,
-    "member_inr": 44701
-  },
-  {
-    "weight_kg": 39.9,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 47054,
-    "member_inr": 44701
-  },
-  {
-    "weight_kg": 40,
-    "carrier": "Economy Shipping",
-    "transit": "10-14* Business Days Economy",
-    "basic_inr": 47054,
-    "member_inr": 44701
+{
+  "generated_at": "2026-08-03T07:07:37.587Z",
+  "member_discount": 0.05,
+  "carriers": {
+    "Economy Shipping": [
+      [
+        0.5,
+        25.43
+      ],
+      [
+        1,
+        30.5
+      ],
+      [
+        1.5,
+        35.77
+      ],
+      [
+        2,
+        41.04
+      ],
+      [
+        2.5,
+        46.31
+      ],
+      [
+        3,
+        56.44
+      ],
+      [
+        3.5,
+        61.73
+      ],
+      [
+        4,
+        67.01
+      ],
+      [
+        4.5,
+        72.3
+      ],
+      [
+        5,
+        77.59
+      ],
+      [
+        5.5,
+        80.7
+      ],
+      [
+        6,
+        85.24
+      ],
+      [
+        6.5,
+        89.78
+      ],
+      [
+        7,
+        94.32
+      ],
+      [
+        7.5,
+        98.86
+      ],
+      [
+        8,
+        103.4
+      ],
+      [
+        8.5,
+        107.94
+      ],
+      [
+        9,
+        112.48
+      ],
+      [
+        9.5,
+        117.02
+      ],
+      [
+        10,
+        121.56
+      ],
+      [
+        10.5,
+        134.74
+      ],
+      [
+        11,
+        140.13
+      ],
+      [
+        11.5,
+        145.52
+      ],
+      [
+        12,
+        150.91
+      ],
+      [
+        12.5,
+        156.29
+      ],
+      [
+        13,
+        161.68
+      ],
+      [
+        13.5,
+        167.07
+      ],
+      [
+        14,
+        172.46
+      ],
+      [
+        14.5,
+        177.85
+      ],
+      [
+        15,
+        183.23
+      ],
+      [
+        15.5,
+        188.62
+      ],
+      [
+        16,
+        194.01
+      ],
+      [
+        16.5,
+        199.4
+      ],
+      [
+        17,
+        204.78
+      ],
+      [
+        17.5,
+        210.17
+      ],
+      [
+        18,
+        215.56
+      ],
+      [
+        18.5,
+        220.94
+      ],
+      [
+        19,
+        226.33
+      ],
+      [
+        19.5,
+        231.72
+      ],
+      [
+        20,
+        237.11
+      ],
+      [
+        20.5,
+        242.5
+      ],
+      [
+        21,
+        263.39
+      ],
+      [
+        21.5,
+        269.46
+      ],
+      [
+        22,
+        275.53
+      ]
+    ],
+    "ShipGlobal USA - Duty Free": [
+      [
+        0.5,
+        20.67
+      ],
+      [
+        0.6,
+        22.46
+      ],
+      [
+        0.7,
+        30.75
+      ],
+      [
+        0.8,
+        26.02
+      ],
+      [
+        0.9,
+        27.8
+      ],
+      [
+        1,
+        30.75
+      ],
+      [
+        1.1,
+        30.84
+      ],
+      [
+        1.2,
+        32.57
+      ],
+      [
+        1.3,
+        34.28
+      ],
+      [
+        1.4,
+        36.96
+      ],
+      [
+        1.5,
+        38.69
+      ],
+      [
+        1.6,
+        40.4
+      ],
+      [
+        1.7,
+        42.13
+      ],
+      [
+        1.8,
+        43.84
+      ],
+      [
+        1.9,
+        46.65
+      ],
+      [
+        2,
+        48.37
+      ],
+      [
+        2.5,
+        58.13
+      ],
+      [
+        3,
+        67.6
+      ],
+      [
+        3.5,
+        77.14
+      ],
+      [
+        4,
+        86.37
+      ],
+      [
+        4.5,
+        95.79
+      ],
+      [
+        5,
+        105.46
+      ],
+      [
+        5.5,
+        102.93
+      ],
+      [
+        6,
+        108.74
+      ],
+      [
+        6.5,
+        121.06
+      ],
+      [
+        7,
+        126.87
+      ],
+      [
+        7.5,
+        139.18
+      ],
+      [
+        8,
+        144.99
+      ],
+      [
+        8.5,
+        157.3
+      ],
+      [
+        9,
+        163.12
+      ],
+      [
+        9.5,
+        175.43
+      ],
+      [
+        10,
+        181.24
+      ],
+      [
+        10.5,
+        181.37
+      ],
+      [
+        11,
+        182.36
+      ],
+      [
+        11.5,
+        197.95
+      ],
+      [
+        12,
+        198.93
+      ],
+      [
+        12.5,
+        214.53
+      ],
+      [
+        13,
+        215.51
+      ],
+      [
+        13.5,
+        231.11
+      ],
+      [
+        14,
+        232.09
+      ],
+      [
+        14.5,
+        247.69
+      ],
+      [
+        15,
+        248.67
+      ],
+      [
+        15.5,
+        256.53
+      ],
+      [
+        16,
+        257.51
+      ],
+      [
+        16.5,
+        272.63
+      ],
+      [
+        17,
+        273.62
+      ],
+      [
+        17.5,
+        288.72
+      ],
+      [
+        18,
+        289.7
+      ],
+      [
+        18.5,
+        297.48
+      ],
+      [
+        19,
+        298.46
+      ],
+      [
+        19.5,
+        313.18
+      ],
+      [
+        20,
+        314.16
+      ],
+      [
+        20.5,
+        328.9
+      ],
+      [
+        21,
+        329.88
+      ],
+      [
+        21.5,
+        344.6
+      ],
+      [
+        22,
+        345.58
+      ]
+    ],
+    "Shoppre Trusted Carrier - Express Shipping": [
+      [
+        0.5,
+        29.67
+      ],
+      [
+        1,
+        36.31
+      ],
+      [
+        1.5,
+        42.52
+      ],
+      [
+        2,
+        48.73
+      ],
+      [
+        2.5,
+        54.99
+      ],
+      [
+        3,
+        62.63
+      ],
+      [
+        3.5,
+        68.57
+      ],
+      [
+        4,
+        74.5
+      ],
+      [
+        4.5,
+        80.44
+      ],
+      [
+        5,
+        85.39
+      ],
+      [
+        5.5,
+        92.7
+      ],
+      [
+        6,
+        100
+      ],
+      [
+        6.5,
+        107.31
+      ],
+      [
+        7,
+        114.6
+      ],
+      [
+        7.5,
+        121.91
+      ],
+      [
+        8,
+        129.21
+      ],
+      [
+        8.5,
+        136.51
+      ],
+      [
+        9,
+        143.83
+      ],
+      [
+        9.5,
+        151.12
+      ],
+      [
+        10,
+        158.43
+      ],
+      [
+        10.5,
+        164.76
+      ],
+      [
+        11,
+        171.12
+      ],
+      [
+        11.5,
+        177.46
+      ],
+      [
+        12,
+        183.79
+      ],
+      [
+        12.5,
+        190.13
+      ],
+      [
+        13,
+        196.48
+      ],
+      [
+        13.5,
+        202.81
+      ],
+      [
+        14,
+        209.15
+      ],
+      [
+        14.5,
+        215.5
+      ],
+      [
+        15,
+        221.84
+      ],
+      [
+        15.5,
+        228.19
+      ],
+      [
+        16,
+        234.52
+      ],
+      [
+        16.5,
+        240.88
+      ],
+      [
+        17,
+        247.21
+      ],
+      [
+        17.5,
+        253.54
+      ],
+      [
+        18,
+        259.87
+      ],
+      [
+        18.5,
+        266.23
+      ],
+      [
+        19,
+        272.56
+      ],
+      [
+        19.5,
+        278.9
+      ],
+      [
+        20,
+        285.24
+      ],
+      [
+        20.5,
+        299.68
+      ],
+      [
+        21,
+        302.66
+      ],
+      [
+        21.5,
+        317.08
+      ],
+      [
+        22,
+        320.06
+      ]
+    ]
   }
-]
+}

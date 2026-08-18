@@ -595,7 +595,7 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
                   </>
                 ) : (
                   <>
-                    <Row label={`Aéreo India→USA · ${calc.airInr.toLocaleString('es-VE')} INR`} value={usd(calc.airUsd)} />
+                    <Row label={`Aéreo India→USA · ${calc.air.chargeableKg.toFixed(1)} kg cobrables`} value={usd(calc.airUsd)} />
                     <Row label="Marítimo USA→VEN (volumen)" value={usd(calc.maritimeUsd)} />
                     <Row label="Seguro" value={usd(calc.insuranceUsd)} />
                     <Row label="Processing" value={usd(calc.processingUsd)} />
@@ -656,7 +656,7 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
                         {l.quantity > 1 && <span className="text-xs text-gray-400"> ×{l.quantity}</span>}
                       </td>
                       {esMaritimo ? (
-                        <td className="px-3 py-2.5 text-right font-mono text-gray-600">{l.volumeFt3.toFixed(3)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-gray-600">{l.ft3.toFixed(3)}</td>
                       ) : (
                         <>
                           <td className="px-3 py-2.5 text-right font-mono text-gray-600">{l.realKg.toFixed(2)}</td>

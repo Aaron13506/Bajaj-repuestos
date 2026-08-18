@@ -18,6 +18,8 @@ import {
 export interface PresupuestoPdfItem {
   nameEs: string
   bajajCode: string | null
+  /** Moto a la que pertenece la línea. Solo se llena si el producto apunta a una sola. */
+  modelo?: string | null
   quantity: number
   unitPrice: number
   subtotal: number
@@ -82,7 +84,7 @@ export function buildPresupuestoPdf(data: PresupuestoPdfData): jsPDF {
 
   const body: (string | { content: string; styles?: Record<string, unknown> })[][] = []
   for (const item of data.items) {
-    const title = item.bajajCode ? `${item.nameEs}\n${item.bajajCode}` : item.nameEs
+    const title = [item.nameEs, item.bajajCode, item.modelo].filter(Boolean).join('\n')
     body.push([
       { content: title },
       { content: String(item.quantity), styles: { halign: 'center' } },
@@ -95,7 +97,9 @@ export function buildPresupuestoPdf(data: PresupuestoPdfData): jsPDF {
         const code = p.bajajCode ? `  ${p.bajajCode}` : ''
         body.push([
           {
-            content: `    ${p.quantity * item.quantity}× ${label}${code}`,
+            // Cantidad POR SET: la columna Cant. de la fila del conjunto ya es el
+            // multiplicador; poner el total acá lo aplicaba dos veces al leerlo.
+            content: `    ${p.quantity}× ${label}${code}`,
             styles: { fontSize: 8, textColor: GRAY },
           },
           '',

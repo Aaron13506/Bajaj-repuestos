@@ -1,65 +1,33 @@
+import type { $Enums } from '@prisma/client'
 import { db } from './db'
+import { ALL_MODELS, isMotoModelId, type MotoModelId, type MotoModelInfo } from './modelo'
 
-// Orden lógico de los modelos (por cilindrada/familia) para los dropdowns de filtro.
-// Los valores son las etiquetas legibles tal como se guardan en Product.compatibleModels.
-// La Boxer va al final: es otra familia (commuter), y dejarla acá abajo mantiene intacto
-// el orden por cilindrada de las Pulsar, que son la mayor parte del catálogo.
-export const MODEL_ORDER = [
-  'Pulsar 150 BS4',
-  'Pulsar 150 UG4',
-  'Pulsar 180 BS3 2009 16 UG4',
-  'Pulsar 180 BS4 2017 19',
-  'Pulsar 200NS BS3 2012 16',
-  'Pulsar NS200 BS4 2017 19',
-  'Pulsar NS200 BS6 2020',
-  'Pulsar NS200 BS6 2021 23',
-  'Pulsar NS200 USD Fork 2023',
-  'Pulsar N160 Single ABS 2022 23',
-  'Pulsar N160 Dual ABS 2022 23',
-  'Pulsar N250 Single ABS 2021 23',
-  'Pulsar N250 Dual ABS 2022 23',
-  'Pulsar N250 USD Fork 2024 25',
-  'Boxer BM150',
-]
+// MOTO_MODELS (lib/modelo.ts) es la tabla de las 15 motos y sus ids son los valores del
+// enum MotoModel del schema. Si alguno se agrega, renombra o borra en un solo lado, esto
+// deja de compilar en vez de fallar en runtime con un modelo que no existe.
+type Assert<T extends true> = T
+type Equal<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
+type _ModelosEnSync = Assert<Equal<MotoModelId, $Enums.MotoModel>>
 
-export function sortModels(models: string[]): string[] {
-  return [...models].sort((a, b) => {
-    const ia = MODEL_ORDER.indexOf(a)
-    const ib = MODEL_ORDER.indexOf(b)
-    return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib) || a.localeCompare(b)
-  })
+// Filtro por moto para las queries: `models` es un array de enum, así que la pregunta
+// "¿esta pieza sirve para tal moto?" es `has`, no un LIKE sobre texto. De paso deja de
+// haber falsos positivos: "Pulsar 150 BS4" ya no matchea contra "Pulsar 150 BS40".
+export function whereModel(model?: string) {
+  return isMotoModelId(model) ? { models: { has: model } } : {}
 }
 
-// Opciones para los filtros del catálogo, derivadas de los ensambles reales:
-//  - models: los modelos distintos. Casi todo ensamble tiene UNO solo, pero algunos
-//    sirven para varias motos a la vez (los accesorios N250/N160), y esos guardan la
-//    lista separada por comas. Por eso se parte y se aplana en vez de tomar el string
-//    entero: si no, un ensamble multi-modelo aparecería como una opción de dropdown con
-//    tres motos pegadas, que no matchea nada al filtrar.
-//  - categories: las categorías (nameEs del ensamble, ej "Swing Arm") — SCOPEADAS al
-//    modelo si se pasa uno, para que Categoría muestre solo las de ese modelo (cascada).
-export async function getCatalogFilters(model?: string): Promise<{ models: string[]; categories: string[] }> {
-  const [modelRows, catRows] = await Promise.all([
-    db.product.findMany({
-      where: { isAssembly: true, compatibleModels: { not: null } },
-      distinct: ['compatibleModels'],
-      select: { compatibleModels: true },
-    }),
-    db.product.findMany({
-      where: {
-        isAssembly: true,
-        ...(model ? { compatibleModels: { contains: model, mode: 'insensitive' as const } } : {}),
-      },
-      distinct: ['nameEs'],
-      select: { nameEs: true },
-    }),
-  ])
-  const models = sortModels([...new Set(
-    modelRows
-      .flatMap((r) => (r.compatibleModels ?? '').split(','))
-      .map((m) => m.trim())
-      .filter(Boolean)
-  )])
+// Opciones para los filtros del catálogo:
+//  - models: las 15 motos, fijas (salen del enum, no de lo que haya cargado en la DB)
+//  - categories: las categorías (nameEs del ensamble, ej "Swing Arm") — SCOPEADAS a la
+//    moto si se pasa una, para que Categoría muestre solo las de esa moto (cascada).
+export async function getCatalogFilters(
+  model?: string,
+): Promise<{ models: readonly MotoModelInfo[]; categories: string[] }> {
+  const catRows = await db.product.findMany({
+    where: { isAssembly: true, ...whereModel(model) },
+    distinct: ['nameEs'],
+    select: { nameEs: true },
+  })
   const categories = catRows.map((r) => r.nameEs).filter(Boolean).sort((a, b) => a.localeCompare(b))
-  return { models, categories }
+  return { models: ALL_MODELS, categories }
 }

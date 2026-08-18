@@ -1,5 +1,6 @@
 import { Fragment } from 'react'
 import { db } from '@/lib/db'
+import { formatModels, fullModel } from '@/lib/modelo'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import DeleteButton from '@/components/DeleteButton'
@@ -104,7 +105,7 @@ export default async function ProductDetailPage({
     bajajCode: child.bajajCode,
     nameEs: child.nameEs,
     nameEn: child.nameEn,
-    compatibleModels: child.compatibleModels,
+    models: child.models,
     weightGrams: child.weightGrams,
     // Las dimensiones viajan junto al peso: por mar el volumen es lo que se factura, así
     // que una pieza con peso pero sin caja sigue estando sin medir.
@@ -183,7 +184,9 @@ export default async function ProductDetailPage({
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
           <div>
             <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Modelos</p>
-            <p className="font-medium text-gray-900">{product.compatibleModels ?? '—'}</p>
+            <p className="font-medium text-gray-900" title={product.models.length ? product.models.map(fullModel).join(', ') : undefined}>
+              {product.models.length ? formatModels(product.models) : '—'}
+            </p>
           </div>
           <div>
             <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Peso</p>
@@ -415,7 +418,7 @@ export default async function ProductDetailPage({
                         nameEs: c.nameEs,
                         nameEn: c.nameEn,
                         bajajCode: c.bajajCode,
-                        compatibleModels: c.compatibleModels,
+                        models: c.models,
                         priceInr: c.priceInr,
                         priceUsd: priceMap.get(c.id)?.priceUsd ?? null,
                         priceIsLanded: priceMap.get(c.id)?.isLanded ?? false,

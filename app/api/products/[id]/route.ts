@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { toModelIds } from '@/lib/modelo'
 import { toJSON } from '@/lib/utils'
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -25,7 +26,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (isNaN(id)) return NextResponse.json({ error: 'ID invalido' }, { status: 400 })
 
     const body = await request.json()
-    const { nameEs, nameEn, bajajCode, description, price, stock, categoryId, sourceUrl, compatibleModels,
+    const { nameEs, nameEn, bajajCode, description, price, stock, categoryId, sourceUrl, models, compatibleModels,
             priceInr, landedCostUsd, margin, notes, weightGrams, dimL, dimA, dimH } = body
 
     const product = await db.product.update({
@@ -37,7 +38,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         ...(sourceUrl !== undefined        && { sourceUrl: sourceUrl || null }),
         ...(description !== undefined      && { description: description || null }),
         ...(notes !== undefined            && { notes: notes || null }),
-        ...(compatibleModels !== undefined && { compatibleModels: compatibleModels || null }),
+        ...((models ?? compatibleModels) !== undefined && { models: toModelIds(models ?? compatibleModels) }),
         ...(price !== undefined            && { price: parseFloat(price) }),
         ...(stock !== undefined            && { stock: parseInt(stock) }),
         ...(priceInr !== undefined         && { priceInr: priceInr ? parseInt(priceInr) : null }),

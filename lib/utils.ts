@@ -26,6 +26,14 @@ export function limpiarNombre(s: string): string {
     .trim()
 }
 
+// Orden alfabético de piezas — el mismo criterio en el builder (cliente), en la vista
+// del presupuesto y en el PDF, para que la lista no cambie de orden entre pantallas.
+// Se compara en JS y no en el `ORDER BY` de Postgres justamente por eso: la collation
+// de la base no coincide con la del navegador en acentos ni en mayúsculas.
+export function compararNombre(a: string, b: string): number {
+  return a.localeCompare(b, 'es', { sensitivity: 'base', numeric: true })
+}
+
 export function toJSON<T>(data: T): T {
   return JSON.parse(
     JSON.stringify(data, (_, value) => {

@@ -1,6 +1,7 @@
 'use client'
 
 import { useActionState, useMemo, useState } from 'react'
+import { formatModels, type MotoModelId } from '@/lib/modelo'
 import { useFormStatus } from 'react-dom'
 import { updateMeasures } from '@/app/(pages)/products/[id]/measure-actions'
 import type { MeasuresResult } from '@/lib/measures'
@@ -24,7 +25,7 @@ export interface PiezaMedible {
   bajajCode: string | null
   nameEs: string
   nameEn?: string | null
-  compatibleModels?: string | null
+  models?: readonly MotoModelId[]
   quantity: number
   weightGrams: number | null
   dimL: number | null
@@ -134,7 +135,7 @@ export default function MedidasIA({
       id: p.id,
       nameEs: p.nameEs,
       nameEn: p.nameEn ?? null,
-      compatibleModels: p.compatibleModels ?? null,
+      compatibleModels: p.models?.length ? formatModels(p.models) : null,
       quantity: p.quantity,
       falta: faltante(p) ?? 'nada (revisar)',
     })),

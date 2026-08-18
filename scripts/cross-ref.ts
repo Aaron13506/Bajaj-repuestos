@@ -18,6 +18,15 @@ try { process.loadEnvFile() } catch {}
 const prisma = new PrismaClient({
   datasources: { db: { url: process.env.DIRECT_URL || process.env.DATABASE_URL } },
 })
+const CONCURRENCY = 8
+
+/** Procesa `items` con `n` workers en paralelo. Es un updateMany por SKU contra Supabase:
+ * en serie son miles de round-trips apilados, y cada uno toca filas de un SKU distinto. */
+async function pool<T>(items: T[], n: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let i = 0
+  const worker = async () => { while (i < items.length) await fn(items[i++]) }
+  await Promise.all(Array.from({ length: n }, worker))
+}
 
 async function main() {
   // solo productos curados que tengan algo que aportar (SKU + al menos peso o dim)
@@ -28,9 +37,9 @@ async function main() {
   console.log(`${curated.length} productos curados con SKU. Cruzando…`)
 
   let skusMatched = 0, partsUpdated = 0, skusSinMatch = 0
-  for (const c of curated) {
+  await pool(curated, CONCURRENCY, async (c) => {
     const sku = c.bajajCode!.trim()
-    if (!sku) continue
+    if (!sku) return
     const res = await prisma.scrapedPart.updateMany({
       where: { sku },
       data: {
@@ -43,7 +52,7 @@ async function main() {
     })
     if (res.count > 0) { skusMatched++; partsUpdated += res.count }
     else skusSinMatch++
-  }
+  })
 
   const totalParts = await prisma.scrapedPart.count()
   const conDatos = await prisma.scrapedPart.count({ where: { matchedProductId: { not: null } } })

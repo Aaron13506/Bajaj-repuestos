@@ -8,7 +8,7 @@ import CopiarJson from '@/components/CopiarJson'
 // porque la necesitás, y enterarte de que ya no se fabrica es la respuesta — que desaparezca
 // del despiece parecería un error del catálogo y te mandaría a buscarla de nuevo.
 import ChipDescontinuada from '@/components/ChipDescontinuada'
-import { parseModelos, sirveParaModelo } from '@/lib/modelos'
+import { formatModels, type MotoModelId } from '@/lib/modelo'
 import { cumpleMoq, cantidadMinima } from '@/lib/moq'
 import { ensambleAJson } from '@/lib/export-ensamble'
 import { embarqueAJson } from '@/lib/export-embarque'
@@ -39,7 +39,7 @@ export interface LineaEmbarque {
   altCode: string | null
   /** Cantidad mínima del proveedor de esta caja. null = no la declara o no hay proveedor. */
   moq: number | null
-  compatibleModels: string | null
+  models: readonly MotoModelId[]
   quantity: number
   dimL: number | null
   dimA: number | null
@@ -60,7 +60,7 @@ interface Resultado {
   bajajCode: string | null
   altCode: string | null
   moq: number | null
-  compatibleModels: string | null
+  models: readonly MotoModelId[]
   costoUsd: number | null
   dimL: number | null
   dimA: number | null
@@ -77,7 +77,7 @@ export interface AssemblyOption {
   nameEs: string
   bajajCode: string | null
   imageUrl: string | null
-  compatibleModels: string | null
+  models: readonly MotoModelId[]
 }
 
 interface Componente {
@@ -90,7 +90,7 @@ interface Componente {
     bajajCode: string | null
     altCode: string | null
     moq: number | null
-    compatibleModels: string | null
+    models: readonly MotoModelId[]
     costoUsd: number | null
     dimL: number | null
     dimA: number | null
@@ -129,9 +129,8 @@ const dims = (l: number | null, a: number | null, h: number | null) =>
 // del catálogo, 1.922 sirven a una sola moto — poner "1 moto" en todas sería ruido en la
 // mayoría de las filas para no decir nada. La coincidencia es la excepción, y por eso vale
 // la pena señalarla justo cuando aparece.
-const chipMotos = (compatibleModels: string | null) => {
-  const motos = parseModelos(compatibleModels)
-  return motos.length > 1 ? { n: motos.length, lista: motos.join(', ') } : null
+const chipMotos = (models: readonly MotoModelId[]) => {
+  return models.length > 1 ? { n: models.length, lista: formatModels(models) } : null
 }
 
 // El otro número de la misma pieza. Bajaj publica muchas con dos códigos y cada proveedor
@@ -317,7 +316,7 @@ export default function EmbarqueMaritimo({
   const filteredAssemblies = useMemo(() => {
     const q = asmSearch.trim().toLowerCase()
     return assemblies.filter(a => {
-      if (modelFilter && !sirveParaModelo(a.compatibleModels, modelFilter)) return false
+      if (modelFilter && !a.models.includes(modelFilter as MotoModelId)) return false
       if (!q) return true
       return a.nameEs.toLowerCase().includes(q) || !!a.bajajCode?.toLowerCase().includes(q)
     })
@@ -380,7 +379,7 @@ export default function EmbarqueMaritimo({
         bajajCode: c.child.bajajCode,
         altCode: c.child.altCode,
         moq: c.child.moq,
-        compatibleModels: c.child.compatibleModels,
+        models: c.child.models,
         dimL: c.child.dimL,
         dimA: c.child.dimA,
         dimH: c.child.dimH,
@@ -518,8 +517,8 @@ export default function EmbarqueMaritimo({
                   <p className="text-sm font-medium text-gray-900 truncate">{a.nameEs}</p>
                   <p className="text-xs text-gray-400 truncate">
                     {a.bajajCode && <span className="font-mono">{a.bajajCode}</span>}
-                    {a.bajajCode && a.compatibleModels && ' · '}
-                    {a.compatibleModels}
+                    {a.bajajCode && a.models.length > 0 && ' · '}
+                    {formatModels(a.models)}
                   </p>
                 </div>
               </button>
@@ -557,7 +556,7 @@ export default function EmbarqueMaritimo({
                       <div className="space-y-0.5">
                         {items.map(c => {
                           const yaLlevas = yaEnCaja.get(c.child.id) ?? 0
-                          const motos = chipMotos(c.child.compatibleModels)
+                          const motos = chipMotos(c.child.models)
                           const sumando = checked[c.id] ? (quantities[c.id] ?? c.quantity) : 0
                           return (
                             <label
@@ -719,7 +718,7 @@ export default function EmbarqueMaritimo({
             <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg divide-y divide-gray-50 overflow-hidden max-h-96 overflow-y-auto">
               {resultados.map(r => {
                 const yaLlevas = yaEnCaja.get(r.id) ?? 0
-                const motos = chipMotos(r.compatibleModels)
+                const motos = chipMotos(r.models)
                 // La primera vez entra el MÍNIMO, no 1: si el proveedor no despacha menos
                 // de 50, una línea de 1 describe una compra que no existe. Después ya
                 // estás por encima del piso, y de ahí para arriba se suma de a una. El
@@ -782,7 +781,7 @@ export default function EmbarqueMaritimo({
                             bajajCode: r.bajajCode,
                             altCode: r.altCode,
                             moq: r.moq,
-                            compatibleModels: r.compatibleModels,
+                            models: r.models,
                             dimL: r.dimL,
                             dimA: r.dimA,
                             dimH: r.dimH,
@@ -868,7 +867,7 @@ export default function EmbarqueMaritimo({
                     <CodigoAlterno code={l.altCode} />
                     <ChipMoq moq={l.moq} cantidad={l.quantity} />
                     {(() => {
-                      const motos = chipMotos(l.compatibleModels)
+                      const motos = chipMotos(l.models)
                       return motos && (
                         <span
                           className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600"

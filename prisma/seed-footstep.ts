@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client'
+import { type MotoModelId } from '@/lib/modelo'
 
 const prisma = new PrismaClient()
 
@@ -16,7 +17,7 @@ const prisma = new PrismaClient()
 // al momento de mostrar (calcLanded) una vez que la pieza tenga peso.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const COMPAT = 'Pulsar N250 (Single Channel ABS, Oct 2021 - Feb 2023)'
+const COMPAT: readonly MotoModelId[] = ['PULSAR_N250_SINGLE_ABS_2021_23']
 
 // Tasa INR→USD leída de Config en main(); fallback al default de calc.ts.
 let INR_USD = 95
@@ -75,7 +76,7 @@ const ASSEMBLY = {
   nameEn: 'Rear Footstep | Pulsar N250 (Single ABS, 2021-23)',
   nameEs: 'Estribo trasero | Pulsar N250 (ABS simple, 2021-23)',
   description: 'Estribo trasero original Bajaj para Pulsar N250 (ABS de canal único, oct 2021 - feb 2023). / Bajaj Genuine Rear Footrest for Pulsar N250 (Single Channel ABS, Oct 2021 - Feb 2023)',
-  compatibleModels: COMPAT,
+  models: COMPAT,
 }
 
 async function upsertByBajajCode(p: {
@@ -86,7 +87,7 @@ async function upsertByBajajCode(p: {
   price: number
   isAssembly?: boolean
   description?: string | null
-  compatibleModels?: string | null
+  models?: readonly MotoModelId[]
   notes?: string | null
 }): Promise<number> {
   const data = {
@@ -97,7 +98,7 @@ async function upsertByBajajCode(p: {
     price: p.price,
     isAssembly: p.isAssembly ?? false,
     description: p.description ?? null,
-    compatibleModels: p.compatibleModels ?? COMPAT,
+    models: [...(p.models ?? COMPAT)],
     notes: p.notes ?? null,
   }
   const existing = await prisma.product.findFirst({ where: { bajajCode: p.bajajCode } })
@@ -139,7 +140,7 @@ async function main() {
     nameEs: ASSEMBLY.nameEs,
     nameEn: ASSEMBLY.nameEn,
     description: ASSEMBLY.description,
-    compatibleModels: ASSEMBLY.compatibleModels,
+    models: [...ASSEMBLY.models],
     isAssembly: true,
     priceInr: assemblyPriceInr,
     price: assemblyPrice,

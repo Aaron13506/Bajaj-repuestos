@@ -13,7 +13,7 @@ const SCHEMA_EXAMPLE = `{
     "nameEs": "Pedal de freno trasero",
     "nameEn": "Rear Brake Pedal",
     "bajajCode": "JR161036",
-    "compatibleModels": "Pulsar N250/N160",
+    "models": ["PULSAR_N250_DUAL_ABS_2022_23", "PULSAR_N160_DUAL_ABS_2022_23"],
     "sourceUrl": "https://...",
     "subgroups": [
       {
@@ -45,7 +45,7 @@ SOLO como JSON, con esta estructura exacta:
 {
   "group": {
     "nameEs": "<nombre del ensamble en español>",   // OBLIGATORIO
-    "nameEn": "...", "bajajCode": "...", "compatibleModels": "...", "sourceUrl": "...",
+    "nameEn": "...", "bajajCode": "...", "models": [...], "sourceUrl": "...",
     "subgroups": [
       {
         "name": "<nombre del subgrupo>",             // ej Fasteners, Spring
@@ -59,7 +59,7 @@ Cada PIEZA dentro de "products" puede tener (todos opcionales salvo nameEs):
 - nameEs            (string, OBLIGATORIO) nombre en español
 - nameEn            (string) nombre en inglés / catálogo
 - bajajCode         (string) código de la pieza
-- compatibleModels  (string) modelos compatibles
+- models            (array)  motos compatibles, por id del enum MotoModel
 - sourceUrl         (string) URL de la página
 - priceInr          (número) precio en India en rupias ₹
 - weightGrams       (número) peso en GRAMOS

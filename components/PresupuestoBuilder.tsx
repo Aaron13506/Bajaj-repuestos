@@ -3,13 +3,15 @@
 import { useState, useMemo, useEffect } from 'react'
 import ChipDescontinuada from '@/components/ChipDescontinuada'
 import { type BundlePiece, groupBundlePieces } from '@/lib/bundle'
-import { sirveParaModelo } from '@/lib/modelos'
+import { ALL_MODELS, compatBadge, coverageByModel, formatModels, modeloLabel, shortModel, type MotoModelId } from '@/lib/modelo'
 import {
   getAssemblyComponents,
+  searchAssembliesByPiece,
   searchProducts,
   costearCarrito,
   type CostoCarrito,
 } from '@/app/(pages)/presupuestos/builder-actions'
+import { compararNombre } from '@/lib/utils'
 
 interface Product {
   id: number
@@ -17,7 +19,7 @@ interface Product {
   bajajCode: string | null
   price: number
   imageUrl?: string | null
-  compatibleModels?: string | null
+  models?: readonly MotoModelId[]
   /**
    * Bajaj no la fabrica más: no la consigue ningún proveedor. Cotizarla sería prometer una
    * pieza que no se va a poder comprar — y el negocio es por encargo, con seña cobrada, así
@@ -40,7 +42,7 @@ interface Assembly {
   bajajCode: string | null
   price: number
   imageUrl?: string | null
-  compatibleModels: string | null
+  models: readonly MotoModelId[]
 }
 
 interface CartItem {
@@ -50,6 +52,8 @@ interface CartItem {
   unitPrice: number
   quantity: number
   imageUrl?: string | null
+  /** Motos del producto (ver lib/modelo.ts): en un ensamble, la moto a la que pertenece. */
+  models?: readonly MotoModelId[]
   /** Si está presente, la línea es un conjunto a precio único y estas son las piezas incluidas. */
   bundleItems?: BundlePiece[]
   /**
@@ -68,7 +72,6 @@ interface ClienteOption {
 
 interface Props {
   assemblies: Assembly[]
-  models: string[]
   action: (formData: FormData) => Promise<void>
   initialClientName?: string
   initialNotas?: string
@@ -84,7 +87,6 @@ interface Props {
 
 export default function PresupuestoBuilder({
   assemblies,
-  models,
   action,
   initialClientName = '',
   initialNotas = '',
@@ -116,24 +118,63 @@ export default function PresupuestoBuilder({
   const [compCache, setCompCache] = useState<Record<number, AssemblyComponent[]>>({})
   const [loadingComps, setLoadingComps] = useState(false)
 
+  // Qué piezas tienen desplegada la lista de motos compatibles (por ProductComponent.id).
+  const [compatOpen, setCompatOpen] = useState<Record<number, boolean>>({})
+
+  // Ensambles que contienen una pieza con el SKU buscado (assemblyId → pieza que matcheó).
+  // Se resuelve contra la DB porque acá solo están los headers, sin componentes.
+  const [pieceMatches, setPieceMatches] = useState<Map<number, { pieceName: string; pieceCode: string }>>(new Map())
+  const [searchingPieces, setSearchingPieces] = useState(false)
+
+  useEffect(() => {
+    const q = asmSearch.trim()
+    if (q.length < 2) { setPieceMatches(new Map()); setSearchingPieces(false); return }
+    let cancelled = false
+    setSearchingPieces(true)
+    const t = setTimeout(async () => {
+      try {
+        const rows = await searchAssembliesByPiece(q)
+        if (!cancelled) {
+          setPieceMatches(new Map(rows.map(r => [r.parentId, { pieceName: r.pieceName, pieceCode: r.pieceCode }])))
+        }
+      } finally {
+        if (!cancelled) setSearchingPieces(false)
+      }
+    }, 250)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [asmSearch])
+
   // Ensambles filtrados por moto + texto, para que la lista no sea inmanejable.
+  // El texto matchea contra el nombre y el código del ensamble, y contra el SKU de
+  // cualquiera de sus piezas (pieceMatches).
   const filteredAssemblies = useMemo(() => {
     const q = asmSearch.trim().toLowerCase()
     return assemblies.filter(a => {
-      if (modelFilter && !sirveParaModelo(a.compatibleModels, modelFilter)) return false
-      return !(q && !(a.nameEs.toLowerCase().includes(q) || a.bajajCode?.toLowerCase().includes(q)));
-
+      if (modelFilter && !a.models.includes(modelFilter as MotoModelId)) return false
+      if (!q) return true
+      return a.nameEs.toLowerCase().includes(q)
+        || !!a.bajajCode?.toLowerCase().includes(q)
+        || pieceMatches.has(a.id)
     })
-  }, [assemblies, modelFilter, asmSearch])
+  }, [assemblies, modelFilter, asmSearch, pieceMatches])
 
   const selectedAssembly = assemblies.find(a => a.id === selectedAssemblyId) ?? null
   const selectedComponents = selectedAssemblyId != null ? compCache[selectedAssemblyId] : undefined
+
+  // La moto desde la que se está mirando, para responder "¿esta pieza además me sirve
+  // para cuál otra?". Sale del filtro, y si no hay filtro del ensamble abierto — que es
+  // siempre de una sola moto.
+  const currentModel = useMemo(
+    () => modelFilter || selectedAssembly?.models[0] || '',
+    [modelFilter, selectedAssembly],
+  )
 
   // Selecciona un ensamble y trae sus componentes de la DB si aún no están en cache.
   async function selectAssembly(id: number | null) {
     setSelectedAssemblyId(id)
     setChecked({})
     setQuantities({})
+    setCompatOpen({})
     if (id != null && !compCache[id]) {
       setLoadingComps(true)
       try {
@@ -184,6 +225,7 @@ export default function PresupuestoBuilder({
             unitPrice: comp.child.price,
             quantity: qty,
             imageUrl: comp.child.imageUrl,
+            models: comp.child.models,
           })
         }
       }
@@ -225,6 +267,7 @@ export default function PresupuestoBuilder({
         unitPrice: piecesPriceSum,
         quantity: 1,
         imageUrl: selectedAssembly.imageUrl,
+        models: selectedAssembly.models,
         bundleItems: pieces,
       },
     ])
@@ -266,10 +309,25 @@ export default function PresupuestoBuilder({
     if (product.descontinuada) return
     setCart(prev => [
       ...prev,
-      { productId: product.id, nameEs: product.nameEs, bajajCode: product.bajajCode, unitPrice: product.price, quantity: 1, imageUrl: product.imageUrl },
+      {
+        productId: product.id,
+        nameEs: product.nameEs,
+        bajajCode: product.bajajCode,
+        unitPrice: product.price,
+        quantity: 1,
+        imageUrl: product.imageUrl,
+        models: product.models,
+      },
     ])
     setSearch('')
   }
+
+  // El carrito se guarda en el orden en que se fue armando, pero se muestra y se
+  // graba alfabéticamente: es como se lee después en el presupuesto y en el PDF.
+  const sortedCart = useMemo(
+    () => [...cart].sort((a, b) => compararNombre(a.nameEs, b.nameEs)),
+    [cart],
+  )
 
   const total = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0)
 
@@ -353,6 +411,11 @@ export default function PresupuestoBuilder({
   )
   const margenTotal = total > 0 ? (total - landedTotal) / total : null
 
+  // Cobertura del carrito moto por moto. Una línea "conjunto" cuenta por el ensamble
+  // (una sola moto), no por sus piezas: el conjunto se arma para esa moto puntual.
+  const coverage = useMemo(() => coverageByModel(cart), [cart])
+  const maxCoverage = coverage[0]?.lines ?? 0
+
   // Búsqueda de piezas sueltas contra la DB (debounce 250ms), sin traer todo el catálogo.
   useEffect(() => {
     const q = search.trim()
@@ -381,6 +444,16 @@ export default function PresupuestoBuilder({
     ? clientName.trim().length > 0
     : clienteId !== '' && (clienteId !== '__new__' || nuevoNombre.trim().length > 0)
 
+  // Enter dentro de un input NO debe guardar. El armador entero es un solo <form> y
+  // guardar redirige al presupuesto, así que el submit implícito del navegador —tipear
+  // un SKU en el buscador y apretar Enter, corregir una cantidad y apretar Enter—
+  // cerraba el editor a mitad de la carga. Se guarda solo con el botón.
+  // El textarea de notas y los botones quedan afuera: ahí Enter tiene su significado.
+  function blockImplicitSubmit(e: React.KeyboardEvent<HTMLFormElement>) {
+    if (e.key !== 'Enter') return
+    if ((e.target as HTMLElement).tagName === 'INPUT') e.preventDefault()
+  }
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!clienteValid || cart.length === 0 || submitting) return
@@ -400,7 +473,7 @@ export default function PresupuestoBuilder({
     if (volver) fd.set('volver', volver)
     fd.set(
       'items',
-      JSON.stringify(cart.map(c => ({
+      JSON.stringify(sortedCart.map(c => ({
         productId: c.productId,
         quantity: c.quantity,
         salePrice: c.unitPrice,
@@ -411,7 +484,7 @@ export default function PresupuestoBuilder({
   }
 
   return (
-    <form onSubmit={handleSubmit}>
+    <form onSubmit={handleSubmit} onKeyDown={blockImplicitSubmit}>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
 
         {/* ── Left: selectors ── */}
@@ -432,24 +505,28 @@ export default function PresupuestoBuilder({
                 }}
               >
                 <option value="">— Todas las motos —</option>
-                {models.map(m => (
-                  <option key={m} value={m}>{m}</option>
+                {ALL_MODELS.map(m => (
+                  <option key={m.id} value={m.id}>{shortModel(m.id)}</option>
                 ))}
               </select>
               <input
                 type="text"
                 value={asmSearch}
                 onChange={e => setAsmSearch(e.target.value)}
-                placeholder="Buscar ensamble por nombre o código..."
+                placeholder="Buscar por nombre, código o SKU de una pieza..."
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
 
             <div className="border border-gray-300 rounded-lg mb-1 max-h-80 overflow-y-auto divide-y divide-gray-50">
               {filteredAssemblies.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-6">Sin resultados</p>
+                <p className="text-sm text-gray-400 text-center py-6">
+                  {searchingPieces ? 'Buscando…' : 'Sin resultados'}
+                </p>
               ) : (
-                filteredAssemblies.map(a => (
+                filteredAssemblies.map(a => {
+                  const match = pieceMatches.get(a.id)
+                  return (
                   <button
                     key={a.id}
                     type="button"
@@ -473,13 +550,21 @@ export default function PresupuestoBuilder({
                       <p className="text-sm font-medium text-gray-900 truncate">{a.nameEs}</p>
                       <p className="text-xs text-gray-400 truncate">
                         {a.bajajCode && <span className="font-mono">{a.bajajCode}</span>}
-                        {a.bajajCode && a.compatibleModels && ' · '}
-                        {a.compatibleModels}
+                        {a.bajajCode && a.models.length > 0 && ' · '}
+                        {formatModels(a.models)}
                       </p>
+                      {/* Por qué apareció: el SKU buscado es de una pieza de adentro,
+                          no del ensamble. Sin esto la fila parece no tener relación. */}
+                      {match && (
+                        <p className="text-[11px] text-amber-700 truncate">
+                          contiene <span className="font-mono">{match.pieceCode}</span> · {match.pieceName}
+                        </p>
+                      )}
                     </div>
                     <span className="text-sm font-mono text-gray-600 shrink-0">${a.price.toFixed(2)}</span>
                   </button>
-                ))
+                  )
+                })
               )}
             </div>
             <p className="text-xs text-gray-400 mb-4">
@@ -519,6 +604,8 @@ export default function PresupuestoBuilder({
                           const alreadyInCart = !!cart.find(c => c.productId === comp.child.id)
                           const nls = !!comp.child.descontinuada
                           const bloqueada = alreadyInCart || nls
+                          const compat = compatBadge(comp.child.models, currentModel)
+                          const compatShown = compat?.shared && compatOpen[comp.id]
                           return (
                             <label
                               key={comp.id}
@@ -530,6 +617,9 @@ export default function PresupuestoBuilder({
                             >
                               <input
                                 type="checkbox"
+                                // `checked` arranca vacío: sin el !! la primera marca pasa
+                                // de undefined a booleano y React lo lee como cambio de
+                                // input no controlado a controlado.
                                 checked={checked[comp.id]}
                                 disabled={bloqueada}
                                 onChange={e =>
@@ -549,6 +639,30 @@ export default function PresupuestoBuilder({
                                 )}
                                 {alreadyInCart && !nls && (
                                   <span className="ml-2 text-xs text-blue-500">ya agregado</span>
+                                )}
+                                {/* Compatibilidad cruzada: la misma pieza que le sirve a otra moto.
+                                    Es la decisión de cantidad al armar stock — una pastilla que
+                                    cubre 4 motos se compra distinto que una exclusiva de esta. */}
+                                {compat && (compat.shared ? (
+                                  <button
+                                    type="button"
+                                    onClick={e => {
+                                      e.preventDefault()
+                                      e.stopPropagation()
+                                      setCompatOpen(prev => ({ ...prev, [comp.id]: !prev[comp.id] }))
+                                    }}
+                                    title={formatModels(compat.extras)}
+                                    className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
+                                  >
+                                    {compat.label} <span className={`inline-block transition-transform ${compatShown ? 'rotate-180' : ''}`}>▾</span>
+                                  </button>
+                                ) : (
+                                  <span className="ml-2 text-[10px] text-gray-300">solo esta moto</span>
+                                ))}
+                                {compatShown && (
+                                  <span className="block mt-0.5 text-[11px] text-amber-700/80 leading-snug">
+                                    también: {formatModels(compat!.extras)}
+                                  </span>
                                 )}
                               </span>
                               <input
@@ -645,8 +759,8 @@ export default function PresupuestoBuilder({
                         </p>
                         <p className="text-xs text-gray-400 truncate">
                           {p.bajajCode && <span className="font-mono">{p.bajajCode}</span>}
-                          {p.bajajCode && p.compatibleModels && ' · '}
-                          {p.compatibleModels}
+                          {p.bajajCode && (p.models?.length ?? 0) > 0 && ' · '}
+                          {formatModels(p.models ?? [])}
                         </p>
                       </div>
                       <span className="text-sm font-mono text-gray-600 shrink-0">${p.price.toFixed(2)}</span>
@@ -679,7 +793,9 @@ export default function PresupuestoBuilder({
             ) : (
               <>
                 <div className="space-y-1 max-h-80 overflow-y-auto">
-                  {cart.map(item => (
+                  {sortedCart.map(item => {
+                    const modelo = modeloLabel(item.models)
+                    return (
                     <div
                       key={item.productId}
                       className="py-2 border-b border-gray-50 last:border-0"
@@ -702,8 +818,24 @@ export default function PresupuestoBuilder({
                               </span>
                             )}
                           </p>
-                          {item.bajajCode && (
-                            <p className="text-xs font-mono text-gray-400">{item.bajajCode}</p>
+                          {(item.bajajCode || modelo) && (
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              {item.bajajCode && (
+                                <span className="text-xs font-mono text-gray-400 shrink-0">{item.bajajCode}</span>
+                              )}
+                              {modelo && (
+                                <span
+                                  title={modelo.full}
+                                  className={`text-[10px] px-1.5 py-0.5 rounded truncate ${
+                                    modelo.count === 1
+                                      ? 'bg-gray-100 text-gray-700 font-medium'
+                                      : 'bg-gray-50 text-gray-400'
+                                  }`}
+                                >
+                                  {modelo.label}
+                                </span>
+                              )}
+                            </div>
                           )}
                           {/* Costo real de traer esta línea. Es lo que decide si el precio
                               de al lado deja plata o la pierde. */}
@@ -833,7 +965,8 @@ export default function PresupuestoBuilder({
                         </div>
                       )}
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
 
                 <div className="flex justify-between items-center pt-3 mt-1 border-t border-gray-200">
@@ -898,6 +1031,54 @@ export default function PresupuestoBuilder({
                         {desalineadas.length === 1 ? 'línea' : 'líneas'} (margen sobre el landed)
                       </button>
                     )}
+                  </div>
+                )}
+
+                {/* Cobertura: para stock propio la pregunta no es "qué le llevo al cliente"
+                    sino "a cuántas motos le sirve lo que ya cargué". Evita entrar moto por
+                    moto para descubrir que la 160 ya quedó medio cubierta desde la 250. */}
+                {isPropio && coverage.length > 0 && (
+                  <div className="mt-4 pt-3 border-t border-gray-100">
+                    <div className="flex items-baseline justify-between mb-2">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                        Cobertura por moto
+                      </h3>
+                      <span className="text-[11px] text-gray-400">
+                        {coverage.length} moto{coverage.length === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      {coverage.map(c => (
+                        <div key={c.model} className="flex items-center gap-2 text-xs">
+                          <span
+                            className={`w-40 shrink-0 truncate ${
+                              c.model === currentModel ? 'font-semibold text-gray-900' : 'text-gray-600'
+                            }`}
+                            title={c.model}
+                          >
+                            {shortModel(c.model)}
+                          </span>
+                          <span className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <span
+                              className={`block h-full rounded-full ${
+                                c.model === currentModel ? 'bg-blue-500' : 'bg-blue-200'
+                              }`}
+                              style={{ width: `${maxCoverage ? (c.lines / maxCoverage) * 100 : 0}%` }}
+                            />
+                          </span>
+                          <span
+                            className="w-24 shrink-0 text-right font-mono text-gray-500"
+                            title={`${c.shared} de estas ${c.lines} sirven además para otra moto`}
+                          >
+                            {c.lines} · {c.units} u
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-[11px] text-gray-400 leading-snug">
+                      Cada pieza cuenta en todas las motos que cubre (líneas · unidades).
+                      Lo que armaste para una moto ya deja parte de las otras resuelto.
+                    </p>
                   </div>
                 )}
               </>

@@ -11,9 +11,11 @@ import { lookupDeConjuntos } from '@/lib/envio-build'
 import type { ConfigMap } from '@/lib/calc'
 import { getTerminos } from '@/lib/terminos'
 import { METODOS_PAGO } from '@/lib/pagos'
-import { toFileName } from '@/lib/utils'
+import { compararNombre, toFileName } from '@/lib/utils'
 import type { PresupuestoPdfData } from '@/lib/pdf/presupuesto-pdf'
 import { stageSummary, shippingStatusMeta, SHIPPING_STATUSES } from '@/lib/shipping-status'
+import { modeloLabel, type MotoModelId } from '@/lib/modelo'
+import { pedidoLogistics } from '@/lib/pedido-logistics'
 
 export default async function PresupuestoDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const id = parseInt((await params).id)
@@ -28,7 +30,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
             product: {
               select: {
                 id: true, nameEs: true, nameEn: true, bajajCode: true, description: true,
-                imageUrl: true, compatibleModels: true, weightGrams: true,
+                imageUrl: true, models: true, weightGrams: true,
                 dimL: true, dimA: true, dimH: true, priceInr: true,
               },
             },
@@ -46,9 +48,19 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
   const cfg = configRows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
   const bsdRow = configRows.find(r => r.key === 'bsd_usd_rate') ?? null
 
+  // Las piezas se listan alfabéticamente (mismo criterio que el builder, ver
+  // compararNombre): el orden de carga no le dice nada a quien lee el presupuesto.
+  const items = [...presupuesto.items].sort((a, b) =>
+    compararNombre(a.product.nameEs, b.product.nameEs)
+  )
+
   const isPropio = presupuesto.tipo === 'propio'
   const isPresupuesto = presupuesto.status === 'presupuesto'
   const terminos = await getTerminos(presupuesto.status)
+  // Peso y volumen: solo en el stock propio. En un presupuesto de cliente el flete ya
+  // está adentro del precio y el dato no le dice nada a nadie; en lo mío es la pregunta
+  // (cuánto espacio y cuánto peso me como en la caja y después en el depósito).
+  const logistica = isPropio ? (await pedidoLogistics([id])).porPedido.get(id) ?? null : null
   const total = presupuesto.items.reduce(
     (sum, item) => sum + parseFloat(item.salePrice.toString()) * item.quantity,
     0
@@ -70,14 +82,14 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
   const sueltas: PiezaMedible[] = []
   const comoPieza = (p: {
     id: number; bajajCode: string | null; nameEs: string; nameEn?: string | null
-    compatibleModels?: string | null; weightGrams: number | null
+    models?: readonly MotoModelId[]; weightGrams: number | null
     dimL: number | null; dimA: number | null; dimH: number | null
   }, quantity: number): PiezaMedible => ({
     id: p.id,
     bajajCode: p.bajajCode,
     nameEs: p.nameEs,
     nameEn: p.nameEn ?? null,
-    compatibleModels: p.compatibleModels ?? null,
+    models: p.models ?? [],
     quantity,
     weightGrams: p.weightGrams,
     dimL: p.dimL,
@@ -143,14 +155,20 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
     validez: isPresupuesto ? validez : null,
     clientName: presupuesto.clientName,
     notas: presupuesto.notas,
-    items: presupuesto.items.map(item => ({
+    items: items.map(item => {
+      // Solo cuando el producto apunta a UNA moto (los ensambles): la lista larga de
+      // compatibilidades de una pieza suelta no le dice nada al cliente.
+      const m = modeloLabel(item.product.models)
+      return {
       nameEs: item.product.nameEs,
       bajajCode: item.product.bajajCode,
+      modelo: m && m.count === 1 ? m.full : null,
       quantity: item.quantity,
       unitPrice: parseFloat(item.salePrice.toString()),
       subtotal: parseFloat(item.salePrice.toString()) * item.quantity,
       bundlePieces: (item.bundleItems as BundlePiece[] | null) ?? [],
-    })),
+      }
+    }),
     total,
     totalBsd,
     isPresupuesto,
@@ -276,6 +294,57 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
         )}
       </div>
 
+      {/* Peso y volumen del stock propio. Mismo cálculo que la página de envíos
+          (calcEnvio), medido sobre las piezas reales: un conjunto se expande a lo que
+          efectivamente lleva. Los ítems landed no entran — no viajan en la caja. */}
+      {logistica && logistica.piezas > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-4">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
+            Peso y volumen
+          </h2>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div>
+              <p className="text-xs text-gray-400 mb-1">Peso real</p>
+              <p className={`text-xl font-bold font-mono ${
+                logistica.realKg >= logistica.volKg ? 'text-green-700' : 'text-gray-900'
+              }`}>
+                {logistica.realKg.toFixed(2)} kg
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-1">Volumétrico</p>
+              <p className={`text-xl font-bold font-mono ${
+                logistica.volKg > logistica.realKg ? 'text-red-700' : 'text-gray-900'
+              }`}>
+                {logistica.volKg.toFixed(2)} kg
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-1">Cobrable max(W,V)</p>
+              <p className="text-xl font-bold font-mono text-blue-700">
+                {logistica.chargeableKg.toFixed(2)} kg
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-1">Volumen</p>
+              <p className="text-xl font-bold font-mono text-gray-900">
+                {logistica.ft3.toFixed(2)} ft³
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5 font-mono">
+                {logistica.cbm.toFixed(3)} CBM
+              </p>
+            </div>
+          </div>
+          {logistica.incompletas > 0 && (
+            <p className="text-xs text-amber-600 mt-4">
+              ⚠ {logistica.incompletas} de {logistica.piezas}{' '}
+              {logistica.incompletas === 1 ? 'pieza no tiene' : 'piezas no tienen'} peso o
+              medidas cargadas: el total real es mayor que éste.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Estado de compra — derivado de los ítems, no del pedido: de un mismo
           presupuesto unas piezas pueden estar compradas y otras no. */}
       {!isPresupuesto && compra && (
@@ -340,10 +409,11 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {presupuesto.items.map(item => {
+            {items.map(item => {
               const unitPrice = parseFloat(item.salePrice.toString())
               const subtotal = unitPrice * item.quantity
               const bundlePieces = (item.bundleItems as BundlePiece[] | null) ?? []
+              const modelo = modeloLabel(item.product.models)
               return (
                 <tr key={item.id} className="hover:bg-gray-50">
                   <td className="px-3 py-3 align-top">
@@ -361,8 +431,24 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
                   </td>
                   <td className="px-3 py-3 align-top">
                     <p className="text-sm font-medium text-gray-900">{item.product.nameEs}</p>
-                    {item.product.bajajCode && (
-                      <p className="text-xs font-mono text-gray-400">{item.product.bajajCode}</p>
+                    {(item.product.bajajCode || modelo) && (
+                      <p className="flex items-center gap-1.5 flex-wrap">
+                        {item.product.bajajCode && (
+                          <span className="text-xs font-mono text-gray-400">{item.product.bajajCode}</span>
+                        )}
+                        {modelo && (
+                          <span
+                            title={modelo.full}
+                            className={`text-[10px] px-1.5 py-0.5 rounded ${
+                              modelo.count === 1
+                                ? 'bg-gray-100 text-gray-700 font-medium'
+                                : 'bg-gray-50 text-gray-400'
+                            }`}
+                          >
+                            {modelo.label}
+                          </span>
+                        )}
+                      </p>
                     )}
                     {!isPresupuesto && (
                       <p className="mt-1 flex items-center gap-1.5 flex-wrap">
@@ -393,7 +479,9 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
                             <ul className="space-y-0.5">
                               {pieces.map((p, i) => (
                                 <li key={i} className="text-xs text-gray-500">
-                                  {p.quantity * item.quantity}× {p.nameEs}
+                                  {/* Cantidad POR SET: la columna Cant. ya es el multiplicador
+                                      del conjunto, mostrar el total acá lo aplicaba dos veces. */}
+                                  {p.quantity}× {p.nameEs}
                                   {p.bajajCode && (
                                     <span className="ml-1.5 font-mono text-gray-300">{p.bajajCode}</span>
                                   )}

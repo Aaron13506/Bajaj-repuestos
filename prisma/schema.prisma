@@ -19,6 +19,14 @@ model Product {
   nameEn           String?
   description      String?
   notes            String?
+  // Motos a las que le sirve la pieza. Tipado: las 15 del catálogo, nada más — un
+  // string libre dejaba entrar alias ("N250", "Pulsar N250/N160") que no son un modelo
+  // y que inflaban la compatibilidad al contarlos. Un ensamble lleva exactamente una.
+  // La tabla de presentación (familia, variante, años) está en lib/modelo.ts, que
+  // verifica en compilación que sus ids sigan siendo los de este enum.
+  models           MotoModel[]
+  // LEGADO: el texto del que salió `models`. Se conserva como respaldo del backfill
+  // (scripts/backfill-models.ts) hasta confirmar la migración; nada lo lee ya.
   compatibleModels String?
   weightGrams      Int?
   dimL             Float?
@@ -298,9 +306,9 @@ enum MotoModel {
   PULSAR_180_BS3_2009_16_UG4     // 539
   PULSAR_150_BS4                 // 515
   PULSAR_150_UG4                 // 449
-  // Otra familia (commuter, no Pulsar). Entró al catálogo después del enum original y ya
-  // existe en la DB con 81 ensambles scrapeados: declararla acá es lo que evita que una
-  // migración futura recree el tipo sin este valor y falle contra esas filas.
+  // Única no-Pulsar del catálogo: otra familia (commuter). Entró después del enum original
+  // y ya existe en la DB con 81 ensambles scrapeados, así que declararla acá es lo que evita
+  // que una migración futura recree el tipo sin este valor y falle contra esas filas.
   BOXER_BM150                    // 596
 }
 

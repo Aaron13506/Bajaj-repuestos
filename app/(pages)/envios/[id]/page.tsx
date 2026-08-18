@@ -4,6 +4,11 @@ import { notFound } from 'next/navigation'
 import DeleteButton from '@/components/DeleteButton'
 import EnvioItemsTable, { type EnvioItemRow } from '@/components/EnvioItemsTable'
 import PendingButton from '@/components/PendingButton'
+import PendientesCompraButton, {
+  type PendienteGrupo,
+  type PendienteRow,
+} from '@/components/PendientesCompraButton'
+import { limpiarNombre } from '@/lib/utils'
 import { calcEnvio, type EnvioItemInput, type ConfigMap } from '@/lib/calc'
 import { modoDeEnvio, MODOS } from '@/lib/modo'
 import EnvioMaritimo from './maritimo'
@@ -111,6 +116,9 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
       productId: it.productId,
       origen: (it.origen === 'china' ? 'china' : 'india') as 'india' | 'china',
       isLanded: it.isLanded,
+      shippingStatus: it.shippingStatus,
+      supplierId: it.supplierId,
+      supplierName: it.supplier?.name ?? null,
       priceUsd: it.supplierId != null && piece.productId != null
         ? precioProveedor.get(`${it.supplierId}:${piece.productId}`) ?? null
         : null,
@@ -176,6 +184,53 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   const buyTotalInr = buyIndia.reduce((s, r) => s + r.totalInr, 0)
   const buyTotalUsd = buyTotalInr / inrUsd
   const buyUnits = buyIndia.reduce((s, r) => s + r.qty, 0)
+
+  // Lo que TODAVÍA falta comprar: las mismas piezas, pero solo de las líneas que siguen
+  // en 'pendiente'. La lista de compra de arriba es el envío entero (incluye lo ya
+  // comprado); esta es la que se lleva al proveedor. Se parte por proveedor porque cada
+  // uno es una orden distinta, y dentro de cada uno se consolida por SKU: si tres
+  // presupuestos piden la misma pastilla, se pide una sola vez.
+  const pendMap = new Map<string, PendienteGrupo>()
+  for (const p of allPieces) {
+    if (p.shippingStatus !== 'pendiente') continue
+    const gk = p.supplierId != null ? `s${p.supplierId}` : `base-${p.origen}`
+    let grupo = pendMap.get(gk)
+    if (!grupo) {
+      grupo = {
+        key: gk,
+        proveedor: p.supplierName ?? '99rpm (base)',
+        origen: p.origen,
+        rows: [],
+      }
+      pendMap.set(gk, grupo)
+    }
+    const key = p.sku ?? p.name
+    let row = grupo.rows.find(r => (r.sku ?? r.name) === key)
+    if (!row) {
+      row = {
+        sku: p.sku,
+        name: limpiarNombre(p.name),
+        qty: 0,
+        unitInr: p.priceInr,
+        unitUsd: p.priceUsd,
+        isLanded: p.isLanded,
+      }
+      grupo.rows.push(row)
+    }
+    row.qty += p.quantity
+    if (row.unitInr == null) row.unitInr = p.priceInr
+    if (row.unitUsd == null) row.unitUsd = p.priceUsd
+  }
+  const costoFila = (r: PendienteRow) =>
+    r.unitUsd != null ? r.unitUsd * r.qty : (r.unitInr ?? 0) * r.qty / inrUsd
+  // India primero (es la orden grande y la que manda el peso cobrable), y dentro, el
+  // proveedor más caro arriba.
+  const pendientes = Array.from(pendMap.values())
+    .map(g => ({ ...g, rows: [...g.rows].sort((a, b) => costoFila(b) - costoFila(a)) }))
+    .sort((a, b) => {
+      if (a.origen !== b.origen) return a.origen === 'india' ? -1 : 1
+      return b.rows.reduce((s, r) => s + costoFila(r), 0) - a.rows.reduce((s, r) => s + costoFila(r), 0)
+    })
 
   // Venta y landed, agregados por línea de pedido para la tabla de arriba.
   const saleByItem = new Map<number, number>()
@@ -528,7 +583,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                 </>
               ) : (
                 <>
-                  <Row label={`Aéreo India→USA · ${calc.air.inr.toLocaleString('es-VE')} INR`} value={usd(calc.air.costUsd)} />
+                  <Row label={`Aéreo India→USA · ${calc.air.chargeableKg.toFixed(1)} kg cobrables`} value={usd(calc.air.costUsd)} />
                   {hayChina && <Row label="Flete China→USA (real)" value={usd(calc.china.costUsd)} />}
                   <Row label="Marítimo USA→VEN (volumen)" value={usd(calc.maritimeUsd)} />
                   <Row label="Seguro" value={usd(calc.insuranceUsd)} />
@@ -611,6 +666,13 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               </tbody>
             </table>
           </details>
+
+          {/* Lo pendiente de comprar, listo para copiar o bajar en CSV */}
+          <PendientesCompraButton
+            envio={envio.nombre ?? `Envío #${envio.id}`}
+            grupos={pendientes}
+            inrUsd={inrUsd}
+          />
 
           {/* Lista de compra — separada por origen: son dos órdenes distintas */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">

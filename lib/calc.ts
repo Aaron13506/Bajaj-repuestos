@@ -1,4 +1,4 @@
-import { getShoppReRate } from './shipping-rates'
+import { getShoppReRateUsd } from './shipping-rates'
 
 export type ConfigMap = Record<string, string>
 
@@ -9,6 +9,10 @@ function num(cfg: ConfigMap, key: string, fallback: number): number {
   const v = parseFloat(cfg[key] ?? '')
   return Number.isFinite(v) ? v : fallback
 }
+
+// cm³ en un pie cúbico. El marítimo cotiza por ft³, pero las medidas de las piezas
+// se cargan en cm, así que toda conversión de volumen pasa por acá.
+export const CM3_PER_FT3 = 28316.846
 
 export interface LandedBreakdown {
   modo: ModoEnvio
@@ -132,8 +136,9 @@ export function calcLanded(
     const carrier     = cfg.shoppre_carrier                ?? 'ShipGlobal USA - Duty Free'
     const refWeightKg = num(cfg, 'reference_weight_kg', 15)
     const fraction    = product.weightGrams! / (refWeightKg * 1000)
-    const refRateInr  = getShoppReRate(refWeightKg, carrier, isMember)
-    shoppreShippingUsd = (refRateInr / inrUsd) * fraction
+    // Shoppre cotiza el flete en USD: la tarifa entra tal cual, sin pasar por inr_usd_rate.
+    const refRateUsd  = getShoppReRateUsd(refWeightKg, carrier, isMember, cfg)
+    shoppreShippingUsd = refRateUsd * fraction
   }
 
   const insurancePct = esMaritimo
@@ -146,7 +151,7 @@ export function calcLanded(
   const maritimeMiami = num(cfg, 'miami_caracas_per_ft3', 45)
   const perFt3 = esMaritimo ? num(cfg, 'maritimo_directo_per_ft3', maritimeMiami) : maritimeMiami
   const maritimeUsd = hasDims
-    ? ((product.dimL! * product.dimA! * product.dimH!) / 28316.846) * perFt3
+    ? ((product.dimL! * product.dimA! * product.dimH!) / CM3_PER_FT3) * perFt3
     : 0
 
   // Los cargos fijos por ENVÍO no entran al costo landed por pieza: el processing de Shoppre
@@ -267,7 +272,7 @@ export interface EnvioItemLine {
   isLanded: boolean
   realKg: number          // peso real total de la línea (kg)
   volKg: number           // peso volumétrico total de la línea (kg) — solo aplica en aéreo
-  volumeFt3: number       // volumen real total de la línea (ft³) — la unidad que cobra el mar
+  ft3: number             // volumen real total de la línea (ft³) — la unidad que cobra el mar
   volumeM3: number        // el mismo volumen en m³ — la unidad que cotiza la naviera en CBM
   productCostUsd: number
   airUsd: number          // costo de llegar a USA (ShipGlobal si India, inbound si China). 0 en marítimo
@@ -295,15 +300,18 @@ export interface EnvioBreakdown {
   // Tramos a USA, medidos por separado porque cotizan distinto. En modo marítimo los dos
   // cuestan 0 (la caja no pasa por USA) pero se siguen midiendo en kg, para poder comparar
   // contra el escenario aéreo sin recalcular.
-  air: LegBreakdown & { inr: number }   // India → USA (ShipGlobal, tabla escalón)
+  air: LegBreakdown                     // India → USA (ShipGlobal, tabla escalón en USD)
   china: LegBreakdown                   // China → USA (costo real cargado a mano)
   // Totales de la caja que cruza a Venezuela (India + China; los isLanded no viajan).
   realKg: number
   volKg: number
   chargeableKg: number
+  // Volumen físico de la caja. El volumétrico (volKg) es una tarifa aérea; esto es el
+  // espacio que ocupa de verdad, que es lo que cobra el marítimo y lo que hay que
+  // guardar en el depósito.
+  ft3: number
   binding: 'weight' | 'volume'
   ratioVW: number | null
-  airInr: number
   airUsd: number          // total a USA por los dos orígenes
   airPerKgUsd: number
   maritimeUsd: number
@@ -412,7 +420,7 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
     const hasDims = it.dimL != null && it.dimA != null && it.dimH != null
     const cm3 = hasDims ? it.dimL! * it.dimA! * it.dimH! : 0
     const viaja = !isLanded
-    const volumeFt3 = viaja && hasDims ? (cm3 / 28316.846) * qty : 0
+    const volumeFt3 = viaja && hasDims ? (cm3 / CM3_PER_FT3) * qty : 0
     return {
       pedidoId: it.pedidoId,
       productId: it.productId,
@@ -422,7 +430,7 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
       isLanded,
       realKg: viaja ? ((it.weightGrams ?? 0) / 1000) * qty : 0,
       volKg: viaja && hasDims ? (cm3 / divisor) * qty : 0,
-      volumeFt3,
+      ft3: volumeFt3,
       volumeM3: viaja && hasDims ? (cm3 / CM3_PER_M3) * qty : 0,
       productCostUsd: (it.priceUsd != null ? it.priceUsd : (it.priceInr ?? 0) / inrUsd) * qty,
       airUsd: 0,
@@ -447,8 +455,10 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
     indiaLines.reduce((s, l) => s + l.realKg, 0),
     indiaLines.reduce((s, l) => s + l.volKg, 0),
   )
-  const airInr = !esMaritimo && indiaChargeable > 0 ? getShoppReRate(indiaChargeable, carrier, isMember) : 0
-  const airLeg = { ...repartirTramo(indiaLines, airInr / inrUsd), inr: airInr }
+  const airRateUsd = !esMaritimo && indiaChargeable > 0
+    ? getShoppReRateUsd(indiaChargeable, carrier, isMember, cfg)
+    : 0
+  const airLeg = repartirTramo(indiaLines, airRateUsd)
 
   // Tramo China→USA: no hay tabla, es el costo real facturado.
   const chinaLeg = repartirTramo(chinaLines, esMaritimo ? 0 : (opts.inboundChinaUsd ?? 0))
@@ -469,7 +479,7 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   // volumen de cada línea: si el mínimo infla la factura, todas las piezas lo absorben.
   // Si no viaja nada (todo el pedido es de proveedor landed) no hay embarque, y por lo
   // tanto tampoco mínimo que pagar: la caja no existe.
-  const volumeFt3     = enBarco.reduce((s, l) => s + l.volumeFt3, 0)
+  const volumeFt3     = enBarco.reduce((s, l) => s + l.ft3, 0)
   const volumeM3      = enBarco.reduce((s, l) => s + l.volumeM3, 0)
   const billableFt3   = enBarco.length > 0 ? Math.max(volumeFt3, minFt3) : 0
   const minFt3Applied = enBarco.length > 0 && minFt3 > 0 && volumeFt3 < minFt3
@@ -488,7 +498,7 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   const volDenom  = esCbm ? volumeM3 : volumeFt3
   const costDenom = enBarco.reduce((s, l) => s + l.productCostUsd, 0)
   for (const l of enBarco) {
-    const vol = esCbm ? l.volumeM3 : l.volumeFt3
+    const vol = esCbm ? l.volumeM3 : l.ft3
     if (volDenom > 0)       l.maritimeUsd = maritimeUsd * (vol / volDenom)
     else if (costDenom > 0) l.maritimeUsd = maritimeUsd * (l.productCostUsd / costDenom)
     else                    l.maritimeUsd = enBarco.length ? maritimeUsd / enBarco.length : 0
@@ -530,9 +540,9 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
     realKg: W,
     volKg: V,
     chargeableKg,
+    ft3: enBarco.reduce((s, l) => s + l.ft3, 0),
     binding,
     ratioVW: W > 0 ? V / W : null,
-    airInr,
     airUsd,
     airPerKgUsd: chargeableKg > 0 ? airUsd / chargeableKg : 0,
     maritimeUsd,

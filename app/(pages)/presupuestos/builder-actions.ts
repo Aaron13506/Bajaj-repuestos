@@ -11,7 +11,12 @@ export async function getAssemblyComponents(assemblyId: number) {
   const comps = await db.productComponent.findMany({
     where: { parentId: assemblyId },
     include: {
-      child: { select: { id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true, discontinuedAt: true } },
+      child: {
+        select: {
+          id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true,
+          models: true, discontinuedAt: true,
+        },
+      },
     },
     orderBy: [{ groupName: 'asc' }, { sortOrder: 'asc' }, { id: 'asc' }],
   })
@@ -25,6 +30,7 @@ export async function getAssemblyComponents(assemblyId: number) {
       bajajCode: c.child.bajajCode,
       price: parseFloat(c.child.price.toString()),
       imageUrl: c.child.imageUrl,
+      models: c.child.models,
       // Bajaj no la fabrica más. Acá pesa incluso más que en un embarque: el negocio es por
       // encargo, así que cotizarla es prometerle a un cliente algo que no se va a poder
       // comprar — y con seña cobrada.
@@ -171,6 +177,39 @@ export async function costearCarrito(lineas: CarritoLineaInput[]): Promise<Costo
   }
 }
 
+// Ensambles que CONTIENEN una pieza con este SKU. El filtro del armador corre sobre los
+// headers ya cargados (nombre y código del ensamble), así que el SKU de una pieza —que es
+// con lo que llega el cliente: tiene el código de la pieza, no el del ensamble— nunca
+// puede matchear ahí. Solo se busca por bajajCode y no por nombre de pieza: "sensor"
+// devolvería medio catálogo, mientras que un SKU identifica una pieza puntual.
+export async function searchAssembliesByPiece(term: string) {
+  const q = term.trim()
+  if (q.length < 2) return []
+  const comps = await db.productComponent.findMany({
+    where: {
+      parent: { isAssembly: true },
+      child: { bajajCode: { contains: q, mode: 'insensitive' } },
+    },
+    select: { parentId: true, child: { select: { nameEs: true, bajajCode: true } } },
+    // Una pieza genérica (un tornillo) vive en cientos de ensambles; el tope evita
+    // traer esa cola entera para una lista que igual no se puede recorrer a mano.
+    take: 400,
+    orderBy: { id: 'asc' },
+  })
+  // Un ensamble puede repetir la misma pieza en varios subgrupos: nos quedamos con
+  // la primera aparición, que es la que se muestra como motivo del match.
+  const byParent = new Map<number, { parentId: number; pieceName: string; pieceCode: string }>()
+  for (const c of comps) {
+    if (byParent.has(c.parentId)) continue
+    byParent.set(c.parentId, {
+      parentId: c.parentId,
+      pieceName: c.child.nameEs,
+      pieceCode: c.child.bajajCode ?? '',
+    })
+  }
+  return Array.from(byParent.values())
+}
+
 // Búsqueda de piezas sueltas por nombre o código (server-side), en vez de mandar los
 // 5.5k productos al navegador.
 export async function searchProducts(term: string) {
@@ -183,7 +222,10 @@ export async function searchProducts(term: string) {
         { bajajCode: { contains: q, mode: 'insensitive' } },
       ],
     },
-    select: { id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true, compatibleModels: true, discontinuedAt: true },
+    select: {
+      id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true,
+      models: true, discontinuedAt: true,
+    },
     take: 12,
     orderBy: { nameEs: 'asc' },
   })
@@ -193,7 +235,7 @@ export async function searchProducts(term: string) {
     bajajCode: p.bajajCode,
     price: parseFloat(p.price.toString()),
     imageUrl: p.imageUrl,
-    compatibleModels: p.compatibleModels,
+    models: p.models,
     // Sigue apareciendo en la búsqueda, tachada y sin poder agregarse: si la estás
     // buscando es porque el cliente la pidió, y lo que necesitás saber es que ya no se
     // fabrica — no que "no hay resultados".
