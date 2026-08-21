@@ -78,6 +78,36 @@ export async function saveEstimate(envioId: number, shippingCostEst: number) {
   revalidatePath(`/envios/${envioId}`)
 }
 
+// La caja como la pesó y midió el transportista, más lo que terminó facturando.
+//
+// Es el único dato del envío que NO se puede derivar del catálogo: el catálogo conoce la
+// pieza desnuda y la balanza pesa el bulto — cada repuesto con su caja, el cartón y el
+// relleno. Mientras no esté cargado, el costeo de la caja es un piso.
+//
+// Cada campo se guarda por separado y vacío significa "todavía no lo sé", no cero: cargar
+// el peso no inventa las medidas, y un 0 haría desaparecer la caja del cálculo.
+export async function saveMedidasCaja(envioId: number, formData: FormData) {
+  const num = (name: string) => {
+    const raw = (formData.get(name) as string)?.trim()
+    if (!raw) return null
+    const v = parseFloat(raw.replace(',', '.'))
+    return Number.isFinite(v) && v > 0 ? v : null
+  }
+
+  await db.envio.update({
+    where: { id: envioId },
+    data: {
+      pesoRealKg: num('pesoRealKg'),
+      cajaL: num('cajaL'),
+      cajaA: num('cajaA'),
+      cajaH: num('cajaH'),
+      shippingCostReal: num('shippingCostReal'),
+    },
+  })
+  revalidatePath('/envios')
+  revalidatePath(`/envios/${envioId}`)
+}
+
 // Costo real facturado del tramo China → USA. Sin esto los ítems chinos viajan
 // gratis en el cálculo y el envío queda subcosteado.
 export async function saveInboundChina(envioId: number, formData: FormData) {

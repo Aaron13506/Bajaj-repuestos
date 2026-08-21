@@ -1,12 +1,11 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
-import { useState, useTransition } from 'react'
+import { useEffect, useState } from 'react'
 import { shortModel, type MotoModelInfo } from '@/lib/modelo'
 
 interface Props {
   basePath: string          // '/groups' o '/products'
-  models: readonly MotoModelInfo[]  // las 14 motos (el valor del filtro es el id del enum)
+  models: readonly MotoModelInfo[]  // las 15 motos (el valor del filtro es el id del enum)
   categories: string[]      // categorías ya scopeadas al modelo actual
   current: { model: string; category: string; search: string; lowStock?: boolean }
   showLowStock?: boolean
@@ -26,44 +25,58 @@ export default function CatalogFilters({
   suppliers,
   currentSupplierId = null,
 }: Props) {
-  const router = useRouter()
-  const [category, setCategory] = useState(current.category)
-  const [search, setSearch] = useState(current.search)
-  const [lowStock, setLowStock] = useState(!!current.lowStock)
-  // Filtrar re-renderiza la página en el servidor contra una base remota: hay casi un
-  // segundo entre el click y el resultado. Sin marcar ese rato la pantalla queda idéntica
-  // y parece que el botón no hizo nada — y el reflejo es volver a clickear, que encima
-  // encola otra navegación.
-  const [pending, startTransition] = useTransition()
+  // Filtrar es una navegación del NAVEGADOR, no del router de React.
+  //
+  // Antes era `router.push()` dentro de un `useTransition`, y cuando la transición no
+  // confirmaba —la respuesta del servidor llegaba entera y aun así el árbol nunca se
+  // aplicaba— el `pending` quedaba en true para siempre: el botón clavado en
+  // "Filtrando…", el listado viejo en pantalla y el `<select>` rebotado a "Todos los
+  // modelos", sin más salida que recargar a mano. La transición tampoco compraba nada:
+  // estas dos páginas se renderizan enteras en el servidor, así que la navegación cuesta
+  // lo mismo por los dos caminos, solo que una se puede colgar y la otra no.
+  const [enviando, setEnviando] = useState(false)
 
-  // Navega reseteando la página. Los overrides pisan el estado local.
-  function go(next: Partial<{ model: string; category: string; search: string; lowStock: boolean; proveedor: string }>) {
-    const model = next.model ?? current.model
-    const cat = next.category ?? category
-    const s = next.search ?? search
-    const ls = next.lowStock ?? lowStock
-    const prov = next.proveedor ?? (currentSupplierId != null ? String(currentSupplierId) : '')
+  // Volver con el botón atrás restaura la página desde el bfcache tal como quedó, con el
+  // "Filtrando…" congelado. `pageshow` es el único evento que dispara en ese caso.
+  useEffect(() => {
+    const reset = () => setEnviando(false)
+    window.addEventListener('pageshow', reset)
+    return () => window.removeEventListener('pageshow', reset)
+  }, [])
+
+  // Navega con lo que el formulario tiene puesto. Los campos vacíos se caen de la URL, y
+  // `page` no es un campo, así que la paginación se resetea sola al cambiar un filtro.
+  function enviar(form: HTMLFormElement, limpiarCategoria = false) {
+    const datos = new FormData(form)
+    if (limpiarCategoria) datos.set('category', '')
     const p = new URLSearchParams()
-    if (model) p.set('model', model)
-    if (cat) p.set('category', cat)
-    if (s) p.set('search', s)
-    if (ls) p.set('lowStock', '1')
-    if (prov) p.set('proveedor', prov)
+    for (const [clave, valor] of datos.entries()) {
+      const texto = String(valor).trim()
+      if (texto) p.set(clave, texto)
+    }
     const qs = p.toString()
-    startTransition(() => router.push(qs ? `${basePath}?${qs}` : basePath))
+    setEnviando(true)
+    window.location.assign(qs ? `${basePath}?${qs}` : basePath)
   }
 
-  const hasFilters = !!(current.model || category || search || lowStock)
+  const hasFilters = !!(current.model || current.category || current.search || current.lowStock)
 
   return (
+    // `method`/`action` son el camino sin JS: si el handler no corre, el navegador manda
+    // el formulario igual y la pantalla filtra (con la URL algo más sucia).
     <form
-      onSubmit={(e) => { e.preventDefault(); go({}) }}
-      className={`flex flex-wrap items-center gap-3 mb-6 transition-opacity ${pending ? 'opacity-60' : ''}`}
+      method="GET"
+      action={basePath}
+      onSubmit={(e) => { e.preventDefault(); enviar(e.currentTarget) }}
+      className={`flex flex-wrap items-center gap-3 mb-6 transition-opacity ${enviando ? 'opacity-60' : ''}`}
     >
-      {/* Modelo — al cambiar, recarga y limpia la categoría (que pertenecía al modelo viejo) */}
+      {/* Modelo — al cambiar, navega y limpia la categoría (que era la del modelo viejo).
+          No controlado a propósito: controlarlo contra el prop del servidor hacía que el
+          desplegable volviera solo al valor viejo mientras cargaba. */}
       <select
-        value={current.model}
-        onChange={(e) => { setCategory(''); go({ model: e.target.value, category: '' }) }}
+        name="model"
+        defaultValue={current.model}
+        onChange={(e) => enviar(e.currentTarget.form!, true)}
         className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
       >
         <option value="">Todos los modelos</option>
@@ -74,8 +87,8 @@ export default function CatalogFilters({
 
       {/* Categoría — scopeada al modelo actual */}
       <input
-        value={category}
-        onChange={(e) => setCategory(e.target.value)}
+        name="category"
+        defaultValue={current.category}
         list="catalog-categories"
         placeholder={current.model ? 'Categoría de este modelo...' : 'Categoría (Swing Arm...)'}
         className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-56"
@@ -87,8 +100,8 @@ export default function CatalogFilters({
       </datalist>
 
       <input
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
+        name="search"
+        defaultValue={current.search}
         placeholder={searchPlaceholder}
         className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-64"
       />
@@ -97,8 +110,10 @@ export default function CatalogFilters({
         <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
           <input
             type="checkbox"
-            checked={lowStock}
-            onChange={(e) => { setLowStock(e.target.checked); go({ lowStock: e.target.checked }) }}
+            name="lowStock"
+            value="1"
+            defaultChecked={!!current.lowStock}
+            onChange={(e) => enviar(e.currentTarget.form!)}
           />
           Solo stock bajo
         </label>
@@ -110,8 +125,9 @@ export default function CatalogFilters({
         <label className="flex items-center gap-2 text-sm text-gray-600">
           🚢 comparar contra
           <select
-            value={currentSupplierId ?? ''}
-            onChange={(e) => go({ proveedor: e.target.value })}
+            name="proveedor"
+            defaultValue={currentSupplierId ?? ''}
+            onChange={(e) => enviar(e.currentTarget.form!)}
             className="border border-gray-300 rounded-lg px-2 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           >
             <option value="">99rpm (base)</option>
@@ -124,21 +140,17 @@ export default function CatalogFilters({
 
       <button
         type="submit"
-        disabled={pending}
+        disabled={enviando}
         className="bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-60 disabled:cursor-wait"
       >
-        {pending ? 'Filtrando…' : 'Filtrar'}
+        {enviando ? 'Filtrando…' : 'Filtrar'}
       </button>
       {hasFilters && (
-        <button
-          type="button"
-          onClick={() => startTransition(() => router.push(basePath))}
-          className="text-sm text-gray-500 hover:text-gray-700 self-center"
-        >
+        <a href={basePath} className="text-sm text-gray-500 hover:text-gray-700 self-center">
           Limpiar
-        </button>
+        </a>
       )}
-      {pending && (
+      {enviando && (
         <span className="text-sm text-gray-500 self-center animate-pulse">Buscando…</span>
       )}
     </form>

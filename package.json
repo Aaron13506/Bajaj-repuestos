@@ -31,6 +31,7 @@
     "verify:images": "tsx scripts/verify-scraped-images.ts",
     "fx:update": "tsx scripts/update-fx-rates.ts",
     "cbm:config": "tsx scripts/seed-cbm-config.ts",
+    "measures:audit": "tsx scripts/audit-measures.ts",
     "rates:update": "tsx scripts/update-shipping-rates.ts",
     "rates:baseline": "tsx scripts/update-shipping-rates.ts --baseline",
     "q": "tsx scripts/q.ts"

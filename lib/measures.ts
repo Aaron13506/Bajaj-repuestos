@@ -1,6 +1,7 @@
 import { db } from './db'
 import { type ConfigMap } from './calc'
 import { reprice } from './reprice'
+import { chequearMedidas, hayError } from './measures-check'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Carga de peso y dimensiones desde una respuesta de IA.
@@ -18,13 +19,17 @@ export interface MeasuresResult {
   ok: boolean
   updated: number       // filas de Product actualizadas
   priced: number        // de esas, cuántas quedaron con precio recalculado (> 0)
+  rejected: number      // filas que NO se escribieron por no pasar el chequeo físico
   notFound: string[]    // identificadores que no matchearon ningún producto
   errors: { name: string; message: string }[]
+  // Se escribieron igual, pero hay algo raro. Van aparte de `errors` porque exigen
+  // mirarlas, no corregirlas: un plástico hueco grande dispara el aviso y está bien.
+  warnings: { name: string; message: string }[]
   message?: string
 }
 
 export const emptyMeasuresResult: MeasuresResult = {
-  ok: false, updated: 0, priced: 0, notFound: [], errors: [],
+  ok: false, updated: 0, priced: 0, rejected: 0, notFound: [], errors: [], warnings: [],
 }
 
 // JSON laxo: la IA puede devolver strings o números. Cada fila identifica un
@@ -130,8 +135,10 @@ export async function applyMeasures(raw: string): Promise<MeasuresResult> {
 
   let updated = 0
   let priced = 0
+  let rejected = 0
   const notFound: string[] = []
   const errors: MeasuresResult['errors'] = []
+  const warnings: MeasuresResult['warnings'] = []
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i]
@@ -175,6 +182,21 @@ export async function applyMeasures(raw: string): Promise<MeasuresResult> {
           dimH:        patch.dimH !== undefined ? patch.dimH : p.dimH,
         }
 
+        // Chequeo físico ANTES de escribir, sobre el resultado FUSIONADO: una fila que
+        // solo trae peso hay que juzgarla contra las dimensiones que ya estaban, porque
+        // es esa combinación la que va a costear. Lo imposible no entra — el catálogo es
+        // la fuente del precio de venta, y un dato absurdo ahí se cobra en flete.
+        const chequeos = chequearMedidas(merged)
+        const etiqueta = `${p.bajajCode ?? label} · ${p.nameEs}`
+        if (hayError(chequeos)) {
+          rejected++
+          for (const c of chequeos.filter(c => c.severidad === 'error')) {
+            errors.push({ name: etiqueta, message: `${c.mensaje} NO se guardó.` })
+          }
+          continue
+        }
+        for (const c of chequeos) warnings.push({ name: etiqueta, message: c.mensaje })
+
         // El recálculo de precio vive en lib/reprice.ts: es la misma cuenta que corre
         // cuando cambia el ₹ de 99rpm, y una segunda copia daría dos catálogos que se
         // contradicen. Acá solo se aportan las medidas nuevas.
@@ -196,15 +218,19 @@ export async function applyMeasures(raw: string): Promise<MeasuresResult> {
   const parts: string[] = []
   parts.push(`${updated} producto(s) actualizado(s)`)
   if (priced > 0) parts.push(`${priced} con precio recalculado`)
+  if (rejected > 0) parts.push(`${rejected} RECHAZADO(S) por chequeo físico`)
   if (notFound.length > 0) parts.push(`${notFound.length} no encontrado(s)`)
+  if (warnings.length > 0) parts.push(`${warnings.length} con aviso`)
   if (errors.length > 0) parts.push(`${errors.length} con error`)
 
   return {
     ok: errors.length === 0 && notFound.length === 0,
     updated,
     priced,
+    rejected,
     notFound,
     errors,
+    warnings,
     message: parts.join(', ') + '.',
   }
 }

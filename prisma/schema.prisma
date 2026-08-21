@@ -184,6 +184,20 @@ model Envio {
   // Costo real del tramo China→USA. No sale de shipping_rates.json (esa tabla es de
   // ShipGlobal, solo aplica a India); se prorratea por peso entre los ítems origen='china'.
   inboundChinaUsd  Decimal?  @db.Decimal(10, 2)
+  // ── La caja como la pesó y midió el transportista ────────────────────────────────
+  // El catálogo guarda la pieza DESNUDA; lo que se factura es el BULTO: cada repuesto con
+  // su caja o bolsa, el cartón exterior y el relleno. Son dos cosas distintas y la
+  // diferencia no es chica — contra el envío real 64898 fue +19% de peso y +56% de
+  // volumen sobre la suma de las piezas, y ese error se paga dos veces (el escalón de
+  // ShipGlobal y el ft³ del tramo Miami→CCS).
+  //
+  // Mientras estos campos estén vacíos, el costeo de la caja es un PISO y no una
+  // estimación: sumar piezas sueltas nunca puede sobreestimar, solo subestimar. Cuando se
+  // cargan, mandan ellos — y de paso dejan medido el factor de empaque real de la caja.
+  pesoRealKg       Decimal?  @db.Decimal(8, 3)
+  cajaL            Float?
+  cajaA            Float?
+  cajaH            Float?
   // Carga COMERCIAL: piezas que ya se le vendieron a alguien. Es el carril aéreo.
   items            PedidoItem[]
   // Carga PROPIA: mercancía que traigo para stock. Es el carril marítimo.

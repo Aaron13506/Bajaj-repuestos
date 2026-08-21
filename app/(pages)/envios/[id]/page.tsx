@@ -21,6 +21,7 @@ import {
   deleteEnvio,
   saveEstimate,
   saveInboundChina,
+  saveMedidasCaja,
   saveItemChanges,
 } from '../actions'
 
@@ -145,7 +146,21 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   // una caja aérea ya armada sigue costeándose como aérea aunque hoy operes en CBM.
   const modoEnvio = modoDeEnvio(envio.modo)
   const esCbm = modoEnvio === 'maritimo_cbm'
-  const calc = calcEnvio(items, cfg, { inboundChinaUsd, modo: modoEnvio })
+  // La caja como la pesó y midió el transportista. Si está cargada manda ella y reemplaza
+  // a la suma de las piezas: lo que se factura es lo que leyó la balanza.
+  const medidas = {
+    pesoKg: envio.pesoRealKg != null ? parseFloat(envio.pesoRealKg.toString()) : null,
+    dimL: envio.cajaL,
+    dimA: envio.cajaA,
+    dimH: envio.cajaH,
+  }
+  const calc = calcEnvio(items, cfg, { inboundChinaUsd, modo: modoEnvio, medidas })
+  // El mismo envío costeado por la suma de las piezas, para ver cuánto se le escapaba al
+  // catálogo. Solo tiene sentido cuando hay una caja real contra la cual compararlo.
+  const calcNeto = calc.caja.medido
+    ? calcEnvio(items, cfg, { inboundChinaUsd, modo: modoEnvio })
+    : null
+  const costoReal = envio.shippingCostReal != null ? parseFloat(envio.shippingCostReal.toString()) : null
 
   // Lista de compra: consolida las piezas por SKU (o nombre si no tiene SKU) sumando
   // cantidades, para saber exactamente qué y cuánto comprar. Separada por origen,
@@ -292,6 +307,9 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   // Flete estimado de la caja. `fobUsd` es 0 fuera del modo CBM, así que esto no cambia
   // nada en aéreo; en CBM el FOB es parte del costo de traerla y tiene que ir adentro.
   const shippingEst = calc.airUsd + calc.maritimeUsd + calc.fobUsd
+  // El mismo flete calculado sobre las piezas sueltas: la cuenta que se hacía antes de
+  // saber cuánto pesaba y medía la caja de verdad.
+  const shippingNeto = calcNeto ? calcNeto.airUsd + calcNeto.maritimeUsd + calcNeto.fobUsd : null
   const fmtBound =
     calc.air.binding === 'weight'
       ? { label: 'Atado por PESO', cls: 'bg-green-100 text-green-700' }
@@ -567,6 +585,140 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
           )}
           </>
           )}
+
+          {/* La caja real. Es el único dato del envío que no se puede derivar del
+              catálogo: el catálogo tiene la pieza desnuda, la balanza pesa el bulto. */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+                📦 Caja real · peso y medidas
+              </h2>
+              <span
+                className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                  calc.caja.medido ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                }`}
+              >
+                {calc.caja.medido ? 'MEDIDA' : 'SIN MEDIR'}
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 mb-4">
+              Copiá lo que dice el panel del transportista: <em>Actual Weight</em> y{' '}
+              <em>Box Dimensions</em>. Estos números <strong>reemplazan</strong> a la suma
+              de las piezas — es lo que se factura.
+            </p>
+
+            <form action={saveMedidasCaja.bind(null, envio.id)} className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Peso real (kg)</label>
+                <input
+                  type="number" step="0.01" min="0" name="pesoRealKg"
+                  defaultValue={medidas.pesoKg ?? ''}
+                  placeholder={calc.netRealKg > 0 ? calc.netRealKg.toFixed(2) : '0.00'}
+                  className="w-28 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Caja L × A × H (cm)</label>
+                <div className="flex items-center gap-1">
+                  {(['cajaL', 'cajaA', 'cajaH'] as const).map((f, i) => (
+                    <div key={f} className="flex items-center gap-1">
+                      {i > 0 && <span className="text-gray-300 text-sm">×</span>}
+                      <input
+                        type="number" step="0.1" min="0" name={f}
+                        defaultValue={envio[f] ?? ''}
+                        placeholder="0"
+                        className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Flete facturado (USD)</label>
+                <input
+                  type="number" step="0.01" min="0" name="shippingCostReal"
+                  defaultValue={costoReal ?? ''}
+                  placeholder="0.00"
+                  className="w-32 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+              <button
+                type="submit"
+                className="px-4 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Guardar
+              </button>
+            </form>
+
+            {calc.caja.medido ? (
+              <div className="mt-5">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs text-gray-400 uppercase tracking-wide">
+                      <th className="text-left font-medium pb-1"></th>
+                      <th className="text-right font-medium pb-1">Suma de piezas</th>
+                      <th className="text-right font-medium pb-1">Caja real</th>
+                      <th className="text-right font-medium pb-1">Falta en el catálogo</th>
+                    </tr>
+                  </thead>
+                  <tbody className="font-mono">
+                    <tr className="border-t border-gray-100">
+                      <td className="py-2 font-sans text-gray-600">Peso</td>
+                      <td className="py-2 text-right text-gray-400">{kg(calc.netRealKg)}</td>
+                      <td className="py-2 text-right text-gray-900 font-semibold">{kg(calc.realKg)}</td>
+                      <td className="py-2 text-right text-amber-700">{kg(calc.realKg - calc.netRealKg)}</td>
+                    </tr>
+                    <tr className="border-t border-gray-100">
+                      <td className="py-2 font-sans text-gray-600">Volumen</td>
+                      <td className="py-2 text-right text-gray-400">{m3(calc.netVolumeM3)}</td>
+                      <td className="py-2 text-right text-gray-900 font-semibold">{m3(calc.volumeM3)}</td>
+                      <td className="py-2 text-right text-amber-700">{m3(calc.volumeM3 - calc.netVolumeM3)}</td>
+                    </tr>
+                    {!esCbm && (
+                      <tr className="border-t border-gray-100">
+                        <td className="py-2 font-sans text-gray-600">Cobrable max(W,V)</td>
+                        <td className="py-2 text-right text-gray-400">{kg(calcNeto!.air.chargeableKg)}</td>
+                        <td className="py-2 text-right text-blue-700 font-semibold">{kg(calc.air.chargeableKg)}</td>
+                        <td className="py-2 text-right text-gray-300">—</td>
+                      </tr>
+                    )}
+                    <tr className="border-t-2 border-gray-200">
+                      <td className="py-2 font-sans font-semibold text-gray-800">Flete</td>
+                      <td className="py-2 text-right text-gray-400">{usd(shippingNeto!)}</td>
+                      <td className="py-2 text-right text-gray-900 font-bold">{usd(shippingEst)}</td>
+                      <td className="py-2 text-right text-red-700 font-semibold">
+                        {shippingNeto! > 0 ? `+${(((shippingEst / shippingNeto!) - 1) * 100).toFixed(0)}%` : '—'}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                {costoReal != null && (
+                  <p
+                    className={`text-xs mt-3 px-3 py-2 rounded-lg ${
+                      Math.abs(costoReal - shippingEst) / Math.max(costoReal, 1) <= 0.05
+                        ? 'bg-green-50 text-green-700'
+                        : 'bg-amber-50 text-amber-700'
+                    }`}
+                  >
+                    Facturado {usd(costoReal)} contra {usd(shippingEst)} calculados:{' '}
+                    <strong>{costoReal >= shippingEst ? '+' : ''}{usd(costoReal - shippingEst)}</strong>
+                    {' '}({(((costoReal / Math.max(shippingEst, 0.01)) - 1) * 100).toFixed(1)}%). Si la
+                    diferencia pasa del 5% no es el empaque: revisá la tasa INR/USD, el
+                    transportista elegido o el tramo marítimo.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs mt-4 px-3 py-2 rounded-lg bg-amber-50 text-amber-700">
+                ⚠️ Sin la caja real, todo lo de arriba es un <strong>piso</strong>, no una
+                estimación: por más que cada pieza esté cargada con su empaque, la suma no
+                puede saber el cartón exterior ni el hueco que queda entre piezas
+                irregulares, y ese error solo va para abajo. En la caja 64898 la suma se
+                quedó <strong>3 kg y 27 000 cm³ corta</strong>.
+              </p>
+            )}
+          </div>
 
           {/* Desglose de costo */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">

@@ -35,7 +35,7 @@ const SCHEMA_EXAMPLE = `{
 
 const FLAT_EXAMPLE = `[
   { "nameEs": "Pastilla de freno", "priceInr": 450, "weightGrams": 320 },
-  { "nameEs": "Cable de embrague", "priceInr": 180, "weightGrams": 90, "dimL": 120, "dimA": 3, "dimH": 1 },
+  { "nameEs": "Cable de embrague", "priceInr": 180, "weightGrams": 90, "dimL": 20, "dimA": 20, "dimH": 3 },
   { "nameEs": "Filtro de aceite", "priceInr": 220 }
 ]`
 

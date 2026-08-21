@@ -350,7 +350,7 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty, activeSupp
             {/* Físico */}
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
               <div>
-                <label className={label}>Peso (g)</label>
+                <label className={label} title="Peso del bulto: la pieza con su empaque, como se despacha">Peso bulto (g)</label>
                 <input ref={weightRef} name="weightGrams" type="number" min="0" step="1"
                   defaultValue={d.weightGrams ?? ''} onChange={recalcFromCost} className={input} />
               </div>

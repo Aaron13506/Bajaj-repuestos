@@ -51,7 +51,9 @@ interface Props {
   defaultOpen?: boolean
 }
 
-const emptyResult: MeasuresResult = { ok: false, updated: 0, priced: 0, notFound: [], errors: [] }
+const emptyResult: MeasuresResult = {
+  ok: false, updated: 0, priced: 0, rejected: 0, notFound: [], errors: [], warnings: [],
+}
 
 // Qué le falta a la pieza. El volumen es lo que se factura por mar, así que "dims" es
 // tan bloqueante como el peso — y en la práctica casi siempre faltan los dos juntos.
@@ -320,6 +322,19 @@ export default function MedidasIA({
                     <li key={i} className="flex gap-2">
                       <span className="text-red-500 shrink-0">•</span>
                       <span><span className="font-medium">{err.name}</span> — {err.message}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {/* Avisos: se guardaron igual. Son para mirar, no necesariamente para
+                  corregir — un plástico hueco grande dispara el de densidad baja y está
+                  bien. Van debajo de los errores porque no bloquean nada. */}
+              {state.warnings.length > 0 && (
+                <ul className="mt-2 space-y-1 text-sm text-gray-600 border-t border-yellow-200 pt-2">
+                  {state.warnings.map((w, i) => (
+                    <li key={i} className="flex gap-2">
+                      <span className="text-amber-500 shrink-0">⚠</span>
+                      <span><span className="font-medium">{w.name}</span> — {w.message}</span>
                     </li>
                   ))}
                 </ul>

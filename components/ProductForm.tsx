@@ -251,9 +251,15 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
       {/* Físico */}
       <section>
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Medidas y stock</h2>
+        {/* La convención va escrita acá porque este es uno de los dos lugares donde el dato
+            se tipea a mano, sin la IA ni el prompt de por medio. */}
+        <p className="text-xs text-gray-500 mb-3">
+          Peso y medidas del <strong>bulto</strong>: la pieza con su caja o bolsa, como se despacha.
+          Es lo que pesa el transportista — con la pieza pelada el flete siempre sale de menos.
+        </p>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Peso real (g)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Peso del bulto (g)</label>
             <input ref={weightRef} name="weightGrams" type="number" min="0" step="1" defaultValue={d.weightGrams ?? ''}
               onChange={recalcFromCost}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />

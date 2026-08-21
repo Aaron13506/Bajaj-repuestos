@@ -303,6 +303,8 @@ export interface EnvioBreakdown {
   air: LegBreakdown                     // India → USA (ShipGlobal, tabla escalón en USD)
   china: LegBreakdown                   // China → USA (costo real cargado a mano)
   // Totales de la caja que cruza a Venezuela (India + China; los isLanded no viajan).
+  // Van EMPAQUETADOS: es lo que va a leer la balanza y la cinta métrica del transportista,
+  // que es lo único que se factura.
   realKg: number
   volKg: number
   chargeableKg: number
@@ -310,6 +312,16 @@ export interface EnvioBreakdown {
   // espacio que ocupa de verdad, que es lo que cobra el marítimo y lo que hay que
   // guardar en el depósito.
   ft3: number
+  // Los mismos totales SIN empaque: la suma de las piezas como están en el catálogo.
+  // Se informan aparte porque son los que hay que comparar contra la caja real para
+  // medir el factor, y porque son el único de los dos que el catálogo puede conocer.
+  netRealKg: number
+  netVolKg: number
+  netFt3: number
+  netVolumeM3: number
+  // De dónde salieron los totales de arriba. `medido: false` ⇒ son la suma de las piezas,
+  // o sea un piso, no un costo.
+  caja: CajaFacturable
   binding: 'weight' | 'volume'
   ratioVW: number | null
   airUsd: number          // total a USA por los dos orígenes
@@ -352,18 +364,66 @@ export interface EnvioOptions {
   inboundChinaUsd?: number | null
   // Cadena logística a costear. Default 'aereo' — el modo en producción hoy.
   modo?: ModoEnvio
+  // La caja como la pesó y midió el transportista. Ver `cajaFacturable`.
+  medidas?: MedidasCaja | null
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// La caja como la pesó y midió el transportista.
+//
+// El catálogo guarda cada pieza CON SU EMPAQUE (ver MEASURES_PROMPT), así que sumar las
+// piezas ya da algo parecido a la caja. Lo que la suma no puede saber es el cartón
+// exterior y el hueco de acomodar piezas irregulares adentro, y eso se factura igual.
+//
+// Por eso, cuando la caja se pesó y se midió de verdad, esos números REEMPLAZAN a la
+// suma — no la corrigen ni la multiplican. Lo que va a cobrar el transportista es lo que
+// leyó de su balanza, no una cuenta nuestra.
+// ─────────────────────────────────────────────────────────────────────────────
+export interface MedidasCaja {
+  // Peso que marcó la balanza del transportista, en kg (Shoppre lo llama "Actual Weight").
+  pesoKg?: number | null
+  // Dimensiones exteriores del cartón, en cm.
+  dimL?: number | null
+  dimA?: number | null
+  dimH?: number | null
+}
+
+// De dónde salieron los totales de la caja que se costeó.
+export interface CajaFacturable {
+  // true = al menos uno de los dos totales lo dio una balanza o una cinta métrica.
+  // false = son la suma de las piezas, que es un PISO: no incluye el cartón ni el hueco.
+  medido: boolean
+  pesoKg: number | null   // lo que se cargó, si se cargó
+  cm3: number | null      // volumen del cartón, si se cargó
+}
+
+function cajaFacturable(medidas?: MedidasCaja | null): CajaFacturable {
+  const pesoKg = medidas?.pesoKg != null && medidas.pesoKg > 0 ? medidas.pesoKg : null
+  const cm3 = medidas?.dimL && medidas.dimA && medidas.dimH
+    ? medidas.dimL * medidas.dimA * medidas.dimH
+    : null
+  return { medido: pesoKg != null || cm3 != null, pesoKg, cm3 }
 }
 
 // Mide un grupo de líneas como caja independiente: peso real, volumétrico, cuál de los
 // dos ata, y reparte `costUsd` entre las líneas según la dimensión que ata. Así una
 // pieza voluminosa y liviana viaja casi gratis cuando el grupo está atado por peso.
-function repartirTramo(lines: EnvioItemLine[], costUsd: number): LegBreakdown {
-  const realKg = lines.reduce((s, l) => s + l.realKg, 0)
-  const volKg = lines.reduce((s, l) => s + l.volKg, 0)
+//
+// `escala` reparte una caja PESADA entre los tramos: si la balanza dijo 18,6 kg y este
+// grupo puso el 40% de las piezas, le tocan 7,4 kg. Con la caja sin pesar vale 1 y los kg
+// del grupo son la suma de sus piezas, que es un piso. El reparto del costo entre líneas
+// se hace sobre los netos, que están en la misma proporción.
+function repartirTramo(
+  lines: EnvioItemLine[],
+  costUsd: number,
+  escala: { peso: number; volumen: number },
+): LegBreakdown {
+  const realKg = lines.reduce((s, l) => s + l.realKg, 0) * escala.peso
+  const volKg = lines.reduce((s, l) => s + l.volKg, 0) * escala.volumen
   const chargeableKg = Math.max(realKg, volKg)
   const binding: 'weight' | 'volume' = realKg >= volKg ? 'weight' : 'volume'
 
-  const denom = binding === 'weight' ? realKg : volKg
+  const denom = lines.reduce((s, l) => s + (binding === 'weight' ? l.realKg : l.volKg), 0)
   for (const l of lines) {
     const contrib = binding === 'weight' ? l.realKg : l.volKg
     l.airUsd = denom > 0 ? costUsd * (contrib / denom) : 0
@@ -448,24 +508,43 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   const indiaLines = enBarco.filter(l => l.origen === 'india')
   const chinaLines = enBarco.filter(l => l.origen === 'china')
 
+  // Netos: la suma de las piezas como están en el catálogo, sin un gramo de empaque.
+  const netRealKg = enBarco.reduce((s, l) => s + l.realKg, 0)
+  const netVolKg  = enBarco.reduce((s, l) => s + l.volKg, 0)
+  const netFt3    = enBarco.reduce((s, l) => s + l.ft3, 0)
+  const netM3     = enBarco.reduce((s, l) => s + l.volumeM3, 0)
+
+  // La caja que se va a facturar. Si se pesó y se midió, mandan esos números: es lo que
+  // leyó la balanza del transportista, no una cuenta nuestra. Si no, la suma de las
+  // piezas — que es un piso, porque le falta el cartón y el hueco entre piezas.
+  const caja = cajaFacturable(opts.medidas)
+  const cajaKg  = caja.pesoKg ?? netRealKg
+  const cajaCm3 = caja.cm3 ?? netM3 * CM3_PER_M3
+  // Cómo repartir esa caja entre los tramos (India / China): cada uno se lleva la parte
+  // proporcional a las piezas que puso. Con un solo origen —el caso normal— es exacto.
+  const escala = {
+    peso: netRealKg > 0 ? cajaKg / netRealKg : 1,
+    volumen: netM3 > 0 ? cajaCm3 / (netM3 * CM3_PER_M3) : 1,
+  }
+
   // Tramo India→USA: tarifa escalón de ShipGlobal sobre el peso cobrable de ESE grupo.
   // En marítimo directo la caja nunca pasa por USA, así que el tramo vale 0 — pero se sigue
   // midiendo en kg para poder comparar los dos escenarios lado a lado.
   const indiaChargeable = Math.max(
-    indiaLines.reduce((s, l) => s + l.realKg, 0),
-    indiaLines.reduce((s, l) => s + l.volKg, 0),
+    indiaLines.reduce((s, l) => s + l.realKg, 0) * escala.peso,
+    indiaLines.reduce((s, l) => s + l.volKg, 0) * escala.volumen,
   )
   const airRateUsd = !esMaritimo && indiaChargeable > 0
     ? getShoppReRateUsd(indiaChargeable, carrier, isMember, cfg)
     : 0
-  const airLeg = repartirTramo(indiaLines, airRateUsd)
+  const airLeg = repartirTramo(indiaLines, airRateUsd, escala)
 
   // Tramo China→USA: no hay tabla, es el costo real facturado.
-  const chinaLeg = repartirTramo(chinaLines, esMaritimo ? 0 : (opts.inboundChinaUsd ?? 0))
+  const chinaLeg = repartirTramo(chinaLines, esMaritimo ? 0 : (opts.inboundChinaUsd ?? 0), escala)
 
   // Totales de la caja marítima: los dos orígenes viajan juntos de USA a Venezuela.
-  const W = enBarco.reduce((s, l) => s + l.realKg, 0)
-  const V = enBarco.reduce((s, l) => s + l.volKg, 0)
+  const W = cajaKg
+  const V = netVolKg * escala.volumen
   const chargeableKg = Math.max(W, V)
   const binding: 'weight' | 'volume' = W >= V ? 'weight' : 'volume'
   const airUsd = airLeg.costUsd + chinaLeg.costUsd
@@ -479,8 +558,10 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   // volumen de cada línea: si el mínimo infla la factura, todas las piezas lo absorben.
   // Si no viaja nada (todo el pedido es de proveedor landed) no hay embarque, y por lo
   // tanto tampoco mínimo que pagar: la caja no existe.
-  const volumeFt3     = enBarco.reduce((s, l) => s + l.ft3, 0)
-  const volumeM3      = enBarco.reduce((s, l) => s + l.volumeM3, 0)
+  // El flete marítimo se cobra sobre el volumen de la CAJA: el hueco que queda entre
+  // piezas irregulares también viaja y también se paga.
+  const volumeFt3     = cajaCm3 / CM3_PER_FT3
+  const volumeM3      = cajaCm3 / CM3_PER_M3
   const billableFt3   = enBarco.length > 0 ? Math.max(volumeFt3, minFt3) : 0
   const minFt3Applied = enBarco.length > 0 && minFt3 > 0 && volumeFt3 < minFt3
 
@@ -495,7 +576,9 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
 
   // Reparto: por volumen si hay dimensiones; si no hay ninguna cargada (pero igual se paga
   // el mínimo) se cae al costo de producto para no dejar el flete sin imputar a nadie.
-  const volDenom  = esCbm ? volumeM3 : volumeFt3
+  // Denominador en NETO: el empaque infla a todas las líneas por igual, así que la
+  // proporción de cada una es la misma con factor o sin él.
+  const volDenom  = esCbm ? netM3 : netFt3
   const costDenom = enBarco.reduce((s, l) => s + l.productCostUsd, 0)
   for (const l of enBarco) {
     const vol = esCbm ? l.volumeM3 : l.ft3
@@ -540,7 +623,12 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
     realKg: W,
     volKg: V,
     chargeableKg,
-    ft3: enBarco.reduce((s, l) => s + l.ft3, 0),
+    ft3: volumeFt3,
+    netRealKg,
+    netVolKg,
+    netFt3,
+    netVolumeM3: netM3,
+    caja,
     binding,
     ratioVW: W > 0 ? V / W : null,
     airUsd,
