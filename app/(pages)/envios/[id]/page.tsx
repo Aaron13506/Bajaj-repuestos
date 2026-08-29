@@ -13,6 +13,7 @@ import { calcEnvio, type EnvioItemInput, type ConfigMap } from '@/lib/calc'
 import { modoDeEnvio, MODOS } from '@/lib/modo'
 import EnvioMaritimo from './maritimo'
 import { makeProductLookup, expandCostPieces, type ProductCost } from '@/lib/envio-build'
+import { cobranzaEnvio, type CobranzaEnvio, type CobranzaPedido } from '@/lib/clientes'
 import type { BundlePiece } from '@/lib/bundle'
 import {
   assignPedido,
@@ -30,8 +31,6 @@ const kg = (n: number) => `${n.toFixed(2)} kg`
 // El m³ se muestra con 3 decimales: una pieza suelta ronda los 0.00x m³ y con 2
 // decimales todo el catálogo se vería como "0.00".
 const m3 = (n: number) => `${n.toFixed(3)} m³`
-const fecha = (d: Date) => new Date(d).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' })
-
 // Guía de punto dulce sobre la curva real de ShipGlobal Duty Free (member).
 function airTierHint(chargeableKg: number): { tone: 'good' | 'info'; text: string } | null {
   if (chargeableKg <= 0) return null
@@ -62,7 +61,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   if (!ruta) notFound()
   if (ruta.modo === 'maritimo_cbm') return <EnvioMaritimo envioId={id} />
 
-  const [envio, cfgRows, sinAsignar, allProducts, supplierPrices, suppliers] = await Promise.all([
+  const [envio, cfgRows, sinAsignar, allProducts, supplierPrices, suppliers, pedidosCaja] = await Promise.all([
     db.envio.findUnique({
       where: { id },
       include: {
@@ -83,6 +82,20 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     }),
     db.supplierPrice.findMany({ select: { productId: true, supplierId: true, priceUsd: true, isLanded: true } }),
     db.supplier.findMany({ select: { id: true, name: true, origen: true }, orderBy: { name: 'asc' } }),
+    // Los pedidos que tienen alguna línea en esta caja, CON todos sus ítems (no solo los
+    // de acá): el adelanto se pactó contra el pedido entero, así que la deuda solo se
+    // puede leer contra su total completo. Ver cobranzaEnvio.
+    db.pedido.findMany({
+      where: { items: { some: { envioId: id } } },
+      select: {
+        id: true,
+        clientName: true,
+        tipo: true,
+        status: true,
+        depositUsd: true,
+        items: { select: { salePrice: true, quantity: true, envioId: true } },
+      },
+    }),
   ])
 
   if (!envio) notFound()
@@ -254,6 +267,9 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   }
   const saleTotal = Array.from(saleByItem.values()).reduce((s, v) => s + v, 0)
 
+  // Cobranza: contra el landed de la caja, cuánto ya entró y cuánto falta que entre.
+  const cobranza = cobranzaEnvio(pedidosCaja, envio.id)
+
   const landedByItem = new Map<number, number>()
   for (let i = 0; i < calc.lines.length; i++) {
     const itemId = allPieces[i].itemId
@@ -371,6 +387,10 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
         </div>
       ) : (
         <>
+          {/* La plata va primero: antes de mirar cuánto cuesta la caja, la pregunta es
+              cuánta de esa plata ya está en la mano. */}
+          <Cobranza data={cobranza} landedUsd={calc.landedUsd} />
+
           {/* Los paneles de costo son angostos por naturaleza (listas de pares
               etiqueta/valor): en pantalla ancha van lado a lado en vez de apilarse y
               empujar la tabla de ítems fuera de la vista. */}
@@ -1002,6 +1022,156 @@ function SueltoRow({
         </PendingButton>
       </form>
     </div>
+  )
+}
+
+// Cobranza de la caja. La pregunta que contesta es de caja chica, no de contabilidad:
+// para comprar esto hay que poner {landed} y de eso el cliente ya adelantó {recibido} —
+// lo que falta es plata que hay que poner de tu bolsillo hasta que entreguen.
+function Cobranza({ data, landedUsd }: { data: CobranzaEnvio; landedUsd: number }) {
+  const { pedidos, vendido, recibido, falta, sinAprobar, propios } = data
+  const hayAlgo = pedidos.length > 0 || sinAprobar.pedidos > 0 || propios.pedidos > 0
+  if (!hayAlgo) return null
+
+  const cobradoPct = vendido > 0 ? recibido / vendido : 0
+  const parciales = pedidos.filter(p => p.parcial).length
+  // Lo que hay que poner de tu bolsillo para comprar la caja: el costo menos lo ya
+  // cobrado. Si da negativo, los adelantos ya la pagan entera.
+  const descubierto = landedUsd - recibido
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 mb-4 overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-100">
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">💵 Cobranza</h2>
+      </div>
+
+      {pedidos.length > 0 && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 px-6 py-5">
+            <div>
+              <p className="text-xs text-gray-400 mb-1">Ya recibí</p>
+              <p className="text-2xl font-bold font-mono text-green-700">{usd(recibido)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-1">Falta que paguen</p>
+              <p className={`text-2xl font-bold font-mono ${falta > 0 ? 'text-amber-700' : 'text-green-700'}`}>
+                {usd(falta)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-1">Venta total de los pedidos</p>
+              <p className="text-2xl font-bold font-mono text-gray-900">{usd(vendido)}</p>
+            </div>
+          </div>
+
+          <div className="px-6 pb-4">
+            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full bg-green-500"
+                style={{ width: `${Math.min(cobradoPct * 100, 100)}%` }}
+              />
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              Cobrado el <span className="font-mono font-semibold">{(cobradoPct * 100).toFixed(0)}%</span> de la venta.
+              {' '}
+              {descubierto > 0 ? (
+                <>
+                  Comprar esta caja cuesta <span className="font-mono">{usd(landedUsd)}</span>, así que hasta
+                  entregar tenés que poner <strong className="font-mono">{usd(descubierto)}</strong> de tu bolsillo.
+                </>
+              ) : (
+                <>
+                  Los adelantos ({usd(recibido)}) ya cubren el costo de la caja ({usd(landedUsd)}): te sobran{' '}
+                  <strong className="font-mono">{usd(-descubierto)}</strong> antes de entregar.
+                </>
+              )}
+            </p>
+          </div>
+
+          {/* El número que importa es el de la caja entera; quién debe qué es el detalle
+              para cuando hay que ir a cobrar, así que va plegado. */}
+          <details className="border-t border-gray-100">
+            <summary className="px-6 py-2 cursor-pointer text-xs font-semibold text-gray-500 uppercase tracking-wide hover:bg-gray-50">
+              Quién debe qué ({pedidos.length} {pedidos.length === 1 ? 'pedido' : 'pedidos'})
+            </summary>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-y border-gray-100 text-xs text-gray-500 uppercase tracking-wide bg-gray-50">
+                  <th className="text-left px-6 py-2 font-semibold">Cliente</th>
+                  <th className="text-right px-3 py-2 font-semibold">Pedido</th>
+                  <th className="text-right px-3 py-2 font-semibold">Recibí</th>
+                  <th className="text-right px-6 py-2 font-semibold">Falta</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {pedidos.map(p => (
+                  <CobranzaRow key={p.pedidoId} p={p} />
+                ))}
+              </tbody>
+            </table>
+          </details>
+        </>
+      )}
+
+      {(sinAprobar.pedidos > 0 || propios.pedidos > 0 || parciales > 0) && (
+        <div className="px-6 py-3 border-t border-gray-100 space-y-1">
+          {parciales > 0 && (
+            <p className="text-xs text-gray-500">
+              {parciales === 1 ? 'Un pedido está partido' : `${parciales} pedidos están partidos`} entre varias cajas.
+              El adelanto se pactó contra el pedido entero, así que arriba cuenta completo — no prorrateado por lo
+              que entró acá.
+            </p>
+          )}
+          {sinAprobar.pedidos > 0 && (
+            <p className="text-xs text-amber-700">
+              ⚠️ {sinAprobar.pedidos} {sinAprobar.pedidos === 1 ? 'presupuesto sin aprobar' : 'presupuestos sin aprobar'} por{' '}
+              <span className="font-mono">{usd(sinAprobar.total)}</span> viajan en esta caja: se están comprando sin
+              adelanto y sin venta cerrada, así que no cuentan arriba.
+            </p>
+          )}
+          {propios.pedidos > 0 && (
+            <p className="text-xs text-gray-500">
+              {propios.pedidos} {propios.pedidos === 1 ? 'pedido de stock propio' : 'pedidos de stock propio'} por{' '}
+              <span className="font-mono">{usd(propios.total)}</span> en venta estimada: no hay a quién cobrarle,
+              es plata que sale y vuelve al vender.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CobranzaRow({ p }: { p: CobranzaPedido }) {
+  return (
+    <tr className="hover:bg-gray-50">
+      <td className="px-6 py-2">
+        <Link href={`/presupuestos/${p.pedidoId}`} className="font-medium text-gray-900 hover:text-blue-600">
+          {p.clientName}
+        </Link>
+        <span className="ml-2 text-xs text-gray-400">#{p.pedidoId}</span>
+        {/* El pedido está repartido entre cajas: el total y la deuda son del pedido
+            entero, no de lo que entró acá. */}
+        {p.parcial && (
+          <span
+            title="Este pedido está partido entre varias cajas. El total y el saldo son del pedido completo."
+            className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600"
+          >
+            {p.itemsEnCaja} de {p.itemsTotal} acá
+          </span>
+        )}
+        {p.sinAdelanto && (
+          <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+            Sin adelanto cargado
+          </span>
+        )}
+      </td>
+      <td className="px-3 py-2 text-right font-mono text-gray-700">{usd(p.total)}</td>
+      <td className="px-3 py-2 text-right font-mono text-green-700">{usd(p.recibido)}</td>
+      <td className={`px-6 py-2 text-right font-mono font-semibold ${p.falta > 0 ? 'text-amber-700' : 'text-green-700'}`}>
+        {usd(p.falta)}
+      </td>
+    </tr>
   )
 }
 
