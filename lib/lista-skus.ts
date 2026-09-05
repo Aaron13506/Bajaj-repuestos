@@ -16,6 +16,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { extractJson } from './json-ia'
+import { toStr } from './parse'
 
 export interface SkuQty {
   /** El código tal cual se pegó. No se normaliza: la búsqueda ya es case-insensitive. */
@@ -36,12 +37,6 @@ export interface ListaParseada {
 }
 
 const vacia = (): ListaParseada => ({ lineas: [], sinCodigo: [], errores: [], avisos: [] })
-
-function toStr(v: unknown): string | null {
-  if (v == null) return null
-  const s = String(v).trim()
-  return s === '' ? null : s
-}
 
 // Cantidad: entero ≥ 1. Un 0 o un negativo es un error de lectura, no una cantidad, y
 // dejarlo pasar borra la línea del embarque sin decirlo.

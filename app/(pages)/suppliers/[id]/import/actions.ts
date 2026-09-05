@@ -2,6 +2,7 @@
 
 import { db } from '@/lib/db'
 import { revalidatePath } from 'next/cache'
+import { msg, toNum, toStr } from '@/lib/parse'
 
 export interface SupplierImportResult {
   ok: boolean
@@ -19,22 +20,6 @@ interface RawPriceEntry {
   priceUsd?: unknown
   price?: unknown
   precio?: unknown
-}
-
-function toStr(v: unknown): string | null {
-  if (v == null) return null
-  const s = String(v).trim()
-  return s === '' ? null : s
-}
-
-function toNum(v: unknown): number | null {
-  if (v == null || v === '') return null
-  const n = typeof v === 'string' ? parseFloat(v.replace(/[^\d.-]/g, '')) : Number(v)
-  return isNaN(n) ? null : n
-}
-
-function msg(e: unknown): string {
-  return e instanceof Error ? e.message : 'Error desconocido.'
 }
 
 // Normaliza el JSON pegado a una lista plana de {sku, priceUsd}, tolerando tanto un

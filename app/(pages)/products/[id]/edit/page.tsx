@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation'
 import ProductForm from '@/components/ProductForm'
 import type { ConfigMap } from '@/lib/calc'
 import { updateProduct } from '../../actions'
+import { toConfigMap } from '@/lib/config'
 
 export default async function EditProductPage({ params }: { params: Promise<{ id: string }> }) {
   const id = parseInt((await params).id)
@@ -21,7 +22,7 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
   ])
   if (!product) notFound()
 
-  const cfg = configRows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
+  const cfg = toConfigMap(configRows)
 
   const updateAction = updateProduct.bind(null, id)
 

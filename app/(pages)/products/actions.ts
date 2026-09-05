@@ -2,9 +2,11 @@
 
 import { db } from '@/lib/db'
 import { isMotoModelId, fullModel } from '@/lib/modelo'
-import { calcLanded, type ConfigMap } from '@/lib/calc'
+import { calcLanded } from '@/lib/calc'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
+import { getConfig } from '@/lib/config-db'
+import { toNum } from '@/lib/parse'
 
 // Costo landed autoritativo: se recalcula en el server desde el costo de origen
 // (₹ INR de 99rpm, o USD directo de un proveedor) + peso + dims y la config vigente,
@@ -19,8 +21,7 @@ async function computeLanded(data: {
   dimA: number | null
   dimH: number | null
 }): Promise<number | null> {
-  const rows = await db.config.findMany()
-  const cfg = rows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
+  const cfg = await getConfig()
   const b = calcLanded({ ...data, margin: null }, cfg)
   return b ? Math.round(b.landedCostUsd * 100) / 100 : null
 }
@@ -50,7 +51,10 @@ function parseProductForm(formData: FormData) {
     priceInr:         priceInr ? parseInt(priceInr) : null,
     landedCostUsd:    landedCostUsd ? parseFloat(landedCostUsd) : null,
     margin:           margin ? parseFloat(margin) / 100 : null,
-    price:            parseFloat(formData.get('price') as string),
+    // `price` es Decimal NOT NULL: con el campo vacio o ilegible, parseFloat daba NaN,
+    // Prisma lo rechazaba y el guardado moria con un 500 sin explicacion. 0 es el mismo
+    // criterio que ya usaba `stock` en la linea de abajo — se completa despues.
+    price:            toNum(formData.get('price')) ?? 0,
     priceLocked:      formData.get('priceLocked') === 'true',
     stock:            parseInt(formData.get('stock') as string) || 0,
   }
@@ -117,7 +121,7 @@ export async function quickUpdateProduct(id: number, activeSupplierId: number | 
     dimA:             floatOrNull('dimA'),
     dimH:             floatOrNull('dimH'),
     margin:           str('margin') ? parseFloat(str('margin')) / 100 : null,
-    price:            parseFloat(str('price')),
+    price:            toNum(str('price')) ?? 0,
     priceLocked:      formData.get('priceLocked') === 'true',
     stock:            intOrNull('stock') ?? 0,
   }

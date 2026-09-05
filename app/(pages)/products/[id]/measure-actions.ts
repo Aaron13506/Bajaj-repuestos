@@ -3,16 +3,13 @@
 import { db } from '@/lib/db'
 import { applyMeasures, type MeasuresResult } from '@/lib/measures'
 import { revalidatePath } from 'next/cache'
+import { round2 } from '@/lib/parse'
 
 // OJO: un módulo 'use server' solo puede exportar funciones async. Un `export type` acá se
 // emite igual como re-export en runtime y REVIENTA la evaluación del módulo entero
 // (`ReferenceError: MeasuresResult is not defined`) — con lo cual dejan de funcionar TODAS
 // las server actions de las páginas que lo importan, no solo esta. El tipo se importa
 // desde `@/lib/measures`, que es un módulo normal.
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100
-}
 
 // Precio del conjunto: fija (o limpia) el precio de venta del ensamble como una
 // unidad. Con `priceLocked` activo se usa como precio único al venderlo como conjunto

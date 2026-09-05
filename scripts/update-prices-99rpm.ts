@@ -33,7 +33,8 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { db } from '../lib/db'
 import { reprice } from '../lib/reprice'
-import type { ConfigMap } from '../lib/calc'
+import { getConfig } from '@/lib/config-db'
+import { margenPorDefecto } from '@/lib/config'
 try { process.loadEnvFile() } catch {}
 
 const norm = (s: string | null | undefined) => (s ?? '').trim().toUpperCase()
@@ -126,9 +127,8 @@ async function main() {
   }
   const afirmacionDe = (code: string) => porSku.get(code) ?? porSku.get(alterno.get(code) ?? '')
 
-  const cfgRows = await db.config.findMany()
-  const cfg = cfgRows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
-  const defaultMargin = parseFloat(cfg.default_margin_pct ?? '40') / 100
+  const cfg = await getConfig()
+  const defaultMargin = margenPorDefecto(cfg)
 
   // ── 3. Decidir qué cambia ─────────────────────────────────────────────────
   interface Cambio {

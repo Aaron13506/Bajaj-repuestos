@@ -7,6 +7,8 @@ import { getCatalogFilters, whereModel } from '@/lib/catalog'
 import { searchModels, fullModel, toModelIds } from '@/lib/modelo'
 import { type ConfigMap } from '@/lib/calc'
 import { getSupplierPriceMap } from '@/lib/suppliers'
+import { toConfigMap } from '@/lib/config'
+import { toInt } from '@/lib/parse'
 
 interface SearchParams {
   search?: string
@@ -25,7 +27,9 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
   const model = sp.model ?? ''
   const category = sp.category ?? ''
   const onlyLowStock = sp.lowStock === '1'
-  const page = Math.max(1, parseInt(sp.page ?? '1'))
+  // `parseInt('abc')` da NaN y NaN sobrevive a Math.max, así que entraba como
+  // `skip: NaN` y Prisma tiraba: un 500 servible desde la barra de direcciones.
+  const page = Math.max(1, toInt(sp.page) ?? 1)
   const limit = 20
 
   // El buscador también encuentra por moto ("n250", "dual abs"): el texto se traduce a
@@ -78,7 +82,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
   ])
   const supplierName = suppliers.find(s => s.id === compararContra)?.name ?? null
 
-  const cfg = configRows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
+  const cfg = toConfigMap(configRows)
   const totalPages = Math.ceil(total / limit)
 
   // Preserva todos los filtros activos en los links de paginación.

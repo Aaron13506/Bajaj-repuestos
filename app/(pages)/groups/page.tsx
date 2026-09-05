@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { getCatalogFilters, whereModel } from '@/lib/catalog'
 import { formatModels, toModelIds } from '@/lib/modelo'
 import CatalogFilters from '@/components/CatalogFilters'
+import { toInt } from '@/lib/parse'
 
 interface SearchParams {
   model?: string
@@ -16,7 +17,9 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
   const model = sp.model ?? ''
   const category = sp.category ?? ''
   const search = sp.search ?? ''
-  const page = Math.max(1, parseInt(sp.page ?? '1'))
+  // NaN sobrevive a Math.max y entra como `skip: NaN`, que Prisma rechaza: `?page=x`
+  // era un 500 servible desde la URL.
+  const page = Math.max(1, toInt(sp.page) ?? 1)
   const limit = 25
 
   const where = {

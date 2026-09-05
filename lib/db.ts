@@ -1,6 +1,8 @@
 import { PrismaClient } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import { Pool } from 'pg'
+import { rootCertificates } from 'node:tls'
+import { SUPABASE_ROOT_CA } from './supabase-ca'
 
 // La base es Supabase remota y el pooler está en us-west-2: cada ida y vuelta cuesta
 // caro, así que lo que manda en el tiempo de una página no es lo que tarda Postgres
@@ -24,13 +26,27 @@ const globalForPrisma = globalThis as unknown as {
 
 // El motor de Prisma negociaba TLS por su cuenta; node-postgres NO lo hace salvo que se
 // le pida, así que sin esto la conexión a Supabase viajaría en claro por internet.
-// `rejectUnauthorized: false` deja el tráfico cifrado sin validar el certificado, que es
-// exactamente lo que hacía Prisma antes (su default es sslmode=prefer): el pooler
-// presenta un certificado firmado por la CA propia de Supabase y la validación completa
-// falla salvo que se empaquete esa CA. La base local de docker-compose no habla TLS, así
-// que se exceptúa por host.
+//
+// Acá estuvo `rejectUnauthorized: false`, con el argumento de que dejaba el tráfico
+// cifrado y que empaquetar la CA de Supabase era el precio de validarlo. Cifrado sin
+// validar es la mitad que no sirve: TLS sin autenticar al otro lado acepta el certificado
+// de cualquiera, así que un intermediario en el camino monta el túnel con vos, lo abre, y
+// lee y modifica todo lo que pasa —credenciales de la base incluidas— sin que se note. Y
+// la CA es un archivo de 1 KB.
+//
+// Ahora se valida de verdad, contra las CA del sistema MÁS la raíz de Supabase (ver
+// lib/supabase-ca.ts). Van las dos juntas porque el `ca` de Node REEMPLAZA el almacén por
+// defecto: con solo la de Supabase, apuntar DATABASE_URL a cualquier otro proveedor
+// —uno con certificado de una CA pública— dejaría de conectar.
+//
+// La base local de docker-compose no habla TLS, así que se exceptúa por host.
 const dbUrl = process.env.DATABASE_URL ?? ''
 const esLocal = /(^|@|\/\/)(localhost|127\.0\.0\.1)/.test(dbUrl)
+
+// Escape hatch para el día que Supabase rote la raíz (vence en 2031) o para un Postgres
+// con una CA interna: se carga el PEM en la env var y no hay que tocar código.
+const caExtra = process.env.DATABASE_CA_CERT?.trim()
+const ca = [...rootCertificates, caExtra || SUPABASE_ROOT_CA]
 
 // Abrir una conexión al pooler cuesta ~2,5 s (TCP + TLS + auth). Con el default de
 // node-postgres (cerrar a los 10 s de ocio) una app de uso esporádico como esta paga
@@ -39,7 +55,7 @@ const pool =
   globalForPrisma.pool ??
   new Pool({
     connectionString: dbUrl,
-    ssl: esLocal ? undefined : { rejectUnauthorized: false },
+    ssl: esLocal ? undefined : { ca, rejectUnauthorized: true },
     max: 10,
     idleTimeoutMillis: 0,
     keepAlive: true,

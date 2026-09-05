@@ -6,6 +6,7 @@ import type { ConfigMap } from '@/lib/calc'
 import type { ProveedorOpcion } from '@/lib/comparar-compra'
 import { makeProductLookup, expandCostPieces, type ProductCost } from '@/lib/envio-build'
 import type { BundlePiece } from '@/lib/bundle'
+import { toConfigMap } from '@/lib/config'
 
 export default async function SimularPage() {
   const [products, pedidos, cfgRows, suppliers] = await Promise.all([
@@ -39,7 +40,7 @@ export default async function SimularPage() {
     }),
   ])
 
-  const cfg = cfgRows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
+  const cfg = toConfigMap(cfgRows)
 
   const proveedores: ProveedorOpcion[] = suppliers.map(s => ({
     id: s.id, nombre: s.name, origen: s.origen, inbound: s.inbound,

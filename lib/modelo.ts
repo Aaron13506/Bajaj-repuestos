@@ -256,9 +256,14 @@ export function coverageByModel(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Legado: traducción desde el viejo texto libre `Product.compatibleModels`.
-// Lo usan el backfill (scripts/backfill-models.ts) y la importación por JSON, que
-// sigue aceptando etiquetas además de ids. Nada de la app lee ese campo ya.
+// Traducción entre el texto de `Product.compatibleModels` y las motos tipadas.
+//
+// El comentario que estaba acá decía que esto era legado, que lo usaba
+// `scripts/backfill-models.ts` y que "nada de la app lee ese campo ya". Las tres cosas
+// quedaron al revés cuando se revirtió el enum: ese script no existe, y
+// `compatibleModels` es HOY la única fuente —la columna `models` se dropeó de la base—
+// así que por acá pasa todo lo que muestra o filtra motos (whereModel, el buscador del
+// catálogo, la ficha de producto).
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** La moto a partir de su etiqueta ("Pulsar N160 Dual ABS 2022 23"). */

@@ -1,4 +1,5 @@
 import { parseModelos } from '@/lib/modelos'
+import { CM3_PER_M3 } from '@/lib/calc'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Copiar el contenido de un embarque como JSON.
@@ -102,7 +103,7 @@ export function embarqueAJson(meta: MetaEmbarque, lineas: LineaFuente[]): Embarq
       total: precio != null ? redondear(precio * l.quantity, 2) : null,
       // m³ → cm³, con 2 decimales: un tornillo mide menos de 1 cm³ y truncarlo a entero lo
       // dejaría en 0, que se lee como "no ocupa nada".
-      cm3: l.volumeUnitM3 > 0 ? redondear(l.volumeUnitM3 * 1_000_000, 2) : null,
+      cm3: l.volumeUnitM3 > 0 ? redondear(l.volumeUnitM3 * CM3_PER_M3, 2) : null,
       kg: l.weightUnitKg > 0 ? redondear(l.weightUnitKg, 3) : null,
       compat_modelos: parseModelos(l.compatibleModels),
     }

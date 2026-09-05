@@ -5,6 +5,7 @@ import { toModelIds } from '@/lib/modelo'
 import { lookupDeConjuntos, expandCostPieces, type ProductCost } from '@/lib/envio-build'
 import type { BundlePiece } from '@/lib/bundle'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
+import { toConfigMap, margenPorDefecto } from '@/lib/config'
 
 // Componentes de UN ensamble, cargados on-demand cuando se selecciona (evita traer
 // los ~14k componentes de todo el catálogo al abrir el armador de presupuestos).
@@ -105,9 +106,9 @@ export async function costearCarrito(lineas: CarritoLineaInput[]): Promise<Costo
     lookupDeConjuntos(lineas.map(l => l.bundleItems ?? null)),
   ])
 
-  const cfg = configRows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
+  const cfg = toConfigMap(configRows)
   const porId = new Map<number, ProductCost>(productos.map(p => [p.id, p]))
-  const defaultMargin = parseFloat(cfg.default_margin_pct ?? '40') / 100
+  const defaultMargin = margenPorDefecto(cfg)
 
   // Margen de cada pieza que puede aparecer (las de conjuntos incluidas), para sugerir precio.
   const piezasIds = new Set<number>(lineas.map(l => l.productId))

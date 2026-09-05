@@ -1,15 +1,10 @@
 import { cotizarTramoAereo } from './shipping-rates'
 import { inboundDe, type Inbound } from './inbound'
+import { num, margenPorDefecto, type ConfigMap } from './config'
 
-export type ConfigMap = Record<string, string>
-
-// Lee una key numérica de Config, cayendo a `fallback` si está vacía o no es número.
-// Las keys del modo marítimo pueden no existir todavía en la DB (es un escenario futuro),
-// así que ninguna puede romper el cálculo por ausencia.
-function num(cfg: ConfigMap, key: string, fallback: number): number {
-  const v = parseFloat(cfg[key] ?? '')
-  return Number.isFinite(v) ? v : fallback
-}
+// El tipo se re-exporta porque medio repo lo importa desde acá y no hay razón para
+// mover veinte imports; la definición vive en lib/config.ts junto a los lectores.
+export type { ConfigMap }
 
 // cm³ en un pie cúbico. El marítimo cotiza por ft³, pero las medidas de las piezas
 // se cargan en cm, así que toda conversión de volumen pasa por acá.
@@ -50,11 +45,16 @@ export interface ProductForCalc {
 }
 
 function applyMargin(landedCostUsd: number, margin: number | null, cfg: ConfigMap): { priceUsd: number | null; priceBsd: number | null } {
-  const bsdUsd = parseFloat(cfg.bsd_usd_rate ?? '715')
-  // Margen efectivo: el de la pieza si lo tiene, si no el default global (Config).
-  // Sin default_margin en Config, se mantiene el comportamiento anterior (sin precio).
-  const globalMargin = parseFloat(cfg.default_margin ?? '')
-  const effectiveMargin = margin ?? (Number.isNaN(globalMargin) ? null : globalMargin)
+  const bsdUsd = num(cfg, 'bsd_usd_rate', 715)
+  // Margen efectivo: el de la pieza si lo tiene, si no el global de Config.
+  //
+  // Leía `cfg.default_margin`, key que no existe en ningún lado: la app entera —el seed,
+  // /config, measures, el importador, los scripts— usa `default_margin_pct`, en PORCENTAJE.
+  // Así que este fallback nunca se activó y toda pieza sin margen propio salía sin precio,
+  // que parecía un dato faltante en vez de un bug. Y renombrar la key a secas no alcanzaba:
+  // habría leído 40, y 40 ≥ 1 corta igual dos líneas más abajo. Falta el /100, que es lo
+  // que hace margenPorDefecto().
+  const effectiveMargin = margin ?? margenPorDefecto(cfg)
 
   if (effectiveMargin == null || effectiveMargin >= 1) return { priceUsd: null, priceBsd: null }
   const priceUsd = landedCostUsd / (1 - effectiveMargin)
@@ -98,7 +98,7 @@ export function calcLanded(
   // — peor que no mostrar nada, porque haría ver el mar como una ganga que no es.
   if (esMaritimo ? !hasDims : !product.weightGrams) return null
 
-  const inrUsd         = parseFloat(cfg.inr_usd_rate          ?? '95')
+  const inrUsd         = num(cfg, 'inr_usd_rate', 95)
   const productCostUsd = product.priceUsd != null ? product.priceUsd : product.priceInr! / inrUsd
 
   // ── Modo CBM ──────────────────────────────────────────────────────────────
@@ -240,7 +240,11 @@ export type ModoEnvio = 'aereo' | 'maritimo' | 'maritimo_cbm'
 
 // cm³ → m³. El catálogo guarda dimensiones en centímetros; la naviera cotiza en metros
 // cúbicos, así que esta es la única conversión que hace falta en el modo CBM.
-const CM3_PER_M3 = 1_000_000
+//
+// Se EXPORTA, igual que CM3_PER_FT3: estaba declarada dos veces (acá y en lib/cbm.ts) y
+// re-derivada suelta como `/ 1_000_000` en nueve lugares más. Es la unidad que factura
+// todo el carril marítimo — no debería tener diez definiciones.
+export const CM3_PER_M3 = 1_000_000
 
 // Parámetros del modo CBM, leídos de Config con defaults que no rompen nada si faltan.
 export interface CbmParams {
@@ -557,10 +561,10 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   const modo          = opts.modo ?? 'aereo'
   const esCbm         = modo === 'maritimo_cbm'
   const esMaritimo    = modo === 'maritimo' || esCbm
-  const inrUsd        = parseFloat(cfg.inr_usd_rate           ?? '95')
+  const inrUsd        = num(cfg, 'inr_usd_rate', 95)
   const isMember      = cfg.shoppre_member                    !== 'false'
   const carrier       = cfg.shoppre_carrier                   ?? 'ShipGlobal USA - Duty Free'
-  const divisor       = parseFloat(cfg.air_volumetric_divisor ?? '5000')
+  const divisor       = num(cfg, 'air_volumetric_divisor', 5000)
 
   // Tarifa del flete por mar. En aéreo es el tramo corto Miami→CCS; en marítimo directo es
   // el flete completo India→Venezuela, que es otro número (más alto por ft³, pero reemplaza
@@ -812,6 +816,10 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   const conOverhead = esMaritimo ? enBarco : shoppreLines
   const baseSum = conOverhead.reduce((s, l) => s + l.productCostUsd + l.airUsd + l.maritimeUsd, 0)
   const overhead = insuranceUsd + processingUsd
+  // Set y no `conOverhead.includes(l)` adentro del for: aquello recorría el array entero
+  // por cada línea (O(n²)) para responder una pertenencia. Con las líneas como objetos,
+  // el Set compara por identidad igual que includes — mismo resultado, una pasada.
+  const pagaOverhead = new Set(conOverhead)
   for (const l of lines) {
     if (l.isLanded) {
       // No viaja: su precio ya es el landed. Lo único que se le suma es la comisión del
@@ -820,7 +828,7 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
       continue
     }
     const base = l.productCostUsd + l.airUsd + l.maritimeUsd
-    const suOverhead = conOverhead.includes(l) && baseSum > 0 ? overhead * (base / baseSum) : 0
+    const suOverhead = pagaOverhead.has(l) && baseSum > 0 ? overhead * (base / baseSum) : 0
     l.landedUsd = base + l.comisionUsd + suOverhead
   }
 

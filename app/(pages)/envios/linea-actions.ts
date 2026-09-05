@@ -4,7 +4,8 @@ import { db } from '@/lib/db'
 import { revalidatePath } from 'next/cache'
 import { getSupplierPriceMap } from '@/lib/suppliers'
 import { alternosDe, buscarPorAlterno } from '@/lib/alt-sku'
-import type { ConfigMap } from '@/lib/calc'
+import { CM3_PER_M3, type ConfigMap } from '@/lib/calc'
+import { toConfigMap } from '@/lib/config'
 
 // Costo de compra y MOQ de una pieza para ESTE embarque. El costo sale del proveedor de la
 // caja si tiene precio cargado para ese SKU; si no, del precio base de 99rpm en ₹
@@ -19,7 +20,7 @@ async function costeador(envioId: number) {
     db.envio.findUnique({ where: { id: envioId }, select: { supplierId: true } }),
     db.config.findMany(),
   ])
-  const cfg = cfgRows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
+  const cfg = toConfigMap(cfgRows)
   const inrUsd = parseFloat(cfg.inr_usd_rate ?? '95')
   const priceMap = await getSupplierPriceMap(envio?.supplierId ?? null)
   return (productId: number, priceInr: number | null): { costoUsd: number | null; moq: number | null } => {
@@ -203,7 +204,7 @@ export async function componentesDeEnsamble(assemblyId: number, envioId: number)
         weightKg: c.child.weightGrams != null ? c.child.weightGrams / 1000 : 0,
         // Volumen de UNA unidad, en m³ — lo que va a sumar al embarque.
         volumeM3: c.child.dimL && c.child.dimA && c.child.dimH
-          ? (c.child.dimL * c.child.dimA * c.child.dimH) / 1_000_000
+          ? (c.child.dimL * c.child.dimA * c.child.dimH) / CM3_PER_M3
           : 0,
       },
     }
@@ -296,7 +297,7 @@ export async function buscarProductos(term: string, envioId: number) {
       // Peso y volumen de UNA unidad: con esto el armador proyecta el m³ y los kg de la
       // caja sin volver al server en cada pieza que agregás.
       weightKg: p.weightGrams != null ? p.weightGrams / 1000 : 0,
-      volumeM3: p.dimL && p.dimA && p.dimH ? (p.dimL * p.dimA * p.dimH) / 1_000_000 : 0,
+      volumeM3: p.dimL && p.dimA && p.dimH ? (p.dimL * p.dimA * p.dimH) / CM3_PER_M3 : 0,
       // Sin dimensiones no hay volumen, y sin volumen esta pieza no se puede costear por mar.
       sinMedidas: !(p.dimL && p.dimA && p.dimH) || p.weightGrams == null,
       // Descontinuada de fábrica: aparece en la búsqueda pero no se puede agregar. Que siga

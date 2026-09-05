@@ -12,7 +12,8 @@
  * --china=SKU,SKU (marca esas líneas como origen china), --json (salida cruda).
  */
 import { db } from '@/lib/db'
-import { loadConfig, quoteMetrics, resolveSkus, volumeOf, type SkuLine } from '@/lib/quote-metrics'
+import { quoteMetrics, resolveSkus, volumeOf, type SkuLine } from '@/lib/quote-metrics'
+import { getConfig } from '@/lib/config-db'
 
 // ── formato ──────────────────────────────────────────────────────────────────
 const n = (v: number, d = 2) => v.toLocaleString('es-VE', { minimumFractionDigits: d, maximumFractionDigits: d })

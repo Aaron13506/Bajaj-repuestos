@@ -3,9 +3,17 @@ export interface FxRates {
   bsdUsd: number
 }
 
+// `fetch` no tiene timeout propio: si el otro lado acepta la conexión y después se queda
+// callado, la promesa no resuelve nunca. Esto lo corre el cron horario de Heroku, así que
+// sin corte el dyno se queda colgado esperando a una API de terceros hasta que Heroku lo
+// mata — y encima sin dejar dicho cuál de las dos fue.
+const TIMEOUT_MS = 15_000
+
 // INR por 1 USD — frankfurter.app (tasas BCE, gratis, sin API key).
 async function fetchInrUsd(): Promise<number> {
-  const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=INR')
+  const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=INR', {
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  })
   if (!res.ok) throw new Error(`frankfurter.app respondió ${res.status}`)
   const data = (await res.json()) as { rates?: { INR?: number } }
   const rate = data.rates?.INR
@@ -17,6 +25,7 @@ async function fetchInrUsd(): Promise<number> {
 async function fetchBsdUsd(): Promise<number> {
   const res = await fetch('https://api.alcambio.app/graphql', {
     method: 'POST',
+    signal: AbortSignal.timeout(TIMEOUT_MS),
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       operationName: 'getBinanceP2PAverages',

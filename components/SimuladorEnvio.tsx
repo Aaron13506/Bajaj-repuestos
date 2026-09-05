@@ -199,6 +199,10 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
 
   // Se costean SIEMPRE los dos escenarios, no solo el activo: la pregunta del simulador no
   // es "cuánto sale por mar" sino "¿me conviene el mar sobre el aéreo, para esta caja?".
+  //
+  // Las deps son `itemsKey` y no `items` a propósito, y por eso el linter avisa acá: `items`
+  // se arma inline y es un array nuevo en cada render, así que ponerlo en las deps haría
+  // que el memo no acierte nunca. La clave serializada determina el contenido por completo.
   const itemsKey = JSON.stringify(items)
   const calcAereo    = useMemo(() => calcEnvio(items, cfg, { modo: 'aereo' }),    [itemsKey, cfg])
   const calcMaritimo = useMemo(() => calcEnvio(items, cfg, { modo: 'maritimo' }), [itemsKey, cfg])

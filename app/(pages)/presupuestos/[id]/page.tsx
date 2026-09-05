@@ -16,6 +16,7 @@ import type { PresupuestoPdfData } from '@/lib/pdf/presupuesto-pdf'
 import { stageSummary, shippingStatusMeta, SHIPPING_STATUSES } from '@/lib/shipping-status'
 import { modeloLabel, type MotoModelId, toModelIds } from '@/lib/modelo'
 import { pedidoLogistics } from '@/lib/pedido-logistics'
+import { toConfigMap } from '@/lib/config'
 
 export default async function PresupuestoDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const id = parseInt((await params).id)
@@ -45,7 +46,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
 
   if (!presupuesto) notFound()
 
-  const cfg = configRows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
+  const cfg = toConfigMap(configRows)
   const bsdRow = configRows.find(r => r.key === 'bsd_usd_rate') ?? null
 
   // Las piezas se listan alfabéticamente (mismo criterio que el builder, ver

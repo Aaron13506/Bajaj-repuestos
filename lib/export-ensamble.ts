@@ -1,4 +1,5 @@
 import { parseModelos } from '@/lib/modelos'
+import { CM3_PER_M3 } from '@/lib/calc'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Copiar un ensamble como JSON.
@@ -96,7 +97,7 @@ export function ensambleAJson(
       compat_modelos: parseModelos(p.child.compatibleModels),
       // m³ → cm³. Se redondea a 2 decimales: un tornillo puede medir menos de 1 cm³ y
       // truncarlo a entero lo dejaría en 0, que se lee como "no ocupa nada".
-      cm3: p.child.volumeM3 > 0 ? redondear(p.child.volumeM3 * 1_000_000, 2) : null,
+      cm3: p.child.volumeM3 > 0 ? redondear(p.child.volumeM3 * CM3_PER_M3, 2) : null,
       minimo: p.child.moq,
       ...(enCaja ? { en_caja: enCaja.get(p.child.id) ?? 0 } : {}),
       url: null,

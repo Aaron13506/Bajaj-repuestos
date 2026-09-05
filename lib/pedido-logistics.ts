@@ -1,8 +1,8 @@
 import { db } from './db'
-import { calcEnvio, CM3_PER_FT3, type ConfigMap, type EnvioItemInput } from './calc'
+import { calcEnvio, CM3_PER_FT3, CM3_PER_M3, type ConfigMap, type EnvioItemInput } from './calc'
 import { expandCostPieces, makeProductLookup, type ProductCost } from './envio-build'
 import type { BundlePiece } from './bundle'
-import { loadConfig } from './quote-metrics'
+import { getConfig } from './config-db'
 import { inboundDe } from './inbound'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -52,7 +52,7 @@ export async function pedidoLogistics(
   if (ids.length === 0) return { total: emptyLogistics(), porPedido: new Map() }
 
   const [cfg, items] = await Promise.all([
-    opts.cfg ? Promise.resolve(opts.cfg) : loadConfig(),
+    opts.cfg ? Promise.resolve(opts.cfg) : getConfig(),
     db.pedidoItem.findMany({
       where: { pedidoId: { in: ids } },
       select: {
@@ -140,7 +140,7 @@ export async function pedidoLogistics(
   const total = emptyLogistics()
   for (const m of acc.values()) {
     m.chargeableKg = Math.max(m.realKg, m.volKg)
-    m.cbm = (m.ft3 * CM3_PER_FT3) / 1_000_000
+    m.cbm = (m.ft3 * CM3_PER_FT3) / CM3_PER_M3
     total.realKg += m.realKg
     total.volKg += m.volKg
     total.ft3 += m.ft3
@@ -148,7 +148,7 @@ export async function pedidoLogistics(
     total.incompletas += m.incompletas
   }
   total.chargeableKg = Math.max(total.realKg, total.volKg)
-  total.cbm = (total.ft3 * CM3_PER_FT3) / 1_000_000
+  total.cbm = (total.ft3 * CM3_PER_FT3) / CM3_PER_M3
 
   return { total, porPedido: acc }
 }

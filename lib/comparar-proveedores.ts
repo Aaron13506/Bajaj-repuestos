@@ -1,5 +1,5 @@
 import { db } from './db'
-import { cbmParams, type ConfigMap } from './calc'
+import { cbmParams, CM3_PER_M3, type ConfigMap } from './calc'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ¿A quién conviene comprarle ESTE embarque?
@@ -111,7 +111,7 @@ export async function compararProveedores(
       // no ocupa volumen, así que puede bajar el flete de todo el embarque.
       const viaja = !(override?.isLanded ?? false)
       if (viaja && l.dimL && l.dimA && l.dimH) {
-        volumeM3 += ((l.dimL * l.dimA * l.dimH) / 1_000_000) * l.quantity
+        volumeM3 += ((l.dimL * l.dimA * l.dimH) / CM3_PER_M3) * l.quantity
       }
     }
 

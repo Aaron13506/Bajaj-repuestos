@@ -16,6 +16,7 @@ import EnvioMaritimo from './maritimo'
 import { makeProductLookup, expandCostPieces, type ProductCost } from '@/lib/envio-build'
 import { cobranzaEnvio, type CobranzaEnvio, type CobranzaPedido } from '@/lib/clientes'
 import type { BundlePiece } from '@/lib/bundle'
+import { toConfigMap } from '@/lib/config'
 import {
   assignPedido,
   assignAllConfirmados,
@@ -148,7 +149,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
 
   if (!envio) notFound()
 
-  const cfg = cfgRows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
+  const cfg = toConfigMap(cfgRows)
 
   // Lookup para resolver piezas de conjuntos a su producto real (por bajajCode).
   const lookup = makeProductLookup(allProducts as ProductCost[])

@@ -4,6 +4,9 @@ import { db } from '@/lib/db'
 import { toModelIds, fullModel } from '@/lib/modelo'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
 import { revalidatePath } from 'next/cache'
+import { getConfig } from '@/lib/config-db'
+import { margenPorDefecto } from '@/lib/config'
+import { msg, round2, toInt, toNum, toStr } from '@/lib/parse'
 
 // Resultado del import que se devuelve al cliente vía useFormState.
 export interface ImportResult {
@@ -46,31 +49,6 @@ interface RawSubgroup {
 interface RawGroup extends RawProduct {
   subgroups?: unknown
   products?: unknown        // hijos directos sin subgrupo
-}
-
-function toNum(v: unknown): number | null {
-  if (v == null || v === '') return null
-  const n = typeof v === 'string' ? parseFloat(v.replace(/[^\d.-]/g, '')) : Number(v)
-  return isNaN(n) ? null : n
-}
-
-function toInt(v: unknown): number | null {
-  const n = toNum(v)
-  return n == null ? null : Math.round(n)
-}
-
-function toStr(v: unknown): string | null {
-  if (v == null) return null
-  const s = String(v).trim()
-  return s === '' ? null : s
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100
-}
-
-function msg(e: unknown): string {
-  return e instanceof Error ? e.message : 'Error desconocido.'
 }
 
 // Construye el objeto que se inserta en Prisma. Lanza si falta nameEs.
@@ -146,9 +124,8 @@ export async function importProducts(
     return { ok: false, created: 0, errors: [], message: `JSON inválido: ${msg(e)}` }
   }
 
-  const rows = await db.config.findMany()
-  const cfg = rows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
-  const defaultMargin = parseFloat(cfg.default_margin_pct ?? '40') / 100
+  const cfg = await getConfig()
+  const defaultMargin = margenPorDefecto(cfg)
 
   const errors: ImportResult['errors'] = []
   let created = 0
@@ -174,9 +151,26 @@ export async function importProducts(
 
   const groups = collectGroups(parsed)
 
+  // Las piezas de un subgrupo (o de una lista suelta) son independientes entre sí: nada de
+  // lo que hace una cambia lo que hace la otra. Estaban encadenadas con `await` una por
+  // una, y contra el pooler en us-west-2 eso son ~200 ms POR PIEZA en serie — un ensamble
+  // de 50 partes tardaba lo mismo que 100 viajes seguidos. Se disparan juntas y el pool
+  // (max 10) las va sirviendo.
+  //
+  // Se mantiene el create fila por fila, y NO un createMany, a propósito: el importador
+  // reporta el error de cada pieza con su ruta (`Ensamble › Subgrupo › Pieza`), y en un
+  // lote único un solo JSON mal formado tumbaría las otras 49 sin decir cuál fue.
+  async function crearPiezas(
+    prods: RawProduct[],
+    etiqueta: (child: RawProduct, i: number) => string,
+  ): Promise<(number | null)[]> {
+    return Promise.all(prods.map((child, i) => createOne(child, etiqueta(child, i))))
+  }
+
   if (groups) {
     for (const g of groups) {
       const parentName = toStr(g.nameEs) ?? toStr(g.name) ?? 'Ensamble'
+      // El padre sí va antes que todo: los hijos necesitan su id para enlazarse.
       const parentId = await createOne(g, parentName, true)
       if (parentId == null) continue
 
@@ -190,28 +184,37 @@ export async function importProducts(
       for (const sg of subgroups) {
         const groupName = toStr(sg.name) ?? toStr(sg.groupName) ?? ''
         const prods: RawProduct[] = Array.isArray(sg.products) ? (sg.products as RawProduct[]) : []
-        let sortOrder = 0
-        for (const child of prods) {
-          const childName = toStr(child.nameEs) ?? toStr(child.name) ?? '?'
-          const path = `${parentName} › ${groupName || '(sin subgrupo)'} › ${childName}`
-          const childId = await createOne(child, path)
-          if (childId == null) continue
+        const ruta = (child: RawProduct) =>
+          `${parentName} › ${groupName || '(sin subgrupo)'} › ${toStr(child.nameEs) ?? toStr(child.name) ?? '?'}`
+
+        const childIds = await crearPiezas(prods, ruta)
+
+        // sortOrder sale del índice en el JSON, no de un contador que avanza al escribir:
+        // así el orden es el del documento y no el de quién terminó primero.
+        const enlaces = childIds
+          .map((childId, i) => ({ childId, child: prods[i], sortOrder: i }))
+          .filter((e): e is { childId: number; child: RawProduct; sortOrder: number } => e.childId != null)
+
+        await Promise.all(enlaces.map(async e => {
           try {
             await db.productComponent.create({
-              data: { parentId, childId, groupName, quantity: toInt(child.quantity) ?? 1, sortOrder: sortOrder++ },
+              data: {
+                parentId,
+                childId: e.childId,
+                groupName,
+                quantity: toInt(e.child.quantity) ?? 1,
+                sortOrder: e.sortOrder,
+              },
             })
-          } catch (e) {
-            errors.push({ name: path, message: `Creado pero no se enlazó al ensamble: ${msg(e)}` })
+          } catch (err) {
+            errors.push({ name: ruta(e.child), message: `Creado pero no se enlazó al ensamble: ${msg(err)}` })
           }
-        }
+        }))
       }
     }
   } else {
     const items: RawProduct[] = Array.isArray(parsed) ? parsed : [parsed]
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i]
-      await createOne(it, toStr(it.nameEs) ?? toStr(it.name) ?? `(item #${i + 1})`)
-    }
+    await crearPiezas(items, (it, i) => toStr(it.nameEs) ?? toStr(it.name) ?? `(item #${i + 1})`)
   }
 
   if (created > 0) {

@@ -18,6 +18,7 @@ import { sortModels } from '@/lib/catalog'
 import { modelosDistintos, parseModelos } from '@/lib/modelos'
 import { deleteEnvio, saveCostosProveedor } from '../actions'
 import { cerrarEmbarque, reabrirEmbarque } from '../linea-actions'
+import { toConfigMap } from '@/lib/config'
 
 const usd = (n: number) => `$${n.toFixed(2)}`
 // Con 3 decimales una caja recién empezada se ve como "0.000 m³", que se lee como vacía
@@ -62,7 +63,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
     orderBy: { name: 'asc' },
   })
 
-  const cfg = configRows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
+  const cfg = toConfigMap(configRows)
   // El FOB lo pone el PROVEEDOR de este embarque, no una constante global: cada uno cobra
   // lo suyo. Sin proveedor (o sin FOB propio cargado) se cae al default de Config.
   const fobProveedor = envio.supplier?.fobUsd != null ? parseFloat(envio.supplier.fobUsd.toString()) : null

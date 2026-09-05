@@ -34,13 +34,30 @@ export function compararNombre(a: string, b: string): number {
   return a.localeCompare(b, 'es', { sensitivity: 'base', numeric: true })
 }
 
+// Serializa para la API convirtiendo los Decimal de Prisma a número.
+//
+// La versión anterior chequeaba `value instanceof Prisma.Decimal` DENTRO del replacer de
+// JSON.stringify, y esa rama no se ejecutó nunca: Decimal define su propio `toJSON`, y el
+// orden del estándar es toJSON primero y el replacer después (ES2015 §SerializeJSONProperty).
+// Para cuando el replacer miraba el valor, ya era el string "12.34" y el instanceof daba
+// false. Resultado: la API prometía números y entregaba strings, así que cualquier
+// consumidor que sumara `price` concatenaba.
+//
+// Se resuelve del lado del HOLDER, que es el único lugar donde el Decimal todavía es un
+// Decimal: se recorre la estructura antes de serializar. De paso desaparece el
+// JSON.parse(JSON.stringify(...)), que recorría todo dos veces.
+function decimalesANumero(value: unknown): unknown {
+  if (value instanceof Prisma.Decimal) return value.toNumber()
+  if (value instanceof Date) return value.toISOString()
+  if (Array.isArray(value)) return value.map(decimalesANumero)
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value)) out[k] = decimalesANumero(v)
+    return out
+  }
+  return value
+}
+
 export function toJSON<T>(data: T): T {
-  return JSON.parse(
-    JSON.stringify(data, (_, value) => {
-      if (value instanceof Prisma.Decimal) {
-        return parseFloat(value.toString())
-      }
-      return value
-    }),
-  )
+  return decimalesANumero(data) as T
 }

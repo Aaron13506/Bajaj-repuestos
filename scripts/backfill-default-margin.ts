@@ -13,7 +13,8 @@
  *   pnpm exec tsx scripts/backfill-default-margin.ts --apply    # ejecuta
  */
 import { PrismaClient } from '@prisma/client'
-import { calcLanded, type ConfigMap } from '@/lib/calc'
+import { calcLanded } from '@/lib/calc'
+import { toConfigMap, margenPorDefecto } from '@/lib/config'
 
 try { process.loadEnvFile() } catch {}
 const prisma = new PrismaClient({
@@ -32,8 +33,8 @@ async function main() {
   console.log(APPLY ? '── MODO APPLY ──' : '── DRY-RUN ──')
 
   const cfgRows = await prisma.config.findMany()
-  const cfg = cfgRows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
-  const defaultMargin = parseFloat(cfg.default_margin_pct ?? '40') / 100
+  const cfg = toConfigMap(cfgRows)
+  const defaultMargin = margenPorDefecto(cfg)
   console.log(`Margen por defecto (Config.default_margin_pct): ${(defaultMargin * 100).toFixed(2)}%`)
 
   const base = { isAssembly: false as const, priceLocked: false, margin: null }

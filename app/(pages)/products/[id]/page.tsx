@@ -17,6 +17,7 @@ import { addComponent, removeComponent, addToAssembly } from './component-action
 import { deleteProduct } from '../actions'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
 import { getSupplierPriceMap } from '@/lib/suppliers'
+import { toConfigMap } from '@/lib/config'
 
 export default async function ProductDetailPage({
   params,
@@ -54,7 +55,7 @@ export default async function ProductDetailPage({
   const priceMap = await getSupplierPriceMap(compararContra)
   const supplierOverride = priceMap.get(product.id) ?? null
 
-  const cfg = configRows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
+  const cfg = toConfigMap(configRows)
   const fisico = {
     weightGrams: product.weightGrams,
     dimL:        product.dimL,

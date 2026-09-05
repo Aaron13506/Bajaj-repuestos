@@ -1,7 +1,9 @@
 import { db } from './db'
+import { getConfig } from './config-db'
 import {
   calcEnvio,
   CM3_PER_FT3,
+  CM3_PER_M3,
   type ConfigMap,
   type EnvioBreakdown,
   type EnvioItemInput,
@@ -59,15 +61,10 @@ export interface QuoteMetrics {
   cfg: ConfigMap
 }
 
-export async function loadConfig(): Promise<ConfigMap> {
-  const rows = await db.config.findMany()
-  return rows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
-}
-
 export function volumeOf(p: Pick<ResolvedProduct, 'dimL' | 'dimA' | 'dimH'>, qty = 1): VolumeMetrics {
   const hasDims = p.dimL != null && p.dimA != null && p.dimH != null
   const cm3 = hasDims ? p.dimL! * p.dimA! * p.dimH! * qty : 0
-  return { cm3, ft3: cm3 / CM3_PER_FT3, cbm: cm3 / 1_000_000 }
+  return { cm3, ft3: cm3 / CM3_PER_FT3, cbm: cm3 / CM3_PER_M3 }
 }
 
 /**
@@ -104,7 +101,7 @@ export async function quoteMetrics(
   lines: SkuLine[],
   opts: { proveedor?: ProveedorEnvio | null; cfg?: ConfigMap } = {},
 ): Promise<QuoteMetrics> {
-  const cfg = opts.cfg ?? await loadConfig()
+  const cfg = opts.cfg ?? await getConfig()
   const found = await resolveSkus(lines.map(l => l.sku))
 
   const notFound: string[] = []

@@ -1,4 +1,4 @@
-import { cbmParams, type ConfigMap } from './calc'
+import { cbmParams, CM3_PER_M3, type ConfigMap } from './calc'
 import { expandCostPieces, type ProductCost, type ProductLookup } from './envio-build'
 import type { BundlePiece } from './bundle'
 
@@ -25,8 +25,6 @@ import type { BundlePiece } from './bundle'
 // factura y pasan a cobrar por peso. Con repuestos de moto es difícil llegar, pero una
 // caja de discos de freno o coronas puede pasarse.
 export const CBM_MAX_KG_PER_M3 = 1000
-
-const CM3_PER_M3 = 1_000_000
 
 export interface CbmLineaInput {
   /** Id de la línea de origen (PedidoItem), para poder mapear el resultado de vuelta. */

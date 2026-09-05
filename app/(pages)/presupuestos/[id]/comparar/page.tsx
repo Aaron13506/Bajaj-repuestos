@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { type BundlePiece } from '@/lib/bundle'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
+import { toConfigMap } from '@/lib/config'
 
 interface Line {
   sku: string
@@ -35,7 +36,7 @@ export default async function CompararProveedoresPage({ params }: { params: Prom
 
   if (!pedido) notFound()
 
-  const cfg = configRows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
+  const cfg = toConfigMap(configRows)
 
   // Misma lógica de aplanado que la página "Para proveedor": suma por SKU tanto las
   // piezas de conjuntos (bundleItems) como las piezas sueltas del presupuesto.

@@ -1,8 +1,11 @@
 import { db } from './db'
-import { type ConfigMap } from './calc'
+import type { Prisma } from '@prisma/client'
 import { reprice } from './reprice'
 import { chequearMedidas, hayError } from './measures-check'
 import { extractJson } from './json-ia'
+import { getConfig } from './config-db'
+import { margenPorDefecto } from './config'
+import { msg, toInt, toNum, toStr } from './parse'
 
 // Se re-exporta porque era parte de la API de este módulo antes de mudarse a lib/json-ia.
 export { extractJson }
@@ -50,27 +53,6 @@ interface RawMeasure {
   dimH?: unknown
 }
 
-function toNum(v: unknown): number | null {
-  if (v == null || v === '') return null
-  const n = typeof v === 'string' ? parseFloat(v.replace(/[^\d.-]/g, '')) : Number(v)
-  return isNaN(n) ? null : n
-}
-
-function toInt(v: unknown): number | null {
-  const n = toNum(v)
-  return n == null ? null : Math.round(n)
-}
-
-function toStr(v: unknown): string | null {
-  if (v == null) return null
-  const s = String(v).trim()
-  return s === '' ? null : s
-}
-
-function msg(e: unknown): string {
-  return e instanceof Error ? e.message : 'Error desconocido.'
-}
-
 // Normaliza la entrada a un array de filas, tolerando {items:[...]}, un objeto suelto,
 // o un array directo.
 function collectRows(parsed: unknown): RawMeasure[] {
@@ -105,9 +87,8 @@ export async function applyMeasures(raw: string): Promise<MeasuresResult> {
     return { ...emptyMeasuresResult, message: 'El JSON no contenía filas.' }
   }
 
-  const cfgRows = await db.config.findMany()
-  const cfg = cfgRows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
-  const defaultMargin = parseFloat(cfg.default_margin_pct ?? '40') / 100
+  const cfg = await getConfig()
+  const defaultMargin = margenPorDefecto(cfg)
 
   let updated = 0
   let priced = 0
@@ -116,6 +97,15 @@ export async function applyMeasures(raw: string): Promise<MeasuresResult> {
   const errors: MeasuresResult['errors'] = []
   const warnings: MeasuresResult['warnings'] = []
 
+  // ── 1. Parseo de todas las filas (puro, sin tocar la base) ─────────────────
+  interface FilaLista {
+    label: string
+    idNum: number | null
+    code: string | null
+    patch: { weightGrams?: number | null; dimL?: number | null; dimA?: number | null; dimH?: number | null }
+  }
+  const listas: FilaLista[] = []
+
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i]
     const idNum = toInt(r.id)
@@ -123,7 +113,7 @@ export async function applyMeasures(raw: string): Promise<MeasuresResult> {
     const label = idNum != null ? `id ${idNum}` : code ?? `(fila #${i + 1})`
 
     // Solo los campos presentes se actualizan; los omitidos conservan su valor.
-    const patch: { weightGrams?: number | null; dimL?: number | null; dimA?: number | null; dimH?: number | null } = {}
+    const patch: FilaLista['patch'] = {}
     if ('weightGrams' in r || 'weight' in r) patch.weightGrams = toInt(r.weightGrams ?? r.weight)
     if ('dimL' in r) patch.dimL = toNum(r.dimL)
     if ('dimA' in r) patch.dimA = toNum(r.dimA)
@@ -137,57 +127,114 @@ export async function applyMeasures(raw: string): Promise<MeasuresResult> {
       errors.push({ name: label, message: 'Falta identificador (id o bajajCode).' })
       continue
     }
+    listas.push({ label, idNum, code, patch })
+  }
 
-    try {
-      // id es único; bajajCode puede aparecer en varios productos (mismo SKU reusado).
-      const targets = idNum != null
-        ? await db.product.findMany({ where: { id: idNum } })
-        : await db.product.findMany({ where: { bajajCode: code! } })
+  // ── 2. UNA consulta para todos los objetivos ───────────────────────────────
+  // Antes esto era un findMany por fila y después un update por producto, todo
+  // encadenado: un ensamble de 30 piezas eran ~60 idas y vueltas al pooler en us-west-2,
+  // en serie. Lo que manda en el tiempo de esta pantalla no es lo que tarda Postgres,
+  // es cuántas veces se cruza la red.
+  const ids = listas.map(f => f.idNum).filter((v): v is number => v != null)
+  const codes = listas.map(f => f.code).filter((v): v is string => v != null)
+  const encontrados = await db.product.findMany({
+    where: {
+      OR: [
+        ...(ids.length ? [{ id: { in: ids } }] : []),
+        ...(codes.length ? [{ bajajCode: { in: codes } }] : []),
+      ],
+    },
+  })
 
-      if (targets.length === 0) {
-        notFound.push(label)
+  type Fila = (typeof encontrados)[number]
+  const porId = new Map<number, Fila>(encontrados.map(p => [p.id, p]))
+  // Un bajajCode puede repetirse en varios productos (mismo SKU reusado), así que el
+  // índice por código es uno a muchos — igual que el findMany que reemplaza.
+  const porCode = new Map<string, Fila[]>()
+  for (const p of encontrados) {
+    if (!p.bajajCode) continue
+    const ya = porCode.get(p.bajajCode)
+    if (ya) ya.push(p)
+    else porCode.set(p.bajajCode, [p])
+  }
+
+  // ── 3. Fusión, chequeo y armado de los updates ─────────────────────────────
+  // `estado` es la copia de trabajo: si dos filas apuntan al mismo producto (una por id y
+  // otra por bajajCode), la segunda se fusiona sobre el resultado de la primera y no sobre
+  // la fila original. Es lo que hacía la versión secuencial al releer la base, y hay que
+  // conservarlo o el último patch pisaría los campos del anterior.
+  const estado = new Map<number, Fila>(encontrados.map(p => [p.id, { ...p }]))
+  const ops: Prisma.PrismaPromise<unknown>[] = []
+
+  for (const f of listas) {
+    const targets = f.idNum != null
+      ? (porId.has(f.idNum) ? [porId.get(f.idNum)!] : [])
+      : (porCode.get(f.code!) ?? [])
+
+    if (targets.length === 0) {
+      notFound.push(f.label)
+      continue
+    }
+
+    for (const base of targets) {
+      const p = estado.get(base.id)!
+      const merged = {
+        priceInr:    p.priceInr,
+        weightGrams: f.patch.weightGrams !== undefined ? f.patch.weightGrams : p.weightGrams,
+        dimL:        f.patch.dimL !== undefined ? f.patch.dimL : p.dimL,
+        dimA:        f.patch.dimA !== undefined ? f.patch.dimA : p.dimA,
+        dimH:        f.patch.dimH !== undefined ? f.patch.dimH : p.dimH,
+      }
+
+      // Chequeo físico ANTES de escribir, sobre el resultado FUSIONADO: una fila que
+      // solo trae peso hay que juzgarla contra las dimensiones que ya estaban, porque
+      // es esa combinación la que va a costear. Lo imposible no entra — el catálogo es
+      // la fuente del precio de venta, y un dato absurdo ahí se cobra en flete.
+      const chequeos = chequearMedidas(merged)
+      const etiqueta = `${p.bajajCode ?? f.label} · ${p.nameEs}`
+      if (hayError(chequeos)) {
+        rejected++
+        for (const c of chequeos.filter(c => c.severidad === 'error')) {
+          errors.push({ name: etiqueta, message: `${c.mensaje} NO se guardó.` })
+        }
         continue
       }
+      for (const c of chequeos) warnings.push({ name: etiqueta, message: c.mensaje })
 
-      for (const p of targets) {
-        const merged = {
-          priceInr:    p.priceInr,
-          weightGrams: patch.weightGrams !== undefined ? patch.weightGrams : p.weightGrams,
-          dimL:        patch.dimL !== undefined ? patch.dimL : p.dimL,
-          dimA:        patch.dimA !== undefined ? patch.dimA : p.dimA,
-          dimH:        patch.dimH !== undefined ? patch.dimH : p.dimH,
-        }
+      // El recálculo de precio vive en lib/reprice.ts: es la misma cuenta que corre
+      // cuando cambia el ₹ de 99rpm, y una segunda copia daría dos catálogos que se
+      // contradicen. Acá solo se aportan las medidas nuevas.
+      const rp = reprice(
+        { ...merged, margin: p.margin, price: Number(p.price), priceLocked: p.priceLocked },
+        cfg,
+        defaultMargin,
+      )
+      if (rp.repriced) priced++
 
-        // Chequeo físico ANTES de escribir, sobre el resultado FUSIONADO: una fila que
-        // solo trae peso hay que juzgarla contra las dimensiones que ya estaban, porque
-        // es esa combinación la que va a costear. Lo imposible no entra — el catálogo es
-        // la fuente del precio de venta, y un dato absurdo ahí se cobra en flete.
-        const chequeos = chequearMedidas(merged)
-        const etiqueta = `${p.bajajCode ?? label} · ${p.nameEs}`
-        if (hayError(chequeos)) {
-          rejected++
-          for (const c of chequeos.filter(c => c.severidad === 'error')) {
-            errors.push({ name: etiqueta, message: `${c.mensaje} NO se guardó.` })
-          }
-          continue
-        }
-        for (const c of chequeos) warnings.push({ name: etiqueta, message: c.mensaje })
+      // La copia de trabajo avanza para la próxima fila que toque este mismo producto.
+      Object.assign(p, merged, rp.data)
 
-        // El recálculo de precio vive en lib/reprice.ts: es la misma cuenta que corre
-        // cuando cambia el ₹ de 99rpm, y una segunda copia daría dos catálogos que se
-        // contradicen. Acá solo se aportan las medidas nuevas.
-        const r = reprice(
-          { ...merged, margin: p.margin, price: Number(p.price), priceLocked: p.priceLocked },
-          cfg,
-          defaultMargin,
-        )
-        if (r.repriced) priced++
+      ops.push(db.product.update({ where: { id: p.id }, data: { ...merged, ...rp.data } }))
+      updated++
+    }
+  }
 
-        await db.product.update({ where: { id: p.id }, data: { ...merged, ...r.data } })
-        updated++
-      }
+  // ── 4. Un solo viaje para escribir ─────────────────────────────────────────
+  // Las filas que no pasaron el chequeo físico ya quedaron afuera, así que lo que entra
+  // acá está validado: un fallo a esta altura es de la base y afecta a todo por igual.
+  // Que sea atómico evita el estado a medias que dejaba el bucle si se cortaba la red.
+  if (ops.length > 0) {
+    try {
+      await db.$transaction(ops)
     } catch (e) {
-      errors.push({ name: label, message: msg(e) })
+      return {
+        ...emptyMeasuresResult,
+        rejected,
+        notFound,
+        errors: [...errors, { name: 'Escritura', message: msg(e) }],
+        warnings,
+        message: `No se guardó nada: falló la escritura (${msg(e)}).`,
+      }
     }
   }
 
