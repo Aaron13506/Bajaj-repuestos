@@ -16,7 +16,7 @@ import { cumpleMoq } from '@/lib/moq'
 import { alternosDe } from '@/lib/alt-sku'
 import { sortModels } from '@/lib/catalog'
 import { modelosDistintos, parseModelos } from '@/lib/modelos'
-import { deleteEnvio } from '../actions'
+import { deleteEnvio, saveCostosProveedor } from '../actions'
 import { cerrarEmbarque, reabrirEmbarque } from '../linea-actions'
 
 const usd = (n: number) => `$${n.toFixed(2)}`
@@ -66,6 +66,14 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
   // El FOB lo pone el PROVEEDOR de este embarque, no una constante global: cada uno cobra
   // lo suyo. Sin proveedor (o sin FOB propio cargado) se cae al default de Config.
   const fobProveedor = envio.supplier?.fobUsd != null ? parseFloat(envio.supplier.fobUsd.toString()) : null
+  // Lo que costó la transferencia con la que se le pagó al proveedor de este embarque. Es
+  // un costo real que no entraba a ningún lado: salía de la caja y no del landed. Vive en
+  // las MISMAS dos columnas que usa el carril aéreo para que la comisión sea un solo
+  // concepto y no cuatro campos parecidos en dos pantallas. No se calcula con ninguna
+  // regla — se anotan los montos, o quedan sin cargar (que no es cero).
+  const dec = (v: { toString(): string } | null) => (v != null ? parseFloat(v.toString()) : null)
+  const comisionSalienteUsd = dec(envio.comisionSalienteUsd)
+  const comisionEntranteUsd = dec(envio.comisionEntranteUsd)
   const p = cbmParams(cfg, fobProveedor)
   const priceMap = await getSupplierPriceMap(envio.supplier?.id ?? null)
   const esBorrador = envio.estado === 'borrador'
@@ -143,8 +151,15 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
   // Costo REAL de la caja: el mínimo facturable adentro. El prorrateo por m³ que usa el
   // catálogo sirve para costear una pieza suelta, pero acá esconde justamente lo que hay
   // que ver — que una caja a medio llenar paga aire.
-  const embarque = costoEmbarque(resumen.volumeM3, cfg, fobProveedor)
-  const landedReal = resumen.costoOrigenUsd + (resumen.volumeM3 > 0 ? embarque.totalUsd : 0)
+  const embarque = costoEmbarque(resumen.volumeM3, cfg, fobProveedor, {
+    mercanciaUsd: resumen.costoOrigenUsd,
+    comisionSalienteUsd,
+    comisionEntranteUsd,
+  })
+  const landedReal =
+    resumen.costoOrigenUsd +
+    (resumen.volumeM3 > 0 ? embarque.totalUsd : 0) +
+    embarque.comisionUsd
   // Con la caja casi vacía, cualquier ratio contra el volumen se dispara a millones: no es
   // información, es una división por casi-cero. Recién a partir del 1% del mínimo los
   // números por m³ (y la densidad) describen algo real.
@@ -396,6 +411,27 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
               <p className="text-xl font-bold font-mono text-gray-900">{usd(resumen.costoOrigenUsd)}</p>
               <p className="text-[11px] text-gray-400">{resumen.weightKg.toFixed(1)} kg</p>
             </div>
+            {/* La comisión solo tiene dónde cargarse si el embarque tiene proveedor: sin
+                proveedor no hay a quién girarle (es el precio base de 99rpm). */}
+            {envio.supplierId != null && (
+              <div>
+                <p className="text-xs text-gray-400 mb-1">Comisiones del giro</p>
+                <p className={`text-xl font-bold font-mono ${embarque.cargada ? 'text-gray-900' : 'text-gray-300'}`}>
+                  {!embarque.salienteCargada && !embarque.entranteCargada
+                    ? 'sin cargar'
+                    : usd(embarque.comisionUsd)}
+                </p>
+                <p className="text-[11px] text-gray-400">
+                  {embarque.cargada
+                    ? `saliente ${usd(embarque.comisionSalienteUsd)} + entrante ${usd(embarque.comisionEntranteUsd)}`
+                    : embarque.salienteCargada
+                      ? 'falta la entrante'
+                      : embarque.entranteCargada
+                        ? 'falta la saliente'
+                        : `sobre ${usd(embarque.giroUsd)} girados`}
+                </p>
+              </div>
+            )}
             <div>
               <p className="text-xs text-gray-400 mb-1">Landed total</p>
               <p className="text-xl font-bold font-mono text-blue-700">{usd(landedReal)}</p>
@@ -406,6 +442,69 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
               </p>
             </div>
           </div>
+
+          {/* Dónde se anotan las dos comisiones del giro. Estaban solo en el carril aéreo,
+              así que un embarque marítimo mostraba "sin cargar" para siempre: el costo
+              existía y no había pantalla donde meterlo. Es la misma acción y las mismas dos
+              columnas — una comisión es un concepto solo, no uno por ruta. */}
+          {envio.supplierId != null && (
+            <form
+              action={saveCostosProveedor.bind(null, envio.id)}
+              className="pt-4 border-t border-gray-100 flex flex-wrap items-end gap-3"
+            >
+              <div>
+                <label
+                  className="block text-xs font-medium text-gray-600 mb-1"
+                  title="Lo que MI banco cobró por emitir el giro. Vacío = todavía no lo sé; 0 = no cobró nada"
+                >
+                  Comisión saliente (USD)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  name="comisionSalienteUsd"
+                  defaultValue={comisionSalienteUsd ?? ''}
+                  placeholder="sin cargar"
+                  className="w-40 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  lo que te cobró tu banco por girar {usd(embarque.giroUsd)}
+                </p>
+              </div>
+              <div>
+                <label
+                  className="block text-xs font-medium text-gray-600 mb-1"
+                  title="Lo que le descontaron a ÉL al acreditar y tuviste que completarle. Vacío = todavía no lo sé; 0 = le llegó completo"
+                >
+                  Comisión entrante (USD)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  name="comisionEntranteUsd"
+                  defaultValue={comisionEntranteUsd ?? ''}
+                  placeholder="sin cargar"
+                  className="w-40 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  lo que le descontaron al recibir y le completaste
+                </p>
+              </div>
+              <button
+                type="submit"
+                className="px-4 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Guardar
+              </button>
+              {!embarque.cargada && (
+                <p className="text-[11px] text-gray-400 basis-full">
+                  Vacío no es cero: mientras falte una punta, esa parte cuenta $0 y el landed sale corto.
+                </p>
+              )}
+            </form>
+          )}
 
           {/* Curva de dilución del FOB: es la decisión de CUÁNDO mandar. El flete escala
               con el volumen, el FOB no — así que el costo por m³ baja al llenar, y hasta

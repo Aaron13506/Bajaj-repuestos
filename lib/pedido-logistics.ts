@@ -3,6 +3,7 @@ import { calcEnvio, CM3_PER_FT3, type ConfigMap, type EnvioItemInput } from './c
 import { expandCostPieces, makeProductLookup, type ProductCost } from './envio-build'
 import type { BundlePiece } from './bundle'
 import { loadConfig } from './quote-metrics'
+import { inboundDe } from './inbound'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Cuánto pesa y cuánto ocupa un pedido — antes de que exista la caja.
@@ -56,7 +57,7 @@ export async function pedidoLogistics(
       where: { pedidoId: { in: ids } },
       select: {
         pedidoId: true, productId: true, quantity: true, bundleItems: true,
-        origen: true, isLanded: true,
+        origen: true, inbound: true, supplierId: true, isLanded: true,
         product: {
           select: {
             id: true, nameEs: true, bajajCode: true,
@@ -115,6 +116,8 @@ export async function pedidoLogistics(
       priceInr: piece.priceInr,
       quantity: piece.quantity,
       origen: it.origen === 'china' ? 'china' : 'india',
+      inbound: inboundDe(it.origen, it.inbound),
+      supplierId: it.supplierId,
       isLanded: it.isLanded,
     }))
   )

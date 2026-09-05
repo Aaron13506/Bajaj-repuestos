@@ -5,7 +5,9 @@ import {
   type ConfigMap,
   type EnvioBreakdown,
   type EnvioItemInput,
+  type ProveedorEnvio,
 } from './calc'
+import type { Inbound } from './inbound'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Métricas de peso y volumen a partir de una lista de SKU.
@@ -20,6 +22,10 @@ export interface SkuLine {
   sku: string
   qty?: number
   origen?: 'india' | 'china'
+  /** Por dónde entra a USA. Sin valor ⇒ 'shoppre' (la tabla escalón de ShipGlobal). */
+  inbound?: Inbound
+  /** A quién se le compra: la clave con la que se agrupan los tramos cotizados y los giros. */
+  supplierId?: number | null
   isLanded?: boolean
 }
 
@@ -96,7 +102,7 @@ export async function resolveSkus(skus: string[]): Promise<Map<string, ResolvedP
 
 export async function quoteMetrics(
   lines: SkuLine[],
-  opts: { inboundChinaUsd?: number | null; cfg?: ConfigMap } = {},
+  opts: { proveedor?: ProveedorEnvio | null; cfg?: ConfigMap } = {},
 ): Promise<QuoteMetrics> {
   const cfg = opts.cfg ?? await loadConfig()
   const found = await resolveSkus(lines.map(l => l.sku))
@@ -123,11 +129,13 @@ export async function quoteMetrics(
       priceInr: p.priceInr,
       quantity: qty,
       origen: line.origen ?? 'india',
+      inbound: line.inbound,
+      supplierId: line.supplierId,
       isLanded: line.isLanded ?? false,
     })
   }
 
-  const breakdown = calcEnvio(items, cfg, { inboundChinaUsd: opts.inboundChinaUsd })
+  const breakdown = calcEnvio(items, cfg, { proveedor: opts.proveedor })
   const volume = volumes.reduce<VolumeMetrics>(
     (acc, v) => ({ cm3: acc.cm3 + v.cm3, ft3: acc.ft3 + v.ft3, cbm: acc.cbm + v.cbm }),
     { cm3: 0, ft3: 0, cbm: 0 },

@@ -87,16 +87,72 @@ export function resolveRateTable(cfg?: Record<string, string>): RateTable {
   }
 }
 
-/** Precio USD del tramo India→USA para un peso cobrable. Escalón: gana el primer tope ≥ peso. */
-export function getShoppReRateUsd(
+/**
+ * El peso máximo que la tabla sabe cotizar: el tope del último escalón (hoy 22 kg en los
+ * tres carriers). NO es un detalle del scraper — es el límite por caja del transportista,
+ * y por eso mandar más que eso no es "un precio que falta", es OTRA caja.
+ */
+export function capacidadCajaKg(carrier: string, cfg?: Record<string, string>): number {
+  const steps = pasosDe(carrier, cfg)
+  return steps[steps.length - 1][0]
+}
+
+function pasosDe(carrier: string, cfg?: Record<string, string>): RateStep[] {
+  const table = resolveRateTable(cfg)
+  return table.carriers[carrier] ?? table.carriers[CARRIER_DUTY_FREE] ?? Object.values(table.carriers)[0]
+}
+
+export interface TramoCotizacion {
+  costUsd: number
+  /** Cuántas cajas hacen falta. 1 mientras el peso entre en una. */
+  cajas: number
+  /** El peso facturable de cada caja. Iguales entre sí (ver más abajo). */
+  pesosKg: number[]
+  /** El tope de peso por caja, para poder decirlo en pantalla. */
+  capKg: number
+}
+
+/**
+ * Cotiza el tramo India→USA de un peso cobrable cualquiera, PARTIÉNDOLO en cajas iguales
+ * cuando no entra en una.
+ *
+ * Antes esto era un solo `find` con un `?? último escalón` al final, y ese fallback es el
+ * que estaba mal: 24 kg pagaban la tarifa de 22 y 44 kg también. No es un redondeo — el
+ * error crece sin techo con el peso (a 44 kg costeaba la mitad), y encima empuja justo para
+ * el lado peligroso, porque el carril aéreo se abarata al juntar kilos y el simulador
+ * premiaba seguir amontonando en una caja que ya no existe.
+ *
+ * EL REPARTO ES EN PARTES IGUALES, y es una decisión, no lo más barato posible. El reparto
+ * más barato concentra: 24.42 kg salen $27.93 menos como 18.9 + 5.5 que como 12.21 + 12.21,
+ * porque la tarifa baja por kilo cuanto más pesa la caja. Pero ese óptimo solo existe si
+ * uno elige qué pieza va en cada caja, y no es lo que pasa: se despacha el bulto y lo
+ * reparten. Cotizar el óptimo sería costear con un ahorro que no se va a lograr — y ese
+ * error va para el lado que duele, porque el número termina en un precio de venta. Partes
+ * iguales es el supuesto que se puede cumplir siempre.
+ */
+export function cotizarTramoAereo(
   weightKg: number,
   carrier: string,
   isMember: boolean,
   cfg?: Record<string, string>,
-): number {
+): TramoCotizacion {
   const table = resolveRateTable(cfg)
-  const steps = table.carriers[carrier] ?? table.carriers[CARRIER_DUTY_FREE] ?? Object.values(table.carriers)[0]
-  const step = steps.find(s => s[0] >= weightKg) ?? steps[steps.length - 1]
-  const basic = step[1]
-  return isMember ? Number((basic * (1 - table.member_discount)).toFixed(2)) : basic
+  const steps = pasosDe(carrier, cfg)
+  const capKg = steps[steps.length - 1][0]
+  const socio = (basic: number) => (isMember ? Number((basic * (1 - table.member_discount)).toFixed(2)) : basic)
+  // El escalón que cubre ese peso. Nunca satura acá: por construcción cada caja pesa
+  // como mucho el tope, que es el último escalón de la tabla.
+  const escalon = (kg: number) => socio((steps.find(st => st[0] >= kg) ?? steps[steps.length - 1])[1])
+
+  if (weightKg <= 0) return { costUsd: 0, cajas: 0, pesosKg: [], capKg }
+
+  const cajas = Math.ceil(weightKg / capKg)
+  const cada = weightKg / cajas
+
+  return {
+    costUsd: Number((escalon(cada) * cajas).toFixed(2)),
+    cajas,
+    pesosKg: Array.from({ length: cajas }, () => Number(cada.toFixed(2))),
+    capKg,
+  }
 }

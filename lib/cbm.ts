@@ -220,16 +220,69 @@ export function costoRealPorM3(volumeM3: number, cfg: ConfigMap, fobUsd?: number
   return (facturable * p.ratePerM3 + p.fobUsd) / volumeM3
 }
 
-/** Costo total de un embarque de ese volumen (flete facturable + FOB fijo). */
-export function costoEmbarque(volumeM3: number, cfg: ConfigMap, fobUsd?: number | null): { facturableM3: number; fleteUsd: number; fobUsd: number; totalUsd: number; pagaMinimo: boolean } {
+export interface CostoEmbarque {
+  facturableM3: number
+  fleteUsd: number
+  fobUsd: number
+  /** Flete facturable + FOB. Es lo que cuesta MOVER la caja, sin la mercancía ni el giro. */
+  totalUsd: number
+  pagaMinimo: boolean
+  /** Lo que se le transfiere al proveedor: su mercancía más su FOB (el flete lo cobra la naviera). */
+  giroUsd: number
+  /** Lo que cobró mi banco por emitir el giro. 0 si no se cargó. */
+  comisionSalienteUsd: number
+  /** Lo que le descontaron al acreditar y hubo que completarle. 0 si no se cargó. */
+  comisionEntranteUsd: number
+  /** Las dos juntas: lo que la transferencia costó en total y entra al landed. */
+  comisionUsd: number
+  salienteCargada: boolean
+  entranteCargada: boolean
+  /** Las dos anotadas: recién ahí el giro está costeado. */
+  cargada: boolean
+}
+
+/**
+ * Costo total de un embarque de ese volumen: flete facturable + FOB fijo, y aparte lo que
+ * se le gira al proveedor con la comisión que haya costado esa transferencia.
+ *
+ * `giroUsd` se calcula acá y no en la pantalla porque es la base sobre la que los bancos
+ * cobran, y equivocarla es equivocar el costo: es mercancía + FOB —lo que sale de la cuenta
+ * hacia ÉL— y no incluye el flete por m³, que lo cobra la naviera. Las comisiones no se
+ * calculan: son los dos montos que se anotaron (saliente y entrante) y llegan por `opts`.
+ * El mar lee las MISMAS dos columnas que el aire, para que la comisión sea un solo concepto
+ * y no dos campos parecidos en dos pantallas.
+ */
+export function costoEmbarque(
+  volumeM3: number,
+  cfg: ConfigMap,
+  fobUsd?: number | null,
+  opts: {
+    mercanciaUsd?: number
+    comisionSalienteUsd?: number | null
+    comisionEntranteUsd?: number | null
+  } = {},
+): CostoEmbarque {
   const p = cbmParams(cfg, fobUsd)
   const facturableM3 = Math.max(volumeM3, p.minM3)
   const fleteUsd = facturableM3 * p.ratePerM3
+  // Vacío ≠ cero también acá: cada punta cuenta 0 mientras no se anote, pero `cargada`
+  // deja dicho que el número todavía no está completo.
+  const salienteCargada = opts.comisionSalienteUsd != null
+  const entranteCargada = opts.comisionEntranteUsd != null
+  const salienteUsd = salienteCargada ? opts.comisionSalienteUsd! : 0
+  const entranteUsd = entranteCargada ? opts.comisionEntranteUsd! : 0
   return {
     facturableM3,
     fleteUsd,
     fobUsd: p.fobUsd,
     totalUsd: fleteUsd + p.fobUsd,
     pagaMinimo: volumeM3 < p.minM3,
+    giroUsd: (opts.mercanciaUsd ?? 0) + p.fobUsd,
+    comisionSalienteUsd: salienteUsd,
+    comisionEntranteUsd: entranteUsd,
+    comisionUsd: salienteUsd + entranteUsd,
+    salienteCargada,
+    entranteCargada,
+    cargada: salienteCargada && entranteCargada,
   }
 }

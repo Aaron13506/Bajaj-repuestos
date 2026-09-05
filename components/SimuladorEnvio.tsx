@@ -56,23 +56,64 @@ const ft3 = (n: number) => `${n.toFixed(2)} ft³`
 // 3 decimales: una caja chica ronda los 0.0xx m³ y con 2 se vería todo igual.
 const m3 = (n: number) => `${n.toFixed(3)} m³`
 
-// Guía de punto dulce sobre la curva real de ShipGlobal Duty Free (member).
-function airTierHint(chargeableKg: number): { tone: 'good' | 'info'; text: string } | null {
+// Dónde estás parado en la curva de la tarifa.
+//
+// El $/kg NO tiene un mínimo en el medio: baja siempre, y lo más barato por kilo está en el
+// tope de la caja. Lo que pasa a los 11 kg es que deja de bajar RÁPIDO — de ahí para arriba
+// la mejora es chica. Los textos hablaban de un "punto dulce" en 11 kg como si fuera el
+// óptimo, y encima cotizaban en INR/kg, de cuando la tarifa se guardaba en rupias: hoy la
+// tabla es en USD y el tramo aéreo no pasa por `inr_usd_rate`, así que esos números no
+// correspondían a nada que se pudiera verificar en la misma pantalla.
+//
+// Por eso el $/kg que se muestra es el REAL de esta caja (`costPerKgUsd` del breakdown) y no
+// una constante escrita a mano: una tarifa hardcodeada envejece con el próximo scrape y
+// nadie se entera.
+function airTierHint(
+  chargeableKg: number,
+  costPerKgUsd = 0,
+  cajas = 1,
+  capKg: number | null = null,
+): { tone: 'good' | 'info' | 'warn'; text: string } | null {
   if (chargeableKg <= 0) return null
-  if (chargeableKg < 11) {
-    const falta = 11 - chargeableKg
+  const perKg = `$${costPerKgUsd.toFixed(2)}/kg`
+
+  // Pasado el tope por caja el consejo se da vuelta: sumar kilos ya no abarata nada, porque
+  // el kilo 23 no entra en un escalón más alto — arranca una caja nueva desde la parte cara
+  // de la curva. Decir "estás en el tramo más eficiente" acá empuja para el lado que cuesta.
+  if (cajas > 1 && capKg != null) {
     return {
-      tone: 'info',
-      text: `Te faltan ${falta.toFixed(1)} kg cobrables para el punto dulce (11 kg → ~1 500 INR/kg). El kg 11 cuesta casi nada (+101 INR vs 10 kg).`,
+      tone: 'warn',
+      text: `Pasaste el tope de ${capKg} kg por caja: van ${cajas} cajas y el flete es la suma de las ` +
+            `${cajas}, ${perKg} en promedio. Partir encarece siempre —los primeros kilos de cada caja ` +
+            `son los más caros—, así que conviene una sola caja llena antes que dos a medio llenar.`,
     }
   }
-  if (chargeableKg < 16) {
-    return { tone: 'info', text: 'En el punto dulce base (~1 500 INR/kg). Llegar a 16 kg baja a ~1 456 INR/kg (mejora chica).' }
+  if (capKg != null && chargeableKg > capKg - 1 && chargeableKg <= capKg) {
+    return {
+      tone: 'good',
+      text: `Caja llena: ${chargeableKg.toFixed(1)} de ${capKg} kg, a ${perKg} — lo más barato por kilo que da la tabla. Un kilo más y son dos cajas.`,
+    }
+  }
+  if (chargeableKg < 11) {
+    return {
+      tone: 'info',
+      text: `Vas a ${perKg}, en la parte cara de la curva. Te faltan ${(11 - chargeableKg).toFixed(1)} kg para los 11, ` +
+            `donde el flete por kilo cae fuerte; de ahí para arriba sigue bajando pero ya poco.`,
+    }
   }
   if (chargeableKg < 20) {
-    return { tone: 'info', text: 'Buen tramo (~1 456 INR/kg). 20 kg baja a ~1 421 INR/kg, casi el tope de eficiencia.' }
+    return {
+      tone: 'info',
+      text: `Vas a ${perKg}, ya en la parte plana de la curva: sumar kilos sigue abaratando, pero de a poco. ` +
+            `Lo más barato por kilo está en el tope de la caja${capKg != null ? ` (${capKg} kg)` : ''}.`,
+    }
   }
-  return { tone: 'good', text: 'Estás en el tramo más eficiente de ShipGlobal (~1 421 INR/kg).' }
+  return {
+    tone: 'good',
+    text: capKg != null
+      ? `${perKg}: lo más barato por kilo que da la tabla. Te quedan ${(capKg - chargeableKg).toFixed(1)} kg antes del tope de la caja.`
+      : `${perKg}: lo más barato por kilo que da la tabla.`,
+  }
 }
 
 export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = 'aereo' }: Props) {
@@ -82,6 +123,11 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
   // Arranca en el modo con el que se está operando, pero acá sí se puede saltar entre los
   // tres escenarios sin cambiar nada global: el simulador es justamente para comparar.
   const [modo, setModo] = useState<ModoEnvio>(modoInicial)
+  // El escenario viejo en ft³ no es una ruta que exista: es una cotización anterior que se
+  // conserva para poder mirarla. Estaba como tercer botón al mismo nivel que las dos rutas
+  // reales, y eso hacía leer como una decisión ("¿cuál de las tres?") algo que tiene una
+  // sola respuesta correcta. Queda a un click, rotulado como lo que es.
+  const [verLegacy, setVerLegacy] = useState(modoInicial === 'maritimo')
 
   const selectedPedidos = useMemo(
     () => selectedPedidoIds.map(id => pedidos.find(p => p.id === id)!).filter(Boolean),
@@ -185,12 +231,20 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
   // sin dimensiones sí, porque el flete ES el volumen.
   const anyMissing = calc.lines.some(l => l.missingDims || (!esMaritimo && l.missingWeight))
   const ratioPct = calc.ratioVW != null ? calc.ratioVW * 100 : null
-  const tierHint = airTierHint(calc.chargeableKg)
+  const tierHint = airTierHint(calc.chargeableKg, calc.air.costPerKgUsd, calc.air.cajas, calc.air.capKg)
 
-  // Comparación contra el aéreo del escenario por mar que esté activo: positivo = el mar
-  // sale más barato. Se mide contra `calc` y no contra calcMaritimo fijo, si no al mirar
-  // el escenario CBM se leería el ahorro del escenario en ft³, que es otro número.
-  const ahorroMaritimo = calcAereo.landedUsd - (esCbm ? calcCbm : calcMaritimo).landedUsd
+  // Contra qué mar se mide el aéreo. Es CBM salvo que estés mirando a propósito el
+  // escenario viejo en ft³.
+  //
+  // Antes era `esCbm ? calcCbm : calcMaritimo`, y eso tenía un efecto que no se veía: en el
+  // modo aéreo —que es el que abre por defecto— `esCbm` es false, así que el titular
+  // comparaba contra la cotización VIEJA por pie cúbico. Con la tarifa de respaldo esa sale
+  // baratísima, así que la pantalla anunciaba "conviene por mar, ahorrás el 63%" sobre un
+  // precio que ya nadie cobra, mientras el marítimo real (con su FOB fijo y su mínimo de
+  // 1 m³) costaba siete veces más. Comparar contra el carril que existe hace que una caja
+  // chica diga lo que tiene que decir: sola no conviene, hay que consolidarla.
+  const calcMar = modo === 'maritimo' ? calcMaritimo : calcCbm
+  const ahorroMaritimo = calcAereo.landedUsd - calcMar.landedUsd
   const ahorroPct = calcAereo.landedUsd > 0 ? (ahorroMaritimo / calcAereo.landedUsd) * 100 : 0
   const fmtBound =
     calc.binding === 'weight'
@@ -209,120 +263,53 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-      {/* ── Izquierda: armar el supuesto envío ── */}
+      {/* ── Izquierda: armar el supuesto envío ──────────────────────────────
+          Una sola caja y no tres apiladas. Eran "agregar presupuesto",
+          "presupuestos en el supuesto" y "agregar pieza suelta", que es el mismo
+          gesto contado tres veces: lo que importa es QUÉ hay adentro y cómo
+          sumarle algo. Lo que está adentro va arriba, con su landed al lado;
+          agregar es una línea, no una tarjeta. */}
       <div className="space-y-4">
-        {/* Presupuestos */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-          <h2 className="font-semibold text-gray-900 mb-1">Agregar presupuesto</h2>
-          <p className="text-xs text-gray-400 mb-3">
-            Seleccioná presupuestos ya creados para simular cómo saldría traerlos juntos en un envío.
-          </p>
-
-          {availablePedidos.length === 0 ? (
-            <p className="text-sm text-gray-400 py-3">
-              {pedidos.length === 0
-                ? 'No hay presupuestos creados todavía.'
-                : 'Ya agregaste todos los presupuestos disponibles.'}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="px-5 pt-5 pb-3">
+            <h2 className="font-semibold text-gray-900">Qué traés</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Presupuestos ya creados, piezas sueltas, o las dos cosas en la misma caja.
+              Nada de esto se guarda.
             </p>
-          ) : (
-            <div className="max-h-56 overflow-y-auto divide-y divide-gray-50">
-              {availablePedidos.map(ped => (
-                <button
-                  key={ped.id}
-                  type="button"
-                  onClick={() => addPedido(ped.id)}
-                  className="w-full flex items-center justify-between px-2 py-2.5 text-left hover:bg-gray-50 rounded-lg transition-colors"
-                >
-                  <div className="min-w-0">
-                    <span className="text-sm font-medium text-gray-900">{ped.clientName}</span>
-                    <span className="ml-2 text-xs text-gray-400">
-                      #{ped.id} · {pedidoPieces(ped)} pzas · {ped.status}
-                      {ped.envioIds.length > 0 && (
-                        <span className="text-amber-600">
-                          {' · ya en '}
-                          {ped.envioIds.length === 1 ? 'envío' : 'envíos'} {ped.envioIds.map(id => `#${id}`).join(', ')}
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                  <span className="text-sm text-blue-600 font-medium shrink-0">+ Agregar</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+          </div>
 
-        {/* Presupuestos agregados */}
-        {selectedPedidos.length > 0 && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-            <h2 className="font-semibold text-gray-900 mb-3">
-              Presupuestos en el supuesto
-              <span className="ml-2 text-xs font-normal text-gray-400">{selectedPedidos.length}</span>
-            </h2>
-            <div className="space-y-1">
+          {/* Lo que ya está adentro */}
+          {(selectedPedidos.length > 0 || manual.length > 0) && (
+            <div className="px-5 pb-3 divide-y divide-gray-50 border-y border-gray-100">
               {selectedPedidos.map(ped => (
-                <div key={ped.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-                  <div className="min-w-0">
+                <div key={`p-${ped.id}`} className="flex items-center gap-2 py-2">
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 shrink-0">
+                    📄 #{ped.id}
+                  </span>
+                  <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">{ped.clientName}</p>
-                    <p className="text-xs text-gray-400">#{ped.id} · {pedidoPieces(ped)} pzas</p>
+                    <p className="text-[11px] text-gray-400">{pedidoPieces(ped)} piezas · vendido {usd(ped.saleTotal)}</p>
                   </div>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <span className="text-sm font-mono text-gray-600">{usd(landedByPedido.get(ped.id) ?? 0)}</span>
-                    <button
-                      type="button"
-                      onClick={() => removePedido(ped.id)}
-                      className="text-xs text-red-600 hover:text-red-800"
-                    >
-                      Quitar
-                    </button>
-                  </div>
+                  <span className="text-sm font-mono text-gray-600 shrink-0">{usd(landedByPedido.get(ped.id) ?? 0)}</span>
+                  <button
+                    type="button"
+                    onClick={() => removePedido(ped.id)}
+                    className="text-gray-300 hover:text-red-500 shrink-0 px-1"
+                    title="Quitar"
+                  >
+                    ✕
+                  </button>
                 </div>
               ))}
-            </div>
-          </div>
-        )}
-
-        {/* Piezas sueltas */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-          <h2 className="font-semibold text-gray-900 mb-1">Agregar pieza suelta</h2>
-          <p className="text-xs text-gray-400 mb-3">Opcional: sumá piezas extra que no estén en un presupuesto.</p>
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Buscar por nombre o código..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-            {filtered.length > 0 && (
-              <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg divide-y divide-gray-50 overflow-hidden">
-                {filtered.map(p => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => addProduct(p)}
-                    className="w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-gray-50 transition-colors"
-                  >
-                    <div>
-                      <span className="text-sm font-medium text-gray-900">{p.nameEs}</span>
-                      {p.bajajCode && <span className="ml-2 text-xs font-mono text-gray-400">{p.bajajCode}</span>}
-                    </div>
-                    <span className="text-xs text-gray-400">
-                      {p.weightGrams != null ? `${p.weightGrams} g` : 'sin peso'}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {manual.length > 0 && (
-            <div className="mt-4 space-y-1">
               {manual.map(({ product: p, quantity }) => (
-                <div key={p.id} className="flex items-center gap-2 py-2 border-b border-gray-50 last:border-0">
+                <div key={`m-${p.id}`} className="flex items-center gap-2 py-2">
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 shrink-0">
+                    🔩 pieza
+                  </span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">{p.nameEs}</p>
-                    <p className="text-xs text-gray-400">
+                    <p className="text-[11px] text-gray-400">
                       {p.bajajCode && <span className="font-mono">{p.bajajCode} · </span>}
                       {p.weightGrams != null ? `${p.weightGrams} g` : <span className="text-amber-600">sin peso</span>}
                     </p>
@@ -337,17 +324,73 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
                   <button
                     type="button"
                     onClick={() => removeManual(p.id)}
-                    className="text-gray-300 hover:text-red-500 transition-colors shrink-0"
+                    className="text-gray-300 hover:text-red-500 shrink-0 px-1"
                     title="Quitar"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
+                    ✕
                   </button>
                 </div>
               ))}
             </div>
           )}
+
+          {/* Sumar algo */}
+          <div className="px-5 py-4 space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Sumar un presupuesto</label>
+              <select
+                value=""
+                onChange={e => e.target.value !== '' && addPedido(parseInt(e.target.value))}
+                disabled={availablePedidos.length === 0}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white disabled:bg-gray-50 disabled:text-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="">
+                  {pedidos.length === 0
+                    ? 'No hay presupuestos creados todavía'
+                    : availablePedidos.length === 0
+                      ? 'Ya los agregaste todos'
+                      : 'Elegí un presupuesto…'}
+                </option>
+                {availablePedidos.map(ped => (
+                  <option key={ped.id} value={ped.id}>
+                    #{ped.id} · {ped.clientName} · {pedidoPieces(ped)} pzas · {ped.status}
+                    {ped.envioIds.length > 0 ? ` · ya en envío ${ped.envioIds.map(id => `#${id}`).join(', ')}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="relative">
+              <label className="block text-xs font-medium text-gray-600 mb-1">Sumar una pieza suelta</label>
+              <input
+                type="text"
+                placeholder="Buscar por nombre o código…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+              {filtered.length > 0 && (
+                <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg divide-y divide-gray-50 overflow-hidden">
+                  {filtered.map(p => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => addProduct(p)}
+                      className="w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-gray-50 transition-colors"
+                    >
+                      <div className="min-w-0">
+                        <span className="text-sm font-medium text-gray-900">{p.nameEs}</span>
+                        {p.bajajCode && <span className="ml-2 text-xs font-mono text-gray-400">{p.bajajCode}</span>}
+                      </div>
+                      <span className="text-xs text-gray-400 shrink-0">
+                        {p.weightGrams != null ? `${p.weightGrams} g` : 'sin peso'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -360,42 +403,80 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
           </div>
         ) : (
           <>
-            {/* Modo de traída: la cadena de hoy contra el escenario marítimo directo */}
+            {/* El veredicto primero. La pregunta que se vino a hacer —"¿por aire o por
+                mar?"— estaba contestada en una línea de 11px abajo de tres botones; el
+                número de la diferencia es el titular, no una nota al pie. */}
+            {calcAereo.landedUsd > 0 && (
+              <div
+                className={`rounded-xl border p-5 ${
+                  ahorroMaritimo >= 0 ? 'bg-green-50 border-green-200' : 'bg-white border-gray-100 shadow-sm'
+                }`}
+              >
+                <p className={`text-lg font-semibold ${ahorroMaritimo >= 0 ? 'text-green-900' : 'text-gray-900'}`}>
+                  {ahorroMaritimo >= 0 ? (
+                    <>
+                      Conviene por <span className="font-bold">mar</span>: ahorrás{' '}
+                      <span className="font-mono">{usd(ahorroMaritimo)}</span> ({ahorroPct.toFixed(0)}% del landed).
+                    </>
+                  ) : (
+                    <>
+                      Conviene por <span className="font-bold">aire</span>: por mar esta caja sale{' '}
+                      <span className="font-mono">{usd(-ahorroMaritimo)}</span> más cara ({(-ahorroPct).toFixed(0)}%).
+                    </>
+                  )}
+                </p>
+                <p className={`text-sm mt-0.5 ${ahorroMaritimo >= 0 ? 'text-green-800' : 'text-gray-600'}`}>
+                  {usd(calcAereo.landedUsd)} por aire contra {usd(calcMar.landedUsd)} por{' '}
+                  {modo === 'maritimo' ? 'el escenario viejo en ft³' : 'el marítimo CBM'} — puestos en Venezuela.
+                  {modo !== 'maritimo' && calcCbm.minM3Applied && (
+                    <> Esta caja no llena el mínimo de {calcCbm.billableM3.toFixed(2)} m³, así que paga aire: por mar
+                    conviene mandarla acompañada, no sola.</>
+                  )}
+                </p>
+              </div>
+            )}
+
+            {/* Modo de traída: las dos rutas que existen de verdad */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
               <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Modo de traída</h2>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <ModoButton
                   active={modo === 'aereo'}
                   onClick={() => setModo('aereo')}
                   title="✈️ Aéreo"
-                  sub="India → USA en avión, luego mar a VEN"
-                  tag="hoy"
+                  sub="India → USA en avión, luego mar a VEN. Es el carril de los pedidos."
+                  tag="comercial"
                   total={usd(calcAereo.landedUsd)}
                 />
                 <ModoButton
                   active={modo === 'maritimo_cbm'}
-                  onClick={() => setModo('maritimo_cbm')}
-                  title="🚢 CBM"
-                  sub="Tarifa plana por m³ + FOB fijo de India"
+                  onClick={() => { setModo('maritimo_cbm'); setVerLegacy(false) }}
+                  title="🚢 Marítimo CBM"
+                  sub="Tarifa plana por m³ + FOB fijo de India. Es el carril del stock."
                   tag="real"
                   total={usd(calcCbm.landedUsd)}
                 />
-                <ModoButton
-                  active={modo === 'maritimo'}
-                  onClick={() => setModo('maritimo')}
-                  title="🚢 Mar (ft³)"
-                  sub="Escenario viejo, cotizado por pie cúbico"
-                  tag="escenario"
-                  total={usd(calcMaritimo.landedUsd)}
-                />
               </div>
 
-              {calcAereo.landedUsd > 0 && (
-                <p className={`text-xs mt-3 px-3 py-2 rounded-lg ${ahorroMaritimo >= 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                  {ahorroMaritimo >= 0
-                    ? `Por mar esta caja sale ${usd(ahorroMaritimo)} más barata (${ahorroPct.toFixed(0)}% del landed).`
-                    : `Por mar esta caja sale ${usd(-ahorroMaritimo)} más cara (${(-ahorroPct).toFixed(0)}% del landed).`}
-                </p>
+              {verLegacy ? (
+                <div className="mt-2">
+                  <ModoButton
+                    active={modo === 'maritimo'}
+                    onClick={() => setModo('maritimo')}
+                    title="🚢 Mar por ft³"
+                    sub="Cotización vieja, por pie cúbico. No es una ruta que se pueda contratar hoy."
+                    tag="escenario viejo"
+                    total={usd(calcMaritimo.landedUsd)}
+                  />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setVerLegacy(true)}
+                  className="mt-2 text-xs text-gray-400 hover:text-blue-600"
+                >
+                  Ver también el escenario viejo por ft³ ({usd(calcMaritimo.landedUsd)})
+                </button>
               )}
 
               {esCbm && calc.cbmRatePerM3 === 0 && (
@@ -556,7 +637,7 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
               )}
 
               {tierHint && (
-                <p className={`text-xs mt-3 px-3 py-2 rounded-lg ${tierHint.tone === 'good' ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'}`}>
+                <p className={`text-xs mt-3 px-3 py-2 rounded-lg ${tierHint.tone === 'good' ? 'bg-green-50 text-green-700' : tierHint.tone === 'warn' ? 'bg-amber-50 text-amber-800' : 'bg-blue-50 text-blue-700'}`}>
                   {tierHint.text}
                 </p>
               )}
@@ -595,7 +676,10 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
                   </>
                 ) : (
                   <>
-                    <Row label={`Aéreo India→USA · ${calc.air.chargeableKg.toFixed(1)} kg cobrables`} value={usd(calc.airUsd)} />
+                    <Row
+                      label={`Aéreo India→USA · ${calc.air.chargeableKg.toFixed(1)} kg cobrables${calc.air.cajas > 1 ? ` en ${calc.air.cajas} cajas` : ''}`}
+                      value={usd(calc.airUsd)}
+                    />
                     <Row label="Marítimo USA→VEN (volumen)" value={usd(calc.maritimeUsd)} />
                     <Row label="Seguro" value={usd(calc.insuranceUsd)} />
                     <Row label="Processing" value={usd(calc.processingUsd)} />

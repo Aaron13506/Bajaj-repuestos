@@ -1,4 +1,5 @@
-import { getShoppReRateUsd } from './shipping-rates'
+import { cotizarTramoAereo } from './shipping-rates'
+import { inboundDe, type Inbound } from './inbound'
 
 export type ConfigMap = Record<string, string>
 
@@ -137,7 +138,9 @@ export function calcLanded(
     const refWeightKg = num(cfg, 'reference_weight_kg', 15)
     const fraction    = product.weightGrams! / (refWeightKg * 1000)
     // Shoppre cotiza el flete en USD: la tarifa entra tal cual, sin pasar por inr_usd_rate.
-    const refRateUsd  = getShoppReRateUsd(refWeightKg, carrier, isMember, cfg)
+    // Por la misma cotización que el envío real: si la caja de referencia se configurara
+    // por encima del tope del transportista, son dos cajas y no un escalón saturado.
+    const refRateUsd  = cotizarTramoAereo(refWeightKg, carrier, isMember, cfg).costUsd
     shoppreShippingUsd = refRateUsd * fraction
   }
 
@@ -204,17 +207,26 @@ export interface EnvioItemInput {
   // Costo ya en USD (proveedor no-99rpm) — tiene prioridad sobre priceInr, igual que en calcLanded.
   priceUsd?: number | null
   quantity: number
-  // Ruta de entrada. 'india' paga la tabla escalón de ShipGlobal; 'china' paga el costo
-  // real del tramo a USA (inboundChinaUsd, prorrateado). Los dos cruzan el marítimo.
+  // País de donde sale. Hoy solo informa (India / China): quien decide cómo se cobra el
+  // tramo a USA es `inbound`, no el país.
   origen?: 'india' | 'china'
+  // Por dónde entra a USA. 'shoppre' paga la tabla escalón de ShipGlobal sobre el peso
+  // cobrable del grupo; 'cotizado' paga el monto plano que facturó el proveedor
+  // (Envio.tramoUsd, prorrateado entre SUS piezas). Los dos cruzan el marítimo igual.
+  inbound?: Inbound
+  // A quién se le compró. Es la clave con la que se agrupan los tramos cotizados y los
+  // giros: cada proveedor factura su tramo por separado y se le gira por separado.
+  supplierId?: number | null
   // Proveedor que cotizó puesto en Venezuela: la pieza no viaja en esta caja. Queda
-  // fuera del peso, del volumen y de todos los cargos — su priceUsd YA es el landed.
+  // fuera del peso, del volumen y de todos los cargos de flete — su priceUsd YA es el
+  // landed. La comisión del giro sí le toca: se le paga igual por transferencia.
   isLanded?: boolean
 }
 
 // Modo de traída de la caja. Son cadenas logísticas distintas, no variantes de una:
 //
-//   aereo    (hoy):   India → USA por avión (Shoppre/ShipGlobal) → Venezuela por mar.
+//   aereo    (hoy):   origen → USA por aire → Venezuela por mar. El tramo a USA lo cobra
+//                      la tabla de ShipGlobal, o el total que pasó el proveedor.
 //   maritimo (escenario): India → Venezuela por mar, directo, cotizado por pie cúbico.
 //                      Existe solo como comparación en el simulador; se conserva tal cual.
 //   maritimo_cbm (real): India → Venezuela por mar, directo, con la cotización real:
@@ -269,21 +281,25 @@ export interface EnvioItemLine {
   name: string
   quantity: number
   origen: 'india' | 'china'
+  inbound: Inbound
+  supplierId: number | null
   isLanded: boolean
   realKg: number          // peso real total de la línea (kg)
   volKg: number           // peso volumétrico total de la línea (kg) — solo aplica en aéreo
   ft3: number             // volumen real total de la línea (ft³) — la unidad que cobra el mar
   volumeM3: number        // el mismo volumen en m³ — la unidad que cotiza la naviera en CBM
   productCostUsd: number
-  airUsd: number          // costo de llegar a USA (ShipGlobal si India, inbound si China). 0 en marítimo
+  airUsd: number          // costo de llegar a USA (tabla de ShipGlobal, o el total cotizado). 0 en marítimo
   maritimeUsd: number     // su parte del flete marítimo
+  comisionUsd: number     // su parte de la comisión del giro con el que se pagó su proveedor
   landedUsd: number       // costo landed total de la línea
   missingWeight: boolean
   missingDims: boolean
 }
 
-// Métricas de un tramo hacia USA (India o China por separado): el carrier cobra
-// max(ΣpesoReal, Σvolumétrico) del grupo, no de la caja entera.
+// Métricas de UN tramo hacia USA — el grupo que pasa por Shoppre, o el de cada proveedor
+// que despacha por su cuenta. Se miden por separado porque el que cobra mira solo SU
+// grupo: max(ΣpesoReal, Σvolumétrico) de esas piezas, no de la caja entera.
 export interface LegBreakdown {
   items: number
   realKg: number
@@ -293,16 +309,86 @@ export interface LegBreakdown {
   ratioVW: number | null  // V / W (utilización volumétrica)
   costUsd: number
   costPerKgUsd: number
+  /**
+   * En cuántas cajas viaja el tramo. El transportista tiene un tope por caja (hoy 22 kg),
+   * así que pasado ese peso no hay "una caja más cara": hay dos cajas. Se expone porque
+   * cambia lo que se está mirando —el $/kg de dos cajas no se compara con el de una— y
+   * porque es el aviso de que el envío hay que dividirlo de verdad, no solo costearlo.
+   * 0 cuando no viaja nada por este tramo; 1 en el caso normal.
+   */
+  cajas: number
+  /** El peso facturable de cada caja, de mayor a menor. Vacío si no aplica. */
+  cajasKg: number[]
+  /** El tope por caja de la tarifa. null cuando el tramo no sale de una tabla. */
+  capKg: number | null
+}
+
+// El tramo hasta USA cuando no hay tarifa: el proveedor despacha por su cuenta y pasa un
+// total. No hay nada que calcular — lo único que hace el modelo es repartirlo entre las
+// piezas de la caja por la dimensión que las ata, igual que el de ShipGlobal.
+export interface TramoCotizado {
+  nombre: string
+  leg: LegBreakdown
+  costUsd: number
+  /** El proveedor todavía no pasó (o no se cargó) su total: el tramo cuenta 0 y la caja queda subcosteada. */
+  faltaCosto: boolean
+}
+
+// El giro con el que se le paga al proveedor de la caja. Se arma aunque no haya comisión
+// cargada: `montoUsd` es información por sí solo — es la base sobre la que el banco va a
+// cobrar y lo que hay que mirar antes de anotar cuánto costó.
+//
+// ── Por qué son DOS comisiones y no una ─────────────────────────────────────────────
+// Un giro internacional se cobra en las dos puntas y son dos números distintos, que
+// llegan en momentos distintos y de fuentes distintas:
+//
+//   SALIENTE  lo que mi banco me descuenta por emitir la transferencia. Lo veo en mi
+//             estado de cuenta el mismo día.
+//   ENTRANTE  lo que el banco corresponsal y el del proveedor le descuentan al acreditar.
+//             No aparece en mi cuenta: aparece en que él dice que recibió menos que lo
+//             facturado, y entonces hay que completarle la diferencia. Es costo mío
+//             igual, solo que me entero después y por WhatsApp.
+//
+// Guardarlas sumadas hacía imposible cargar la primera sin inventar la segunda, y como
+// vacío ≠ cero, ese invento entraba al landed. Separadas, cada una se anota cuando se
+// sabe y `cargada` dice si el giro terminó de costearse.
+//
+// Ninguna se calcula: son montos que se anotan (Envio.comisionSalienteUsd / EntranteUsd).
+// No hay regla guardada en el proveedor a propósito — se le gira a algunos y no a otros, y
+// el banco cobra distinto cada vez, así que un porcentaje guardado sería un número
+// inventado con apariencia de dato. `cargada: false` es "todavía no la anoté", que no es
+// lo mismo que $0.
+export interface GiroProveedor {
+  supplierId: number
+  nombre: string
+  /** Mercancía de la caja (incluye lo que llega puesto en Venezuela: se le paga igual). */
+  mercanciaUsd: number
+  /** Su tramo cotizado, si lo hay. Va en la misma factura, así que se gira junto. */
+  tramoUsd: number
+  /** Lo facturado: mercancía + tramo. Es la base sobre la que los dos bancos cobran. */
+  montoUsd: number
+  /** Lo que cobró MI banco por emitir el giro. 0 cuando no se cargó. */
+  comisionSalienteUsd: number
+  /** Lo que le descontaron a ÉL al acreditar y hubo que completarle. 0 cuando no se cargó. */
+  comisionEntranteUsd: number
+  /** Las dos juntas: es lo que entra al landed, porque las dos las pago yo. */
+  comisionUsd: number
+  salienteCargada: boolean
+  entranteCargada: boolean
+  /** Las dos anotadas: recién ahí el costo del giro está completo. */
+  cargada: boolean
+  /** Lo que este giro me costó de verdad, todo incluido. */
+  costoTotalUsd: number
 }
 
 export interface EnvioBreakdown {
   modo: ModoEnvio
-  // Tramos a USA, medidos por separado porque cotizan distinto. En modo marítimo los dos
+  // Tramos a USA, medidos por separado porque cotizan distinto. En modo marítimo todos
   // cuestan 0 (la caja no pasa por USA) pero se siguen midiendo en kg, para poder comparar
   // contra el escenario aéreo sin recalcular.
-  air: LegBreakdown                     // India → USA (ShipGlobal, tabla escalón en USD)
-  china: LegBreakdown                   // China → USA (costo real cargado a mano)
-  // Totales de la caja que cruza a Venezuela (India + China; los isLanded no viajan).
+  air: LegBreakdown                     // lo que pasa por Shoppre (tabla escalón de ShipGlobal, en USD)
+  tramo: TramoCotizado | null           // el total que facturó el proveedor, si despacha él
+  // Totales de la caja que cruza a Venezuela (todos los tramos juntos; los isLanded no viajan).
   // Van EMPAQUETADOS: es lo que va a leer la balanza y la cinta métrica del transportista,
   // que es lo único que se factura.
   realKg: number
@@ -346,10 +432,18 @@ export interface EnvioBreakdown {
   // cargo que se diluye al llenar (el flete por m³ no).
   fobUsd: number
   productCostUsd: number
+  // Seguro de Shoppre. Solo sobre la mercancía que efectivamente pasa por su depósito: lo
+  // que despacha el proveedor por su cuenta (DDP) nunca se le declara a Shoppre.
   insuranceUsd: number
   // Cargo fijo por embarque: processing de Shoppre en aéreo, gastos de origen/destino
   // (handling, THC, aduana) en marítimo. Es el mismo lugar del costeo en los dos modos.
   processingUsd: number
+  // Las dos comisiones del giro con el que se pagó esta caja, sumadas. Ver GiroProveedor:
+  // la saliente la cobra mi banco, la entrante se la descuentan a él y se la completo.
+  comisionUsd: number
+  // El giro al proveedor de la caja: cuánto se le manda y si la comisión ya se anotó.
+  // null cuando la caja no tiene proveedor (99rpm, que se paga de otra forma).
+  giro: GiroProveedor | null
   landedUsd: number
   // Ítems que no viajan en la caja (proveedor landed): su costo entra al total pero
   // no toca peso, volumen ni cargos de flete.
@@ -357,11 +451,25 @@ export interface EnvioBreakdown {
   lines: EnvioItemLine[]
 }
 
+// Lo que el costeo necesita saber del proveedor de la caja. Viene de afuera (Supplier +
+// las dos columnas de Envio) porque lib/calc no toca la base.
+export interface ProveedorEnvio {
+  supplierId: number
+  nombre: string
+  /** Solo para 'cotizado': el total que facturó por llevar la caja a USA. null = no cargado. */
+  tramoUsd?: number | null
+  /** Lo que cobró mi banco por emitir el giro. null = todavía no se anotó (≠ 0). */
+  comisionSalienteUsd?: number | null
+  /** Lo que le descontaron al acreditar y hubo que completarle. null = no se anotó (≠ 0). */
+  comisionEntranteUsd?: number | null
+}
+
 export interface EnvioOptions {
-  // Costo real facturado del tramo China → USA. Se prorratea entre los ítems de ese
-  // origen; sin este dato el tramo cuenta 0 y el envío se subcostea (la UI avisa).
-  // Irrelevante en modo marítimo: no hay tramo a USA.
-  inboundChinaUsd?: number | null
+  // El proveedor de la caja, con los montos que nadie puede derivar: el total que facturó
+  // por el tramo a USA (solo si despacha él) y las dos comisiones del giro con el que se le
+  // pagó. Sin el tramo, las piezas viajan gratis en el cálculo — `tramo.faltaCosto` lo
+  // marca para que la UI avise. Ausente = la caja es de 99rpm, por Shoppre.
+  proveedor?: ProveedorEnvio | null
   // Cadena logística a costear. Default 'aereo' — el modo en producción hoy.
   modo?: ModoEnvio
   // La caja como la pesó y midió el transportista. Ver `cajaFacturable`.
@@ -417,6 +525,7 @@ function repartirTramo(
   lines: EnvioItemLine[],
   costUsd: number,
   escala: { peso: number; volumen: number },
+  cajas: { cajas: number; pesosKg: number[]; capKg: number | null } = { cajas: lines.length > 0 ? 1 : 0, pesosKg: [], capKg: null },
 ): LegBreakdown {
   const realKg = lines.reduce((s, l) => s + l.realKg, 0) * escala.peso
   const volKg = lines.reduce((s, l) => s + l.volKg, 0) * escala.volumen
@@ -438,6 +547,9 @@ function repartirTramo(
     ratioVW: realKg > 0 ? volKg / realKg : null,
     costUsd,
     costPerKgUsd: chargeableKg > 0 ? costUsd / chargeableKg : 0,
+    cajas: cajas.cajas,
+    cajasKg: cajas.pesosKg,
+    capKg: cajas.capKg,
   }
 }
 
@@ -477,6 +589,7 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
     const qty = it.quantity
     const isLanded = it.isLanded ?? false
     const origen = it.origen ?? 'india'
+    const inbound = inboundDe(origen, it.inbound)
     const hasDims = it.dimL != null && it.dimA != null && it.dimH != null
     const cm3 = hasDims ? it.dimL! * it.dimA! * it.dimH! : 0
     const viaja = !isLanded
@@ -487,6 +600,8 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
       name: it.name,
       quantity: qty,
       origen,
+      inbound,
+      supplierId: it.supplierId ?? null,
       isLanded,
       realKg: viaja ? ((it.weightGrams ?? 0) / 1000) * qty : 0,
       volKg: viaja && hasDims ? (cm3 / divisor) * qty : 0,
@@ -497,6 +612,9 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
       // El marítimo se reparte en una segunda pasada: con mínimo facturable deja de ser
       // aditivo por pieza (la caja paga un piso aunque nadie lo llene).
       maritimeUsd: 0,
+      // La comisión se reparte al final: depende del total girado a ese proveedor, que
+      // incluye su tramo, y el tramo todavía no se repartió.
+      comisionUsd: 0,
       landedUsd: 0,
       // Un ítem que no viaja no "le falta" peso ni dimensiones: no se le piden.
       missingWeight: viaja && it.weightGrams == null,
@@ -505,8 +623,16 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   })
 
   const enBarco = lines.filter(l => !l.isLanded)
-  const indiaLines = enBarco.filter(l => l.origen === 'india')
-  const chinaLines = enBarco.filter(l => l.origen === 'china')
+  // El corte NO es por país: es por si el tramo tiene tarifa. Lo que pasa por el depósito
+  // de Shoppre paga UNA tabla escalón sobre el peso del grupo (por eso juntar kilos ahí
+  // abarata); lo que despacha el proveedor por su cuenta es su factura y no se mezcla.
+  //
+  // Una caja se compra a UN proveedor, así que en la práctica todo cae de un lado o del
+  // otro. El corte se hace igual por línea y no por caja porque cada PedidoItem guarda su
+  // propio snapshot: una caja vieja, armada antes de que el proveedor fuera de la caja,
+  // puede tener las dos cosas adentro y tiene que seguir costeándose bien.
+  const shoppreLines = enBarco.filter(l => l.inbound === 'shoppre')
+  const cotizadoLines = enBarco.filter(l => l.inbound === 'cotizado')
 
   // Netos: la suma de las piezas como están en el catálogo, sin un gramo de empaque.
   const netRealKg = enBarco.reduce((s, l) => s + l.realKg, 0)
@@ -520,34 +646,49 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   const caja = cajaFacturable(opts.medidas)
   const cajaKg  = caja.pesoKg ?? netRealKg
   const cajaCm3 = caja.cm3 ?? netM3 * CM3_PER_M3
-  // Cómo repartir esa caja entre los tramos (India / China): cada uno se lleva la parte
-  // proporcional a las piezas que puso. Con un solo origen —el caso normal— es exacto.
+  // Cómo repartir esa caja entre los tramos: cada uno se lleva la parte proporcional a las
+  // piezas que puso. Con un solo tramo —el caso normal— es exacto.
   const escala = {
     peso: netRealKg > 0 ? cajaKg / netRealKg : 1,
     volumen: netM3 > 0 ? cajaCm3 / (netM3 * CM3_PER_M3) : 1,
   }
 
-  // Tramo India→USA: tarifa escalón de ShipGlobal sobre el peso cobrable de ESE grupo.
+  // Tramo Shoppre→USA: tarifa escalón de ShipGlobal sobre el peso cobrable de ESE grupo.
   // En marítimo directo la caja nunca pasa por USA, así que el tramo vale 0 — pero se sigue
   // midiendo en kg para poder comparar los dos escenarios lado a lado.
-  const indiaChargeable = Math.max(
-    indiaLines.reduce((s, l) => s + l.realKg, 0) * escala.peso,
-    indiaLines.reduce((s, l) => s + l.volKg, 0) * escala.volumen,
+  const shoppreChargeable = Math.max(
+    shoppreLines.reduce((s, l) => s + l.realKg, 0) * escala.peso,
+    shoppreLines.reduce((s, l) => s + l.volKg, 0) * escala.volumen,
   )
-  const airRateUsd = !esMaritimo && indiaChargeable > 0
-    ? getShoppReRateUsd(indiaChargeable, carrier, isMember, cfg)
-    : 0
-  const airLeg = repartirTramo(indiaLines, airRateUsd, escala)
+  // El transportista tiene un tope por caja: pasado ese peso no existe "una caja más
+  // pesada", existen dos cajas. Saturar en el último escalón —lo que hacía el lookup
+  // simple— cobraba 24 kg al precio de 22 y 44 kg también al de 22, y el error crece con
+  // el peso justo en el sentido peligroso: el aéreo se abarata al juntar kilos, así que
+  // subcostear el exceso premiaba amontonar en una caja que ya no se puede despachar.
+  const airQuote = !esMaritimo && shoppreChargeable > 0
+    ? cotizarTramoAereo(shoppreChargeable, carrier, isMember, cfg)
+    : { costUsd: 0, cajas: 0, pesosKg: [] as number[], capKg: null as number | null }
+  const airLeg = repartirTramo(shoppreLines, airQuote.costUsd, escala, airQuote)
 
-  // Tramo China→USA: no hay tabla, es el costo real facturado.
-  const chinaLeg = repartirTramo(chinaLines, esMaritimo ? 0 : (opts.inboundChinaUsd ?? 0), escala)
+  // Tramo cotizado: no hay tabla, es el total que facturó el proveedor de la caja.
+  const prov = opts.proveedor ?? null
+  const tramoCostUsd = esMaritimo ? 0 : (prov?.tramoUsd ?? 0)
+  const tramo: TramoCotizado | null = cotizadoLines.length > 0
+    ? {
+        nombre: prov?.nombre ?? 'Proveedor sin identificar',
+        leg: repartirTramo(cotizadoLines, tramoCostUsd, escala),
+        costUsd: tramoCostUsd,
+        faltaCosto: !esMaritimo && prov?.tramoUsd == null,
+      }
+    : null
+  const cotizadoUsd = tramo?.costUsd ?? 0
 
   // Totales de la caja marítima: los dos orígenes viajan juntos de USA a Venezuela.
   const W = cajaKg
   const V = netVolKg * escala.volumen
   const chargeableKg = Math.max(W, V)
   const binding: 'weight' | 'volume' = W >= V ? 'weight' : 'volume'
-  const airUsd = airLeg.costUsd + chinaLeg.costUsd
+  const airUsd = airLeg.costUsd + cotizadoUsd
 
   const landedDirectUsd = lines.filter(l => l.isLanded).reduce((s, l) => s + l.productCostUsd, 0)
   const productCostUsd  = lines.reduce((s, l) => s + l.productCostUsd, 0)
@@ -587,39 +728,106 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
     else                    l.maritimeUsd = enBarco.length ? maritimeUsd / enBarco.length : 0
   }
 
-  // Seguro y cargo fijo solo sobre lo que efectivamente viaja: el costo de los ítems
-  // landed ya trae todos sus cargos incluidos en la cotización del proveedor.
-  const insuranceUsd = (productCostUsd - landedDirectUsd) * insurancePct
-  // Cargo fijo por embarque. En aéreo es el processing de Shoppre (solo si sale algo de
-  // India); en el escenario en ft³ son los gastos de origen/destino; en CBM es el FOB de
-  // India. Los tres se pagan una sola vez por caja y se reparten entre lo que viaja.
+  // Seguro y processing son cargos DE SHOPPRE, así que se cobran sobre lo que pasa por
+  // Shoppre y nada más. Un proveedor que despacha DDP por su cuenta ya pagó los impuestos
+  // de salida y no le declara nada a Shoppre: cargarle el 3% del seguro sería inventarle
+  // un costo que nadie factura, y encima haría ver más caro justamente el camino que se
+  // eligió por barato. Los ítems landed tampoco pagan: su cotización ya trae todo adentro.
+  //
+  // En los modos marítimos no hay Shoppre en el medio, así que el grupo es todo lo que
+  // viaja (el seguro del escenario en ft³ es de la naviera, no de Shoppre).
+  const baseSeguro = esMaritimo
+    ? productCostUsd - landedDirectUsd
+    : shoppreLines.reduce((acc, l) => acc + l.productCostUsd, 0)
+  const insuranceUsd = baseSeguro * insurancePct
+  // Cargo fijo por embarque. En aéreo es el processing de Shoppre (solo si hay algo que
+  // pase por Shoppre); en el escenario en ft³ son los gastos de origen/destino; en CBM es
+  // el FOB. Los tres se pagan una sola vez por caja y se reparten entre lo que viaja.
   const fobUsd = esCbm && enBarco.length > 0 ? cbm.fobUsd : 0
   const processingUsd = esCbm
     ? fobUsd
     : modo === 'maritimo'
       ? (enBarco.length > 0 ? num(cfg, 'maritimo_fee_usd', 0) : 0)
-      : (indiaLines.length > 0 ? processingInr / inrUsd : 0)
+      : (shoppreLines.length > 0 ? processingInr / inrUsd : 0)
 
-  const landedUsd = productCostUsd + airUsd + insuranceUsd + processingUsd + maritimeUsd
+  // ── El giro al proveedor ──────────────────────────────────────────────────
+  // Una caja, un proveedor, un giro: le llega una factura (mercancía + su tramo) y se le
+  // transfiere una vez. Se arma aunque no haya comisión cargada, porque el monto girado es
+  // información por sí solo — es la base sobre la que el banco va a cobrar.
+  //
+  // Los ítems landed entran al monto: no viajan en la caja, pero se le pagan al proveedor
+  // por la misma vía y en el mismo giro.
+  const mercanciaProveedor = lines.reduce((acc, l) => acc + l.productCostUsd, 0)
+  // Cargada explícitamente en 0 es un dato ("ese lado del giro no costó nada") y se respeta;
+  // ausente es "no lo anoté todavía" y la UI lo dice en vez de mostrar un cero falso. Cada
+  // punta se anota por separado porque se conocen en momentos distintos: la saliente el
+  // mismo día, la entrante cuando el proveedor avisa que le llegó de menos.
+  const salienteCargada = prov?.comisionSalienteUsd != null
+  const entranteCargada = prov?.comisionEntranteUsd != null
+  const salienteUsd = salienteCargada ? prov!.comisionSalienteUsd! : 0
+  const entranteUsd = entranteCargada ? prov!.comisionEntranteUsd! : 0
+  const montoFacturado = mercanciaProveedor + cotizadoUsd
+  const giro: GiroProveedor | null = prov
+    ? {
+        supplierId: prov.supplierId,
+        nombre: prov.nombre,
+        mercanciaUsd: mercanciaProveedor,
+        tramoUsd: cotizadoUsd,
+        montoUsd: montoFacturado,
+        comisionSalienteUsd: salienteUsd,
+        comisionEntranteUsd: entranteUsd,
+        // Las dos las pago yo: la saliente me la descuenta mi banco, la entrante se la
+        // descuentan a él y se la termino completando. Suman al landed por igual.
+        comisionUsd: salienteUsd + entranteUsd,
+        salienteCargada,
+        entranteCargada,
+        cargada: salienteCargada && entranteCargada,
+        costoTotalUsd: montoFacturado + salienteUsd + entranteUsd,
+      }
+    : null
+  const comisionUsd = giro?.comisionUsd ?? 0
 
-  // Landed por línea: base directa (producto + tramo a USA + marítimo) + prorrateo de
-  // los cargos de envío (seguro, processing) proporcional a esa base. Las líneas que no
-  // viajan se quedan con su costo tal cual, sin prorrateo.
-  const baseSum = enBarco.reduce((s, l) => s + l.productCostUsd + l.airUsd + l.maritimeUsd, 0)
+  // Reparto de la comisión entre las líneas, proporcional al costo de producto: es lo que
+  // hace que el landed por pieza siga siendo comparable contra su precio de venta. Entran
+  // también las líneas landed, porque estuvieron en el mismo giro.
+  if (comisionUsd !== 0 && lines.length > 0) {
+    const denom = lines.reduce((acc, l) => acc + l.productCostUsd, 0)
+    for (const l of lines) {
+      l.comisionUsd = denom > 0
+        ? comisionUsd * (l.productCostUsd / denom)
+        : comisionUsd / lines.length
+    }
+  }
+
+  const landedUsd = productCostUsd + airUsd + insuranceUsd + processingUsd + maritimeUsd + comisionUsd
+
+  // Landed por línea: base directa (producto + tramo a USA + marítimo + su comisión) +
+  // prorrateo de los cargos de Shoppre (seguro, processing).
+  //
+  // Ese prorrateo se hace SOLO entre las líneas que pasan por Shoppre, que son las únicas
+  // que los generan. Repartirlos sobre toda la caja le cargaría a una pieza de Garuda una
+  // parte del seguro de Shoppre, y entonces el landed por pieza dejaría de servir para lo
+  // único que sirve: comparar dos proveedores del mismo SKU. En los modos marítimos no
+  // hay Shoppre, así que el grupo vuelve a ser todo lo que viaja.
+  const conOverhead = esMaritimo ? enBarco : shoppreLines
+  const baseSum = conOverhead.reduce((s, l) => s + l.productCostUsd + l.airUsd + l.maritimeUsd, 0)
   const overhead = insuranceUsd + processingUsd
   for (const l of lines) {
     if (l.isLanded) {
-      l.landedUsd = l.productCostUsd
+      // No viaja: su precio ya es el landed. Lo único que se le suma es la comisión del
+      // giro, porque el giro sí existió.
+      l.landedUsd = l.productCostUsd + l.comisionUsd
       continue
     }
     const base = l.productCostUsd + l.airUsd + l.maritimeUsd
-    l.landedUsd = base + (baseSum > 0 ? overhead * (base / baseSum) : 0)
+    const suOverhead = conOverhead.includes(l) && baseSum > 0 ? overhead * (base / baseSum) : 0
+    l.landedUsd = base + l.comisionUsd + suOverhead
   }
 
   return {
     modo,
     air: airLeg,
-    china: chinaLeg,
+    tramo,
     realKg: W,
     volKg: V,
     chargeableKg,
@@ -648,6 +856,8 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
     productCostUsd,
     insuranceUsd,
     processingUsd,
+    comisionUsd,
+    giro,
     landedUsd,
     landedDirectUsd,
     lines,

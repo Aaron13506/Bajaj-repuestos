@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import Link from 'next/link'
 import { createEnvio } from './actions'
 import { stageSummary, SHIPPING_STATUSES } from '@/lib/shipping-status'
+import { inboundDe, inboundMeta } from '@/lib/inbound'
 
 export default async function EnviosPage() {
   // Una sola tanda: ninguna de las tres depende de las otras y encadenarlas costaba
@@ -11,14 +12,16 @@ export default async function EnviosPage() {
       include: {
         items: { select: { id: true, shippingStatus: true, pedidoId: true } },
         lineas: { select: { id: true, quantity: true } },
+        supplier: { select: { name: true, origen: true, inbound: true } },
       },
       orderBy: { createdAt: 'desc' },
     }),
     db.pedidoItem.count({ where: { envioId: null } }),
-    // Proveedores para el embarque marítimo. El aéreo no los ofrece: por avión se le compra
-    // siempre a 99rpm, que es el único que llega al mínimo de Shoppre.
+    // Proveedores para las DOS rutas. El aéreo no los ofrecía porque por avión se le
+    // compraba siempre a 99rpm; dejó de ser cierto cuando aparecieron proveedores que
+    // despachan por su cuenta y hoy viajan cajas suyas en paralelo con las de Shoppre.
     db.supplier.findMany({
-      select: { id: true, name: true, fobUsd: true },
+      select: { id: true, name: true, origen: true, inbound: true, fobUsd: true },
       orderBy: { name: 'asc' },
     }),
   ])
@@ -68,7 +71,7 @@ export default async function EnviosPage() {
             modo: 'aereo',
             icono: '✈️',
             titulo: 'Envío aéreo',
-            desc: 'India → USA en avión → Venezuela. Se cobra por peso. Se llena asignándole pedidos de cliente ya confirmados.',
+            desc: 'Origen → USA por aire → Venezuela. Se llena asignándole pedidos de cliente ya confirmados. El proveedor decide cómo se cobra el tramo a USA.',
             placeholder: 'Ej: Caja Julio #1',
             cls: 'border-indigo-200 bg-indigo-50/40',
             btn: 'bg-indigo-600 hover:bg-indigo-700',
@@ -99,26 +102,35 @@ export default async function EnviosPage() {
               placeholder={r.placeholder}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
-            {/* El proveedor se elige acá y queda congelado: define el precio de cada pieza
-                y el FOB de la caja. Por aire no se pregunta — siempre es 99rpm. */}
-            {r.modo === 'maritimo_cbm' && (
-              <label className="block">
-                <span className="text-xs text-gray-500">Proveedor (define precios y FOB)</span>
-                <select
-                  name="supplierId"
-                  defaultValue=""
-                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="">99rpm (precio base ₹)</option>
-                  {suppliers.map(sp => (
+            {/* El proveedor se elige acá y queda congelado. Es la decisión que define todo
+                lo demás: el precio de cada pieza, si el tramo a USA lo cobra la tabla
+                escalón o lo factura él, las etapas de la ruta, y el FOB por mar. Lo que se
+                asigne después a esta caja lo hereda. */}
+            <label className="block">
+              <span className="text-xs text-gray-500">
+                Proveedor {r.modo === 'aereo' ? '(define precios y cómo llega a USA)' : '(define precios y FOB)'}
+              </span>
+              <select
+                name="supplierId"
+                defaultValue=""
+                className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="">99rpm · precio base ₹{r.modo === 'aereo' ? ' · por Shoppre' : ''}</option>
+                {suppliers.map(sp => {
+                  const meta = inboundMeta(inboundDe(sp.origen, sp.inbound))
+                  return (
                     <option key={sp.id} value={sp.id}>
                       {sp.name}
-                      {sp.fobUsd != null ? ` · FOB $${parseFloat(sp.fobUsd.toString()).toFixed(0)}` : ' · FOB por defecto'}
+                      {r.modo === 'aereo'
+                        ? ` · ${meta.label}`
+                        : sp.fobUsd != null
+                          ? ` · FOB $${parseFloat(sp.fobUsd.toString()).toFixed(0)}`
+                          : ' · FOB por defecto'}
                     </option>
-                  ))}
-                </select>
-              </label>
-            )}
+                  )
+                })}
+              </select>
+            </label>
             <button
               type="submit"
               className={`text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors ${r.btn}`}
@@ -169,6 +181,16 @@ export default async function EnviosPage() {
                     esMar ? 'bg-cyan-100 text-cyan-800' : 'bg-indigo-100 text-indigo-800'
                   }`}>
                     {esMar ? '🚢 Marítimo' : '✈️ Aéreo'}
+                  </span>
+                  {/* Con cajas de proveedores distintos viajando a la vez, el nombre es lo
+                      primero que hay que poder leer de un vistazo en la lista. */}
+                  <span
+                    title={e.supplier ? inboundMeta(inboundDe(e.supplier.origen, e.supplier.inbound)).hint : undefined}
+                    className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700"
+                  >
+                    {e.supplier
+                      ? `${inboundMeta(inboundDe(e.supplier.origen, e.supplier.inbound)).icon} ${e.supplier.name}`
+                      : '📦 99rpm'}
                   </span>
                   {esMar && esBorrador && (
                     <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">

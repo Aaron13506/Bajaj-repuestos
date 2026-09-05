@@ -99,11 +99,21 @@ async function cmdQuote(args: string[]) {
   }
   if (lines.length === 0) return console.error('uso: pnpm q quote <SKU:qty>... | --file=<ruta|->')
 
+  // --china marca las líneas que despacha un proveedor por su cuenta (China, o cualquier
+  // proveedor DDP tipo Garuda): ese tramo no tiene tabla, se paga el total que facturó.
+  // Se le da un id de proveedor sintético para que caigan todas en el mismo grupo.
+  const PROV_COTIZADO = -1
   const china = new Set((flags.china ?? '').split(',').filter(Boolean).map(s => s.toUpperCase()))
-  if (china.size) lines = lines.map(l => china.has(l.sku.toUpperCase()) ? { ...l, origen: 'china' as const } : l)
+  if (china.size) {
+    lines = lines.map(l => china.has(l.sku.toUpperCase())
+      ? { ...l, origen: 'china' as const, inbound: 'cotizado' as const, supplierId: PROV_COTIZADO }
+      : l)
+  }
 
-  const inboundChinaUsd = flags['inbound-china'] ? Number(flags['inbound-china']) : null
-  const r = await quoteMetrics(lines, { inboundChinaUsd })
+  const tramoUsd = flags['inbound-china'] ? Number(flags['inbound-china']) : null
+  const r = await quoteMetrics(lines, {
+    proveedor: china.size ? { supplierId: PROV_COTIZADO, nombre: 'Tramo cotizado', tramoUsd } : null,
+  })
   if (flags.json) return console.log(JSON.stringify(r, null, 2))
 
   const b = r.breakdown
@@ -127,9 +137,11 @@ async function cmdQuote(args: string[]) {
   console.log(`  Volumen ........... ${n(b.lines.length ? r.volume.ft3 : 0, 4)} ft³  ·  ${n(r.volume.cbm, 5)} CBM`)
   console.log(`  ─`)
   console.log(`  Producto .......... $${n(b.productCostUsd)}`)
-  console.log(`  Aéreo a USA ....... $${n(b.airUsd)}   (India $${n(b.air.costUsd)}${b.china.items ? ` · China $${n(b.china.costUsd)}` : ''})`)
+  const cotizado = b.tramo ? ` · ${b.tramo.nombre} $${n(b.tramo.costUsd)}` : ''
+  console.log(`  Aéreo a USA ....... $${n(b.airUsd)}   (Shoppre $${n(b.air.costUsd)}${cotizado})`)
   console.log(`  Marítimo .......... $${n(b.maritimeUsd)}   (${r.cfg.miami_caracas_per_ft3 ?? '45'} USD/ft³)`)
   console.log(`  Seguro + proc. .... $${n(b.insuranceUsd + b.processingUsd)}`)
+  if (b.comisionUsd > 0) console.log(`  Comisiones giro ... $${n(b.comisionUsd)}`)
   console.log(`  LANDED ............ $${n(b.landedUsd)}`)
 
   if (r.notFound.length) console.log(`\n  ⚠ SKU no encontrados (${r.notFound.length}): ${r.notFound.join(', ')}`)
@@ -138,7 +150,9 @@ async function cmdQuote(args: string[]) {
   if (sinPeso.length) console.log(`  ⚠ sin peso (${sinPeso.length}): ${sinPeso.join(', ')}`)
   if (sinDims.length) console.log(`  ⚠ sin medidas (${sinDims.length}): ${sinDims.join(', ')}`)
   if (sinPeso.length || sinDims.length) console.log(`  → los totales de arriba subestiman el envío real.`)
-  if (b.china.items && !inboundChinaUsd) console.log(`  ⚠ hay líneas de China sin --inbound-china: ese tramo cuenta 0.`)
+  if (b.tramo?.faltaCosto) {
+    console.log(`  ⚠ ${b.tramo.nombre}: tramo sin costo cargado (--inbound-china), cuenta 0.`)
+  }
 }
 
 async function cmdSearch(args: string[]) {

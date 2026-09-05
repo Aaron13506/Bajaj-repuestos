@@ -9,7 +9,8 @@ import PendientesCompraButton, {
   type PendienteRow,
 } from '@/components/PendientesCompraButton'
 import { limpiarNombre } from '@/lib/utils'
-import { calcEnvio, type EnvioItemInput, type ConfigMap } from '@/lib/calc'
+import { calcEnvio, type EnvioItemInput, type ConfigMap, type ProveedorEnvio } from '@/lib/calc'
+import { inboundDe, inboundMeta } from '@/lib/inbound'
 import { modoDeEnvio, MODOS } from '@/lib/modo'
 import EnvioMaritimo from './maritimo'
 import { makeProductLookup, expandCostPieces, type ProductCost } from '@/lib/envio-build'
@@ -21,7 +22,7 @@ import {
   removePedido,
   deleteEnvio,
   saveEstimate,
-  saveInboundChina,
+  saveCostosProveedor,
   saveMedidasCaja,
   saveItemChanges,
 } from '../actions'
@@ -31,23 +32,64 @@ const kg = (n: number) => `${n.toFixed(2)} kg`
 // El m³ se muestra con 3 decimales: una pieza suelta ronda los 0.00x m³ y con 2
 // decimales todo el catálogo se vería como "0.00".
 const m3 = (n: number) => `${n.toFixed(3)} m³`
-// Guía de punto dulce sobre la curva real de ShipGlobal Duty Free (member).
-function airTierHint(chargeableKg: number): { tone: 'good' | 'info'; text: string } | null {
+// Dónde estás parado en la curva de la tarifa.
+//
+// El $/kg NO tiene un mínimo en el medio: baja siempre, y lo más barato por kilo está en el
+// tope de la caja. Lo que pasa a los 11 kg es que deja de bajar RÁPIDO — de ahí para arriba
+// la mejora es chica. Los textos hablaban de un "punto dulce" en 11 kg como si fuera el
+// óptimo, y encima cotizaban en INR/kg, de cuando la tarifa se guardaba en rupias: hoy la
+// tabla es en USD y el tramo aéreo no pasa por `inr_usd_rate`, así que esos números no
+// correspondían a nada que se pudiera verificar en la misma pantalla.
+//
+// Por eso el $/kg que se muestra es el REAL de esta caja (`costPerKgUsd` del breakdown) y no
+// una constante escrita a mano: una tarifa hardcodeada envejece con el próximo scrape y
+// nadie se entera.
+function airTierHint(
+  chargeableKg: number,
+  costPerKgUsd = 0,
+  cajas = 1,
+  capKg: number | null = null,
+): { tone: 'good' | 'info' | 'warn'; text: string } | null {
   if (chargeableKg <= 0) return null
-  if (chargeableKg < 11) {
-    const falta = 11 - chargeableKg
+  const perKg = `$${costPerKgUsd.toFixed(2)}/kg`
+
+  // Pasado el tope por caja el consejo se da vuelta: sumar kilos ya no abarata nada, porque
+  // el kilo 23 no entra en un escalón más alto — arranca una caja nueva desde la parte cara
+  // de la curva. Decir "estás en el tramo más eficiente" acá empuja para el lado que cuesta.
+  if (cajas > 1 && capKg != null) {
     return {
-      tone: 'info',
-      text: `Te faltan ${falta.toFixed(1)} kg cobrables para el punto dulce (11 kg → ~1 500 INR/kg). El kg 11 cuesta casi nada (+101 INR vs 10 kg).`,
+      tone: 'warn',
+      text: `Pasaste el tope de ${capKg} kg por caja: van ${cajas} cajas y el flete es la suma de las ` +
+            `${cajas}, ${perKg} en promedio. Partir encarece siempre —los primeros kilos de cada caja ` +
+            `son los más caros—, así que conviene una sola caja llena antes que dos a medio llenar.`,
     }
   }
-  if (chargeableKg < 16) {
-    return { tone: 'info', text: 'En el punto dulce base (~1 500 INR/kg). Llegar a 16 kg baja a ~1 456 INR/kg (mejora chica).' }
+  if (capKg != null && chargeableKg > capKg - 1 && chargeableKg <= capKg) {
+    return {
+      tone: 'good',
+      text: `Caja llena: ${chargeableKg.toFixed(1)} de ${capKg} kg, a ${perKg} — lo más barato por kilo que da la tabla. Un kilo más y son dos cajas.`,
+    }
+  }
+  if (chargeableKg < 11) {
+    return {
+      tone: 'info',
+      text: `Vas a ${perKg}, en la parte cara de la curva. Te faltan ${(11 - chargeableKg).toFixed(1)} kg para los 11, ` +
+            `donde el flete por kilo cae fuerte; de ahí para arriba sigue bajando pero ya poco.`,
+    }
   }
   if (chargeableKg < 20) {
-    return { tone: 'info', text: 'Buen tramo (~1 456 INR/kg). 20 kg baja a ~1 421 INR/kg, casi el tope de eficiencia.' }
+    return {
+      tone: 'info',
+      text: `Vas a ${perKg}, ya en la parte plana de la curva: sumar kilos sigue abaratando, pero de a poco. ` +
+            `Lo más barato por kilo está en el tope de la caja${capKg != null ? ` (${capKg} kg)` : ''}.`,
+    }
   }
-  return { tone: 'good', text: 'Estás en el tramo más eficiente de ShipGlobal (~1 421 INR/kg).' }
+  return {
+    tone: 'good',
+    text: capKg != null
+      ? `${perKg}: lo más barato por kilo que da la tabla. Te quedan ${(capKg - chargeableKg).toFixed(1)} kg antes del tope de la caja.`
+      : `${perKg}: lo más barato por kilo que da la tabla.`,
+  }
 }
 
 export default async function EnvioDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -69,6 +111,9 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
           include: { product: true, pedido: true, supplier: true },
           orderBy: [{ pedidoId: 'asc' }, { id: 'asc' }],
         },
+        // El proveedor de la caja: decide el precio de las piezas, cómo se cobra el tramo
+        // a USA y qué etapas tiene la ruta de todo lo que va adentro.
+        supplier: { select: { id: true, name: true, origen: true, inbound: true } },
       },
     }),
     db.config.findMany(),
@@ -81,7 +126,10 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
       select: { id: true, nameEs: true, bajajCode: true, weightGrams: true, dimL: true, dimA: true, dimH: true, priceInr: true },
     }),
     db.supplierPrice.findMany({ select: { productId: true, supplierId: true, priceUsd: true, isLanded: true } }),
-    db.supplier.findMany({ select: { id: true, name: true, origen: true }, orderBy: { name: 'asc' } }),
+    db.supplier.findMany({
+      select: { id: true, name: true, origen: true, inbound: true },
+      orderBy: { name: 'asc' },
+    }),
     // Los pedidos que tienen alguna línea en esta caja, CON todos sus ítems (no solo los
     // de acá): el adelanto se pactó contra el pedido entero, así que la deuda solo se
     // puede leer contra su total completo. Ver cobranzaEnvio.
@@ -129,6 +177,10 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
       // vive en piece.productId y solo se usa para resolver el precio de proveedor.
       productId: it.productId,
       origen: (it.origen === 'china' ? 'china' : 'india') as 'india' | 'china',
+      // El snapshot de la línea manda sobre el proveedor actual de la caja: lo que ya se
+      // compró conserva la vía con la que se compró. En una caja armada normalmente todas
+      // coinciden con el proveedor de la caja, porque lo heredan al entrar.
+      inbound: inboundDe(it.origen, it.inbound),
       isLanded: it.isLanded,
       shippingStatus: it.shippingStatus,
       supplierId: it.supplierId,
@@ -151,10 +203,27 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     priceUsd: p.priceUsd,
     quantity: p.quantity,
     origen: p.origen,
+    inbound: p.inbound,
+    supplierId: p.supplierId,
     isLanded: p.isLanded,
   }))
 
-  const inboundChinaUsd = envio.inboundChinaUsd != null ? parseFloat(envio.inboundChinaUsd.toString()) : null
+  // El proveedor de la caja y los montos que nadie puede derivar: lo que facturó por el
+  // tramo a USA (si despacha él) y las dos comisiones del giro con el que se le pagó.
+  const dec = (v: { toString(): string } | null) => (v != null ? parseFloat(v.toString()) : null)
+  const tramoUsd = dec(envio.tramoUsd)
+  const comisionSalienteUsd = dec(envio.comisionSalienteUsd)
+  const comisionEntranteUsd = dec(envio.comisionEntranteUsd)
+  const inboundCaja = inboundDe(envio.supplier?.origen, envio.supplier?.inbound)
+  const proveedor: ProveedorEnvio | null = envio.supplier
+    ? {
+        supplierId: envio.supplier.id,
+        nombre: envio.supplier.name,
+        tramoUsd,
+        comisionSalienteUsd,
+        comisionEntranteUsd,
+      }
+    : null
   // El envío se costea con SU modo (snapshot al crearlo), no con el modo global activo:
   // una caja aérea ya armada sigue costeándose como aérea aunque hoy operes en CBM.
   const modoEnvio = modoDeEnvio(envio.modo)
@@ -167,11 +236,11 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     dimA: envio.cajaA,
     dimH: envio.cajaH,
   }
-  const calc = calcEnvio(items, cfg, { inboundChinaUsd, modo: modoEnvio, medidas })
+  const calc = calcEnvio(items, cfg, { proveedor, modo: modoEnvio, medidas })
   // El mismo envío costeado por la suma de las piezas, para ver cuánto se le escapaba al
   // catálogo. Solo tiene sentido cuando hay una caja real contra la cual compararlo.
   const calcNeto = calc.caja.medido
-    ? calcEnvio(items, cfg, { inboundChinaUsd, modo: modoEnvio })
+    ? calcEnvio(items, cfg, { proveedor, modo: modoEnvio })
     : null
   const costoReal = envio.shippingCostReal != null ? parseFloat(envio.shippingCostReal.toString()) : null
 
@@ -290,7 +359,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     landed: landedByItem.get(it.id) ?? 0,
     venta: saleByItem.get(it.id) ?? 0,
     shippingStatus: it.shippingStatus,
-    supplierId: it.supplierId,
+    isLanded: it.isLanded,
     shippingStatusAt: it.shippingStatusAt?.toISOString() ?? null,
   }))
 
@@ -318,7 +387,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   const confirmadosPropios = confirmadosSinAsignar.filter(g => g[0].pedido.tipo === 'propio').length
 
   const anyMissing = calc.lines.some(l => l.missingWeight || l.missingDims)
-  const tierHint = airTierHint(calc.air.chargeableKg)
+  const tierHint = airTierHint(calc.air.chargeableKg, calc.air.costPerKgUsd, calc.air.cajas, calc.air.capKg)
   const ratioPct = calc.air.ratioVW != null ? calc.air.ratioVW * 100 : null
   // Flete estimado de la caja. `fobUsd` es 0 fuera del modo CBM, así que esto no cambia
   // nada en aéreo; en CBM el FOB es parte del costo de traerla y tiene que ir adentro.
@@ -331,8 +400,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
       ? { label: 'Atado por PESO', cls: 'bg-green-100 text-green-700' }
       : { label: 'Atado por VOLUMEN', cls: 'bg-red-100 text-red-700' }
 
-  const hayChina = calc.china.items > 0
-  const faltaCostoChina = hayChina && inboundChinaUsd == null
+  const meta = inboundMeta(inboundCaja)
 
   return (
     <div className="max-w-screen-2xl">
@@ -538,7 +606,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                 )}
 
                 {tierHint && (
-                  <p className={`text-xs mt-3 px-3 py-2 rounded-lg ${tierHint.tone === 'good' ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700'}`}>
+                  <p className={`text-xs mt-3 px-3 py-2 rounded-lg ${tierHint.tone === 'good' ? 'bg-green-50 text-green-700' : tierHint.tone === 'warn' ? 'bg-amber-50 text-amber-800' : 'bg-blue-50 text-blue-700'}`}>
                     {tierHint.text}
                   </p>
                 )}
@@ -552,42 +620,118 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
             )}
           </div>
 
-          {/* Tramo China → USA: sin tabla, se carga el costo real facturado */}
-          {hayChina && (
+          {/* Lo que se le paga al proveedor de la caja. Junta los dos montos que nadie
+              puede derivar: lo que facturó por traerla a USA (solo si despacha él) y lo
+              que costó la transferencia con la que se le giró. */}
+          {calc.giro && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
-                🇨🇳 Tramo China → USA · costo real
-              </h2>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
-                <div>
-                  <p className="text-xs text-gray-400 mb-1">Piezas</p>
-                  <p className="text-xl font-bold font-mono text-gray-900">{calc.china.items}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-400 mb-1">Peso real</p>
-                  <p className="text-xl font-bold font-mono text-gray-900">{kg(calc.china.realKg)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-400 mb-1">Volumétrico</p>
-                  <p className="text-xl font-bold font-mono text-gray-900">{kg(calc.china.volKg)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-400 mb-1">Costo / kg</p>
-                  <p className="text-xl font-bold font-mono text-gray-900">{usd(calc.china.costPerKgUsd)}</p>
-                </div>
+              <div className="flex items-center justify-between gap-3 mb-1">
+                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+                  💸 {calc.giro.nombre} · lo que le pagás
+                </h2>
+                <span
+                  title={meta.hint}
+                  className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                    inboundCaja === 'cotizado' ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-600'
+                  }`}
+                >
+                  {meta.icon} {meta.label}
+                </span>
               </div>
-              <form action={saveInboundChina.bind(null, envio.id)} className="flex flex-wrap items-end gap-3">
+              <p className="text-xs text-gray-400 mb-4">
+                Le girás <span className="font-mono font-semibold text-gray-600">{usd(calc.giro.montoUsd)}</span>
+                {' '}({usd(calc.giro.mercanciaUsd)} de mercancía
+                {calc.giro.tramoUsd > 0 && ` + ${usd(calc.giro.tramoUsd)} de envío`}).
+                {inboundCaja === 'cotizado'
+                  ? ' Despacha él a USA, así que no hay tarifa por kilo: se carga el total que te pasó.'
+                  : ' Entra por Shoppre, así que el tramo lo cobra la tabla escalón.'}
+              </p>
+
+              {calc.tramo && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+                  <div>
+                    <p className="text-xs text-gray-400 mb-1">Piezas</p>
+                    <p className="text-xl font-bold font-mono text-gray-900">{calc.tramo.leg.items}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400 mb-1">Peso real</p>
+                    <p className="text-xl font-bold font-mono text-gray-900">{kg(calc.tramo.leg.realKg)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400 mb-1">Volumétrico</p>
+                    <p className="text-xl font-bold font-mono text-gray-900">{kg(calc.tramo.leg.volKg)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400 mb-1">Costo / kg</p>
+                    <p className="text-xl font-bold font-mono text-gray-900">{usd(calc.tramo.leg.costPerKgUsd)}</p>
+                  </div>
+                </div>
+              )}
+
+              <form action={saveCostosProveedor.bind(null, envio.id)} className="flex flex-wrap items-end gap-3">
+                {/* El total del envío solo se pide a quien despacha por su cuenta: para una
+                    caja que entra por Shoppre ese número lo pone la tabla escalón, y un
+                    campo vacío al lado invitaría a cargarlo dos veces. */}
+                {inboundCaja === 'cotizado' && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Envío + impuestos (USD)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      name="tramoUsd"
+                      defaultValue={tramoUsd ?? ''}
+                      placeholder="0.00"
+                      className="w-40 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                    <p className="text-[11px] text-gray-400 mt-1">el total que te pasó, DDP</p>
+                  </div>
+                )}
+                {/* Las dos puntas del giro. Van separadas porque se saben en momentos
+                    distintos: la saliente el mismo día, la entrante cuando el proveedor
+                    avisa que le llegó de menos. Con un solo campo había que inventar una
+                    para poder anotar la otra. */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Flete China → USA (USD)</label>
+                  <label
+                    className="block text-xs font-medium text-gray-600 mb-1"
+                    title="Lo que MI banco cobró por emitir el giro. Vacío = todavía no lo sé; 0 = no cobró nada"
+                  >
+                    Comisión saliente (USD)
+                  </label>
                   <input
                     type="number"
                     step="0.01"
                     min="0"
-                    name="inboundChinaUsd"
-                    defaultValue={inboundChinaUsd ?? ''}
-                    placeholder="0.00"
+                    name="comisionSalienteUsd"
+                    defaultValue={comisionSalienteUsd ?? ''}
+                    placeholder="sin cargar"
                     className="w-40 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    lo que te cobró tu banco por girar {usd(calc.giro.montoUsd)}
+                  </p>
+                </div>
+                <div>
+                  <label
+                    className="block text-xs font-medium text-gray-600 mb-1"
+                    title="Lo que le descontaron a ÉL al acreditar y tuviste que completarle. Vacío = todavía no lo sé; 0 = le llegó completo"
+                  >
+                    Comisión entrante (USD)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    name="comisionEntranteUsd"
+                    defaultValue={comisionEntranteUsd ?? ''}
+                    placeholder="sin cargar"
+                    className="w-40 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    lo que le descontaron al recibir y le completaste
+                  </p>
                 </div>
                 <button
                   type="submit"
@@ -595,12 +739,32 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                 >
                   Guardar
                 </button>
-                {faltaCostoChina && (
-                  <span className="text-xs text-amber-700 bg-amber-50 px-3 py-2 rounded-lg">
-                    ⚠️ Sin este dato las piezas de China viajan gratis en el cálculo y el envío queda subcosteado.
-                  </span>
-                )}
               </form>
+
+              {calc.tramo?.faltaCosto && (
+                <p className="text-xs text-amber-700 bg-amber-50 px-3 py-2 rounded-lg mt-3">
+                  ⚠️ Sin el total del envío, las piezas viajan gratis en el cálculo y toda la
+                  caja queda subcosteada.
+                </p>
+              )}
+              {!calc.giro.cargada && (
+                <p className="text-xs text-gray-500 bg-gray-50 px-3 py-2 rounded-lg mt-2">
+                  {!calc.giro.salienteCargada && !calc.giro.entranteCargada
+                    ? 'Las dos comisiones están '
+                    : !calc.giro.salienteCargada
+                      ? 'La comisión saliente está '
+                      : 'La comisión entrante está '}
+                  <strong>sin cargar</strong>, así que hoy cuenta{calc.giro.salienteCargada || calc.giro.entranteCargada ? '' : 'n'} como
+                  $0 y el landed sale corto. Si esa punta no cobró nada, poné 0 y queda dicho.
+                </p>
+              )}
+              {calc.giro.cargada && calc.giro.comisionUsd > 0 && (
+                <p className="text-xs text-gray-600 bg-gray-50 px-3 py-2 rounded-lg mt-2">
+                  El giro te costó <span className="font-mono font-semibold">{usd(calc.giro.costoTotalUsd)}</span> en
+                  total: {usd(calc.giro.montoUsd)} facturados + {usd(calc.giro.comisionSalienteUsd)} de saliente
+                  + {usd(calc.giro.comisionEntranteUsd)} de entrante.
+                </p>
+              )}
             </div>
           )}
           </>
@@ -755,11 +919,30 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                 </>
               ) : (
                 <>
-                  <Row label={`Aéreo India→USA · ${calc.air.chargeableKg.toFixed(1)} kg cobrables`} value={usd(calc.air.costUsd)} />
-                  {hayChina && <Row label="Flete China→USA (real)" value={usd(calc.china.costUsd)} />}
+                  {calc.air.items > 0 && (
+                    <Row
+                      label={`Aéreo Shoppre→USA · ${calc.air.chargeableKg.toFixed(1)} kg cobrables${calc.air.cajas > 1 ? ` en ${calc.air.cajas} cajas (${calc.air.cajasKg.map(k => `${k} kg`).join(' + ')})` : ''}`}
+                      value={usd(calc.air.costUsd)}
+                    />
+                  )}
+                  {calc.tramo && (
+                    <Row label={`Envío ${calc.tramo.nombre}→USA (DDP, total)`} value={usd(calc.tramo.costUsd)} />
+                  )}
                   <Row label="Marítimo USA→VEN (volumen)" value={usd(calc.maritimeUsd)} />
-                  <Row label="Seguro" value={usd(calc.insuranceUsd)} />
-                  <Row label="Processing" value={usd(calc.processingUsd)} />
+                  {/* Seguro y processing son cargos de Shoppre: solo los paga lo que pasa
+                      por su depósito. Un proveedor DDP no le declara nada. */}
+                  {calc.air.items > 0 && (
+                    <>
+                      <Row label="Seguro Shoppre" value={usd(calc.insuranceUsd)} />
+                      <Row label="Processing Shoppre" value={usd(calc.processingUsd)} />
+                    </>
+                  )}
+                  {calc.giro && calc.giro.salienteCargada && (
+                    <Row label={`Comisión saliente · ${calc.giro.nombre}`} value={usd(calc.giro.comisionSalienteUsd)} />
+                  )}
+                  {calc.giro && calc.giro.entranteCargada && (
+                    <Row label={`Comisión entrante · ${calc.giro.nombre}`} value={usd(calc.giro.comisionEntranteUsd)} />
+                  )}
                 </>
               )}
               {calc.landedDirectUsd > 0 && (
@@ -793,8 +976,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
           <EnvioItemsTable
             envioId={envio.id}
             items={itemRows}
-            suppliers={suppliers}
-            landedPairs={landedPairs}
+            inbound={inboundCaja}
             guardar={saveItemChanges}
             quitar={removePedido}
           />

@@ -10,11 +10,11 @@ datasource db {
 }
 
 model Product {
-  id               Int      @id @default(autoincrement())
-  isAssembly       Boolean  @default(false)
+  id               Int       @id @default(autoincrement())
+  isAssembly       Boolean   @default(false)
   bajajCode        String?
   sourceUrl        String?
-  imageUrl         String?  // imagen del ensamble (de ScrapedProduct.imageS3Url); piezas no tienen
+  imageUrl         String? // imagen del ensamble (de ScrapedProduct.imageS3Url); piezas no tienen
   nameEs           String
   nameEn           String?
   description      String?
@@ -39,13 +39,13 @@ model Product {
   dimA             Float?
   dimH             Float?
   priceInr         Int?
-  landedCostUsd    Decimal? @db.Decimal(10, 2)
+  landedCostUsd    Decimal?  @db.Decimal(10, 2)
   margin           Float?
-  price            Decimal  @db.Decimal(10, 2)
+  price            Decimal   @db.Decimal(10, 2)
   // Precio fijado a mano: cuando es true, los recálculos (carga de medidas, costos)
   // NO pisan `price`; solo actualizan landedCostUsd y ajustan el margen para reflejar
   // el precio elegido. Aplica tanto a piezas como al precio del conjunto (ensamble).
-  priceLocked      Boolean  @default(false)
+  priceLocked      Boolean   @default(false)
   // Descontinuado de FÁBRICA. Bajaj dejó de producir la pieza, así que no la consigue
   // ningún proveedor: no es una falta de stock de uno, es que no existe para nadie. Por eso
   // vive acá y no en SupplierPrice — un precio cargado de antes no la vuelve comprable.
@@ -53,16 +53,16 @@ model Product {
   // Fecha y no booleano: registra CUÁNDO nos enteramos, que es lo que permite releer un
   // presupuesto viejo ("cuando se lo cotizamos todavía se conseguía"). NULL = vigente.
   discontinuedAt   DateTime?
-  stock            Int      @default(0)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  stock            Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  components  ProductComponent[] @relation("ParentProduct")
-  assemblies  ProductComponent[] @relation("ChildProduct")
-  pedidoItems PedidoItem[]
+  components     ProductComponent[] @relation("ParentProduct")
+  assemblies     ProductComponent[] @relation("ChildProduct")
+  pedidoItems    PedidoItem[]
   // Partes scrapeadas que hacen match por SKU (bajajCode). El cruce copia mi
   // peso/dim/margen a ScrapedPart; esto solo deja la traza de origen.
-  scrapedMatches ScrapedPart[] @relation("MatchedScraped")
+  scrapedMatches ScrapedPart[]      @relation("MatchedScraped")
   supplierPrices SupplierPrice[]
   envioLineas    EnvioLinea[]
 
@@ -76,9 +76,9 @@ model ProductComponent {
   id        Int     @id @default(autoincrement())
   parentId  Int
   childId   Int
-  quantity  Int    @default(1)
-  groupName String @default("")
-  sortOrder Int    @default(0)
+  quantity  Int     @default(1)
+  groupName String  @default("")
+  sortOrder Int     @default(0)
   parent    Product @relation("ParentProduct", fields: [parentId], references: [id], onDelete: Cascade)
   child     Product @relation("ChildProduct", fields: [childId], references: [id], onDelete: Restrict)
 
@@ -105,21 +105,37 @@ model Config {
 // Proveedor alternativo a 99rpm (fuente por defecto). Cada uno puede tener su propio
 // precio INR por SKU en SupplierPrice; sin fila ahí, se usa Product.priceInr como base.
 model Supplier {
-  id        Int             @id @default(autoincrement())
-  name      String          @unique
+  id          Int             @id @default(autoincrement())
+  name        String          @unique
   // País de origen: define por qué ruta física entra lo que se le compra. 'india' pasa
   // por Shoppre; 'china' va directo al consolidador de USA. Es un hecho fijo del
   // proveedor (no del producto: el mismo SKU puede comprarse en los dos lados), y de
   // acá lo hereda PedidoItem.origen al momento de comprar. Ver lib/shipping-status.ts.
-  origen    String          @default("india")
+  origen      String          @default("india")
+  // CÓMO llega a USA lo que se le compra. Es un eje DISTINTO de `origen`, y hubo que
+  // separarlo porque `origen` estaba haciendo dos trabajos a la vez: dónde está la
+  // mercancía y cómo se cotiza el tramo. Garuda Impex rompe esa fusión — está en India
+  // igual que Oemship, pero no pasa por Shoppre.
+  //
+  //   'shoppre'  → la mercancía entra al depósito de Shoppre en India y el tramo lo cobra
+  //                la tabla escalón de ShipGlobal sobre el peso cobrable del grupo.
+  //   'cotizado' → el proveedor despacha él mismo a la dirección de USA (India Post, un
+  //                courier, lo que sea) y pasa UN MONTO PLANO por ese tramo. No hay precio
+  //                por kilo que aplicar, así que el número se carga por envío (Envio.tramoUsd).
+  //                Es DDP: el proveedor paga los impuestos de salida, así que no queda
+  //                nada que sumarle encima — ni seguro de Shoppre ni processing.
+  //
+  // Un proveedor de China es siempre 'cotizado': ese tramo nunca tuvo tabla (ver
+  // lib/inbound.ts, que aplica esa regla en un solo lugar).
+  inbound     String          @default("shoppre")
   // FOB propio de este proveedor, en USD por embarque. Es un cargo fijo (no escala con el
   // volumen) y lo cobra CADA proveedor a su manera, así que no puede vivir en Config como
   // un número único. Null ⇒ se usa el default global (cbm_fob_india_usd).
-  fobUsd    Decimal?        @db.Decimal(10, 2)
-  createdAt DateTime        @default(now())
-  prices    SupplierPrice[]
+  fobUsd      Decimal?        @db.Decimal(10, 2)
+  createdAt   DateTime        @default(now())
+  prices      SupplierPrice[]
   pedidoItems PedidoItem[]
-  envios    Envio[]
+  envios      Envio[]
 }
 
 // Override de precio de un producto para un proveedor puntual, EN USD (a diferencia
@@ -153,14 +169,19 @@ model SupplierPrice {
   @@index([supplierId])
 }
 
-// Una caja física que cruza a Venezuela. India y China consolidan ambos en USA, así
-// que un mismo envío puede llevar ítems de los dos orígenes: el tramo aéreo India→USA
-// se cotiza con la tabla escalón de ShipGlobal, el China→USA es un costo real que se
-// carga a mano (inboundChinaUsd), y el marítimo USA→VEN se reparte sobre todo lo que
-// va adentro. La unidad que se asigna a un envío es el PedidoItem, no el Pedido: un
-// presupuesto puede estar comprado a medias y repartido entre varias cajas.
+// Una caja física que cruza a Venezuela, comprada a UN proveedor.
+//
+// El tramo hasta USA se cobra de una de dos maneras, y la decide el proveedor de la caja
+// (Supplier.inbound): si la mercancía pasa por el depósito de Shoppre, la tabla escalón de
+// ShipGlobal sobre el peso cobrable; si el proveedor despacha por su cuenta —Garuda por
+// India Post, DDP— no hay tabla y se carga el total que facturó (tramoUsd). De USA a
+// Venezuela el marítimo por ft³ es igual para las dos.
+//
+// La unidad que se ASIGNA a un envío sigue siendo el PedidoItem y no el Pedido: un
+// presupuesto puede estar comprado a medias y repartido entre varias cajas — unas piezas
+// a Shoppre y otras a Garuda, cada grupo en su propia caja viajando en paralelo.
 model Envio {
-  id               Int       @id @default(autoincrement())
+  id               Int          @id @default(autoincrement())
   nombre           String?
   notas            String?
   // Cadena logística con la que se costeó ESTA caja: 'aereo' (India → USA en avión →
@@ -168,22 +189,59 @@ model Envio {
   // Es un SNAPSHOT tomado al crear el envío desde el modo global activo (ver lib/modo.ts):
   // alternar el switch no debe re-costear una caja que ya viajó. Las filas anteriores a
   // los modos quedan en 'aereo', que es exactamente como se costearon.
-  modo             String    @default("aereo")
+  modo             String       @default("aereo")
   // 'borrador'   = todavía se está llenando (solo marítimo: se arma pieza por pieza).
   // 'confirmado' = cerrado, ya viaja. Las cajas anteriores a los borradores nacen acá,
   // que es como estaban: creadas y en curso.
-  estado           String    @default("confirmado")
-  // Proveedor al que se le compra ESTE embarque. Solo aplica al marítimo: por aire se
-  // compra siempre a 99rpm (los demás proveedores no llegan al mínimo de Shoppre), así que
-  // ahí no hay nada que elegir. Se congela al crear la caja porque decide dos cosas del
-  // costo — el precio de cada pieza y el FOB — y una caja ya cerrada no puede re-costearse
-  // sola porque alguien cambió el selector del sidebar.
+  estado           String       @default("confirmado")
+  // Proveedor al que se le compra ESTA caja. Aplica a las dos rutas.
+  //
+  // Empezó siendo solo del marítimo, cuando por aire se le compraba siempre a 99rpm. Dejó
+  // de ser cierto: hoy conviven una caja de Shoppre y una de Garuda viajando en paralelo,
+  // cada una con su propio despacho y su propia factura. La caja ES la compra, así que el
+  // proveedor es de la caja y no de cada línea — las líneas que se le asignan lo heredan
+  // (ver assignPedido). Null = 99rpm, el precio base en ₹.
+  //
+  // Se congela al crearla porque decide todo lo demás: el precio de cada pieza, si el
+  // tramo a USA lo cobra la tabla de Shoppre o lo factura el proveedor, qué etapas tiene
+  // la ruta, y el FOB en el marítimo.
   supplierId       Int?
-  shippingCostEst  Decimal?  @db.Decimal(10, 2)
-  shippingCostReal Decimal?  @db.Decimal(10, 2)
-  // Costo real del tramo China→USA. No sale de shipping_rates.json (esa tabla es de
-  // ShipGlobal, solo aplica a India); se prorratea por peso entre los ítems origen='china'.
-  inboundChinaUsd  Decimal?  @db.Decimal(10, 2)
+  shippingCostEst  Decimal?     @db.Decimal(10, 2)
+  shippingCostReal Decimal?     @db.Decimal(10, 2)
+  // ── Los dos montos que nadie puede derivar ───────────────────────────────────────
+  // El total que facturó el proveedor por llevar esta caja hasta USA, impuestos incluidos
+  // (DDP). Solo tiene sentido cuando despacha él (Supplier.inbound = 'cotizado'): ahí no
+  // hay tabla de tarifas que consultar, hay un número que pasó por WhatsApp. Se prorratea
+  // entre las piezas igual que lo haría la tabla de ShipGlobal.
+  //
+  // Esta columna era `inboundChinaUsd` y es literalmente el mismo dato, pero cableado a un
+  // solo origen: asumía que el único proveedor sin tabla iba a ser el chino. Garuda Impex
+  // —de India, despachando por India Post— lo desmintió, así que se renombró en vez de
+  // agregar una segunda columna que significara lo mismo.
+  tramoUsd         Decimal?     @db.Decimal(10, 2)
+  // Lo que costó la transferencia con la que se le pagó al proveedor de esta caja. Son DOS
+  // montos porque un giro internacional se cobra en las dos puntas, y no son el mismo dato:
+  //
+  //   comisionSalienteUsd → lo que MI banco me descuenta por emitir la transferencia. Se
+  //                         sabe el mismo día, mirando el estado de cuenta.
+  //   comisionEntranteUsd → lo que el corresponsal y el banco DE ÉL le descuentan al
+  //                         acreditar. No aparece en mi cuenta: aparece en que el proveedor
+  //                         dice que recibió menos que lo facturado y hay que completarle la
+  //                         diferencia. Es costo mío igual, solo que me entero después.
+  //
+  // Estaban sumadas en una sola columna (`comisionUsd`) y eso obligaba a inventar la
+  // segunda para poder anotar la primera — y como acá vacío ≠ cero, ese invento entraba
+  // derecho al landed que define los precios de venta.
+  //
+  // Se anotan, no se calculan, y no hay ninguna regla guardada en Supplier a propósito: la
+  // comisión no es un rasgo del proveedor sino de cada giro — solo a algunos se les
+  // transfiere y el banco cobra distinto cada vez. Un porcentaje guardado habría producido
+  // un número inventado con apariencia de dato.
+  //
+  // Null ⇒ no se cargó, que NO es cero: cero es "esa punta no cobró nada" y es un dato
+  // distinto. Las pantallas muestran "sin cargar" para el primero.
+  comisionSalienteUsd Decimal?  @db.Decimal(10, 2)
+  comisionEntranteUsd Decimal?  @db.Decimal(10, 2)
   // ── La caja como la pesó y midió el transportista ────────────────────────────────
   // El catálogo guarda la pieza DESNUDA; lo que se factura es el BULTO: cada repuesto con
   // su caja o bolsa, el cartón exterior y el relleno. Son dos cosas distintas y la
@@ -194,7 +252,7 @@ model Envio {
   // Mientras estos campos estén vacíos, el costeo de la caja es un PISO y no una
   // estimación: sumar piezas sueltas nunca puede sobreestimar, solo subestimar. Cuando se
   // cargan, mandan ellos — y de paso dejan medido el factor de empaque real de la caja.
-  pesoRealKg       Decimal?  @db.Decimal(8, 3)
+  pesoRealKg       Decimal?     @db.Decimal(8, 3)
   cajaL            Float?
   cajaA            Float?
   cajaH            Float?
@@ -202,9 +260,9 @@ model Envio {
   items            PedidoItem[]
   // Carga PROPIA: mercancía que traigo para stock. Es el carril marítimo.
   lineas           EnvioLinea[]
-  supplier         Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  supplier         Supplier?    @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
   @@index([supplierId])
 }
@@ -235,15 +293,15 @@ model EnvioLinea {
 }
 
 model Pedido {
-  id         Int          @id @default(autoincrement())
-  clientName String
-  notas      String?
+  id            Int          @id @default(autoincrement())
+  clientName    String
+  notas         String?
   // 'cliente' = pedido de un cliente (requiere aprobación + adelanto).
   // 'propio'  = stock que traigo para revender por mi cuenta (sin cliente ni adelanto).
-  tipo       String       @default("cliente")
-  status     String       @default("presupuesto")
+  tipo          String       @default("cliente")
+  status        String       @default("presupuesto")
   // Adelanto: se llenan al aprobar un presupuesto de cliente (ver aprobarPedido).
-  depositUsd    Decimal?  @db.Decimal(10, 2)
+  depositUsd    Decimal?     @db.Decimal(10, 2)
   paymentMethod String?
   depositAt     DateTime?
   // La etapa física ya NO vive acá: bajó a PedidoItem, porque un presupuesto puede
@@ -251,19 +309,19 @@ model Pedido {
   // del pedido se deriva de sus ítems con stageSummary (ver lib/shipping-status.ts).
   // clientName queda como snapshot denormalizado (lo fija el server action desde
   // cliente.nombre); clienteId es la relación real para agrupar el historial.
-  clienteId  Int?
-  cliente    Cliente?     @relation(fields: [clienteId], references: [id], onDelete: SetNull)
-  items      PedidoItem[]
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime     @updatedAt
+  clienteId     Int?
+  cliente       Cliente?     @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  items         PedidoItem[]
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 }
 
 model PedidoItem {
-  id         Int     @id @default(autoincrement())
-  pedidoId   Int
-  productId  Int
-  quantity   Int     @default(1)
-  salePrice  Decimal @db.Decimal(10, 2)
+  id          Int     @id @default(autoincrement())
+  pedidoId    Int
+  productId   Int
+  quantity    Int     @default(1)
+  salePrice   Decimal @db.Decimal(10, 2)
   // Cuando el item es un conjunto/ensamble vendido a precio único, guarda el
   // snapshot de las piezas elegidas: [{ nameEs, bajajCode, quantity }]. Null = pieza suelta.
   bundleItems Json?
@@ -280,6 +338,13 @@ model PedidoItem {
   supplierId       Int?
   // Snapshot de Supplier.origen al comprar: congela la ruta aunque el proveedor cambie.
   origen           String    @default("india")
+  // Snapshot de Supplier.inbound: cómo llegó a USA esta línea. Hace falta guardarlo
+  // aparte de `origen` porque dos proveedores del mismo país pueden entrar por vías
+  // distintas — Oemship por Shoppre, Garuda por India Post — y de esto depende tanto el
+  // costeo del tramo como las etapas que tiene la ruta (un 'cotizado' nunca pasa por
+  // Shoppre). Las 104 líneas anteriores a Garuda son todas de 99rpm/Shoppre, que es
+  // justamente el default.
+  inbound          String    @default("shoppre")
   // Snapshot de SupplierPrice.isLanded: el proveedor cotizó puesto en Venezuela, así
   // que la pieza NO viaja en la caja — no suma peso ni volumen al envío y salta
   // directo a 'en_venezuela'. Nunca se infiere del monto; sale de la fila explícita.
@@ -288,10 +353,10 @@ model PedidoItem {
   costRealUsd      Decimal?  @db.Decimal(10, 2)
   compradoAt       DateTime?
 
-  pedido     Pedido    @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
-  product    Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
-  envio      Envio?    @relation(fields: [envioId], references: [id], onDelete: SetNull)
-  supplier   Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  pedido   Pedido    @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  product  Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  envio    Envio?    @relation(fields: [envioId], references: [id], onDelete: SetNull)
+  supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
 
   @@unique([pedidoId, productId])
   @@index([envioId])
@@ -312,40 +377,40 @@ model PedidoItem {
 // ─────────────────────────────────────────────────────────────────────────────
 
 enum MotoModel {
-  PULSAR_N250_USD_FORK_2024_25   // vehicle_type 595
-  PULSAR_N250_DUAL_ABS_2022_23   // 579
+  PULSAR_N250_USD_FORK_2024_25 // vehicle_type 595
+  PULSAR_N250_DUAL_ABS_2022_23 // 579
   PULSAR_N250_SINGLE_ABS_2021_23 // 562
-  PULSAR_NS200_USD_FORK_2023     // 580
-  PULSAR_NS200_BS6_2021_23       // 557
-  PULSAR_NS200_BS6_2020          // 558
-  PULSAR_NS200_BS4_2017_19       // 497
-  PULSAR_200NS_BS3_2012_16       // 442
+  PULSAR_NS200_USD_FORK_2023 // 580
+  PULSAR_NS200_BS6_2021_23 // 557
+  PULSAR_NS200_BS6_2020 // 558
+  PULSAR_NS200_BS4_2017_19 // 497
+  PULSAR_200NS_BS3_2012_16 // 442
   PULSAR_N160_SINGLE_ABS_2022_23 // 572
-  PULSAR_N160_DUAL_ABS_2022_23   // 574
-  PULSAR_180_BS4_2017_19         // 513
-  PULSAR_180_BS3_2009_16_UG4     // 539
-  PULSAR_150_BS4                 // 515
-  PULSAR_150_UG4                 // 449
+  PULSAR_N160_DUAL_ABS_2022_23 // 574
+  PULSAR_180_BS4_2017_19 // 513
+  PULSAR_180_BS3_2009_16_UG4 // 539
+  PULSAR_150_BS4 // 515
+  PULSAR_150_UG4 // 449
   // Única no-Pulsar del catálogo: otra familia (commuter). Entró después del enum original
   // y ya existe en la DB con 81 ensambles scrapeados, así que declararla acá es lo que evita
   // que una migración futura recree el tipo sin este valor y falle contra esas filas.
-  BOXER_BM150                    // 596
+  BOXER_BM150 // 596
 }
 
 // ENSAMBLE: una página de producto de 99rpm = un bundle Magento (con subgrupos).
 model ScrapedProduct {
-  id           Int      @id @default(autoincrement())
-  sourceUrl    String   @unique
-  slug         String   @unique
+  id           Int       @id @default(autoincrement())
+  sourceUrl    String    @unique
+  slug         String    @unique
   title        String
   model        MotoModel // moto compatible (cada página de 99rpm = un modelo)
-  mainImageUrl String?  // URL original de la imagen en 99rpm (con marca de agua)
-  imageS3Key   String?  // key de la imagen limpia en Supabase Storage
+  mainImageUrl String? // URL original de la imagen en 99rpm (con marca de agua)
+  imageS3Key   String? // key de la imagen limpia en Supabase Storage
   imageS3Url   String?
-  totalInr     Int?     // suma de precios de los componentes (total del bundle)
-  rawJson      Json     // bundle parseado completo, por seguridad/reproceso
-  scrapedAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  totalInr     Int? // suma de precios de los componentes (total del bundle)
+  rawJson      Json // bundle parseado completo, por seguridad/reproceso
+  scrapedAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   groups ScrapedGroup[]
 
@@ -370,16 +435,16 @@ model ScrapedGroup {
 // (copiados por cruce de SKU desde mi Product.bajajCode). El margen es override por
 // parte: null ⇒ usa el default global de Config (default_margin).
 model ScrapedPart {
-  id         Int     @id @default(autoincrement())
-  groupId    Int
-  name       String  // nombre de la pieza (inglés, del scrape)
-  sku        String  // código Bajaj primario
-  altSku     String? // código alterno si el nombre trae dos
-  priceInr   Int     // precio India del scrape
-  qty        Int     @default(1)
-  sortOrder  Int     @default(0)
-  imageUrl   String? // imagen específica del componente si existe
-  imageS3Key String?
+  id           Int     @id @default(autoincrement())
+  groupId      Int
+  name         String // nombre de la pieza (inglés, del scrape)
+  sku          String // código Bajaj primario
+  altSku       String? // código alterno si el nombre trae dos
+  priceInr     Int // precio India del scrape
+  qty          Int     @default(1)
+  sortOrder    Int     @default(0)
+  imageUrl     String? // imagen específica del componente si existe
+  imageS3Key   String?
   // 99rpm rotula la pieza como "(Discontinued/Supply-Disruption/NLS)" en el label de su
   // selección. Booleano y no fecha: esta tabla es el espejo del último scrape, se reescribe
   // entera, y lo que interesa es qué decía la página esa vez. La fecha vive en Product.
@@ -390,7 +455,7 @@ model ScrapedPart {
   dimL             Float?
   dimA             Float?
   dimH             Float?
-  matchedProductId Int?    // Product del que salió el peso/dim (traza del cruce)
+  matchedProductId Int? // Product del que salió el peso/dim (traza del cruce)
   // margen override por parte; null ⇒ default global de Config (default_margin)
   margin           Float?
 

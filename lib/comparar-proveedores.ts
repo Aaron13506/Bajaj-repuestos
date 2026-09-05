@@ -11,6 +11,12 @@ import { cbmParams, type ConfigMap } from './calc'
 //
 //   total = Σ precios de las piezas  +  m³ facturable × tarifa  +  FOB del proveedor
 //
+// La comisión del giro NO entra: se anota por embarque, después de transferir, así que
+// todavía no existe cuando se elige a quién comprarle. Estimarla con un porcentaje
+// guardado en el proveedor la metería en la comparación como si fuera un dato, y sería un
+// número inventado decidiendo la compra. Cuando importa —Garuda cobra, otros no— se ve en
+// el embarque ya armado, que es donde el número es real.
+//
 // La COBERTURA es el otro dato que no puede faltar: un proveedor que solo cotiza 3 de tus
 // 20 piezas parece barato porque las otras 17 caen al precio base de 99rpm. Sin verla, el
 // ganador termina siendo el que menos cotiza.

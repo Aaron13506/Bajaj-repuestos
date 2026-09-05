@@ -1,16 +1,24 @@
+import type { Inbound } from './inbound'
+
 // Pipeline físico de una LÍNEA de pedido: compra → consolidación en USA → Venezuela →
 // cliente. El estado vive por ÍTEM, no por pedido ni por envío: de un mismo presupuesto
 // unas piezas se compran en India y otras en China, en momentos distintos. El estado del
 // pedido es derivado (ver pedidoStageSummary).
 //
 // Las tres rutas comparten el mismo array canónico y el mismo orden — solo cambia por
-// dónde arrancan, porque India y China consolidan las dos en USA:
+// dónde arrancan, porque todo lo que viaja consolida en USA:
 //
-//   india:   pendiente → camino_shoppre → en_shoppre → camino_usa → en_usa → ...
-//   china:   pendiente ───────────────────────────────→ camino_usa → en_usa → ...
-//   directo: pendiente ──────────────────────────────────────────→ en_venezuela → entregado
+//   shoppre:  pendiente → camino_shoppre → en_shoppre → camino_usa → en_usa → ...
+//   cotizado: pendiente ───────────────────────────────→ camino_usa → en_usa → ...
+//   landed:   pendiente ─────────────────────────────────────────→ en_venezuela → entregado
 //
-// 'directo' es el proveedor que cotiza puesto en Venezuela (SupplierPrice.isLanded): esa
+// Lo que separa las dos primeras NO es el país sino si la mercancía pasa por el depósito
+// de Shoppre. Antes se llamaban 'india' y 'china' porque coincidía; Garuda Impex la
+// desmintió — es de India y despacha directo a USA por India Post, así que sus dos etapas
+// en Shoppre nunca ocurren y dejarlas en su ruta era prometer un estado que jamás iba a
+// llegar. Ver lib/inbound.ts.
+//
+// 'landed' es el proveedor que cotiza puesto en Venezuela (SupplierPrice.isLanded): esa
 // pieza nunca viaja en la caja, así que tampoco suma peso ni volumen al envío.
 //
 // `bought` marca desde qué etapa el ítem ya se compró (dejó de ser "pendiente").
@@ -37,19 +45,21 @@ const LAST = SHIPPING_STATUSES[SHIPPING_STATUSES.length - 1].value
 // 'en_usa' está tan avanzado como uno de India en 'en_usa'.
 
 export type Origen = 'india' | 'china'
-export type Ruta = 'india' | 'china' | 'directo'
+export type Ruta = 'shoppre' | 'cotizado' | 'landed'
 
 const ROUTE_STATUSES: Record<Ruta, readonly ShippingStatus[]> = {
-  india: SHIPPING_STATUSES.map(s => s.value),
-  china: ['pendiente', 'camino_usa', 'en_usa', 'camino_venezuela', 'en_venezuela', 'entregado'],
-  directo: ['pendiente', 'en_venezuela', 'entregado'],
+  shoppre: SHIPPING_STATUSES.map(s => s.value),
+  cotizado: ['pendiente', 'camino_usa', 'en_usa', 'camino_venezuela', 'en_venezuela', 'entregado'],
+  landed: ['pendiente', 'en_venezuela', 'entregado'],
 }
 
-// La ruta sale del origen del proveedor, salvo que haya cotizado puesto en Venezuela
-// (isLanded): en ese caso la pieza no pasa por el pipeline, venga de donde venga.
-export function routeFor(origen: string, isLanded: boolean): Ruta {
-  if (isLanded) return 'directo'
-  return origen === 'china' ? 'china' : 'india'
+// La ruta sale de por dónde entra lo que se le compra al proveedor, salvo que haya
+// cotizado puesto en Venezuela (isLanded): en ese caso la pieza no pasa por el pipeline,
+// venga de donde venga. El país no decide nada acá — inboundDe() ya resolvió que un
+// proveedor chino y uno indio que despacha por su cuenta comparten las mismas etapas.
+export function routeFor(inbound: Inbound, isLanded: boolean): Ruta {
+  if (isLanded) return 'landed'
+  return inbound === 'cotizado' ? 'cotizado' : 'shoppre'
 }
 
 // Etapas que aplican a una ruta, con su metadata (para steppers y selects).
@@ -68,7 +78,7 @@ export function pasosRestantes(status: string, ruta: Ruta): number {
   return allowed.filter(s => statusIndex(s) > i).length
 }
 
-// Un ítem 'directo' o 'china' nunca debería quedar en una etapa de India. Si por un
+// Un ítem 'landed' o 'cotizado' nunca debería quedar en una etapa de Shoppre. Si por un
 // cambio de proveedor quedó en una etapa que su ruta no tiene, se lo lleva a la
 // siguiente etapa válida hacia adelante (nunca retrocede el progreso).
 export function normalizeToRoute(status: string, ruta: Ruta): ShippingStatus {
@@ -94,12 +104,12 @@ export function isValidStatus(status: string): status is ShippingStatus {
 // Siguiente / anterior etapa DENTRO DE LA RUTA (salta las que no aplican: un ítem de
 // China pasa de 'pendiente' directo a 'camino_usa', sin escalas en Shoppre).
 // null si no hay hacia dónde.
-export function nextStatus(status: string, ruta: Ruta = 'india'): ShippingStatus | null {
+export function nextStatus(status: string, ruta: Ruta = 'shoppre'): ShippingStatus | null {
   const allowed = ROUTE_STATUSES[ruta]
   const i = statusIndex(normalizeToRoute(status, ruta))
   return allowed.find(s => statusIndex(s) > i) ?? null
 }
-export function prevStatus(status: string, ruta: Ruta = 'india'): ShippingStatus | null {
+export function prevStatus(status: string, ruta: Ruta = 'shoppre'): ShippingStatus | null {
   const allowed = ROUTE_STATUSES[ruta]
   const i = statusIndex(normalizeToRoute(status, ruta))
   const anteriores = allowed.filter(s => statusIndex(s) < i)

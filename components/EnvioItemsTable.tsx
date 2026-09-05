@@ -11,6 +11,7 @@ import {
   shippingStatusMeta,
   stageSummary,
 } from '@/lib/shipping-status'
+import type { Inbound } from '@/lib/inbound'
 import { groupBundlePieces, type BundlePiece } from '@/lib/bundle'
 import { limpiarNombre } from '@/lib/utils'
 import type { CambioItem } from '@/app/(pages)/envios/actions'
@@ -27,23 +28,19 @@ export interface EnvioItemRow {
   landed: number
   venta: number
   shippingStatus: string
-  supplierId: number | null
+  // El proveedor cotizó esta pieza puesta en Venezuela: no viaja en la caja y su ruta
+  // salta el pipeline entero. Es lo único que puede diferir entre líneas de una misma caja.
+  isLanded: boolean
   shippingStatusAt: string | null
-}
-
-export interface SupplierOption {
-  id: number
-  name: string
-  origen: string
 }
 
 interface Props {
   envioId: number
   items: EnvioItemRow[]
-  suppliers: SupplierOption[]
-  // Claves "supplierId:productId" que el proveedor cotiza puestas en Venezuela. Se manda
-  // precalculado para que el cliente pueda deducir la ruta sin ir al servidor.
-  landedPairs: string[]
+  // Por dónde entra a USA la caja entera. Todas sus líneas lo heredaron al entrar, así que
+  // define las etapas que ofrece el select de estado: una caja que despacha directo no
+  // pasa por Shoppre, y ofrecer esas etapas sería prometer un estado que no va a llegar.
+  inbound: Inbound
   guardar: (envioId: number, cambios: CambioItem[]) => Promise<void>
   // Se quita el presupuesto COMPLETO, no piezas sueltas: el presupuesto es lo que se le
   // vendió al cliente y no se parte. O viaja entero en esta caja, o no viaja.
@@ -112,15 +109,14 @@ const ORDEN_INICIAL: { campo: Campo; dir: Direccion } = { campo: 'estado', dir: 
 export default function EnvioItemsTable({
   envioId,
   items,
-  suppliers,
-  landedPairs,
+  inbound,
   guardar,
   quitar,
 }: Props) {
   // Estado local de los selects. La base vive en Supabase remoto, así que cada guardado
   // son cientos de ms: la UI no los espera. Se pinta el cambio al instante y el guardado
   // va por detrás; si falla, se revierte y se avisa.
-  const [editado, setEditado] = useState<Record<number, { shippingStatus: string; supplierId: number | null }>>({})
+  const [editado, setEditado] = useState<Record<number, { shippingStatus: string }>>({})
   // Presupuestos sacados de la caja, para que desaparezcan antes de que el server confirme.
   const [quitados, setQuitados] = useOptimistic<number[], number>([], (prev, id) => [...prev, id])
   const [abiertos, setAbiertos] = useState<number[]>([])
@@ -129,22 +125,12 @@ export default function EnvioItemsTable({
   const [error, setError] = useState<string | null>(null)
   const [guardadoOk, setGuardadoOk] = useState(false)
 
-  const landed = new Set(landedPairs)
-  const supplierPorId = new Map(suppliers.map(s => [s.id, s]))
-
   // Valores efectivos: lo editado localmente gana sobre lo que vino del servidor.
-  const valorDe = (it: EnvioItemRow) => editado[it.id] ?? {
-    shippingStatus: it.shippingStatus,
-    supplierId: it.supplierId,
-  }
+  const valorDe = (it: EnvioItemRow) => editado[it.id] ?? { shippingStatus: it.shippingStatus }
 
-  // La ruta depende del proveedor elegido AHORA, no del guardado, así que las etapas del
-  // select se ajustan en el momento en que cambiás de proveedor.
-  const rutaDe = (it: EnvioItemRow, supplierId: number | null) => {
-    const origen = supplierId != null ? supplierPorId.get(supplierId)?.origen ?? 'india' : 'india'
-    const esLanded = supplierId != null && landed.has(`${supplierId}:${it.productId}`)
-    return routeFor(origen, esLanded)
-  }
+  // La ruta sale de cómo entra la CAJA, más el isLanded de la línea: una pieza que el
+  // proveedor manda puesta en Venezuela no viaja adentro, así que salta el pipeline.
+  const rutaDe = (it: EnvioItemRow) => routeFor(inbound, it.isLanded)
 
   const visibles = items.filter(it => !quitados.includes(it.pedidoId))
 
@@ -171,25 +157,18 @@ export default function EnvioItemsTable({
 
   // Aplica un patch a un conjunto de filas: pinta primero, guarda después. Sirve igual
   // para un select suelto (una fila) que para la cabecera (todas las del presupuesto).
-  function aplicarA(
-    filas: EnvioItemRow[],
-    patch: { shippingStatus?: string; supplierId?: number | null },
-  ) {
+  function aplicarA(filas: EnvioItemRow[], patch: { shippingStatus: string }) {
     const cambios: CambioItem[] = []
-    const parche: Record<number, { shippingStatus: string; supplierId: number | null }> = {}
+    const parche: Record<number, { shippingStatus: string }> = {}
 
     for (const it of filas) {
       const actual = valorDe(it)
-      const supplierId = patch.supplierId !== undefined ? patch.supplierId : actual.supplierId
-      // Si cambió el proveedor, el estado se acomoda a la ruta nueva antes de pintarlo,
-      // para que no veas una etapa que esa ruta no tiene y después "salte" al recargar.
-      const shippingStatus = normalizeToRoute(
-        patch.shippingStatus ?? actual.shippingStatus,
-        rutaDe(it, supplierId),
-      )
-      if (shippingStatus === actual.shippingStatus && supplierId === actual.supplierId) continue
-      parche[it.id] = { shippingStatus, supplierId }
-      cambios.push({ id: it.id, shippingStatus, supplierId })
+      // Se normaliza a la ruta de la fila antes de pintarlo, para no mostrar una etapa que
+      // esa ruta no tiene y que después "salte" al recargar.
+      const shippingStatus = normalizeToRoute(patch.shippingStatus, rutaDe(it))
+      if (shippingStatus === actual.shippingStatus) continue
+      parche[it.id] = { shippingStatus }
+      cambios.push({ id: it.id, shippingStatus })
     }
 
     if (cambios.length === 0) return
@@ -216,10 +195,7 @@ export default function EnvioItemsTable({
   }
 
   // Pasos que le faltan a un ítem según SU ruta (la de su proveedor actual).
-  const pasosDe = (it: EnvioItemRow) => {
-    const v = valorDe(it)
-    return pasosRestantes(v.shippingStatus, rutaDe(it, v.supplierId))
-  }
+  const pasosDe = (it: EnvioItemRow) => pasosRestantes(valorDe(it).shippingStatus, rutaDe(it))
 
   // Comparador único para los dos niveles: se ordenan los presupuestos y también las
   // piezas dentro de cada uno con el mismo criterio, así lo que ves al expandir sigue la
@@ -312,7 +288,6 @@ export default function EnvioItemsTable({
             <Th campo="cliente" orden={orden} onClick={ordenarPor} className="text-left px-6">Pieza</Th>
             <Th campo="landed" orden={orden} onClick={ordenarPor} className="text-right px-3 w-28">Landed</Th>
             <Th campo="venta" orden={orden} onClick={ordenarPor} className="text-right px-3 w-28">Venta</Th>
-            <th className="text-left px-3 py-2 font-semibold w-52">Proveedor</th>
             {/* Ancho suficiente para "Pendiente de comprar" sin recortar. */}
             <Th
               campo="estado"
@@ -331,11 +306,11 @@ export default function EnvioItemsTable({
             const abierto = abiertos.includes(pedidoId)
             const resumen = stageSummary(its.map(it => ({ shippingStatus: valorDe(it).shippingStatus })))
             // Si todas las filas coinciden, la cabecera muestra ese valor; si no, "mixto".
-            const supplierComun = comun(its.map(it => valorDe(it).supplierId))
             const statusComun = comun(its.map(it => valorDe(it).shippingStatus))
-            // Las etapas ofrecidas arriba son las de la ruta común; con proveedores
-            // mezclados se ofrecen todas y cada fila se normaliza a la suya.
-            const rutaGrupo = supplierComun !== undefined ? rutaDe(its[0], supplierComun) : null
+            // Las etapas ofrecidas arriba son las de la ruta común del grupo; si adentro
+            // hay piezas que no viajan (landed), se ofrecen todas y cada fila se normaliza.
+            const rutaComun = comun(its.map(it => rutaDe(it)))
+            const rutaGrupo = rutaComun ?? null
 
             return (
               <Fragment key={pedidoId}>
@@ -369,24 +344,6 @@ export default function EnvioItemsTable({
                   <td className="px-3 py-2 text-right font-mono text-xs text-gray-500">{usd(ventaGrupo)}</td>
                   <td className="px-3 py-2">
                     <select
-                      value={supplierComun === undefined ? MIXTO : supplierComun ?? ''}
-                      onChange={e => {
-                        if (e.target.value === MIXTO) return
-                        aplicarA(its, { supplierId: e.target.value === '' ? null : parseInt(e.target.value) })
-                      }}
-                      className="w-full border border-gray-300 rounded-lg px-2 py-1 text-[11px] bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      {supplierComun === undefined && <option value={MIXTO}>— mixto —</option>}
-                      <option value="">🇮🇳 99rpm (base)</option>
-                      {suppliers.map(s => (
-                        <option key={s.id} value={s.id}>
-                          {s.origen === 'china' ? '🇨🇳' : '🇮🇳'} {s.name}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="px-3 py-2">
-                    <select
                       value={statusComun === undefined ? MIXTO : statusComun}
                       onChange={e => {
                         if (e.target.value === MIXTO) return
@@ -415,8 +372,8 @@ export default function EnvioItemsTable({
 
                 {abierto && its.map(it => {
                   const v = valorDe(it)
-                  const ruta = rutaDe(it, v.supplierId)
-                  const esLanded = v.supplierId != null && landed.has(`${v.supplierId}:${it.productId}`)
+                  const ruta = rutaDe(it)
+                  const esLanded = it.isLanded
                   return (
                     <tr key={it.id} className="hover:bg-gray-50 align-top">
                       <td className="px-6 py-3 pl-12">
@@ -465,22 +422,6 @@ export default function EnvioItemsTable({
                       </td>
                       <td className="px-3 py-3 text-right font-mono text-gray-700">{usd(it.landed)}</td>
                       <td className="px-3 py-3 text-right font-mono text-gray-700">{usd(it.venta)}</td>
-                      <td className="px-3 py-3">
-                        <select
-                          value={v.supplierId ?? ''}
-                          onChange={e =>
-                            aplicarA([it], { supplierId: e.target.value === '' ? null : parseInt(e.target.value) })
-                          }
-                          className="w-full border border-gray-300 rounded-lg px-2 py-1 text-[11px] focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        >
-                          <option value="">🇮🇳 99rpm (base)</option>
-                          {suppliers.map(s => (
-                            <option key={s.id} value={s.id}>
-                              {s.origen === 'china' ? '🇨🇳' : '🇮🇳'} {s.name}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
                       <td className="px-3 py-3">
                         <select
                           value={v.shippingStatus}

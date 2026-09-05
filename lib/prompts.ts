@@ -230,3 +230,95 @@ Reglas del JSON:
   tengo que volver a pedir.
 - Sin precio ni margen. El bloque debe ser válido y contener únicamente el array: la ficha y las fuentes
   van FUERA.`
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Prompt de lectura de una lista de compra.
+//
+// Convierte un documento cualquiera —el PDF de una cotización, una foto de una lista
+// escrita a mano, un mensaje de WhatsApp, una planilla— en las dos únicas cosas que el
+// simulador necesita para armar un supuesto: QUÉ código y CUÁNTAS unidades.
+//
+// EL PRECIO NO SE PIDE, y esa es la decisión que define este prompt. El costo por pieza
+// ya está cargado por par (producto, proveedor) en SupplierPrice, que es exactamente lo
+// que la comparación pone a prueba: si el precio además viniera transcripto acá, habría
+// dos fuentes para el mismo número y el comparador terminaría midiendo cuál de las dos se
+// leyó mejor en vez de a quién conviene comprarle. Un precio mal transcripto, encima, no
+// se nota: entra al total y lo mueve sin dejar rastro.
+//
+// La trampa concreta que el texto ataca es la columna de cantidad. Las listas de Bajaj
+// traen dos números por renglón —lo que se pide y el "Set Qty" con el que el distribuidor
+// despacha— y confundirlos multiplica el embarque. El mínimo del proveedor ya vive en
+// SupplierPrice.moq y el simulador lo aplica solo; lo que se pide acá es lo que se quiere
+// comprar, que es lo único que el documento sabe y la base no.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const LISTA_SKU_PROMPT = `Te paso un documento con una lista de repuestos de moto (puede ser el PDF de una
+cotización, una foto, una planilla o un mensaje). Necesito que me lo pases a JSON con dos datos por
+renglón: el CÓDIGO DE LA PIEZA y la CANTIDAD. Nada más.
+
+NO ME DES PRECIOS, aunque el documento los tenga. Los precios ya los tengo cargados por proveedor en mi
+sistema, y es justamente lo que voy a comparar: si además me los transcribís, tengo dos versiones del
+mismo número y un error de transcripción se me mete en el total sin que lo vea. Ignorá la columna de
+precio, la de importe y la de total.
+
+EL CÓDIGO SE COPIA, NO SE ARREGLA:
+- Carácter por carácter, tal cual figura. No completes con ceros, no saques ni agregues guiones ni
+  espacios, no corrijas lo que te parezca un error de tipeo. Si el código está partido en dos renglones
+  del PDF, unilo y decilo en la verificación del final.
+- Si no lo podés leer con seguridad (foto borrosa, carácter ambiguo entre 0 y O, entre 1 e I), NO
+  adivines: mandá ese renglón a "sinCodigo" con su descripción. Un código inventado hace match con otra
+  pieza real y compro lo que no era; uno faltante lo veo enseguida y lo busco a mano.
+- DOBLE CÓDIGO: Bajaj publica muchas piezas con dos números ("Decal Wheel Rh | JR233035 | JR233069").
+  Si el documento trae los dos, poné el primero en "sku" y el segundo en "skuAlt" — mi sistema cruza por
+  los dos, así que con cualquiera de ellos la encuentro.
+
+LA CANTIDAD ES LA QUE SE PIDE, NO EL MÍNIMO DEL PROVEEDOR:
+- Las listas de Bajaj traen dos números por renglón y significan cosas distintas. Quiero el de la
+  columna de cantidad pedida ("Qty", "Cantidad", "Nos", "Units"), que es lo que se quiere comprar.
+- NO uses "Set Qty", "MOQ", "Pack", "Std Pack" ni "Minimum Order Quantity": ese es el paquete mínimo con
+  el que el distribuidor despacha, ya lo tengo cargado y mi sistema lo aplica solo. Si lo pasás como
+  cantidad, el embarque se multiplica y la comparación queda arruinada.
+- Sin columna de cantidad, la cantidad es 1.
+- La cantidad es de UNIDADES, entera y mayor a 0. Si el renglón dice "2 pares", son 4 unidades: hacé la
+  cuenta y decilo en la verificación.
+
+LO QUE NO ES UNA PIEZA NO ENTRA:
+Una cotización mezcla mercancía con flete, empaque, impuestos, descuentos y totales. Esos renglones no
+son piezas: descartalos y contalos en la verificación. Si entran, se meten al embarque como una pieza
+sin peso y sin precio, que no se ve en el total pero sí en el costo.
+
+RENGLONES SIN CÓDIGO:
+Si un renglón tiene descripción pero no código —o el código es ilegible— va en "sinCodigo" con el texto
+que diga el documento. Esos los busco yo en mi catálogo por nombre. Es información, no un fracaso:
+prefiero cinco pendientes explícitos antes que cinco códigos inventados.
+
+QUÉ DEVOLVER:
+
+1) Una VERIFICACIÓN corta, FUERA del bloque JSON: cuántos renglones tenía el documento, cuántos son
+   piezas, cuántas unidades suman en total, y la lista de lo que descartaste con el motivo. Es lo que
+   uso para saber en diez segundos si la lectura fue completa.
+
+2) El JSON, dentro de un bloque \`\`\`json … \`\`\`, y solo el array:
+
+\`\`\`json
+{
+  "items": [
+    {
+      "sku": "<el código tal cual figura>",
+      "skuAlt": "<el segundo código, si el documento trae dos; si no, omitilo>",
+      "qty": <unidades pedidas, entero >= 1>,
+      "nombre": "<la descripción del documento, para que yo controle el match>"
+    }
+  ],
+  "sinCodigo": [
+    { "nombre": "<la descripción tal cual>", "qty": <unidades> }
+  ]
+}
+\`\`\`
+
+Reglas del JSON:
+- Un renglón del documento = un objeto. Si el mismo código aparece dos veces, dejá los dos: yo los sumo
+  y el sistema me avisa cuando lo hizo.
+- Sin precios, sin pesos, sin medidas, sin totales. Solo código, cantidad y descripción.
+- "sinCodigo" puede ir vacío, pero no lo omitas: que esté vacío me dice que leíste todo.
+- El bloque tiene que ser JSON válido y contener únicamente eso: la verificación va FUERA.`

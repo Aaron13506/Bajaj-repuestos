@@ -1,11 +1,14 @@
 import { db } from '@/lib/db'
 import SimuladorEnvio, { type SimProduct, type SimPedido } from '@/components/SimuladorEnvio'
+import CompararCompra, { type PedidoOpcion } from '@/components/CompararCompra'
+import SimularTabs from '@/components/SimularTabs'
 import type { ConfigMap } from '@/lib/calc'
+import type { ProveedorOpcion } from '@/lib/comparar-compra'
 import { makeProductLookup, expandCostPieces, type ProductCost } from '@/lib/envio-build'
 import type { BundlePiece } from '@/lib/bundle'
 
 export default async function SimularPage() {
-  const [products, pedidos, cfgRows] = await Promise.all([
+  const [products, pedidos, cfgRows, suppliers] = await Promise.all([
     db.product.findMany({
       where: { isAssembly: false },
       select: {
@@ -28,9 +31,19 @@ export default async function SimularPage() {
       orderBy: { createdAt: 'desc' },
     }),
     db.config.findMany(),
+    // Los precios por pieza salen de SupplierPrice y se buscan al importar la lista; acá
+    // solo hacen falta los ejes que definen cómo cotiza cada proveedor.
+    db.supplier.findMany({
+      select: { id: true, name: true, origen: true, inbound: true },
+      orderBy: { name: 'asc' },
+    }),
   ])
 
   const cfg = cfgRows.reduce<ConfigMap>((acc, r) => { acc[r.key] = r.value; return acc }, {})
+
+  const proveedores: ProveedorOpcion[] = suppliers.map(s => ({
+    id: s.id, nombre: s.name, origen: s.origen, inbound: s.inbound,
+  }))
 
   // Lookup para resolver piezas de conjuntos a su producto real (por bajajCode).
   const lookup = makeProductLookup(products as ProductCost[])
@@ -73,16 +86,30 @@ export default async function SimularPage() {
     }
   })
 
+  // El selector de presupuestos solo necesita el rótulo: al elegir uno, el server action
+  // `cargarPedido` resuelve sus piezas y trae los precios de todos los proveedores. Mandar
+  // acá las piezas de TODOS los presupuestos sería un payload enorme para usar uno.
+  const pedidosParaComparar: PedidoOpcion[] = pedidosForClient.map(p => ({
+    id: p.id,
+    clientName: p.clientName,
+    status: p.status,
+    pieceCount: p.pieceCount,
+    saleTotal: p.saleTotal,
+  }))
+
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Simular envío</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Agregá los presupuestos que quieras (y piezas sueltas si hace falta) y mirá el costo
-          aproximado del envío al instante.
+          Dos preguntas sobre una caja que todavía no existe: a quién comprarle, y por dónde traerla.
+          Nada de lo que se toca acá se guarda.
         </p>
       </div>
-      <SimuladorEnvio products={productsForClient} pedidos={pedidosForClient} cfg={cfg} />
+      <SimularTabs
+        compra={<CompararCompra proveedores={proveedores} pedidos={pedidosParaComparar} cfg={cfg} />}
+        ruta={<SimuladorEnvio products={productsForClient} pedidos={pedidosForClient} cfg={cfg} />}
+      />
     </div>
   )
 }
