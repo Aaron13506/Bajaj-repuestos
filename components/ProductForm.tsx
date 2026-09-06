@@ -3,6 +3,7 @@ import ModelPicker from '@/components/ModelPicker'
 
 import Link from 'next/link'
 import { useRef, useState } from 'react'
+import { useFormStatus } from 'react-dom'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
 
 interface Group {
@@ -38,6 +39,22 @@ interface Props {
   defaultValues?: ProductFormValues
   submitLabel: string
   cfg?: ConfigMap
+}
+
+// El submit va deshabilitado mientras la accion corre. Sin esto cada click repetido
+// —la accion tarda: recalcula el landed contra la config y despues escribe— mandaba
+// otro POST, y como `bajajCode` no es unico la DB creaba un producto por click.
+function SubmitButton({ label }: { label: string }) {
+  const { pending } = useFormStatus()
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+    >
+      {pending ? 'Guardando...' : label}
+    </button>
+  )
 }
 
 export default function ProductForm({ action, groups = [], defaultValues: d = {}, submitLabel, cfg = {} }: Props) {
@@ -294,9 +311,7 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
         <Link href="/products" className="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
           Cancelar
         </Link>
-        <button type="submit" className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium">
-          {submitLabel}
-        </button>
+        <SubmitButton label={submitLabel} />
       </div>
     </form>
   )
