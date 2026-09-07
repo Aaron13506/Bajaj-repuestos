@@ -1,12 +1,27 @@
 import { db } from '@/lib/db'
 import { saveConfig } from './actions'
 import { TERMINOS_DEFAULTS } from '@/lib/terminos'
+import { toConfigMap, flag } from '@/lib/config'
+import { resolveRateTable } from '@/lib/shipping-rates'
 
-const FIELD_META: Record<string, { label: string; hint: string; type?: string; multiline?: boolean }> = {
+type FieldMeta = {
+  label: string
+  hint: string
+  multiline?: boolean
+  /** Sí/no: se edita con un check, no escribiendo la palabra "true". */
+  boolean?: boolean
+  /** Valor de la bandera cuando la key falta o está vacía. Tiene que ser el mismo que
+   *  usa quien la lee (ver `flag` en lib/config.ts), o el check miente sobre lo que cobra. */
+  booleanDefault?: boolean
+  /** Lista cerrada de opciones: un select en vez de un campo libre. */
+  options?: string[]
+}
+
+const FIELD_META: Record<string, FieldMeta> = {
   inr_usd_rate:           { label: 'Tasa INR / USD',               hint: 'Rupias indias por 1 USD — ver XE.com' },
   bsd_usd_rate:           { label: 'Tasa BsD / USD',               hint: 'Bolívares por 1 USD (BCV o paralelo)' },
-  shoppre_member:         { label: 'Membresía Shoppre',            hint: '"true" para usar tarifa con descuento, "false" para tarifa normal' },
-  shoppre_carrier:        { label: 'Transportista Shoppre',        hint: '"ShipGlobal USA - Duty Free", "Economy Shipping" o "Shoppre Trusted Carrier - Express Shipping"' },
+  shoppre_member:         { label: 'Membresía Shoppre',            hint: 'Tildado = tarifa de socio (el descuento que Shoppre aplica sobre el básico). Entra en el flete de todo lo que pasa por Shoppre: catálogo, presupuestos y envíos', boolean: true, booleanDefault: true },
+  shoppre_carrier:        { label: 'Transportista Shoppre',        hint: 'Define la tabla escalón del tramo India → USA. Las opciones salen de la tarifa vigente' },
   reference_weight_kg:    { label: 'Peso de referencia (kg)',      hint: 'Peso total del envío de referencia para prorratear costos Shoppre' },
   air_volumetric_divisor: { label: 'Divisor volumétrico aéreo',     hint: 'vol_kg = L×A×H(cm) / divisor. Shoppre/ShipGlobal: 5000 (IATA clásico: 6000)' },
   miami_caracas_per_ft3:  { label: 'Marítimo Miami → CCS (USD/ft³)', hint: 'Costo del flete marítimo por pie cúbico' },
@@ -55,6 +70,18 @@ export default async function ConfigPage({
   // hoy la define cada envío, no una preferencia global.
   const extraKeys = Object.keys(configMap).filter(k => !FIELD_META[k] && k !== 'app_modo')
 
+  const cfg = toConfigMap(rows)
+
+  // El transportista es una lista cerrada, y las opciones salen de la tabla de tarifas
+  // vigente: el nombre tiene que coincidir EXACTO con su clave, porque uno que no está
+  // cae en silencio al Duty Free (ver `pasosDe` en lib/shipping-rates.ts) y se costea con
+  // otra tarifa sin que nada lo diga. Escrito a mano, un espacio de más bastaba.
+  // Se resuelve por request y no se guarda en FIELD_META, que es un módulo compartido.
+  const optionsFor = (key: string): string[] | undefined =>
+    key === 'shoppre_carrier'
+      ? Object.keys(resolveRateTable(cfg).carriers)
+      : FIELD_META[key]?.options
+
   const allKeys = [...DEFAULT_KEYS, ...extraKeys]
 
   return (
@@ -72,8 +99,9 @@ export default async function ConfigPage({
       <form action={saveConfig}>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 divide-y divide-gray-100">
           {allKeys.map(key => {
-            const meta   = FIELD_META[key]
-            const stored = configMap[key]
+            const meta    = FIELD_META[key]
+            const stored  = configMap[key]
+            const options = optionsFor(key)
             return (
               <div key={key} className="px-6 py-4">
                 <label className="block mb-1">
@@ -82,19 +110,44 @@ export default async function ConfigPage({
                   </span>
                   <span className="ml-2 font-mono text-xs text-gray-400">{key}</span>
                 </label>
-                {stored.description && (
-                  <p className="text-xs text-gray-500 mb-2">{stored.description}</p>
+                {/* La ayuda del código gana sobre la `description` de la fila: esa la
+                    escribió el seed y queda vieja (la de shoppre_member todavía pedía
+                    escribir "true"). La de la base solo se muestra para las keys que el
+                    código no conoce, que son las únicas que no tienen ayuda acá. */}
+                {(meta?.hint || stored.description) && (
+                  <p className="text-xs text-gray-500 mb-2">{meta?.hint ?? stored.description}</p>
                 )}
-                {meta?.hint && !stored.description && (
-                  <p className="text-xs text-gray-500 mb-2">{meta.hint}</p>
-                )}
-                {meta?.multiline ? (
+                {meta?.boolean ? (
+                  <label className="flex items-center gap-2 text-sm text-gray-800">
+                    {/* Destildado el checkbox no manda nada: el hidden es el que guarda el
+                        "false". saveConfig se queda con el último valor de la key. */}
+                    <input type="hidden" name={key} value="false" />
+                    <input
+                      type="checkbox"
+                      name={key}
+                      value="true"
+                      defaultChecked={flag(cfg, key, meta.booleanDefault ?? false)}
+                      className="accent-blue-600 h-4 w-4"
+                    />
+                    {/* Texto fijo: esto es un Server Component, así que no puede seguir
+                        al check. Lo que vale es el estado del cuadrito. */}
+                    <span>Aplicar la tarifa de socio</span>
+                  </label>
+                ) : meta?.multiline ? (
                   <textarea
                     name={key}
                     rows={8}
                     defaultValue={stored.value || TERMINOS_DEFAULTS[key] || ''}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm leading-relaxed focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
+                ) : options ? (
+                  <select
+                    name={key}
+                    defaultValue={stored.value || options[0]}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    {options.map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
                 ) : (
                   <input
                     type="text"

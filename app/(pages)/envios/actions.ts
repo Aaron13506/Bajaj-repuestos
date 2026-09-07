@@ -35,10 +35,18 @@ export async function createEnvio(formData: FormData) {
   redirect(`/envios/${envio.id}`)
 }
 
-// El PRESUPUESTO es la unidad que entra y sale de un envío, no el ítem suelto: es lo que
-// se le vendió al cliente y no se parte. Sus ítems siguen teniendo envioId propio (así el
-// estado de transporte puede diferir entre piezas), pero se asignan y se liberan todos
-// juntos. Por eso no hay acciones por ítem acá.
+// El PRESUPUESTO es la unidad NORMAL que entra a un envío: es lo que se le vendió al
+// cliente y lo habitual es traerlo entero. Pero no es la unidad obligatoria — la unidad
+// real de compra y logística es el PedidoItem (por eso tiene envioId propio), y un
+// presupuesto se compra a medias todo el tiempo: unas piezas entran en la caja que sale
+// esta semana y el resto espera a la próxima.
+//
+// Por eso hay dos puertas: esta, que mete todo el presupuesto, y `assignItems`, que mete
+// las líneas elegidas. La de acá sigue siendo la primaria y la que ofrecen los botones.
+//
+// Mete solo lo que está LIBRE (`envioId: null`). Un presupuesto ya repartido entre cajas
+// no se muda entero al agregarlo a una nueva: se le suma únicamente lo que todavía no
+// viaja en ninguna, que es lo que falta por traer.
 export async function assignPedido(envioId: number, pedidoId: number) {
   const ids = await db.pedidoItem.findMany({
     where: { pedidoId, envioId: null },
@@ -46,6 +54,44 @@ export async function assignPedido(envioId: number, pedidoId: number) {
   })
   await asignarAEnvio(envioId, ids.map(i => i.id))
   revalidatePath(`/envios/${envioId}`)
+  revalidatePath('/envios')
+  revalidatePath('/presupuestos')
+}
+
+// Mete en la caja SOLO las líneas elegidas: la alternativa a traer el presupuesto entero,
+// para cuando se parte entre dos envíos.
+//
+// Vuelve a filtrar por `envioId: null` en vez de confiar en los ids que llegan. La pantalla
+// desde la que se eligió pudo quedar vieja —otra caja se llevó esa línea mientras tanto— y
+// sin el filtro este asigna igual, robándosela a un envío que quizá ya viajó. Es la misma
+// razón por la que `assignPedido` filtra: lo asignable es lo que está libre AHORA.
+export async function assignItems(envioId: number, itemIds: number[]) {
+  const ids = itemIds.filter(Number.isInteger)
+  if (ids.length === 0) return
+  const libres = await db.pedidoItem.findMany({
+    where: { id: { in: ids }, envioId: null },
+    select: { id: true },
+  })
+  await asignarAEnvio(envioId, libres.map(i => i.id))
+  revalidatePath(`/envios/${envioId}`)
+  revalidatePath('/envios')
+  revalidatePath('/presupuestos')
+}
+
+// Saca líneas sueltas de la caja. El contrapeso de `assignItems`: si el reparto entre dos
+// envíos salió mal, se corrige la línea que sobra y no el presupuesto entero.
+//
+// Acotado a `envioId` para que no pueda liberar lo que viaja en otra caja.
+export async function removeItems(envioId: number, itemIds: number[]) {
+  const ids = itemIds.filter(Number.isInteger)
+  if (ids.length === 0) return
+  await db.pedidoItem.updateMany({
+    where: { id: { in: ids }, envioId },
+    data: { envioId: null },
+  })
+  revalidatePath(`/envios/${envioId}`)
+  revalidatePath('/envios')
+  revalidatePath('/presupuestos')
 }
 
 // Mete líneas en una caja y les copia el proveedor de ESA caja.

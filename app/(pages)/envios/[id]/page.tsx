@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import DeleteButton from '@/components/DeleteButton'
 import EnvioItemsTable, { type EnvioItemRow } from '@/components/EnvioItemsTable'
 import PendingButton from '@/components/PendingButton'
+import SueltoPedido, { type LineaSuelta, type EnOtraCaja } from '@/components/SueltoPedido'
 import PendientesCompraButton, {
   type PendienteGrupo,
   type PendienteRow,
@@ -17,8 +18,10 @@ import { makeProductLookup, expandCostPieces, type ProductCost } from '@/lib/env
 import { cobranzaEnvio, type CobranzaEnvio, type CobranzaPedido } from '@/lib/clientes'
 import type { BundlePiece } from '@/lib/bundle'
 import { toConfigMap } from '@/lib/config'
+import { armarCompra99rpm } from '@/lib/compra-99rpm'
 import {
   assignPedido,
+  assignItems,
   assignAllConfirmados,
   removePedido,
   deleteEnvio,
@@ -104,7 +107,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   if (!ruta) notFound()
   if (ruta.modo === 'maritimo_cbm') return <EnvioMaritimo envioId={id} />
 
-  const [envio, cfgRows, sinAsignar, allProducts, supplierPrices, suppliers, pedidosCaja] = await Promise.all([
+  const [envio, cfgRows, sinAsignar, allProducts, supplierPrices, suppliers, pedidosCaja, despiece99, repartidos] = await Promise.all([
     db.envio.findUnique({
       where: { id },
       include: {
@@ -120,7 +123,10 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     db.config.findMany(),
     db.pedidoItem.findMany({
       where: { envioId: null },
-      include: { product: { select: { nameEs: true } }, pedido: true },
+      include: {
+        product: { select: { nameEs: true, bajajCode: true, discontinuedAt: true } },
+        pedido: true,
+      },
       orderBy: [{ pedidoId: 'asc' }, { id: 'asc' }],
     }),
     db.product.findMany({
@@ -144,6 +150,34 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
         depositUsd: true,
         items: { select: { salePrice: true, quantity: true, envioId: true } },
       },
+    }),
+    // El despiece de los ensambles que todavía hay que comprarle a 99rpm: cuántas unidades
+    // entran por cada tilde. Es el dato que el snapshot del presupuesto NO tiene —ahí la
+    // cantidad puede haberse editado a mano— y sin él no se sabe qué Qty poner.
+    //
+    // Va en el mismo Promise.all aunque dependa de qué ítems tiene la caja: filtrar por la
+    // relación lo resuelve en una sola consulta, en vez de encadenar un round-trip más.
+    db.productComponent.findMany({
+      where: {
+        parent: { pedidoItems: { some: { envioId: id, supplierId: null, shippingStatus: 'pendiente' } } },
+      },
+      select: {
+        parentId: true,
+        quantity: true,
+        groupName: true,
+        sortOrder: true,
+        child: { select: { bajajCode: true, nameEs: true, discontinuedAt: true } },
+      },
+    }),
+    // Dónde viaja el resto de los presupuestos que todavía tienen líneas sueltas. Sin esto
+    // el desglose miente por omisión: muestra 3 líneas libres sin decir que las otras 7 ya
+    // están en otra caja, y parece un presupuesto chico en vez de uno repartido.
+    db.pedidoItem.findMany({
+      where: {
+        envioId: { not: null },
+        pedido: { items: { some: { envioId: null } } },
+      },
+      select: { pedidoId: true, envio: { select: { id: true, nombre: true } } },
     }),
   ])
 
@@ -319,6 +353,38 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     if (row.unitInr == null) row.unitInr = p.priceInr
     if (row.unitUsd == null) row.unitUsd = p.priceUsd
   }
+  // Lo pendiente de 99rpm, reordenado por ENSAMBLE. A 99rpm no se le compra por código: se
+  // entra a la página del conjunto, se tildan las piezas y se pone un Qty que multiplica
+  // toda la selección. La lista consolidada por SKU es la correcta para los proveedores que
+  // cotizan por pieza, y la peor posible acá — obliga a abrir el mismo ensamble una vez por
+  // código. Ver lib/compra-99rpm.ts.
+  const compra99datos = armarCompra99rpm(
+    envio.items
+      .filter(it => it.supplierId == null && it.shippingStatus === 'pendiente' && it.origen !== 'china')
+      .map(it => ({
+        assemblyId: it.productId,
+        assemblyName: it.product.nameEs,
+        assemblySku: it.product.bajajCode,
+        compatibleModels: it.product.compatibleModels,
+        quantity: it.quantity,
+        bundleItems: it.bundleItems as BundlePiece[] | null,
+        clientName: it.pedido.clientName,
+      })),
+    despiece99.map(c => ({
+      parentId: c.parentId,
+      bajajCode: c.child.bajajCode,
+      nameEs: c.child.nameEs,
+      quantity: c.quantity,
+      groupName: c.groupName,
+      sortOrder: c.sortOrder,
+      descontinuada: c.child.discontinuedAt != null,
+    })),
+  )
+  // La clave con la que `pendMap` agrupa lo de 99rpm sin proveedor puntual.
+  const compra99 = compra99datos.ensambles.length > 0 || compra99datos.sinEnsamble.length > 0
+    ? { key: 'base-india', datos: compra99datos }
+    : null
+
   const costoFila = (r: PendienteRow) =>
     r.unitUsd != null ? r.unitUsd * r.qty : (r.unitInr ?? 0) * r.qty / inrUsd
   // India primero (es la orden grande y la que manda el peso cobrable), y dentro, el
@@ -386,6 +452,28 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   const confirmadosSinAsignar = agruparSueltos(it => it.pedido.status === 'pedido')
   const presupuestosSinAsignar = agruparSueltos(it => it.pedido.status === 'presupuesto')
   const confirmadosPropios = confirmadosSinAsignar.filter(g => g[0].pedido.tipo === 'propio').length
+
+  // Por presupuesto, en qué otras cajas ya viajan sus líneas y cuántas.
+  const repartoPorPedido = new Map<number, Map<number, EnOtraCaja>>()
+  for (const r of repartidos) {
+    if (!r.envio) continue
+    const cajas = repartoPorPedido.get(r.pedidoId) ?? new Map<number, EnOtraCaja>()
+    const prev = cajas.get(r.envio.id)
+    if (prev) prev.lineas++
+    else cajas.set(r.envio.id, { envioId: r.envio.id, nombre: r.envio.nombre ?? `Envío #${r.envio.id}`, lineas: 1 })
+    repartoPorPedido.set(r.pedidoId, cajas)
+  }
+  const lineasSueltas = (its: typeof sinAsignar): LineaSuelta[] =>
+    its.map(it => ({
+      id: it.id,
+      nameEs: limpiarNombre(it.product.nameEs),
+      bajajCode: it.product.bajajCode,
+      quantity: it.quantity,
+      salePrice: parseFloat(it.salePrice.toString()),
+      descontinuada: it.product.discontinuedAt != null,
+    }))
+  const otrasCajasDe = (pedidoId: number): EnOtraCaja[] =>
+    Array.from(repartoPorPedido.get(pedidoId)?.values() ?? []).sort((a, b) => a.envioId - b.envioId)
 
   const anyMissing = calc.lines.some(l => l.missingWeight || l.missingDims)
   const tierHint = airTierHint(calc.air.chargeableKg, calc.air.costPerKgUsd, calc.air.cajas, calc.air.capKg)
@@ -1027,6 +1115,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
             envio={envio.nombre ?? `Envío #${envio.id}`}
             grupos={pendientes}
             inrUsd={inrUsd}
+            compra99={compra99}
           />
 
           {/* Lista de compra — separada por origen: son dos órdenes distintas */}
@@ -1142,7 +1231,17 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
         ) : (
           <div className="divide-y divide-gray-50">
             {confirmadosSinAsignar.map(its => (
-              <SueltoRow key={its[0].pedidoId} envioId={envio.id} items={its} />
+              <SueltoPedido
+                key={its[0].pedidoId}
+                envioId={envio.id}
+                pedidoId={its[0].pedidoId}
+                clientName={its[0].pedido.clientName}
+                tipo={its[0].pedido.tipo}
+                lineas={lineasSueltas(its)}
+                otrasCajas={otrasCajasDe(its[0].pedidoId)}
+                agregarTodo={assignPedido}
+                agregarElegidas={assignItems}
+              />
             ))}
           </div>
         )}
@@ -1162,48 +1261,22 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
         ) : (
           <div className="divide-y divide-gray-50">
             {presupuestosSinAsignar.map(its => (
-              <SueltoRow key={its[0].pedidoId} envioId={envio.id} items={its} sinAprobar />
+              <SueltoPedido
+                key={its[0].pedidoId}
+                envioId={envio.id}
+                pedidoId={its[0].pedidoId}
+                clientName={its[0].pedido.clientName}
+                tipo={its[0].pedido.tipo}
+                lineas={lineasSueltas(its)}
+                otrasCajas={otrasCajasDe(its[0].pedidoId)}
+                sinAprobar
+                agregarTodo={assignPedido}
+                agregarElegidas={assignItems}
+              />
             ))}
           </div>
         )}
       </div>
-    </div>
-  )
-}
-
-function SueltoRow({
-  envioId,
-  items,
-  sinAprobar,
-}: {
-  envioId: number
-  items: { id: number; pedidoId: number; pedido: { clientName: string; tipo: string } }[]
-  sinAprobar?: boolean
-}) {
-  const ped = items[0].pedido
-  return (
-    <div className="px-6 py-3 flex items-center justify-between hover:bg-gray-50">
-      <div>
-        <span className="text-sm font-medium text-gray-900">{ped.clientName}</span>
-        <span className="ml-2 text-xs text-gray-400">
-          #{items[0].pedidoId} · {items.length} {items.length === 1 ? 'ítem suelto' : 'ítems sueltos'}
-        </span>
-        {ped.tipo === 'propio' && (
-          <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
-            Stock propio
-          </span>
-        )}
-        {sinAprobar && (
-          <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700">
-            Sin aprobar
-          </span>
-        )}
-      </div>
-      <form action={assignPedido.bind(null, envioId, items[0].pedidoId)}>
-        <PendingButton pendingLabel="Agregando…" className="text-sm text-blue-600 hover:text-blue-800 font-medium">
-          + Agregar
-        </PendingButton>
-      </form>
     </div>
   )
 }

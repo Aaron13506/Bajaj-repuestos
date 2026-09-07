@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import type { CompraPorEnsamble, EnsambleCompra } from '@/lib/compra-99rpm'
 
 // Una pieza pendiente ya consolidada: la cantidad es la suma de todas las líneas del
 // envío que piden ese mismo SKU, porque a la hora de comprar da igual de qué cliente
@@ -27,6 +28,10 @@ interface Props {
   envio: string
   grupos: PendienteGrupo[]
   inrUsd: number
+  // A 99rpm se le compra entrando a la página del ensamble y tildando piezas, no buscando
+  // código por código: para ese grupo la lista se muestra por ensamble y no por SKU. `key`
+  // es el grupo de `grupos` al que reemplaza la vista. Null ⇒ no hay nada de 99rpm pendiente.
+  compra99: { key: string; datos: CompraPorEnsamble } | null
 }
 
 const bandera = (o: 'india' | 'china') => (o === 'china' ? '🇨🇳' : '🇮🇳')
@@ -47,10 +52,45 @@ function costoTexto(r: PendienteRow): string {
   return '—'
 }
 
+// El grupo de 99rpm como se compra: un encabezado por ensamble y, adentro, un bloque por
+// cada "Add to cart" (las piezas a tildar y el Qty a poner). Sale en formato checklist
+// porque se sigue con el catálogo abierto al lado, tildando de arriba hacia abajo.
+function ensambleTexto(e: EnsambleCompra): string {
+  const titulo = [e.nombre, e.modelo].filter(Boolean).join(' · ')
+  const lineas = [`${titulo}${e.sku ? ` [${e.sku}]` : ''}`]
+  for (const b of e.bloques) {
+    lineas.push(`  Qty ${b.qty}${b.qty > 1 ? `  → ${b.unidades} u.` : ''}`)
+    for (const p of b.piezas) {
+      const cod = p.sku ?? 's/código'
+      const extra = b.qty > 1 ? ` = ${p.unidades} u.` : ''
+      lineas.push(`    [ ] ${p.base}× ${cod} — ${p.name}${p.groupName ? ` (${p.groupName})` : ''}${extra}`)
+    }
+  }
+  for (const a of e.avisos) lineas.push(`  ⚠ ${a}`)
+  return lineas.join('\n')
+}
+
+function compra99Texto(g: PendienteGrupo, datos: CompraPorEnsamble): string {
+  const cab =
+    `${bandera(g.origen)} ${g.proveedor} — ${datos.ensambles.length} ensambles · ` +
+    `${datos.totalBloques} pasadas · ${datos.totalUnidades} u.`
+  const cuerpo = datos.ensambles.map(ensambleTexto)
+  const sueltas = datos.sinEnsamble.length > 0
+    ? [`Sin ensamble de origen:\n${datos.sinEnsamble.map(s => `  ${s.qty}× ${s.sku ?? 's/código'} — ${s.name}`).join('\n')}`]
+    : []
+  return [cab, ...cuerpo, ...sueltas].join('\n\n')
+}
+
 // Texto plano para pegar en WhatsApp o en el chat del proveedor. El código va primero
 // porque es lo que se busca en el catálogo; el nombre es la confirmación.
-function comoTexto(envio: string, grupos: PendienteGrupo[], inrUsd: number): string {
+function comoTexto(
+  envio: string,
+  grupos: PendienteGrupo[],
+  inrUsd: number,
+  compra99: { key: string; datos: CompraPorEnsamble } | null,
+): string {
   const partes = grupos.map(g => {
+    if (compra99 && compra99.key === g.key) return compra99Texto(g, compra99.datos)
     const lineas = g.rows.map(r => {
       const cod = r.sku ?? 's/código'
       return `${r.qty}× ${cod} — ${r.name}${r.isLanded ? ' (puesto en VE)' : ''}`
@@ -127,9 +167,100 @@ function descargar(nombre: string, contenido: string, mime: string) {
   URL.revokeObjectURL(url)
 }
 
-export default function PendientesCompraButton({ envio, grupos, inrUsd }: Props) {
+// La lista de 99rpm en la forma en que se compra: por ensamble, y dentro de cada uno un
+// bloque por "Add to cart". Cada pieza cae en un solo bloque, así que lo que ves al lado
+// del checkbox es todo lo que lleva esa pieza — no hay que sumar entre bloques.
+function Compra99({ datos }: { datos: CompraPorEnsamble }) {
+  return (
+    <div className="divide-y divide-gray-100">
+      {datos.ensambles.map(e => (
+        <div key={e.assemblyId} className="px-6 py-3">
+          <div className="flex items-baseline justify-between gap-3 flex-wrap">
+            <h3 className="text-sm font-semibold text-gray-900">
+              {e.nombre}
+              {e.modelo && <span className="ml-2 font-normal text-gray-500">{e.modelo}</span>}
+              {e.sku && <span className="ml-2 font-mono text-xs font-normal text-gray-400">{e.sku}</span>}
+            </h3>
+            <span className="font-mono text-xs text-gray-400">
+              {e.bloques.length} {e.bloques.length === 1 ? 'pasada' : 'pasadas'} · {e.unidades} u.
+            </span>
+          </div>
+          {e.pedidos.length > 0 && (
+            <p className="mt-0.5 text-xs text-gray-400">{e.pedidos.join(' · ')}</p>
+          )}
+
+          <div className="mt-2 space-y-2">
+            {e.bloques.map(b => (
+              <div key={b.qty} className="rounded-lg border border-gray-200 overflow-hidden">
+                <div className="px-3 py-1.5 bg-gray-50 flex items-center justify-between text-xs">
+                  <span className="font-semibold text-gray-700">
+                    Qty <span className="font-mono text-sm text-blue-700">{b.qty}</span>
+                    <span className="ml-2 font-normal text-gray-400">→ Add to cart</span>
+                  </span>
+                  <span className="font-mono text-gray-400">
+                    {b.piezas.length} {b.piezas.length === 1 ? 'pieza' : 'piezas'} · {b.unidades} u.
+                  </span>
+                </div>
+                <ul className="divide-y divide-gray-50">
+                  {b.piezas.map((p, i) => (
+                    <li key={i} className="px-3 py-1.5 flex items-center gap-2 text-sm">
+                      <span className="text-gray-300 select-none">☐</span>
+                      <span className="font-mono text-xs text-gray-700 w-8 text-right shrink-0">{p.base}×</span>
+                      <span className="font-mono text-xs text-gray-500 w-28 shrink-0">{p.sku ?? '—'}</span>
+                      <span className="flex-1 text-gray-900 truncate" title={p.name}>{p.name}</span>
+                      {p.groupName && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 shrink-0">
+                          {p.groupName}
+                        </span>
+                      )}
+                      {p.descontinuada && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 shrink-0">
+                          NLS
+                        </span>
+                      )}
+                      {b.qty > 1 && (
+                        <span className="font-mono text-xs text-gray-400 w-14 text-right shrink-0">= {p.unidades} u.</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+
+          {e.avisos.map((a, i) => (
+            <p key={i} className="mt-1.5 text-xs text-amber-700">⚠ {a}</p>
+          ))}
+        </div>
+      ))}
+
+      {datos.sinEnsamble.length > 0 && (
+        <div className="px-6 py-3">
+          <h3 className="text-sm font-semibold text-gray-900">Sin ensamble de origen</h3>
+          <p className="text-xs text-gray-400">
+            Estas líneas no traen desglose, así que no se sabe de qué página de 99rpm salieron.
+          </p>
+          <ul className="mt-1.5 space-y-1">
+            {datos.sinEnsamble.map((s, i) => (
+              <li key={i} className="flex items-center gap-2 text-sm">
+                <span className="font-mono text-xs text-gray-700 w-8 text-right">{s.qty}×</span>
+                <span className="font-mono text-xs text-gray-500 w-28">{s.sku ?? '—'}</span>
+                <span className="text-gray-900">{s.name}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default function PendientesCompraButton({ envio, grupos, inrUsd, compra99 }: Props) {
   const [abierto, setAbierto] = useState(false)
   const [aviso, setAviso] = useState<string | null>(null)
+  // La vista plana por SKU sigue a un clic: es la que tiene el costo por fila y sirve
+  // para chequear el carrito contra el total, que los bloques no muestran.
+  const [porSku, setPorSku] = useState(false)
 
   const items = grupos.reduce((s, g) => s + g.rows.length, 0)
   const uds = grupos.reduce((s, g) => s + unidades(g), 0)
@@ -161,7 +292,7 @@ export default function PendientesCompraButton({ envio, grupos, inrUsd }: Props)
           <button
             type="button"
             onClick={async () => {
-              const ok = await copiar(comoTexto(envio, grupos, inrUsd))
+              const ok = await copiar(comoTexto(envio, grupos, inrUsd, porSku ? null : compra99))
               avisar(ok ? '✓ Copiado' : 'No se pudo copiar')
             }}
             className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -190,18 +321,36 @@ export default function PendientesCompraButton({ envio, grupos, inrUsd }: Props)
           {grupos.map(g => {
             const tInr = totalInr(g)
             const tUsd = totalUsd(g)
+            const esCompra99 = compra99 != null && compra99.key === g.key
             return (
               <div key={g.key}>
-                <div className="px-6 py-2 bg-gray-50 flex items-center justify-between text-xs">
+                <div className="px-6 py-2 bg-gray-50 flex items-center justify-between gap-3 text-xs">
                   <span className="font-semibold text-gray-600">
                     {bandera(g.origen)} {g.proveedor}
+                    {esCompra99 && !porSku && (
+                      <span className="ml-2 font-normal text-gray-400">
+                        se compra entrando al ensamble y tildando piezas
+                      </span>
+                    )}
                   </span>
-                  <span className="font-mono text-gray-500">
-                    {unidades(g)} u.
-                    {tInr > 0 && ` · ${inr(tInr)}`}
-                    {tUsd > 0 && ` · ${usd(tUsd)}`}
+                  <span className="flex items-center gap-3">
+                    {esCompra99 && (
+                      <button
+                        type="button"
+                        onClick={() => setPorSku(v => !v)}
+                        className="text-blue-600 hover:underline"
+                      >
+                        {porSku ? 'Ver por ensamble' : 'Ver por SKU'}
+                      </button>
+                    )}
+                    <span className="font-mono text-gray-500">
+                      {unidades(g)} u.
+                      {tInr > 0 && ` · ${inr(tInr)}`}
+                      {tUsd > 0 && ` · ${usd(tUsd)}`}
+                    </span>
                   </span>
                 </div>
+                {esCompra99 && !porSku ? <Compra99 datos={compra99!.datos} /> : (
                 <table className="w-full text-sm">
                   <tbody className="divide-y divide-gray-50">
                     {g.rows.map((r, i) => (
@@ -224,6 +373,7 @@ export default function PendientesCompraButton({ envio, grupos, inrUsd }: Props)
                     ))}
                   </tbody>
                 </table>
+                )}
               </div>
             )
           })}

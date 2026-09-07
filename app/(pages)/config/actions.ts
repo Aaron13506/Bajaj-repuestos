@@ -15,9 +15,17 @@ function normalizeDecimalComma(value: string): string {
 }
 
 export async function saveConfig(formData: FormData) {
-  const entries = Array.from(formData.entries()) as [string, string][]
-  for (const [key, value] of entries) {
-    if (!key || key === '$ACTION_ID') continue
+  // Se toma el ÚLTIMO valor de cada key, no el primero. Un checkbox destildado no manda
+  // nada, así que los campos booleanos van como un hidden con "false" seguido del
+  // checkbox con "true": destildado llega solo el hidden, tildado llegan los dos y gana
+  // el de atrás. Sin esta pasada, además, la misma key se escribía dos veces en la base.
+  const valores = new Map<string, string>()
+  for (const [key, value] of formData.entries()) {
+    if (!key || key === '$ACTION_ID' || typeof value !== 'string') continue
+    valores.set(key, value)
+  }
+
+  for (const [key, value] of valores) {
     const normalized = normalizeDecimalComma(value.trim())
     await db.config.upsert({
       where: { key },

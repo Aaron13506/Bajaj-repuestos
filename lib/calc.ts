@@ -1,6 +1,6 @@
 import { cotizarTramoAereo } from './shipping-rates'
 import { inboundDe, type Inbound } from './inbound'
-import { num, margenPorDefecto, type ConfigMap } from './config'
+import { num, flag, margenPorDefecto, type ConfigMap } from './config'
 
 // El tipo se re-exporta porque medio repo lo importa desde acá y no hay razón para
 // mover veinte imports; la definición vive en lib/config.ts junto a los lectores.
@@ -133,7 +133,7 @@ export function calcLanded(
   // Tramo aéreo India → USA, prorrateado sobre una caja de referencia. Por mar no existe.
   let shoppreShippingUsd = 0
   if (!esMaritimo) {
-    const isMember    = cfg.shoppre_member                 !== 'false'
+    const isMember    = flag(cfg, 'shoppre_member', true)
     const carrier     = cfg.shoppre_carrier                ?? 'ShipGlobal USA - Duty Free'
     const refWeightKg = num(cfg, 'reference_weight_kg', 15)
     const fraction    = product.weightGrams! / (refWeightKg * 1000)
@@ -562,7 +562,7 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   const esCbm         = modo === 'maritimo_cbm'
   const esMaritimo    = modo === 'maritimo' || esCbm
   const inrUsd        = num(cfg, 'inr_usd_rate', 95)
-  const isMember      = cfg.shoppre_member                    !== 'false'
+  const isMember      = flag(cfg, 'shoppre_member', true)
   const carrier       = cfg.shoppre_carrier                   ?? 'ShipGlobal USA - Duty Free'
   const divisor       = num(cfg, 'air_volumetric_divisor', 5000)
 

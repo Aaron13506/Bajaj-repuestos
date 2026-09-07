@@ -14,6 +14,7 @@ import {
 } from '@/lib/comparar-compra'
 import { inboundMeta } from '@/lib/inbound'
 import { resolveRateTable, CARRIER_DUTY_FREE } from '@/lib/shipping-rates'
+import { flag } from '@/lib/config'
 import type { ConfigMap } from '@/lib/calc'
 import { LISTA_SKU_PROMPT } from '@/lib/prompts'
 
@@ -94,7 +95,7 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
 
   const [montos, setMontos] = useState<Record<string, MontosProveedor>>({})
   const [tarifas, setTarifas] = useState<Record<string, string>>({})
-  const [member, setMember] = useState(cfg.shoppre_member !== 'false')
+  const [member, setMember] = useState(flag(cfg, 'shoppre_member', true))
   // El carrier decide TODO el tramo a USA y hasta ahora no se veía en ninguna parte: la
   // pantalla mostraba un número de flete sin decir de qué servicio salía, así que no había
   // forma de notar si estaba costeando con el barato o con el que se usa de verdad.
@@ -167,9 +168,13 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
   const ganador = opciones.find(o => o.viable) ?? null
   const tarifasTocadas =
     Object.values(tarifas).some(v => v.trim() !== '') ||
-    member !== (cfg.shoppre_member !== 'false') ||
+    member !== flag(cfg, 'shoppre_member', true) ||
     carrier !== (cfg.shoppre_carrier ?? CARRIER_DUTY_FREE)
-  const carriers = useMemo(() => Object.keys(resolveRateTable(cfg).carriers), [cfg])
+  const tabla = useMemo(() => resolveRateTable(cfg), [cfg])
+  const carriers = Object.keys(tabla.carriers)
+  // El descuento sale de la tabla vigente, no de un 5% escrito acá: si Shoppre lo mueve,
+  // el cron reescribe la tabla y el rótulo tiene que moverse con el número que se cobra.
+  const descuentoSocio = Math.round(tabla.member_discount * 100)
 
   function setMonto(id: number | null, campo: keyof MontosProveedor, valor: string) {
     const k = claveMontos(id)
@@ -452,7 +457,7 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
                 <div className="flex flex-col justify-center gap-2">
                   <label className="flex items-center gap-2 text-sm text-gray-700">
                     <input type="checkbox" checked={member} onChange={e => setMember(e.target.checked)} className="accent-blue-600" />
-                    Membresía Shoppre (−5%)
+                    Membresía Shoppre (−{descuentoSocio}%)
                   </label>
                   <label
                     className="flex items-center gap-2 text-sm text-gray-700"

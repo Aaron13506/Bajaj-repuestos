@@ -46,3 +46,22 @@ export function num(cfg: ConfigMap, key: string, fallback: number): number {
 export function margenPorDefecto(cfg: ConfigMap): number {
   return num(cfg, 'default_margin_pct', 40) / 100
 }
+
+/**
+ * Lee una key booleana de Config. Es el `num()` de los sí/no, y por la misma razón: el
+ * valor lo escribe un formulario pero también se edita a mano, así que "TRUE", "1", "no"
+ * o un campo en blanco tienen que caer del lado correcto en vez de decidirse por una
+ * comparación literal contra la palabra exacta.
+ *
+ * Esto era `cfg.shoppre_member !== 'false'` repetido en calc y en el comparador — una
+ * cuenta con una sola forma de apagarse: cualquier otra cosa que "false" (incluido
+ * "FALSE", "0" o "no") dejaba la tarifa de socio prendida, que es un 5% de descuento
+ * que Shoppre no da y que termina metido en un precio de venta.
+ */
+export function flag(cfg: ConfigMap, key: string, fallback: boolean): boolean {
+  const v = (cfg[key] ?? '').trim().toLowerCase()
+  if (v === '') return fallback
+  if (['true', '1', 'si', 'sí', 'yes', 'on'].includes(v)) return true
+  if (['false', '0', 'no', 'off'].includes(v)) return false
+  return fallback
+}
