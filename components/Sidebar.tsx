@@ -82,6 +82,15 @@ const navItems = [
     ),
   },
   {
+    href: '/contabilidad',
+    label: 'Contabilidad',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .672-3 1.5S10.343 11 12 11s3 .672 3 1.5-1.343 1.5-3 1.5m0-6c1.11 0 2.08.402 2.599 1M12 8V6.5m0 8V17m0-9c-1.11 0-2.08.402-2.599 1M12 17c1.11 0 2.08-.402 2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    ),
+  },
+  {
     href: '/config',
     label: 'Configuración',
     icon: (

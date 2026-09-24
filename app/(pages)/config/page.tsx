@@ -3,6 +3,7 @@ import { saveConfig } from './actions'
 import { TERMINOS_DEFAULTS } from '@/lib/terminos'
 import { toConfigMap, flag } from '@/lib/config'
 import { resolveRateTable } from '@/lib/shipping-rates'
+import { haceTiempo } from '@/lib/utils'
 
 type FieldMeta = {
   label: string
@@ -15,11 +16,16 @@ type FieldMeta = {
   booleanDefault?: boolean
   /** Lista cerrada de opciones: un select en vez de un campo libre. */
   options?: string[]
+  /** La escribe el cron horario de fx:update — se muestra hace cuánto se guardó, para
+   *  notar en la UI un cron caído en vez de arrastrar una tasa vieja sin que nada lo diga. */
+  cron?: boolean
 }
 
 const FIELD_META: Record<string, FieldMeta> = {
-  inr_usd_rate:           { label: 'Tasa INR / USD',               hint: 'Rupias indias por 1 USD — ver XE.com' },
-  bsd_usd_rate:           { label: 'Tasa BsD / USD',               hint: 'Bolívares por 1 USD (BCV o paralelo)' },
+  inr_usd_rate:           { label: 'Tasa INR / USD',               hint: 'Rupias indias por 1 USD — ver XE.com', cron: true },
+  bsd_usd_rate:           { label: 'Tasa BsD / USD',               hint: 'Bolívares por 1 USD, paralelo/Binance. Es la tasa a la que se cobra directo, sin recargo', cron: true },
+  bcv_usd_rate:           { label: 'Tasa BCV / USD',                hint: 'Bolívares OFICIALES por 1 USD (usdt.com.ve)', cron: true },
+  bcv_brecha_pct:         { label: 'Brecha BCV vs. paralelo (%)',   hint: 'Brecha del día entre el BCV y el mejor precio paralelo. El precio a tasa BCV la redondea hacia arriba en escalones de 5% antes de aplicarla', cron: true },
   shoppre_member:         { label: 'Membresía Shoppre',            hint: 'Tildado = tarifa de socio (el descuento que Shoppre aplica sobre el básico). Entra en el flete de todo lo que pasa por Shoppre: catálogo, presupuestos y envíos', boolean: true, booleanDefault: true },
   shoppre_carrier:        { label: 'Transportista Shoppre',        hint: 'Define la tabla escalón del tramo India → USA. Las opciones salen de la tarifa vigente' },
   reference_weight_kg:    { label: 'Peso de referencia (kg)',      hint: 'Peso total del envío de referencia para prorratear costos Shoppre' },
@@ -55,14 +61,14 @@ export default async function ConfigPage({
   const rows = await db.config.findMany({ orderBy: { key: 'asc' } })
 
   // Merge DB values with defaults so all known keys always appear
-  const configMap: Record<string, { value: string; description: string | null }> = {}
+  const configMap: Record<string, { value: string; description: string | null; updatedAt: Date | null }> = {}
   for (const row of rows) {
-    configMap[row.key] = { value: row.value, description: row.description }
+    configMap[row.key] = { value: row.value, description: row.description, updatedAt: row.updatedAt }
   }
 
   // Ensure all meta keys are present even if not yet in DB
   for (const key of DEFAULT_KEYS) {
-    if (!configMap[key]) configMap[key] = { value: '', description: null }
+    if (!configMap[key]) configMap[key] = { value: '', description: null, updatedAt: null }
   }
 
   // Keys que el usuario agregó a mano y no están en FIELD_META. `app_modo` quedó de
@@ -116,6 +122,13 @@ export default async function ConfigPage({
                     código no conoce, que son las únicas que no tienen ayuda acá. */}
                 {(meta?.hint || stored.description) && (
                   <p className="text-xs text-gray-500 mb-2">{meta?.hint ?? stored.description}</p>
+                )}
+                {meta?.cron && (
+                  <p className="text-xs text-gray-400 mb-2">
+                    {stored.updatedAt
+                      ? `Actualizado ${haceTiempo(stored.updatedAt)} — cron horario (pnpm fx:update)`
+                      : 'Todavía no lo actualizó el cron'}
+                  </p>
                 )}
                 {meta?.boolean ? (
                   <label className="flex items-center gap-2 text-sm text-gray-800">

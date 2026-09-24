@@ -268,6 +268,11 @@ export async function updatePresupuesto(id: number, formData: FormData) {
 // Aprueba un presupuesto (status -> 'pedido') registrando el adelanto: monto,
 // método de pago y fecha. Reutilizable para editar el adelanto de un pedido ya
 // confirmado (el status ya es 'pedido' y solo se actualizan los campos del adelanto).
+//
+// depositUsd es una CACHÉ de "total recibido hasta ahora" (ver Movimiento en el schema):
+// solo un AUMENTO del número es plata que entró de verdad, y por eso solo un aumento
+// crea un Movimiento — por el delta, no por el total. Una corrección hacia abajo (typo)
+// actualiza el número pero no anota un egreso: no salió plata, se corrigió un dato.
 export async function aprobarPedido(id: number, formData: FormData) {
   const rawDeposit = (formData.get('depositUsd') as string)?.trim()
   const depositUsd = rawDeposit ? parseFloat(rawDeposit) : null
@@ -275,19 +280,68 @@ export async function aprobarPedido(id: number, formData: FormData) {
   const rawDate = (formData.get('depositAt') as string)?.trim()
   // El input date da 'YYYY-MM-DD'; se ancla a mediodía para evitar corrimientos de zona horaria.
   const depositAt = rawDate ? new Date(`${rawDate}T12:00:00`) : new Date()
+  const nuevoDeposito = depositUsd != null && !Number.isNaN(depositUsd) ? depositUsd : null
 
-  await db.pedido.update({
+  const actual = await db.pedido.findUniqueOrThrow({
     where: { id },
-    data: {
-      status: 'pedido',
-      depositUsd: depositUsd != null && !Number.isNaN(depositUsd) ? depositUsd : null,
-      paymentMethod,
-      depositAt,
-    },
+    select: { status: true, depositUsd: true },
   })
+  const eraPresupuesto = actual.status === 'presupuesto'
+  const anterior = actual.depositUsd != null ? parseFloat(actual.depositUsd.toString()) : 0
+  const delta = (nuevoDeposito ?? 0) - anterior
+
+  await db.$transaction(async (tx) => {
+    await tx.pedido.update({
+      where: { id },
+      data: { status: 'pedido', depositUsd: nuevoDeposito, paymentMethod, depositAt },
+    })
+    if (delta > 0.01) {
+      await tx.movimiento.create({
+        data: {
+          fecha: depositAt,
+          tipo: 'ingreso',
+          categoria: eraPresupuesto ? 'adelanto_cliente' : 'pago_cliente',
+          monto: delta,
+          metodoPago: paymentMethod,
+          pedidoId: id,
+        },
+      })
+    }
+  })
+
   revalidatePath('/presupuestos')
   revalidatePath(`/presupuestos/${id}`)
+  revalidatePath('/contabilidad')
   // El adelanto y el pase a 'pedido' mueven los totales del cliente.
+  revalidateClientes()
+}
+
+// Anota un pago adicional (liquidación, cuota) sin tocar el status ni el método/fecha del
+// adelanto original. Mismo mecanismo que el delta de aprobarPedido: suma a la caché
+// depositUsd y deja un Movimiento por el monto exacto que entró.
+export async function registrarPagoPedido(pedidoId: number, formData: FormData) {
+  const monto = parseFloat((formData.get('monto') as string)?.trim() ?? '')
+  if (!Number.isFinite(monto) || monto <= 0) return
+  const metodoPago = (formData.get('metodoPago') as string)?.trim() || null
+  const descripcion = (formData.get('descripcion') as string)?.trim() || null
+  const rawDate = (formData.get('fecha') as string)?.trim()
+  const fecha = rawDate ? new Date(`${rawDate}T12:00:00`) : new Date()
+
+  await db.$transaction(async (tx) => {
+    const pedido = await tx.pedido.findUniqueOrThrow({
+      where: { id: pedidoId },
+      select: { depositUsd: true },
+    })
+    const anterior = pedido.depositUsd != null ? parseFloat(pedido.depositUsd.toString()) : 0
+    await tx.pedido.update({ where: { id: pedidoId }, data: { depositUsd: anterior + monto } })
+    await tx.movimiento.create({
+      data: { fecha, tipo: 'ingreso', categoria: 'pago_cliente', monto, metodoPago, descripcion, pedidoId },
+    })
+  })
+
+  revalidatePath('/presupuestos')
+  revalidatePath(`/presupuestos/${pedidoId}`)
+  revalidatePath('/contabilidad')
   revalidateClientes()
 }
 

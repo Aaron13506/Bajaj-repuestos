@@ -18,7 +18,7 @@ export interface LandedBreakdown {
   maritimeUsd: number
   landedCostUsd: number
   priceUsd: number | null
-  priceBsd: number | null
+  priceBcv: PrecioBcv | null
   // ── Solo modo CBM ──────────────────────────────────────────────────────────
   // Volumen de la pieza y qué fracción del embarque de referencia ocupa. Es el dato
   // que permite ver "cuánto llena" una pieza o un ensamble sin abrir un envío.
@@ -44,8 +44,59 @@ export interface ProductForCalc {
   margin: number | null
 }
 
-function applyMargin(landedCostUsd: number, margin: number | null, cfg: ConfigMap): { priceUsd: number | null; priceBsd: number | null } {
-  const bsdUsd = num(cfg, 'bsd_usd_rate', 715)
+export interface PrecioBcv {
+  // El precio que se COTIZA, en USD: priceUsd ya inflado por la brecha. Es el número que se
+  // le dice al cliente — el negocio cobra a tasa BCV, pero cotiza en dólares, así que este
+  // es el dato que importa, no el monto en Bs (que es solo ese mismo número por la tasa
+  // oficial, informativo para quien vaya a convertir).
+  priceUsdBcv: number
+  priceBcvBs: number
+  bcvUsdRate: number
+  brechaPct: number
+  brechaEscalonPct: number
+}
+
+// Redondea la brecha hacia ARRIBA al escalón de 5% más cercano — pero cada escalón arranca
+// medio punto ANTES de su múltiplo: no hace falta que la brecha LLEGUE a 15 para pagar el
+// escalón de 15, alcanza con pasar de 9.5, y en el límite exacto (14.5, 19.5, ...) ya
+// corresponde el escalón de ARRIBA. Por eso no alcanza con `Math.ceil` (que a un valor que
+// cae justo sobre el múltiplo lo deja ahí): a 14.5 hay que subirla igual a 20, así que se
+// resuelve con floor()+1, que siempre sube un escalón entero.
+//
+// Cobrar en escalones (en vez de la brecha exacta) evita repreciar cada vez que se mueve un
+// punto — se mueve seguido —, y redondear hacia arriba deja el margen de error del lado del
+// vendedor y no del comprador.
+function brechaEscalon(brechaPct: number): number {
+  const EPS = 1e-9 // por si (brecha + 0.5) da p.ej. 2.9999999998 en vez de 3 exacto
+  const step = Math.floor((Math.max(brechaPct, 0) + 0.5) / 5 + EPS) + 1
+  return step * 5
+}
+
+// Precio de venta a tasa BCV: el mismo priceUsd convertido a Bs a la tasa OFICIAL en vez
+// de la paralela, pero inflado por la brecha (en escalones de 5%) para que siga valiendo
+// lo mismo en dólares reales. Sin este ajuste, cobrar al BCV regalaría exactamente la
+// diferencia entre las dos tasas. Pagar en divisa o Binance sigue siendo priceUsd tal
+// cual — la brecha solo entra cuando el cobro pasa por la tasa oficial.
+export function calcPrecioBcv(priceUsd: number | null, cfg: ConfigMap): PrecioBcv | null {
+  if (priceUsd == null) return null
+  const bcvUsdRate = num(cfg, 'bcv_usd_rate', 0)
+  const brechaPct = num(cfg, 'bcv_brecha_pct', 0)
+  if (bcvUsdRate <= 0) return null
+  const brechaEscalonPct = brechaEscalon(brechaPct)
+  // Una brecha ≥100% haría que el ajuste divida por cero o negativo — no pasa con datos
+  // reales, pero un dato roto en Config no debe convertirse en un precio absurdo.
+  if (brechaEscalonPct >= 100) return null
+  const priceUsdBcv = priceUsd / (1 - brechaEscalonPct / 100)
+  return {
+    priceUsdBcv,
+    priceBcvBs: priceUsdBcv * bcvUsdRate,
+    bcvUsdRate,
+    brechaPct,
+    brechaEscalonPct,
+  }
+}
+
+function applyMargin(landedCostUsd: number, margin: number | null, cfg: ConfigMap): { priceUsd: number | null; priceBcv: PrecioBcv | null } {
   // Margen efectivo: el de la pieza si lo tiene, si no el global de Config.
   //
   // Leía `cfg.default_margin`, key que no existe en ningún lado: la app entera —el seed,
@@ -56,9 +107,9 @@ function applyMargin(landedCostUsd: number, margin: number | null, cfg: ConfigMa
   // que hace margenPorDefecto().
   const effectiveMargin = margin ?? margenPorDefecto(cfg)
 
-  if (effectiveMargin == null || effectiveMargin >= 1) return { priceUsd: null, priceBsd: null }
+  if (effectiveMargin == null || effectiveMargin >= 1) return { priceUsd: null, priceBcv: null }
   const priceUsd = landedCostUsd / (1 - effectiveMargin)
-  return { priceUsd, priceBsd: priceUsd * bsdUsd }
+  return { priceUsd, priceBcv: calcPrecioBcv(priceUsd, cfg) }
 }
 
 export function calcLanded(
@@ -74,7 +125,7 @@ export function calcLanded(
   // No depende del modo: esa pieza nunca viaja en nuestra caja, venga por aire o por mar.
   if (product.priceIsLanded && product.priceUsd != null) {
     const landedCostUsd = product.priceUsd
-    const { priceUsd, priceBsd } = applyMargin(landedCostUsd, product.margin, cfg)
+    const { priceUsd, priceBcv } = applyMargin(landedCostUsd, product.margin, cfg)
     return {
       modo,
       productCostUsd: landedCostUsd,
@@ -83,7 +134,7 @@ export function calcLanded(
       maritimeUsd: 0,
       landedCostUsd,
       priceUsd,
-      priceBsd,
+      priceBcv,
       volumeM3: null,
       cbmFillPct: null,
     }
@@ -114,7 +165,7 @@ export function calcLanded(
 
     // La tarifa plana ya incluye seguro, origen, destino y aduana: no se suma nada encima.
     const landedCostUsd = productCostUsd + maritimeUsd
-    const { priceUsd, priceBsd } = applyMargin(landedCostUsd, product.margin, cfg)
+    const { priceUsd, priceBcv } = applyMargin(landedCostUsd, product.margin, cfg)
 
     return {
       modo,
@@ -124,7 +175,7 @@ export function calcLanded(
       maritimeUsd,
       landedCostUsd,
       priceUsd,
-      priceBsd,
+      priceBcv,
       volumeM3,
       cbmFillPct: volumeM3 / p.refM3,
     }
@@ -161,7 +212,7 @@ export function calcLanded(
   // en aéreo, y el mínimo facturable (maritimo_min_ft3) más los gastos de origen/destino
   // (maritimo_fee_usd) en marítimo. Todos se aplican una sola vez, en calcEnvio.
   const landedCostUsd = productCostUsd + shoppreShippingUsd + insuranceUsd + maritimeUsd
-  const { priceUsd, priceBsd } = applyMargin(landedCostUsd, product.margin, cfg)
+  const { priceUsd, priceBcv } = applyMargin(landedCostUsd, product.margin, cfg)
 
   return {
     modo,
@@ -171,7 +222,7 @@ export function calcLanded(
     maritimeUsd,
     landedCostUsd,
     priceUsd,
-    priceBsd,
+    priceBcv,
     // El volumen se informa siempre que haya dimensiones (sirve para comparar contra el
     // escenario CBM), pero el % de llenado solo tiene sentido cuando el m³ es la unidad
     // que se factura.

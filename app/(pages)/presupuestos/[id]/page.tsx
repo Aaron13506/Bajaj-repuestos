@@ -4,13 +4,14 @@ import { notFound } from 'next/navigation'
 import DeleteButton from '@/components/DeleteButton'
 import PresupuestoPdfButton from '@/components/PresupuestoPdfButton'
 import AprobarPedidoForm from '@/components/AprobarPedidoForm'
+import RegistrarPagoClienteForm from '@/components/RegistrarPagoClienteForm'
 import MedidasIA, { type GrupoMedidas, type PiezaMedible } from '@/components/MedidasIA'
-import { deletePresupuesto, aprobarPedido } from '../actions'
+import { deletePresupuesto, aprobarPedido, registrarPagoPedido } from '../actions'
 import { type BundlePiece, groupBundlePieces } from '@/lib/bundle'
 import { lookupDeConjuntos } from '@/lib/envio-build'
 import type { ConfigMap } from '@/lib/calc'
 import { getTerminos } from '@/lib/terminos'
-import { METODOS_PAGO } from '@/lib/pagos'
+import { METODOS_PAGO_INGRESO } from '@/lib/pagos'
 import { compararNombre, toFileName } from '@/lib/utils'
 import type { PresupuestoPdfData } from '@/lib/pdf/presupuesto-pdf'
 import { stageSummary, shippingStatusMeta, SHIPPING_STATUSES } from '@/lib/shipping-status'
@@ -219,7 +220,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
               <div className="relative">
                 <AprobarPedidoForm
                   action={aprobarPedido.bind(null, id)}
-                  methods={METODOS_PAGO}
+                  methods={METODOS_PAGO_INGRESO}
                   suggestedDeposit={deposit}
                 />
               </div>
@@ -232,11 +233,15 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
             </>
           )}
           {!isPropio && !isPresupuesto && (
-            <div className="relative">
+            <div className="relative flex items-center gap-2">
+              <RegistrarPagoClienteForm
+                action={registrarPagoPedido.bind(null, id)}
+                methods={METODOS_PAGO_INGRESO}
+              />
               <AprobarPedidoForm
                 mode="editar"
                 action={aprobarPedido.bind(null, id)}
-                methods={METODOS_PAGO}
+                methods={METODOS_PAGO_INGRESO}
                 suggestedDeposit={deposit}
                 initialDeposit={depositUsd}
                 initialMethod={presupuesto.paymentMethod}

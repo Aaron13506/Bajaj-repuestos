@@ -43,6 +43,6 @@ export function costHeaders(variant: CostHeaderVariant = 'list'): CostColumn[] {
     // ── Resultado comercial ──
     { label: 'Margen',       className: `${gris} border-l border-gray-100` },
     { label: 'Precio USD',   className: gris },
-    { label: 'Precio BsD',   className: gris },
+    { label: 'Precio BCV',   title: 'Precio a COTIZAR en USD cuando se cobra a tasa oficial: el mismo precio de venta + la brecha (redondeada al escalón de 5% arriba), para que el BCV valga lo mismo en dólares reales', className: gris },
   ]
 }

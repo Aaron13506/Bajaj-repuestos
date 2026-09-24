@@ -209,7 +209,8 @@ export async function saveMedidasCaja(envioId: number, formData: FormData) {
       cajaL: num('cajaL'),
       cajaA: num('cajaA'),
       cajaH: num('cajaH'),
-      shippingCostReal: num('shippingCostReal'),
+      shippingCostRealAereo: num('shippingCostRealAereo'),
+      shippingCostRealMaritimo: num('shippingCostRealMaritimo'),
     },
   })
   revalidatePath('/envios')
@@ -253,6 +254,31 @@ export async function saveCostosProveedor(envioId: number, formData: FormData) {
   })
   revalidatePath('/envios')
   revalidatePath(`/envios/${envioId}`)
+}
+
+// Anota un egreso real (plata que salió de la cuenta) contra esta caja: pago de
+// mercancía, comisión de giro, flete. Es aditivo — no toca tramoUsd/comisionSalienteUsd/
+// comisionEntranteUsd (esos son lo FACTURADO, se siguen cargando aparte con
+// saveCostosProveedor). "Pagado"/"pendiente" de este envío se calculan en vivo sumando
+// estos movimientos (ver lib/movimientos.ts: cuentasPorPagar).
+export async function registrarPagoProveedor(envioId: number, formData: FormData) {
+  const monto = parseFloat((formData.get('monto') as string)?.trim() ?? '')
+  if (!Number.isFinite(monto) || monto <= 0) return
+  const categoria = (formData.get('categoria') as string)?.trim() || 'pago_proveedor'
+  const metodoPago = (formData.get('metodoPago') as string)?.trim() || null
+  const descripcion = (formData.get('descripcion') as string)?.trim() || null
+  const rawDate = (formData.get('fecha') as string)?.trim()
+  const fecha = rawDate ? new Date(`${rawDate}T12:00:00`) : new Date()
+
+  const envio = await db.envio.findUniqueOrThrow({ where: { id: envioId }, select: { supplierId: true } })
+
+  await db.movimiento.create({
+    data: { fecha, tipo: 'egreso', categoria, monto, metodoPago, descripcion, envioId, supplierId: envio.supplierId },
+  })
+
+  revalidatePath('/envios')
+  revalidatePath(`/envios/${envioId}`)
+  revalidatePath('/contabilidad')
 }
 
 export interface CambioItem {

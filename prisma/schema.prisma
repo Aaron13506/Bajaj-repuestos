@@ -97,9 +97,14 @@ model Cliente {
 }
 
 model Config {
-  key         String  @id
+  key         String   @id
   value       String
   description String?
+  // Cuándo se escribió por última vez este valor — cron o mano en /config, cualquiera de
+  // los dos. Existe para que una tasa que el cron dejó de actualizar (Heroku Scheduler
+  // caído, la API de origen abajo) se note en la UI en vez de venir un precio viejo
+  // haciéndose pasar por el del día.
+  updatedAt   DateTime @default(now()) @updatedAt
 }
 
 // Proveedor alternativo a 99rpm (fuente por defecto). Cada uno puede tener su propio
@@ -135,6 +140,7 @@ model Supplier {
   createdAt   DateTime        @default(now())
   prices      SupplierPrice[]
   pedidoItems PedidoItem[]
+  movimientos Movimiento[]
   envios      Envio[]
 }
 
@@ -207,7 +213,14 @@ model Envio {
   // la ruta, y el FOB en el marítimo.
   supplierId       Int?
   shippingCostEst  Decimal?     @db.Decimal(10, 2)
-  shippingCostReal Decimal?     @db.Decimal(10, 2)
+  // El flete real llega en DOS facturas de DOS transportistas distintos: quien cobra el
+  // tramo India→USA (Shoppre/ShipGlobal, o lo cotizado) no es quien cobra el tramo
+  // USA→Venezuela por mar. Antes de este split había una sola columna, y mezclar los dos
+  // montos hacía imposible saber cuál de los dos tramos explicaba una diferencia contra lo
+  // calculado — el mensaje de "revisá la tasa, el transportista o el tramo marítimo" tenía
+  // que nombrar los tres sospechosos porque no sabía cuál era.
+  shippingCostRealAereo    Decimal? @db.Decimal(10, 2)
+  shippingCostRealMaritimo Decimal? @db.Decimal(10, 2)
   // ── Los dos montos que nadie puede derivar ───────────────────────────────────────
   // El total que facturó el proveedor por llevar esta caja hasta USA, impuestos incluidos
   // (DDP). Solo tiene sentido cuando despacha él (Supplier.inbound = 'cotizado'): ahí no
@@ -260,6 +273,7 @@ model Envio {
   items            PedidoItem[]
   // Carga PROPIA: mercancía que traigo para stock. Es el carril marítimo.
   lineas           EnvioLinea[]
+  movimientos      Movimiento[]
   supplier         Supplier?    @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
@@ -300,7 +314,11 @@ model Pedido {
   // 'propio'  = stock que traigo para revender por mi cuenta (sin cliente ni adelanto).
   tipo          String       @default("cliente")
   status        String       @default("presupuesto")
-  // Adelanto: se llenan al aprobar un presupuesto de cliente (ver aprobarPedido).
+  // Adelanto: se llenan al aprobar un presupuesto de cliente (ver aprobarPedido). Desde el
+  // libro de movimientos, depositUsd es una CACHÉ de "total recibido hasta ahora" — la
+  // mantiene aprobarPedido/registrarPagoPedido creando un Movimiento por cada aumento (el
+  // delta), nunca sobreescribiendo a ciegas. Así todo lo que ya lee depositUsd (clienteTotales,
+  // cobranzaEnvio) sigue funcionando sin cambios, y el libro queda como la fuente de verdad.
   depositUsd    Decimal?     @db.Decimal(10, 2)
   paymentMethod String?
   depositAt     DateTime?
@@ -312,6 +330,7 @@ model Pedido {
   clienteId     Int?
   cliente       Cliente?     @relation(fields: [clienteId], references: [id], onDelete: SetNull)
   items         PedidoItem[]
+  movimientos   Movimiento[]
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 }
@@ -361,6 +380,41 @@ model PedidoItem {
   @@unique([pedidoId, productId])
   @@index([envioId])
   @@index([shippingStatus])
+}
+
+// Libro de movimientos: la fuente única de "cuánta plata tengo". Registra ingresos y
+// egresos reales de la empresa, en USD — no estimaciones ni montos facturados (esos ya
+// viven en Envio/PedidoItem/SupplierPrice). `categoria` fija `tipo` (ver
+// lib/movimientos.ts: tipoDeCategoria) así que no hay forma de anotar un ingreso con
+// categoría de egreso o viceversa.
+//
+// Los tres links son opcionales y ninguno excluye a los otros: un pago a un proveedor
+// puede ir atado a la caja (envioId) y al proveedor (supplierId) a la vez; un gasto
+// operativo (alquiler, etc.) no va atado a nada.
+//
+// `Pedido.depositUsd` sigue siendo lo que leen las pantallas de cobranza — este modelo lo
+// alimenta (ver aprobarPedido/registrarPagoPedido) en vez de reemplazarlo, para no tener
+// que reescribir cobranzaEnvio/clienteTotales.
+model Movimiento {
+  id          Int      @id @default(autoincrement())
+  fecha       DateTime
+  tipo        String
+  categoria   String
+  monto       Decimal  @db.Decimal(10, 2)
+  metodoPago  String?
+  descripcion String?
+  pedidoId    Int?
+  envioId     Int?
+  supplierId  Int?
+  createdAt   DateTime @default(now())
+
+  pedido   Pedido?   @relation(fields: [pedidoId], references: [id], onDelete: SetNull)
+  envio    Envio?    @relation(fields: [envioId], references: [id], onDelete: SetNull)
+  supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+
+  @@index([fecha])
+  @@index([pedidoId])
+  @@index([envioId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

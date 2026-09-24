@@ -61,3 +61,17 @@ function decimalesANumero(value: unknown): unknown {
 export function toJSON<T>(data: T): T {
   return decimalesANumero(data) as T
 }
+
+// "hace 12 min" / "hace 3 h" / "hace 2 d" — para saber si una tasa que actualiza un cron
+// (BCV, BsD, INR) es la del día o quedó vieja porque el cron se cayó. Redondea hacia abajo:
+// "hace 0 min" avisa que acaba de correr, no hace falta un caso especial para eso.
+export function haceTiempo(d: Date): string {
+  const segundos = Math.max(0, (Date.now() - d.getTime()) / 1000)
+  if (segundos < 60) return 'hace instantes'
+  const minutos = Math.floor(segundos / 60)
+  if (minutos < 60) return `hace ${minutos} min`
+  const horas = Math.floor(minutos / 60)
+  if (horas < 24) return `hace ${horas} h`
+  const dias = Math.floor(horas / 24)
+  return `hace ${dias} d`
+}

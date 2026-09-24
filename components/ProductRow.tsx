@@ -99,8 +99,8 @@ export function CostCells({ d, cfg, quantity }: { d: QuickEditValues; cfg: Confi
           <span className="block text-[11px] font-normal text-gray-400">total: {fmt(saleUsd * quantity!)}</span>
         )}
       </td>
-      <td className="px-4 py-3 text-right text-gray-700">
-        {b?.priceBsd != null ? `Bs.${b.priceBsd.toLocaleString('es-VE', { maximumFractionDigits: 0 })}` : '—'}
+      <td className="px-4 py-3 text-right font-medium text-gray-900">
+        {b?.priceBcv != null ? fmt(b.priceBcv.priceUsdBcv) : '—'}
       </td>
     </>
   )
@@ -134,11 +134,6 @@ export function CostCells({ d, cfg, quantity }: { d: QuickEditValues; cfg: Confi
         {m?.priceUsd != null ? (
           <>
             {fmt(m.priceUsd)}
-            {m.priceBsd != null && (
-              <span className="block text-[11px] font-normal text-sky-600">
-                Bs.{m.priceBsd.toLocaleString('es-VE', { maximumFractionDigits: 0 })}
-              </span>
-            )}
             {multi && (
               <span className="block text-[11px] font-normal text-sky-400">total: {fmt(m.priceUsd * quantity!)}</span>
             )}

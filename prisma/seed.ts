@@ -15,7 +15,9 @@ const prisma = new PrismaClient()
 
 const configs = [
   { key: 'inr_usd_rate',           value: '95',    description: 'Rupias indias por 1 USD — actualizar según XE.com' },
-  { key: 'bsd_usd_rate',           value: '715',   description: 'BsD por 1 USD — BCV o paralelo' },
+  { key: 'bsd_usd_rate',           value: '715',   description: 'BsD por 1 USD — paralelo/Binance P2P, la tasa a la que se cobra directo' },
+  { key: 'bcv_usd_rate',           value: '853.50', description: 'Bs oficiales BCV por 1 USD — actualizado automáticamente cada hora (usdt.com.ve)' },
+  { key: 'bcv_brecha_pct',         value: '13',    description: 'Brecha % del mejor precio paralelo sobre la tasa BCV — actualizado automáticamente cada hora (usdt.com.ve)' },
   { key: 'shoppre_member',         value: 'true',  description: 'Membresía Shoppre: aplica la tarifa de socio sobre el básico. Se edita con el check de /config' },
   { key: 'reference_weight_kg',    value: '15',    description: 'Peso de referencia en kg para prorratear envío en el catálogo' },
   { key: 'air_volumetric_divisor', value: '5000',  description: 'Divisor para peso volumétrico aéreo: vol_kg = L×A×H(cm) / divisor (Shoppre/ShipGlobal suele ser 5000)' },

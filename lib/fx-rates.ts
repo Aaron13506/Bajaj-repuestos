@@ -1,6 +1,8 @@
 export interface FxRates {
   inrUsd: number
   bsdUsd: number
+  bcvUsd: number
+  brechaPct: number
 }
 
 // `fetch` no tiene timeout propio: si el otro lado acepta la conexión y después se queda
@@ -49,7 +51,28 @@ async function fetchBsdUsd(): Promise<number> {
   return (avg.sellAverage! + avg.buyAverage!) / 2
 }
 
+// Tasa oficial BCV y brecha contra el mejor precio paralelo — usdt.com.ve, API pública,
+// sin autenticación. La brecha es lo que permite cobrar a la tasa oficial sin regalar la
+// diferencia (ver calcPrecioBcv en lib/calc.ts): la tasa BCV sola convierte a un monto en
+// Bs que vale menos dólares reales que el precio de lista.
+async function fetchBcvGap(): Promise<{ bcvUsd: number; brechaPct: number }> {
+  const res = await fetch('https://www.usdt.com.ve/api/v1/rates/current', {
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  })
+  if (!res.ok) throw new Error(`usdt.com.ve respondió ${res.status}`)
+  const json = (await res.json()) as {
+    success?: boolean
+    data?: { bcv?: { rate?: number }; brecha_pct?: number }
+  }
+  const bcvUsd = json.data?.bcv?.rate
+  const brechaPct = json.data?.brecha_pct
+  if (!json.success || !bcvUsd || !Number.isFinite(bcvUsd) || !Number.isFinite(brechaPct)) {
+    throw new Error('usdt.com.ve no devolvió tasa BCV / brecha válidas')
+  }
+  return { bcvUsd, brechaPct: brechaPct! }
+}
+
 export async function fetchFxRates(): Promise<FxRates> {
-  const [inrUsd, bsdUsd] = await Promise.all([fetchInrUsd(), fetchBsdUsd()])
-  return { inrUsd, bsdUsd }
+  const [inrUsd, bsdUsd, bcv] = await Promise.all([fetchInrUsd(), fetchBsdUsd(), fetchBcvGap()])
+  return { inrUsd, bsdUsd, bcvUsd: bcv.bcvUsd, brechaPct: bcv.brechaPct }
 }

@@ -304,10 +304,12 @@ export default async function ProductDetailPage({
               <span>Precio venta (USD)</span>
               <span>${(breakdown.priceUsd ?? parseFloat(product.price.toString())).toFixed(2)}</span>
             </div>
-            {breakdown.priceBsd != null && (
+            {breakdown.priceBcv != null && (
               <div className="flex justify-between py-1.5 text-gray-700 font-semibold">
-                <span>Precio venta (BsD)</span>
-                <span>Bs.{breakdown.priceBsd.toLocaleString('es-VE', { maximumFractionDigits: 0 })}</span>
+                <span title="Precio a COTIZAR en USD cuando se cobra a tasa oficial: precio de venta + la brecha del día, redondeada al escalón de 5% arriba">
+                  Precio a cotizar (BCV)
+                </span>
+                <span>${breakdown.priceBcv.priceUsdBcv.toFixed(2)}</span>
               </div>
             )}
           </div>
