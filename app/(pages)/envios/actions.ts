@@ -1,9 +1,10 @@
 'use server'
 
 import { db } from '@/lib/db'
+import type { Prisma } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { isValidStatus, normalizeToRoute, routeFor } from '@/lib/shipping-status'
+import { isDelivered, isValidStatus, normalizeToRoute, routeFor } from '@/lib/shipping-status'
 import { inboundDe } from '@/lib/inbound'
 import { isModoApp } from '@/lib/modo'
 
@@ -304,12 +305,16 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]) {
 
   const items = await db.pedidoItem.findMany({
     where: { envioId, id: { in: cambios.map(c => c.id) } },
-    select: { id: true, shippingStatus: true, origen: true, inbound: true, isLanded: true },
+    select: {
+      id: true, shippingStatus: true, origen: true, inbound: true, isLanded: true,
+      productId: true, quantity: true, pedido: { select: { tipo: true } },
+    },
   })
   if (items.length === 0) return
 
   const pedido = new Map(cambios.map(c => [c.id, c]))
   const now = new Date()
+  let tocaStock = false
 
   const updates = items.flatMap(it => {
     const c = pedido.get(it.id)
@@ -320,7 +325,7 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]) {
     const status = normalizeToRoute(destino, ruta)
     if (status === it.shippingStatus) return []
 
-    return [
+    const ops: Prisma.PrismaPromise<unknown>[] = [
       db.pedidoItem.update({
         where: { id: it.id },
         data: {
@@ -333,15 +338,43 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]) {
         },
       }),
     ]
+
+    // Stock propio: lo comercial (tipo='cliente') se entrega a un cliente, nunca pasa a
+    // ser stock. El delta sigue la TRANSICIÓN de "entregado" (no un flag aparte guardado en
+    // otro lado), así que ida y vuelta del estado nunca duplica ni pierde el crédito: si el
+    // ítem ya estaba entregado antes de este cambio, ya se sumó, y si deja de estarlo hay
+    // que restarlo.
+    if (it.pedido.tipo === 'propio') {
+      const eraEntregado = isDelivered(it.shippingStatus)
+      const quedaEntregado = isDelivered(status)
+      if (eraEntregado !== quedaEntregado) {
+        const delta = quedaEntregado ? it.quantity : -it.quantity
+        ops.push(db.product.update({ where: { id: it.productId }, data: { stock: { increment: delta } } }))
+        tocaStock = true
+      }
+    }
+
+    return ops
   })
 
   if (updates.length) await db.$transaction(updates)
   revalidatePath(`/envios/${envioId}`)
   revalidatePath('/envios')
   revalidatePath('/presupuestos')
+  if (tocaStock) {
+    revalidatePath('/contabilidad')
+    revalidatePath('/products')
+    revalidatePath('/')
+  }
 }
 
 export async function deleteEnvio(id: number) {
+  // Una caja 'entregado' ya sumó su contenido a Product.stock: borrarla sin deshacer esa
+  // recepción (ver deshacerRecepcion) dejaría el stock arriba sin ningún registro que lo
+  // explique. El botón ya se esconde en esa vista; esto es el mismo corte del lado server.
+  const envio = await db.envio.findUnique({ where: { id }, select: { estado: true } })
+  if (envio?.estado === 'entregado') return
+
   // Los ítems quedan liberados (envioId -> null) por onDelete: SetNull.
   await db.envio.delete({ where: { id } })
   revalidatePath('/envios')

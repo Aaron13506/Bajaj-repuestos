@@ -17,7 +17,7 @@ import { alternosDe } from '@/lib/alt-sku'
 import { sortModels } from '@/lib/catalog'
 import { modelosDistintos, parseModelos } from '@/lib/modelos'
 import { deleteEnvio, saveCostosProveedor } from '../actions'
-import { cerrarEmbarque, reabrirEmbarque } from '../linea-actions'
+import { cerrarEmbarque, reabrirEmbarque, recibirEmbarque, deshacerRecepcion } from '../linea-actions'
 import { toConfigMap } from '@/lib/config'
 
 const usd = (n: number) => `$${n.toFixed(2)}`
@@ -78,6 +78,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
   const p = cbmParams(cfg, fobProveedor)
   const priceMap = await getSupplierPriceMap(envio.supplier?.id ?? null)
   const esBorrador = envio.estado === 'borrador'
+  const esEntregado = envio.estado === 'entregado'
   const nombreEmbarque = envio.nombre ?? `Embarque #${envio.id}`
 
   // Solo headers de ensamble, y solo mientras se arma: sus piezas se cargan on-demand al
@@ -287,9 +288,13 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
               🚢 Marítimo CBM
             </span>
             <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-              esBorrador ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-700'
+              esBorrador
+                ? 'bg-amber-100 text-amber-800'
+                : esEntregado
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : 'bg-green-100 text-green-700'
             }`}>
-              {esBorrador ? 'Borrador' : 'Cerrado'}
+              {esBorrador ? 'Borrador' : esEntregado ? '✅ Recibido' : 'Cerrado'}
             </span>
             <SelectorProveedorEmbarque
               envioId={envio.id}
@@ -304,7 +309,11 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
             />
           </div>
           <p className="text-sm text-gray-500 mt-1">
-            {envio.notas ?? 'Mercancía propia que viaja por barco. Sin clientes: cuando llega, entra a stock.'}
+            {envio.notas ?? (
+              esEntregado
+                ? `Recibida${envio.entregadoAt ? ` el ${envio.entregadoAt.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' })}` : ''} — ${lineas.length} pieza${lineas.length === 1 ? '' : 's'} ya sumada${lineas.length === 1 ? '' : 's'} a stock.`
+                : 'Mercancía propia que viaja por barco. Sin clientes: cuando llega, entra a stock.'
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -318,17 +327,41 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
                 Cerrar embarque
               </button>
             </form>
-          ) : (
-            <form action={reabrirEmbarque.bind(null, envio.id)}>
-              <button type="submit" className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-                Reabrir
+          ) : esEntregado ? (
+            <form action={deshacerRecepcion.bind(null, envio.id)}>
+              <button
+                type="submit"
+                title="Resta de stock lo que se sumó al marcar recibido y vuelve la caja a 'Cerrado'"
+                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Deshacer recepción
               </button>
             </form>
+          ) : (
+            <>
+              <form action={recibirEmbarque.bind(null, envio.id)}>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-medium"
+                >
+                  Marcar recibido
+                </button>
+              </form>
+              <form action={reabrirEmbarque.bind(null, envio.id)}>
+                <button type="submit" className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+                  Reabrir
+                </button>
+              </form>
+            </>
           )}
-          <DeleteButton
-            action={deleteEnvio.bind(null, envio.id)}
-            confirmMessage={`¿Eliminar el embarque "${envio.nombre ?? `#${envio.id}`}"?`}
-          />
+          {/* Una caja 'entregado' ya sumó su contenido a stock: borrarla dejaría ese stock
+              sin ningún registro que lo explique. Hay que deshacer la recepción primero. */}
+          {!esEntregado && (
+            <DeleteButton
+              action={deleteEnvio.bind(null, envio.id)}
+              confirmMessage={`¿Eliminar el embarque "${envio.nombre ?? `#${envio.id}`}"?`}
+            />
+          )}
         </div>
       </div>
 

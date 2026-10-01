@@ -465,9 +465,18 @@ export interface EnvioBreakdown {
   caja: CajaFacturable
   binding: 'weight' | 'volume'
   ratioVW: number | null
-  airUsd: number          // total a USA por los dos orígenes
+  airUsd: number          // total a USA por los dos orígenes — el facturado si ya se cargó
+  // El estimado de tabla del tramo Shoppre→USA, SIN pisar por el facturado (Envio.
+  // shippingCostRealAereo). El tramo cotizado ya es real por sí solo y no tiene estimado
+  // que reconciliar, así que acá siempre vale lo mismo que en airUsd. Existe para que el
+  // panel de "facturado vs. calculado" pueda seguir comparando aunque el landed ya use el
+  // número real.
+  airCalculadoUsd: number
   airPerKgUsd: number
-  maritimeUsd: number
+  maritimeUsd: number     // el facturado si ya se cargó (Envio.shippingCostRealMaritimo)
+  // El estimado de tarifa por ft³/m³, SIN pisar por el facturado — mismo propósito que
+  // airCalculadoUsd.
+  maritimeCalculadoUsd: number
   // Volumen del flete marítimo. `billableFt3` es lo que efectivamente se factura: en
   // marítimo puede ser mayor que el real si la naviera cobra un mínimo por embarque.
   volumeFt3: number
@@ -529,6 +538,22 @@ export interface EnvioOptions {
   modo?: ModoEnvio
   // La caja como la pesó y midió el transportista. Ver `cajaFacturable`.
   medidas?: MedidasCaja | null
+  // El flete que en verdad facturó cada transportista, si ya se cargó (Envio.
+  // shippingCostRealAereo / shippingCostRealMaritimo). Reemplaza al estimado de tabla en el
+  // landed y en el reparto por pieza — mismo principio que `medidas`: manda el dato real, no
+  // se combina con la cuenta. Solo tiene efecto en modo 'aereo' — los modos marítimos ya
+  // cotizan el tramo completo como tal, sin una segunda factura que reconciliar.
+  // null/ausente = seguir usando el estimado.
+  fleteFacturado?: FleteFacturado | null
+}
+
+export interface FleteFacturado {
+  // Lo que facturó Shoppre/ShipGlobal por el tramo Shoppre→USA. El tramo cotizado
+  // (Envio.tramoUsd) ya es real por sí solo — no hay tabla que consultarle, así que no hay
+  // nada que pisarle acá.
+  aereoUsd?: number | null
+  // Lo que facturó el transportista por el tramo Miami→Caracas.
+  maritimoUsd?: number | null
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -606,6 +631,28 @@ function repartirTramo(
     cajasKg: cajas.pesosKg,
     capKg: cajas.capKg,
   }
+}
+
+// Si ya se cargó el flete que en verdad facturó el transportista (Envio.shippingCostRealAereo
+// / shippingCostRealMaritimo), ese número reemplaza al estimado de tabla — tanto en el total
+// como en el reparto por pieza, en la misma proporción que ya traía el estimado. Mismo
+// principio que `medidas` con el peso: manda el dato real, no se promedia con la cuenta.
+//
+// `lines.length === 0` se ignora a propósito: una caja 100% Garuda no tiene líneas Shoppre a
+// las que repartirle un "flete aéreo facturado" cargado por error — sin nadie a quien
+// imputárselo, el número se descarta en vez de inventarle un costo a la caja entera.
+function aplicarFacturado(
+  lines: EnvioItemLine[],
+  campo: 'airUsd' | 'maritimeUsd',
+  calculadoUsd: number,
+  facturadoUsd: number | null,
+): number {
+  if (facturadoUsd == null || lines.length === 0) return calculadoUsd
+  const factor = calculadoUsd > 0 ? facturadoUsd / calculadoUsd : null
+  for (const l of lines) {
+    l[campo] = factor != null ? l[campo] * factor : facturadoUsd / lines.length
+  }
+  return facturadoUsd
 }
 
 export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOptions = {}): EnvioBreakdown {
@@ -743,6 +790,13 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   const V = netVolKg * escala.volumen
   const chargeableKg = Math.max(W, V)
   const binding: 'weight' | 'volume' = W >= V ? 'weight' : 'volume'
+
+  // Lo que Shoppre/ShipGlobal facturó de verdad, si ya se cargó, pisa al estimado de tabla —
+  // el tramo cotizado (arriba) ya es real por sí solo y no se toca acá.
+  const airCalculadoUsd = airLeg.costUsd
+  const airFacturadoUsd = modo === 'aereo' ? (opts.fleteFacturado?.aereoUsd ?? null) : null
+  airLeg.costUsd = aplicarFacturado(shoppreLines, 'airUsd', airCalculadoUsd, airFacturadoUsd)
+  airLeg.costPerKgUsd = airLeg.chargeableKg > 0 ? airLeg.costUsd / airLeg.chargeableKg : 0
   const airUsd = airLeg.costUsd + cotizadoUsd
 
   const landedDirectUsd = lines.filter(l => l.isLanded).reduce((s, l) => s + l.productCostUsd, 0)
@@ -768,7 +822,7 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
 
   // En CBM el flete es la tarifa plana sobre el volumen facturable; el FOB va aparte
   // (es fijo por embarque y se suma como cargo del envío, más abajo).
-  const maritimeUsd = esCbm ? billableM3 * cbm.ratePerM3 : billableFt3 * maritimePft3
+  const maritimeCalculadoUsd = esCbm ? billableM3 * cbm.ratePerM3 : billableFt3 * maritimePft3
 
   // Reparto: por volumen si hay dimensiones; si no hay ninguna cargada (pero igual se paga
   // el mínimo) se cae al costo de producto para no dejar el flete sin imputar a nadie.
@@ -778,10 +832,16 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   const costDenom = enBarco.reduce((s, l) => s + l.productCostUsd, 0)
   for (const l of enBarco) {
     const vol = esCbm ? l.volumeM3 : l.ft3
-    if (volDenom > 0)       l.maritimeUsd = maritimeUsd * (vol / volDenom)
-    else if (costDenom > 0) l.maritimeUsd = maritimeUsd * (l.productCostUsd / costDenom)
-    else                    l.maritimeUsd = enBarco.length ? maritimeUsd / enBarco.length : 0
+    if (volDenom > 0)       l.maritimeUsd = maritimeCalculadoUsd * (vol / volDenom)
+    else if (costDenom > 0) l.maritimeUsd = maritimeCalculadoUsd * (l.productCostUsd / costDenom)
+    else                    l.maritimeUsd = enBarco.length ? maritimeCalculadoUsd / enBarco.length : 0
   }
+
+  // Lo que el transportista facturó de verdad por el tramo Miami→Caracas, si ya se cargó,
+  // pisa al estimado por ft³/m³ — solo en modo 'aereo': los modos marítimos ya cotizan el
+  // tramo completo como tal, sin una segunda factura que reconciliar contra este.
+  const maritimeFacturadoUsd = modo === 'aereo' ? (opts.fleteFacturado?.maritimoUsd ?? null) : null
+  const maritimeUsd = aplicarFacturado(enBarco, 'maritimeUsd', maritimeCalculadoUsd, maritimeFacturadoUsd)
 
   // Seguro y processing son cargos DE SHOPPRE, así que se cobran sobre lo que pasa por
   // Shoppre y nada más. Un proveedor que despacha DDP por su cuenta ya pagó los impuestos
@@ -899,8 +959,10 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
     binding,
     ratioVW: W > 0 ? V / W : null,
     airUsd,
+    airCalculadoUsd,
     airPerKgUsd: chargeableKg > 0 ? airUsd / chargeableKg : 0,
     maritimeUsd,
+    maritimeCalculadoUsd,
     volumeFt3,
     billableFt3,
     maritimePerFt3: maritimePft3,

@@ -1,6 +1,10 @@
 import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { toConfigMap, num as cfgNum, type ConfigMap } from '@/lib/config'
+import { isDelivered } from '@/lib/shipping-status'
+import { calcLanded } from '@/lib/calc'
+import { lookupDeConjuntos, expandCostPieces } from '@/lib/envio-build'
+import type { BundlePiece } from '@/lib/bundle'
 
 // Libro de movimientos: la fuente única de "cuánta plata tengo". Cada categoría fija su
 // tipo (ver tipoDeCategoria) para que un ingreso no pueda anotarse con categoría de egreso
@@ -120,6 +124,126 @@ export async function valorInventario(): Promise<ValorInventario> {
   return { valorUsd, productos: productos.length, sinCosto }
 }
 
+export interface MercanciaEnCamino {
+  valorUsd: number
+  unidades: number
+  aereo: { valorUsd: number; unidades: number; items: number }
+  maritimo: { valorUsd: number; unidades: number; cajas: number }
+  // Con cantidad pero sin costo (ni real ni de reposición) que valorarla: no entran a la
+  // suma, igual que en valorInventario — no son $0, es un dato que falta.
+  sinCosto: number
+}
+
+// Mercancía PROPIA que ya se compró (o directamente ya viaja) pero todavía no está en el
+// depósito. Lo comercial (Pedido.tipo='cliente') queda afuera a propósito: ya tiene dueño
+// y nunca pasa a ser stock, así que contarlo acá inflaría "lo que va a entrar al depósito"
+// con piezas que van derecho a un cliente.
+//
+//   aéreo:     PedidoItem de un pedido 'propio' que todavía no llegó a 'entregado'. Ese es
+//              el punto en el que saveItemChanges ya sumó la cantidad a Product.stock, así
+//              que a partir de ahí dejó de estar "en camino" — está en el depósito.
+//   marítimo:  EnvioLinea de una caja 'confirmado' (ya despachada). Una caja en 'borrador'
+//              todavía se está armando —no es una compra en firme— y una 'entregado' ya
+//              se sumó a stock en recibirEmbarque, así que ninguna de las dos cuenta acá.
+//
+// Costo del aéreo: costRealUsd si ya se cargó (el total pagado por TODA la línea, ver
+// registrarCompra — no se multiplica por cantidad, ya lo incluye). Si no, se recalcula el
+// landed de la línea igual que costearCarrito: expandiendo bundleItems a las piezas reales
+// que lleva. Un conjunto vendido a precio único (ej. "Chain Kit") es un Product sin
+// priceInr propio —es el contenedor, no algo que se compre— así que costearlo por el padre
+// daba siempre $0 aunque la línea sí tuviera piezas costables adentro; esto fue justamente
+// lo que dejaba "en camino" mostrando casi nada aunque hubiera cientos de dólares viajando.
+//
+// Costo del marítimo: landedCostUsd del producto (no hay costo real por línea — la caja se
+// factura entera, ver lib/cbm.ts — y EnvioLinea no lleva bundleItems: es mercancía propia
+// pieza por pieza, nunca un conjunto a precio único).
+export async function mercanciaEnCamino(): Promise<MercanciaEnCamino> {
+  const [itemsPropios, lineasMaritimo, configRows] = await Promise.all([
+    db.pedidoItem.findMany({
+      where: { pedido: { tipo: 'propio' } },
+      select: {
+        quantity: true,
+        shippingStatus: true,
+        costRealUsd: true,
+        bundleItems: true,
+        product: {
+          select: {
+            id: true, nameEs: true, bajajCode: true,
+            weightGrams: true, dimL: true, dimA: true, dimH: true, priceInr: true,
+          },
+        },
+      },
+    }),
+    db.envioLinea.findMany({
+      where: { envio: { modo: 'maritimo_cbm', estado: 'confirmado' } },
+      select: {
+        envioId: true,
+        quantity: true,
+        product: { select: { landedCostUsd: true } },
+      },
+    }),
+    db.config.findMany(),
+  ])
+
+  const pendientes = itemsPropios.filter(it => !isDelivered(it.shippingStatus))
+  const cfg = toConfigMap(configRows)
+  // Lookup acotado a las piezas que aparecen en estos conjuntos (igual que costearCarrito).
+  const lookup = await lookupDeConjuntos(pendientes.map(it => it.bundleItems as BundlePiece[] | null))
+
+  let sinCosto = 0
+  let aereoValor = 0
+  let aereoUnidades = 0
+  let aereoItems = 0
+  for (const it of pendientes) {
+    aereoUnidades += it.quantity
+    let costoLinea = 0
+    if (it.costRealUsd != null) {
+      costoLinea = num(it.costRealUsd)
+    } else {
+      const piezas = expandCostPieces(it.product, it.quantity, it.bundleItems as BundlePiece[] | null, lookup)
+      for (const pieza of piezas) {
+        const b = calcLanded({
+          priceInr: pieza.priceInr,
+          weightGrams: pieza.weightGrams,
+          dimL: pieza.dimL,
+          dimA: pieza.dimA,
+          dimH: pieza.dimH,
+          margin: null,
+        }, cfg, 'aereo')
+        if (b == null) continue
+        costoLinea += b.landedCostUsd * pieza.quantity
+      }
+    }
+    if (costoLinea <= 0) {
+      sinCosto++
+      continue
+    }
+    aereoValor += costoLinea
+    aereoItems++
+  }
+
+  let marValor = 0
+  let marUnidades = 0
+  const cajas = new Set<number>()
+  for (const l of lineasMaritimo) {
+    cajas.add(l.envioId)
+    if (l.product.landedCostUsd == null) {
+      sinCosto++
+      continue
+    }
+    marValor += num(l.product.landedCostUsd) * l.quantity
+    marUnidades += l.quantity
+  }
+
+  return {
+    valorUsd: aereoValor + marValor,
+    unidades: aereoUnidades + marUnidades,
+    aereo: { valorUsd: aereoValor, unidades: aereoUnidades, items: aereoItems },
+    maritimo: { valorUsd: marValor, unidades: marUnidades, cajas: cajas.size },
+    sinCosto,
+  }
+}
+
 export interface EnvioPendiente {
   envioId: number
   nombre: string | null
@@ -137,7 +261,10 @@ export interface EnvioPendiente {
 // sin proveedor (99rpm, supplierId null) no giran plata por esta vía y quedan afuera.
 export async function cuentasPorPagar(): Promise<EnvioPendiente[]> {
   const envios = await db.envio.findMany({
-    where: { estado: 'confirmado', supplierId: { not: null } },
+    // No 'borrador': esa caja todavía se está armando, no es una compra en firme. Una caja
+    // 'entregado' (marítima, ya recibida) SIGUE debiendo lo mismo — que ya esté en el
+    // depósito no significa que ya se le pagó al proveedor.
+    where: { estado: { not: 'borrador' }, supplierId: { not: null } },
     select: {
       id: true,
       nombre: true,
@@ -230,6 +357,8 @@ export interface ItemPendienteCosto {
   quantity: number
   // Estimado del catálogo (precio de proveedor si hay, si no priceInr convertido), SOLO
   // para repartir el monto real entre las piezas seleccionadas — nunca se guarda tal cual.
+  // Si la línea es un conjunto (bundleItems), es la suma de las piezas reales que lleva:
+  // el ensamble padre es el contenedor y no tiene priceInr propio.
   estimadoUsd: number
   // A qué caja está asignado (si alguna) y su proveedor. Sirve para dos cosas: mostrarlo
   // en el picker, y —si TODO lo seleccionado cae en la misma caja— para que el egreso que
@@ -250,9 +379,15 @@ async function itemsConEstimado(where: Prisma.PedidoItemWhereInput): Promise<Ite
         quantity: true,
         supplierId: true,
         envioId: true,
+        bundleItems: true,
         envio: { select: { id: true, nombre: true } },
         pedido: { select: { id: true, clientName: true } },
-        product: { select: { id: true, nameEs: true, bajajCode: true, priceInr: true } },
+        product: {
+          select: {
+            id: true, nameEs: true, bajajCode: true, priceInr: true,
+            weightGrams: true, dimL: true, dimA: true, dimH: true,
+          },
+        },
       },
       orderBy: [{ pedidoId: 'asc' }, { id: 'asc' }],
     }),
@@ -263,19 +398,38 @@ async function itemsConEstimado(where: Prisma.PedidoItemWhereInput): Promise<Ite
   const cfg = toConfigMap(cfgRows)
   const inrUsd = cfgNum(cfg, 'inr_usd_rate', 95)
 
+  // Un ítem "conjunto" (bundleItems) se expande a las piezas reales que lleva, igual que en
+  // mercanciaEnCamino y costearCarrito: el producto de la línea es el ensamble (el
+  // contenedor, sin priceInr propio), así que estimarlo por él daba siempre $0 aunque la
+  // línea sí tuviera piezas costables adentro — y ese estimado en $0 es justo lo que
+  // decide cuánto del pago real le toca a cada ítem al repartir una compra.
+  const lookup = await lookupDeConjuntos(items.map(i => i.bundleItems as BundlePiece[] | null))
+  const piezasPorItem = new Map(items.map(i =>
+    [i.id, expandCostPieces(i.product, i.quantity, i.bundleItems as BundlePiece[] | null, lookup)]
+  ))
+
   const supplierIds = [...new Set(items.map(i => i.supplierId).filter((x): x is number => x != null))]
-  const productIds = [...new Set(items.map(i => i.product.id))]
-  const precios = supplierIds.length > 0
+  const productIds = new Set<number>()
+  for (const piezas of piezasPorItem.values()) {
+    for (const p of piezas) if (p.productId != null) productIds.add(p.productId)
+  }
+  const precios = supplierIds.length > 0 && productIds.size > 0
     ? await db.supplierPrice.findMany({
-        where: { supplierId: { in: supplierIds }, productId: { in: productIds } },
+        where: { supplierId: { in: supplierIds }, productId: { in: [...productIds] } },
         select: { supplierId: true, productId: true, priceUsd: true },
       })
     : []
   const precioProveedor = new Map(precios.map(p => [`${p.supplierId}:${p.productId}`, num(p.priceUsd)]))
 
   return items.map(i => {
-    const override = i.supplierId != null ? precioProveedor.get(`${i.supplierId}:${i.product.id}`) : undefined
-    const unitUsd = override ?? (i.product.priceInr != null ? i.product.priceInr / inrUsd : 0)
+    const piezas = piezasPorItem.get(i.id)!
+    const estimadoUsd = piezas.reduce((sum, pieza) => {
+      const override = i.supplierId != null && pieza.productId != null
+        ? precioProveedor.get(`${i.supplierId}:${pieza.productId}`)
+        : undefined
+      const unitUsd = override ?? (pieza.priceInr != null ? pieza.priceInr / inrUsd : 0)
+      return sum + unitUsd * pieza.quantity
+    }, 0)
     return {
       id: i.id,
       pedidoId: i.pedido.id,
@@ -284,7 +438,7 @@ async function itemsConEstimado(where: Prisma.PedidoItemWhereInput): Promise<Ite
       nombre: i.product.nameEs,
       sku: i.product.bajajCode,
       quantity: i.quantity,
-      estimadoUsd: unitUsd * i.quantity,
+      estimadoUsd,
       envioId: i.envioId,
       envioNombre: i.envio?.nombre ?? null,
       supplierId: i.supplierId,

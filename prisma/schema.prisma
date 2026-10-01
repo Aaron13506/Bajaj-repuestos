@@ -199,7 +199,15 @@ model Envio {
   // 'borrador'   = todavía se está llenando (solo marítimo: se arma pieza por pieza).
   // 'confirmado' = cerrado, ya viaja. Las cajas anteriores a los borradores nacen acá,
   // que es como estaban: creadas y en curso.
+  // 'entregado'  = SOLO marítimo: la caja ya está en mano. Al marcarla se suma cada
+  // EnvioLinea a Product.stock en la misma acción (ver recibirEmbarque) — un solo dato,
+  // sin transcribirlo a mano en cada producto. El aéreo no usa este valor: ahí "ya está
+  // en mi poder" lo dice PedidoItem.shippingStatus === 'entregado' por línea.
   estado           String       @default("confirmado")
+  // Cuándo se marcó 'entregado' (ver recibirEmbarque). Null mientras no se marcó, incluso
+  // si el envío está viajando hace meses — vacío no es "ya llegó hace mucho", es "todavía
+  // no lo marcaste".
+  entregadoAt      DateTime?
   // Proveedor al que se le compra ESTA caja. Aplica a las dos rutas.
   //
   // Empezó siendo solo del marítimo, cuando por aire se le compraba siempre a 99rpm. Dejó

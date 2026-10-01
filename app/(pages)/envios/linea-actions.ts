@@ -232,12 +232,66 @@ export async function cerrarEmbarque(envioId: number) {
   revalidatePath('/envios')
 }
 
+// Solo puede volver a borrador una caja que todavía no llegó ('confirmado'). Una
+// 'entregado' ya sumó su contenido a stock (ver recibirEmbarque): reabrirla para editarla
+// dejaría ese stock describiendo una caja que ya cambió — primero hay que deshacer la
+// recepción, que resta lo que se sumó.
 export async function reabrirEmbarque(envioId: number) {
-  const e = await db.envio.findUnique({ where: { id: envioId }, select: { modo: true } })
-  if (e?.modo !== 'maritimo_cbm') return
+  const e = await db.envio.findUnique({ where: { id: envioId }, select: { modo: true, estado: true } })
+  if (e?.modo !== 'maritimo_cbm' || e.estado !== 'confirmado') return
   await db.envio.update({ where: { id: envioId }, data: { estado: 'borrador' } })
   revalidatePath(`/envios/${envioId}`)
   revalidatePath('/envios')
+}
+
+// Marca la caja como recibida: a partir de acá deja de estar "en camino" (ver
+// mercanciaEnCamino) y cada EnvioLinea se suma a Product.stock, en la misma transacción —
+// un solo dato, sin transcribirlo pieza por pieza a mano en cada producto. Sin cliente
+// detrás (es mercancía propia), "recibido" es directamente "ya está en el depósito".
+export async function recibirEmbarque(envioId: number) {
+  const envio = await db.envio.findUnique({
+    where: { id: envioId },
+    select: { modo: true, estado: true, lineas: { select: { productId: true, quantity: true } } },
+  })
+  if (envio?.modo !== 'maritimo_cbm' || envio.estado !== 'confirmado') return
+  if (envio.lineas.length === 0) return
+
+  await db.$transaction([
+    ...envio.lineas.map(l =>
+      db.product.update({ where: { id: l.productId }, data: { stock: { increment: l.quantity } } })
+    ),
+    db.envio.update({ where: { id: envioId }, data: { estado: 'entregado', entregadoAt: new Date() } }),
+  ])
+
+  revalidatePath(`/envios/${envioId}`)
+  revalidatePath('/envios')
+  revalidatePath('/contabilidad')
+  revalidatePath('/products')
+  revalidatePath('/')
+}
+
+// El contrapeso: por si se marcó por error. Resta de stock lo que recibirEmbarque sumó y
+// vuelve la caja a 'confirmado' (no a 'borrador' — su contenido sigue siendo el que
+// efectivamente se compró; para editarlo hace falta reabrirEmbarque aparte).
+export async function deshacerRecepcion(envioId: number) {
+  const envio = await db.envio.findUnique({
+    where: { id: envioId },
+    select: { modo: true, estado: true, lineas: { select: { productId: true, quantity: true } } },
+  })
+  if (envio?.modo !== 'maritimo_cbm' || envio.estado !== 'entregado') return
+
+  await db.$transaction([
+    ...envio.lineas.map(l =>
+      db.product.update({ where: { id: l.productId }, data: { stock: { decrement: l.quantity } } })
+    ),
+    db.envio.update({ where: { id: envioId }, data: { estado: 'confirmado', entregadoAt: null } }),
+  ])
+
+  revalidatePath(`/envios/${envioId}`)
+  revalidatePath('/envios')
+  revalidatePath('/contabilidad')
+  revalidatePath('/products')
+  revalidatePath('/')
 }
 
 // Buscador para el armador del embarque (server-side, como el de presupuestos: son ~5.8k

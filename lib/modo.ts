@@ -61,9 +61,15 @@ export function modoDeEnvio(stored: string | null | undefined): ModoApp {
 
 // ── Estado del embarque ──────────────────────────────────────────────────────
 // Solo el marítimo se arma pieza por pieza, así que solo él pasa por 'borrador'. El aéreo
-// nace confirmado: sus líneas ya existen (son pedidos que alguien encargó).
-export type EstadoEnvio = 'borrador' | 'confirmado'
+// nace confirmado: sus líneas ya existen (son pedidos que alguien encargó). 'entregado' es
+// también exclusivo del marítimo: la caja ya está en mano y su contenido ya se sumó a
+// stock (ver recibirEmbarque en envios/linea-actions.ts).
+export type EstadoEnvio = 'borrador' | 'confirmado' | 'entregado'
 
 export function esBorrador(estado: string | null | undefined): boolean {
   return estado === 'borrador'
+}
+
+export function esEntregado(estado: string | null | undefined): boolean {
+  return estado === 'entregado'
 }

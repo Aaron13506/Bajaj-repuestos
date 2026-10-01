@@ -1,14 +1,20 @@
 import { db } from '@/lib/db'
 import Link from 'next/link'
 import { formatModels, toModelIds } from '@/lib/modelo'
+import { valorInventario, mercanciaEnCamino } from '@/lib/movimientos'
 
 async function getStats() {
-  // Las cinco consultas son independientes entre sí, así que van en una sola tanda: la
-  // base está en us-west-2 y encadenarlas hacía pagar la latencia cinco veces seguidas.
-  const [totalProducts, lowStock, agg, recentProducts, lowStockProducts] = await Promise.all([
+  // Las seis consultas son independientes entre sí, así que van en una sola tanda: la
+  // base está en us-west-2 y encadenarlas hacía pagar la latencia seis veces seguidas.
+  const [totalProducts, lowStock, inventario, enCamino, recentProducts, lowStockProducts] = await Promise.all([
     db.product.count(),
     db.product.count({ where: { stock: { lt: 5 } } }),
-    db.product.aggregate({ _sum: { price: true } }),
+    // stock × costo de reposición, solo lo que hay en el depósito — la misma cuenta que
+    // usa /contabilidad. Antes esto sumaba Product.price de TODO el catálogo (tuviera
+    // stock o no), que no es el valor de nada real: era el precio de venta de 5800+ SKUs,
+    // la mayoría con stock 0.
+    valorInventario(),
+    mercanciaEnCamino(),
     db.product.findMany({
       orderBy: { createdAt: 'desc' },
       take: 5,
@@ -19,9 +25,8 @@ async function getStats() {
       take: 5,
     }),
   ])
-  const totalValue = parseFloat((agg._sum.price ?? 0).toString())
 
-  return { totalProducts, lowStock, totalValue, recentProducts, lowStockProducts }
+  return { totalProducts, lowStock, inventario, enCamino, recentProducts, lowStockProducts }
 }
 
 export default async function DashboardPage() {
@@ -39,7 +44,16 @@ export default async function DashboardPage() {
           color={stats.lowStock > 0 ? 'red' : 'green'}
           description="menos de 5 unidades"
         />
-        <StatCard title="Valor Inventario" value={`$${stats.totalValue.toFixed(2)}`} color="purple" />
+        <StatCard
+          title="Valor Inventario"
+          value={`$${(stats.inventario.valorUsd + stats.enCamino.valorUsd).toFixed(2)}`}
+          color="purple"
+          description={
+            stats.enCamino.valorUsd > 0
+              ? `$${stats.inventario.valorUsd.toFixed(2)} disponible + $${stats.enCamino.valorUsd.toFixed(2)} en camino`
+              : `${stats.inventario.productos} productos con stock`
+          }
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

@@ -7,6 +7,7 @@ import { crearMovimiento, eliminarMovimiento, guardarAperturaCaja } from './acti
 import {
   saldoCaja,
   valorInventario,
+  mercanciaEnCamino,
   cuentasPorPagar,
   listarMovimientos,
   itemsSinCostoReal,
@@ -35,10 +36,11 @@ interface Props {
 }
 
 export default async function ContabilidadPage({ searchParams }: Props) {
-  const [cfgRows, inventario, porPagar, pendientesCosto, pedidosConfirmados, envios, suppliers] =
+  const [cfgRows, inventario, enCamino, porPagar, pendientesCosto, pedidosConfirmados, envios, suppliers] =
     await Promise.all([
       db.config.findMany(),
       valorInventario(),
+      mercanciaEnCamino(),
       cuentasPorPagar(),
       itemsSinCostoReal(),
       db.pedido.findMany({
@@ -147,11 +149,25 @@ export default async function ContabilidadPage({ searchParams }: Props) {
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
           <p className="text-xs text-gray-400 mb-1">Valor de inventario</p>
-          <p className="text-2xl font-bold font-mono text-gray-900">{usd(inventario.valorUsd)}</p>
-          <p className="text-[11px] text-gray-400 mt-1">
-            {inventario.productos} productos con stock
-            {inventario.sinCosto > 0 && ` — ${inventario.sinCosto} sin costo cargado, no están en la suma`}
+          <p className="text-2xl font-bold font-mono text-gray-900">
+            {usd(inventario.valorUsd + enCamino.valorUsd)}
           </p>
+          <p className="text-[11px] text-gray-400 mt-1">
+            {usd(inventario.valorUsd)} disponible ({inventario.productos} productos)
+            {enCamino.valorUsd > 0 && <> + {usd(enCamino.valorUsd)} en camino</>}
+          </p>
+          {enCamino.unidades > 0 && (
+            <p className="text-[11px] text-gray-400">
+              en camino: {enCamino.aereo.items > 0 && `${enCamino.aereo.items} ítem${enCamino.aereo.items === 1 ? '' : 's'} propio${enCamino.aereo.items === 1 ? '' : 's'} por aire`}
+              {enCamino.aereo.items > 0 && enCamino.maritimo.cajas > 0 && ' + '}
+              {enCamino.maritimo.cajas > 0 && `${enCamino.maritimo.cajas} caja${enCamino.maritimo.cajas === 1 ? '' : 's'} por mar`}
+            </p>
+          )}
+          {(inventario.sinCosto > 0 || enCamino.sinCosto > 0) && (
+            <p className="text-[11px] text-gray-400">
+              {inventario.sinCosto + enCamino.sinCosto} sin costo cargado, no están en la suma
+            </p>
+          )}
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
           <p className="text-xs text-gray-400 mb-1">Por cobrar</p>

@@ -197,6 +197,11 @@ export default async function EnviosPage() {
                       Borrador
                     </span>
                   )}
+                  {esMar && e.estado === 'entregado' && (
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                      ✅ Recibido
+                    </span>
+                  )}
                   <span className="text-xs text-gray-400">
                     {esMar
                       ? `${e.lineas.length} ${e.lineas.length === 1 ? 'pieza' : 'piezas'}`

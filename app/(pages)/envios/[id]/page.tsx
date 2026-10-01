@@ -285,14 +285,22 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     dimA: envio.cajaA,
     dimH: envio.cajaH,
   }
-  const calc = calcEnvio(items, cfg, { proveedor, modo: modoEnvio, medidas })
-  // El mismo envío costeado por la suma de las piezas, para ver cuánto se le escapaba al
-  // catálogo. Solo tiene sentido cuando hay una caja real contra la cual compararlo.
+  // Lo que en verdad facturaron los transportistas. Si ya se cargó, pisa al estimado de
+  // tabla en el landed y el margen — igual que `medidas` con el peso, ver calcEnvio.
+  const costoRealAereo = envio.shippingCostRealAereo != null ? parseFloat(envio.shippingCostRealAereo.toString()) : null
+  const costoRealMaritimo = envio.shippingCostRealMaritimo != null ? parseFloat(envio.shippingCostRealMaritimo.toString()) : null
+  const calc = calcEnvio(items, cfg, {
+    proveedor,
+    modo: modoEnvio,
+    medidas,
+    fleteFacturado: { aereoUsd: costoRealAereo, maritimoUsd: costoRealMaritimo },
+  })
+  // El mismo envío costeado por la suma de las piezas y el estimado de tabla, para ver
+  // cuánto se le escapaba al catálogo y a la tarifa. Solo tiene sentido cuando hay una caja
+  // real contra la cual compararlo.
   const calcNeto = calc.caja.medido
     ? calcEnvio(items, cfg, { proveedor, modo: modoEnvio })
     : null
-  const costoRealAereo = envio.shippingCostRealAereo != null ? parseFloat(envio.shippingCostRealAereo.toString()) : null
-  const costoRealMaritimo = envio.shippingCostRealMaritimo != null ? parseFloat(envio.shippingCostRealMaritimo.toString()) : null
 
   // Lista de compra: consolida las piezas por SKU (o nombre si no tiene SKU) sumando
   // cantidades, para saber exactamente qué y cuánto comprar. Separada por origen,
@@ -493,15 +501,21 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   const anyMissing = calc.lines.some(l => l.missingWeight || l.missingDims)
   const tierHint = airTierHint(calc.air.chargeableKg, calc.air.costPerKgUsd, calc.air.cajas, calc.air.capKg)
   const ratioPct = calc.air.ratioVW != null ? calc.air.ratioVW * 100 : null
-  // Flete estimado de la caja. `fobUsd` es 0 fuera del modo CBM, así que esto no cambia
-  // nada en aéreo; en CBM el FOB es parte del costo de traerla y tiene que ir adentro.
+  // Flete efectivo de la caja: el facturado donde ya se cargó, si no el estimado de tabla.
+  // `fobUsd` es 0 fuera del modo CBM, así que esto no cambia nada en aéreo; en CBM el FOB es
+  // parte del costo de traerla y tiene que ir adentro. Es lo que se guarda con "Guardar
+  // flete est." — una vez cargado el facturado, ese botón pasa a guardar el real.
   const shippingEst = calc.airUsd + calc.maritimeUsd + calc.fobUsd
   // El mismo flete calculado sobre las piezas sueltas: la cuenta que se hacía antes de
   // saber cuánto pesaba y medía la caja de verdad.
   const shippingNeto = calcNeto ? calcNeto.airUsd + calcNeto.maritimeUsd + calcNeto.fobUsd : null
+  // El flete SIN pisar por el facturado — para el panel "facturado vs. calculado" de abajo,
+  // que necesita seguir mostrando la tabla aunque el landed ya use el número real.
+  const shippingCalculado = calc.airCalculadoUsd + calc.maritimeCalculadoUsd + calc.fobUsd
   // El tramo marítimo (USA→Venezuela) por separado del aéreo: el FOB viaja con él porque
-  // es parte de lo que cuesta traer la caja por esa vía, no del tramo a USA.
-  const marEst = calc.maritimeUsd + calc.fobUsd
+  // es parte de lo que cuesta traer la caja por esa vía, no del tramo a USA. Igual que
+  // arriba, es el estimado de tabla — no el facturado — para esa misma comparación.
+  const marEst = calc.maritimeCalculadoUsd + calc.fobUsd
   const marNeto = calcNeto ? calcNeto.maritimeUsd + calcNeto.fobUsd : null
   // El peso siempre sube al medir la caja real (el catálogo no puede sobreestimar), pero el
   // volumen no tiene esa garantía: piezas que "suman" mucho hueco en el catálogo pueden
@@ -973,6 +987,10 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                   fila con peso/dimensiones era lo que forzaba el wrap raro (una arriba,
                   la otra abajo sola con el botón). */}
               <div className="flex flex-wrap items-end gap-3 mt-3 pt-3 border-t border-gray-100">
+                <p className="w-full text-xs text-gray-500 -mt-1 mb-1">
+                  Igual que el peso y las medidas: una vez cargados, estos dos <strong>reemplazan</strong>{' '}
+                  al estimado de tabla en el landed y el margen de abajo.
+                </p>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Flete aéreo facturado (USD)</label>
                   <input
@@ -1038,15 +1056,15 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                         facturas distintas, y mezclarlos en un solo "Flete" no dejaba ver
                         cuál de los dos tramos explicaba una diferencia contra lo calculado. */}
                     {(() => {
-                      const dAereo = fleteDiffPct(calcNeto!.airUsd, calc.airUsd)
+                      const dAereo = fleteDiffPct(calcNeto!.airUsd, calc.airCalculadoUsd)
                       const dMar = fleteDiffPct(marNeto!, marEst)
-                      const dTotal = fleteDiffPct(shippingNeto!, shippingEst)
+                      const dTotal = fleteDiffPct(shippingNeto!, shippingCalculado)
                       return (
                         <>
                           <tr className="border-t-2 border-gray-200">
                             <td className="py-2 font-sans text-gray-600">Flete aéreo</td>
                             <td className="py-2 text-right text-gray-400">{usd(calcNeto!.airUsd)}</td>
-                            <td className="py-2 text-right text-gray-900 font-semibold">{usd(calc.airUsd)}</td>
+                            <td className="py-2 text-right text-gray-900 font-semibold">{usd(calc.airCalculadoUsd)}</td>
                             <td className={`py-2 text-right font-semibold ${fleteDiffCls[dAereo.tone]}`}>{dAereo.texto}</td>
                           </tr>
                           <tr className="border-t border-gray-100">
@@ -1058,7 +1076,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                           <tr className="border-t-2 border-gray-200">
                             <td className="py-2 font-sans font-semibold text-gray-800">Flete total</td>
                             <td className="py-2 text-right text-gray-400">{usd(shippingNeto!)}</td>
-                            <td className="py-2 text-right text-gray-900 font-bold">{usd(shippingEst)}</td>
+                            <td className="py-2 text-right text-gray-900 font-bold">{usd(shippingCalculado)}</td>
                             <td className={`py-2 text-right font-semibold ${fleteDiffCls[dTotal.tone]}`}>{dTotal.texto}</td>
                           </tr>
                         </>
@@ -1073,15 +1091,16 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                 {costoRealAereo != null && (
                   <p
                     className={`text-xs mt-3 px-3 py-2 rounded-lg ${
-                      Math.abs(costoRealAereo - calc.airUsd) / Math.max(costoRealAereo, 1) <= 0.05
+                      Math.abs(costoRealAereo - calc.airCalculadoUsd) / Math.max(costoRealAereo, 1) <= 0.05
                         ? 'bg-green-50 text-green-700'
                         : 'bg-amber-50 text-amber-700'
                     }`}
                   >
-                    Aéreo: facturado {usd(costoRealAereo)} contra {usd(calc.airUsd)} calculados:{' '}
-                    <strong>{costoRealAereo >= calc.airUsd ? '+' : ''}{usd(costoRealAereo - calc.airUsd)}</strong>
-                    {' '}({(((costoRealAereo / Math.max(calc.airUsd, 0.01)) - 1) * 100).toFixed(1)}%). Si pasa
+                    Aéreo: facturado {usd(costoRealAereo)} contra {usd(calc.airCalculadoUsd)} calculados:{' '}
+                    <strong>{costoRealAereo >= calc.airCalculadoUsd ? '+' : ''}{usd(costoRealAereo - calc.airCalculadoUsd)}</strong>
+                    {' '}({(((costoRealAereo / Math.max(calc.airCalculadoUsd, 0.01)) - 1) * 100).toFixed(1)}%). Si pasa
                     del 5%, revisá la tasa INR/USD o el transportista elegido (Shoppre/ShipGlobal vs. lo cotizado).
+                    Ya se está usando el número facturado en el landed y el margen.
                   </p>
                 )}
                 {costoRealMaritimo != null && (
@@ -1096,6 +1115,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                     <strong>{costoRealMaritimo >= marEst ? '+' : ''}{usd(costoRealMaritimo - marEst)}</strong>
                     {' '}({(((costoRealMaritimo / Math.max(marEst, 0.01)) - 1) * 100).toFixed(1)}%). Si pasa
                     del 5%, revisá la tarifa por ft³/m³ del tramo Miami→CCS.
+                    Ya se está usando el número facturado en el landed y el margen.
                   </p>
                 )}
               </div>

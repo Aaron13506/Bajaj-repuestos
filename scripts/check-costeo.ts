@@ -124,6 +124,40 @@ check('el tramo de Garuda no aparece en la caja de Shoppre', sh.airUsd, sh.air.c
 check('el seguro de Shoppre no aparece en la de Garuda', g.insuranceUsd + g.processingUsd, 0)
 check('la comisión de Garuda no toca a Shoppre', sh.lines.reduce((s, l) => s + l.comisionUsd, 0), 0)
 
+// ── El flete facturado pisa al estimado de tabla ────────────────────────────
+// Mismo principio que `medidas` con el peso: una vez que se sabe lo que cobró el
+// transportista de verdad, ese número reemplaza al estimado en el landed — pero el estimado
+// queda disponible aparte (airCalculadoUsd/maritimeCalculadoUsd) para seguir comparando
+// contra la factura, que es lo que usa el panel de /envios/[id].
+console.log('\nFLETE FACTURADO PISA AL ESTIMADO')
+const shAereoFacturado = calcEnvio(itemsShoppre, cfg, {
+  proveedor: provOemship,
+  fleteFacturado: { aereoUsd: sh.air.costUsd + 15 },
+})
+check('el facturado reemplaza al estimado del tramo Shoppre', shAereoFacturado.air.costUsd, sh.air.costUsd + 15)
+check('el estimado original queda aparte, sin pisar', shAereoFacturado.airCalculadoUsd, sh.air.costUsd)
+check('se repartió entre las piezas', shAereoFacturado.lines.reduce((s, l) => s + l.airUsd, 0), shAereoFacturado.air.costUsd)
+check('Σ landed por línea sigue = landed total', shAereoFacturado.lines.reduce((s, l) => s + l.landedUsd, 0), shAereoFacturado.landedUsd)
+check('el landed total subió lo mismo que el flete', shAereoFacturado.landedUsd, sh.landedUsd + 15)
+
+const shMarFacturado = calcEnvio(itemsShoppre, cfg, {
+  proveedor: provOemship,
+  fleteFacturado: { maritimoUsd: sh.maritimeUsd + 22 },
+})
+check('el facturado reemplaza al estimado marítimo', shMarFacturado.maritimeUsd, sh.maritimeUsd + 22)
+check('el estimado marítimo original queda aparte', shMarFacturado.maritimeCalculadoUsd, sh.maritimeUsd)
+check('Σ landed por línea sigue = landed total (marítimo)', shMarFacturado.lines.reduce((s, l) => s + l.landedUsd, 0), shMarFacturado.landedUsd)
+check('el landed total subió lo mismo que el flete marítimo', shMarFacturado.landedUsd, sh.landedUsd + 22)
+
+// Una caja 100% Garuda no tiene líneas Shoppre: un "flete aéreo facturado" cargado ahí por
+// error no debe inventarle costo a la caja entera — no hay a quién repartírselo.
+const gConFacturadoDeMas = calcEnvio(itemsGaruda, cfg, {
+  proveedor: provGaruda,
+  fleteFacturado: { aereoUsd: 999 },
+})
+check('sin líneas Shoppre, el facturado aéreo no se aplica', gConFacturadoDeMas.air.costUsd, 0)
+check('y el landed de Garuda no se mueve', gConFacturadoDeMas.landedUsd, g.landedUsd)
+
 // ── Cargada en cero es un DATO; sin cargar es una ausencia ──────────────────
 // Las dos suman 0 al landed, pero solo una significa "ya lo verifiqué". La pantalla
 // necesita distinguirlas para no dar por cerrada una caja a la que le falta un número.
