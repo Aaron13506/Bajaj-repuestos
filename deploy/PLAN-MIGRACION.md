@@ -41,7 +41,7 @@ snapshots automáticos ≈ USD 1–2, dos buckets ≈ USD 1 c/u → **≈ USD 15
 | 4 | Ensayo con datos reales | Servidor | No (solo lectura) | ✅ hecha (2026-10-04); un error abierto, ver abajo |
 | 5 | Pasarse: timers, apagar Heroku | Servidor + Heroku | Sí (minutos) | ✅ hecha (2026-10-04) |
 | 6 | Imágenes fuera de Supabase | Servidor | Sí (URLs) | ✅ hecha (2026-10-04) |
-| 7 | Estabilización y baja de Heroku/Supabase | Todo | Sí | ⏳ |
+| 7 | Estabilización y baja de Heroku/Supabase | Todo | Sí | 🔶 en curso: lo del servidor y el repo hecho (2026-10-04); falta tiempo y lo de Heroku/Supabase |
 | 8 | Recién después: migración de ensambles | — | — | ⏳ |
 
 Cada fase termina en un **criterio de salida**: no se pasa a la siguiente sin cumplirlo.
@@ -481,7 +481,8 @@ Lo que salió y conviene saber:
   (`https://motokira-images.s3.us-east-1.amazonaws.com`). Copia del anterior en `/etc/bajaj/app.env.pre-fase6` (tiene las llaves de Supabase:
   borrarla en la fase 7). `bajaj-app` reiniciada; `check:libro` limpio.
 - **Código.** `lib/s3-publico.ts` (`s3PublicBase()` exige `S3_PUBLIC_BASE_URL`, sin derivarla del endpoint; `s3ClientConfig()` omite el
-  endpoint si está vacío) y la key sin prefijo (`key = name`) en `prisma/seed-scraped.ts` y `scripts/recover-missing-images.ts`.
+  endpoint si está vacío) y la key sin prefijo (`key = name`) en `prisma/seed-scraped.ts` y `scripts/recover-missing-images.ts`. Ya está en el servidor
+  (commit `4abfc30`), de modo que esos scripts corren allá con las `S3_*` del bucket nuevo; también hay `pnpm deploy:prod` (ver "Operación diaria").
 - Borrado el archivo temporal con los remotos de rclone y los scripts de trabajo del servidor.
 
 Lo que salió y conviene saber:
@@ -535,6 +536,33 @@ Lo que salió y conviene saber:
    ```
    `lib/db.ts` no usa TLS hacia `localhost`, y el túnel ya va cifrado.
 
+**Estado (2026-10-04).** Lo que depende de la máquina y del repo está hecho; lo que queda depende del tiempo o de cuentas que solo tiene el usuario.
+
+Hecho:
+- **Verificación del servidor:** `bajaj-fx.timer` (cada hora) y `bajaj-backup.timer` activos; el **primer backup automático** (07:30:00 UTC) se generó, se validó
+  y llegó a `motokira-backups`, junto al manual de la fase 5. Sin errores en el journal salvo ruido de arranque (PAM `pam_lastlog`, un aviso del kernel de
+  la VM). Disco 11 %, swap sin usar. Funnel activo.
+- **Limpieza del servidor (condición: backup automático probado):** borrados `ensayo.dump`, `fase5-*`, `pre-fase5-*`, `pre-fase6-*`, `pre-fase6b-*`, las huellas y
+  el log de restore de `/var/backups/bajaj`, y `/etc/bajaj/app.env.pre-fase6` (con `shred`; tenía las llaves de Supabase). Quedan los `bajaj-*.dump` automáticos
+  (retención de 14). La app siguió respondiendo.
+- **Repo (3, sin commitear al momento de escribir esto):** `CLAUDE.md` (Environment y Auth, el cron de Heroku → `bajaj-fx.timer`, el `postinstall`), `.env.example`
+  (túnel SSH en vez de Supabase, bucket de Lightsail), el comentario de `X-Forwarded-For` en `proxy.ts` (ahora dice que el bloqueo por IP es un solo contador para
+  todos y por qué es aceptable) y `Procfile` borrado. `lib/db.ts` y `lib/supabase-ca.ts` siguen: la CA de Supabase sobra pero no molesta.
+
+Pendiente (no se puede cerrar hoy):
+- **Ventana de estabilización:** 1–2 semanas desde el 2026-10-04 (hasta ~el 18/10), con el chequeo de «Durante» cada pocos días.
+- **Heroku** (el CLI no tenía sesión en la máquina de trabajo, así que no se pudo mirar): anotar las config vars en el gestor de claves; **confirmar que el job del
+  Scheduler esté borrado** (si queda, al reencender un dyno volvería a escribir tasas en la base vieja); borrar la app **a partir del ~11/10**, una semana después de
+  apagarla.
+- **Supabase:** dump completo final archivado (base + inventario del bucket `bajaj-imagenes`, que sigue intacto con las 1513 imágenes originales); después pausar,
+  más tarde borrar, y **rotar** la clave de la base y las access keys S3. Hasta entonces esas llaves siguen vivas en tu `.env`.
+- **Tu `.env` local** (punto 4 de «Después»): sigue con `DATABASE_URL` / `DIRECT_URL` de Supabase y con las `S3_*` del bucket viejo, así que hoy `prices:99rpm --apply`
+  y compañía escriben en la base **vieja** y los scripts de imágenes no corren. Usar el túnel y las llaves de `motokira-images` (ejemplo en `.env.example`).
+- **Docker en tu PC:** el contenedor `lightsail` (imagen `bajaj-lightsail-sim`, detenido) tiene datos de clientes restaurados; borrarlo. `bajaj-migtest` (postgres 17,
+  corriendo) probablemente sea el ensayo de la migración de ensambles: decidir si se conserva para la fase 8.
+- Opcionales: `HEROKU-CRON.md` (lo cita `scripts/update-shipping-rates.ts:15`) y los comentarios que aún dicen «Heroku» en el código (el hecho que describen, el servidor en
+  UTC, sigue valiendo: `TZ=UTC` en la unidad de systemd).
+
 ---
 
 ## Fase 8 — Migración de ensambles
@@ -542,6 +570,19 @@ Lo que salió y conviene saber:
 Va recién acá, con la base ya estable en Lightsail. Está ensayada en
 `prisma/manual/2026-10-03-ensambles.sql`. Mezclarla con la mudanza haría inservibles los
 checksums: si el esquema cambia a la vez, ya no hay contra qué comparar la copia.
+
+**Estado.** El archivo `.sql` ya está en el repo y, desde el deploy `4abfc30`, también en el servidor, **como archivo: no se aplicó**
+(`deploy.sh` no corre migraciones). Cuando llegue el momento: backup, aplicarlo a mano (ver "Migración SQL manual" en "Operación diaria") y
+recién después desplegar el código que cambie `prisma/schema.prisma`; `pnpm deploy:prod` se detiene en ese caso hasta que pases `--esquema-aplicado`.
+
+**Medido el 2026-10-04 (solo lectura, base del servidor).** La base **no está migrada** (no existen `Ensamble` ni `EnsambleComponente`; `Product.isAssembly`
+sigue). Los datos cumplen todos los chequeos previos del SQL (7 de 7 en 0): 1520 ensambles, 4197 piezas, 14 592 componentes, 106 líneas de pedido
+(105 de conjunto). **Lo que falta es el código, no el SQL:** `prisma/schema.prisma` no tiene el modelo `Ensamble`, y 29 archivos usan `isAssembly`
+y 16 usan `ProductComponent`; ninguno conoce `Ensamble`, `EnsambleComponente` ni `PedidoItem.ensambleId`. Aplicar el SQL hoy rompería la app.
+Pendiente para cerrar la fase: (1) esquema + refactor de esos archivos, con `/products/<id>` de un ensamble redirigiendo a `/ensambles/<id>`;
+(2) ensayar el SQL en una base descartable restaurada del último backup (no se re-verificó en esta sesión), con `typecheck`, `check:costeo` y
+`check:libro`; (3) el orden del corte: backup → parar `bajaj-app` → aplicar el SQL → `pnpm deploy:prod --esquema-aplicado` (si no se para,
+la app vieja corre contra la base nueva mientras compila el build).
 
 ---
 

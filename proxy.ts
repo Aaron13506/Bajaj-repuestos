@@ -24,16 +24,16 @@ import { NextRequest, NextResponse } from 'next/server'
 //    fallos por IP y la IP queda bloqueada 15 minutos; cada bloqueo nuevo duplica el
 //    castigo hasta 24 h. Un atacante pasa de intentos ilimitados por día a unos 40.
 //
-// El estado del limitador es EN MEMORIA y por instancia: con un dyno —el caso de
+// El estado del limitador es EN MEMORIA y por instancia: con una instancia —el caso de
 // hoy— es exacto; si algún día hay dos, cada uno cuenta los suyos y el techo real se
 // multiplica por la cantidad de instancias. Cuando eso pase, el contador se muda a la
-// base o a Redis. No se guarda en Config a propósito: leerlo costaría un viaje a
-// us-west-2 en CADA request, incluido el de un atacante, que es justo quien no
+// base o a Redis. No se guarda en Config a propósito: leerlo costaría una consulta a
+// la base en CADA request, incluido el de un atacante, que es justo quien no
 // debería poder hacernos gastar.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // El único interruptor que habilita las credenciales de juguete. Se declara en el
-// .env local y en ningún otro lado: Heroku no lo tiene y no debe tenerlo.
+// .env local y en ningún otro lado: el servidor (/etc/bajaj/app.env) no lo tiene y no debe tenerlo.
 const ES_LOCAL = process.env.APP_ENV === 'local'
 
 const USER_POR_DEFECTO = 'admin'
@@ -69,10 +69,13 @@ interface Intentos {
 const globalForAuth = globalThis as unknown as { intentosAuth?: Map<string, Intentos> }
 const intentos = (globalForAuth.intentosAuth ??= new Map<string, Intentos>())
 
-// Heroku APPENDEA la IP real al final de X-Forwarded-For, así que el ÚLTIMO valor es
-// el que puso el router y el único que el cliente no puede falsificar. Tomar el
-// primero —lo habitual— sería dejar que cualquiera se saltee el bloqueo mandando un
-// header inventado.
+// Detrás de oauth2-proxy (127.0.0.1) el ÚLTIMO valor de X-Forwarded-For es el que él
+// agrega, y el único que el cliente no puede falsificar: tomar el primero —lo habitual—
+// dejaría que cualquiera se saltee el bloqueo mandando un header inventado. El costo es
+// que ese último valor es SIEMPRE 127.0.0.1, o sea que el bloqueo por IP es un solo
+// contador para todos: cinco fallos de cualquiera cierran la puerta para todos. Es
+// aceptable porque a esta puerta solo llega quien ya pasó por Google (una persona); si
+// algún día entra más gente, o se agrega otra entrada, hay que revisarlo.
 function clienteIp(request: NextRequest): string {
   const xff = request.headers.get('x-forwarded-for')
   if (xff) {
