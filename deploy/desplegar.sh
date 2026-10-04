@@ -4,14 +4,16 @@
 #   pnpm deploy:prod                    muestra lo que se desplegará y pide confirmación
 #   pnpm deploy:prod --dry              solo comprueba y muestra; no sube ni toca el servidor
 #   pnpm deploy:prod -y                 sin preguntar (hace falta si no hay terminal)
-#   pnpm deploy:prod --esquema-aplicado confirma que el SQL de prisma/manual/ ya se aplicó a mano
+#   pnpm deploy:prod --esquema-aplicado confirma que el cambio de esquema ya se aplicó a mano en la base
 #
 # Qué comprueba antes de tocar nada, porque el servidor solo ve lo que está en GitHub:
 #   - estás en master y no hay cambios sin commitear en archivos versionados (si los hubiera,
 #     el deploy "funcionaría" y la app seguiría sin ellos);
 #   - tu master no está detrás de origin (sería un push rechazado o un merge a ciegas);
-#   - si lo que se va a desplegar toca el esquema o prisma/manual/, se detiene: deploy.sh no
-#     corre migraciones, y una app nueva contra una base vieja arranca rota.
+#   - si lo que se va a desplegar cambia prisma/schema.prisma, se detiene: deploy.sh no corre
+#     migraciones, y una app nueva (su cliente de Prisma sale de ese archivo) contra una base
+#     vieja arranca rota. Un .sql en prisma/manual/ solo avisa: es un archivo, deploy.sh no lo
+#     ejecuta, y lo que lo vuelve peligroso es el cambio de esquema que lo acompaña.
 # Al terminar compara el commit del servidor con el tuyo y pide la app por HTTP (401 = viva,
 # la puerta es el Basic Auth).
 #
@@ -63,11 +65,14 @@ git log --oneline --no-decorate "$srv_head..$local_head"
 echo
 cambios=$(git diff --name-only "$srv_head" "$local_head")
 
-if grep -Eq '^(prisma/schema\.prisma|prisma/manual/)' <<<"$cambios"; then
-  echo "⚠ Este deploy toca el esquema o prisma/manual/:"
-  grep -E '^(prisma/schema\.prisma|prisma/manual/)' <<<"$cambios" | sed 's/^/    /'
-  (( esquema_ok )) || die "deploy.sh no corre migraciones. Aplicá el SQL en el servidor (con backup) y repetí con --esquema-aplicado."
+if grep -Eq '^prisma/schema\.prisma$' <<<"$cambios"; then
+  echo "⚠ Este deploy cambia prisma/schema.prisma."
+  (( esquema_ok )) || die "deploy.sh no corre migraciones. Aplicá el cambio en la base (SQL manual, con backup) y repetí con --esquema-aplicado."
   echo "  (--esquema-aplicado: seguimos)"
+fi
+if grep -Eq '^prisma/manual/' <<<"$cambios"; then
+  echo "ℹ Trae SQL en prisma/manual/ (deploy.sh no lo aplica; se corre a mano, con backup, cuando toque):"
+  grep -E '^prisma/manual/' <<<"$cambios" | sed 's/^/    /'
 fi
 if grep -Eq '^deploy/(systemd/|setup\.sh|oauth2-proxy\.cfg)' <<<"$cambios"; then
   echo "⚠ Cambió la infraestructura (deploy/systemd, setup.sh u oauth2-proxy.cfg): deploy.sh NO la reinstala; hay que aplicarla a mano en el servidor."
