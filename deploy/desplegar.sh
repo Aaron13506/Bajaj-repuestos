@@ -41,7 +41,9 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 [[ "$(git branch --show-current)" == "$RAMA" ]] || die "Estás en '$(git branch --show-current)': se despliega desde $RAMA."
 
-sucio=$(git status --porcelain --untracked-files=no)
+# autocrlf=true: en Windows ya es así; desde WSL (donde no está) un checkout con CRLF figuraría como
+# "modificado" en cada archivo aunque el contenido sea idéntico, y el script nunca pasaría.
+sucio=$(git -c core.autocrlf=true status --porcelain --untracked-files=no)
 [[ -z "$sucio" ]] || { echo "$sucio"; die "Hay cambios sin commitear en archivos versionados (arriba). El servidor no los vería."; }
 
 git fetch --quiet origin "$RAMA"
