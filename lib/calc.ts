@@ -892,7 +892,9 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
     ? fobUsd
     : modo === 'maritimo'
       ? (enBarco.length > 0 ? num(cfg, 'maritimo_fee_usd', 0) : 0)
-      : (shoppreLines.length > 0 ? processingInr / inrUsd : 0)
+      // La factura de Shoppre ya trae el processing adentro: con ella cargada, sumarlo otra
+      // vez lo contaría doble.
+      : (shoppreLines.length > 0 && airFacturadoUsd == null ? processingInr / inrUsd : 0)
 
   // ── El giro al proveedor ──────────────────────────────────────────────────
   // Una caja, un proveedor, un giro: le llega una factura (mercancía + su tramo) y se le

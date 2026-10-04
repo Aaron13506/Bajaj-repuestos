@@ -20,6 +20,10 @@ const usd = (n: number) => `$${n.toFixed(2)}`
 export default function RegistrarCompraPicker({ items, action, methods, collapsible = false }: Props) {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [abierto, setAbierto] = useState(!collapsible)
+  // Qué clientes tienen el detalle por pieza desplegado. En la ficha del envío arrancan todos
+  // cerrados: casi siempre se paga todo junto con "Seleccionar todo" y el precio por pieza o
+  // por cliente es opcional, así que el detalle no tiene que ocupar la pantalla.
+  const [desplegados, setDesplegados] = useState<Set<number>>(new Set())
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   // `isPending` recién se ve en el próximo render: un segundo submit que entre antes pasaría
@@ -38,6 +42,15 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
     }
     return [...porPedido.values()]
   }, [items])
+
+  function toggleDesplegado(pedidoId: number) {
+    setDesplegados(prev => {
+      const next = new Set(prev)
+      if (next.has(pedidoId)) next.delete(pedidoId)
+      else next.add(pedidoId)
+      return next
+    })
+  }
 
   function toggleItem(id: number) {
     setSelected(prev => {
@@ -124,6 +137,8 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
             const ids = g.items.map(i => i.id)
             const todos = ids.every(id => selected.has(id))
             const algunos = !todos && ids.some(id => selected.has(id))
+            const detalle = !collapsible || desplegados.has(g.pedidoId)
+            const seleccionadosGrupo = ids.filter(id => selected.has(id)).length
             return (
               <div key={g.pedidoId}>
                 <div className="px-4 py-2 bg-gray-50 flex items-center gap-3">
@@ -134,14 +149,33 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
                     onChange={e => toggleGrupo(ids, e.target.checked)}
                     className="h-4 w-4 rounded border-gray-300"
                   />
-                  <span className="text-sm font-semibold text-gray-700">
-                    #{g.pedidoId} {g.clientName}
-                  </span>
-                  <span className="text-xs text-gray-400">
-                    {g.items.length} {g.items.length === 1 ? 'ítem' : 'ítems'} · estimado {usd(g.items.reduce((s, i) => s + i.estimadoUsd, 0))}
-                  </span>
+                  {collapsible ? (
+                    <button
+                      type="button"
+                      onClick={() => toggleDesplegado(g.pedidoId)}
+                      className="flex items-center gap-2 text-left flex-1 group"
+                    >
+                      <span className={`text-gray-400 text-[10px] transition-transform shrink-0 ${detalle ? 'rotate-90' : ''}`}>▶</span>
+                      <span className="text-sm font-semibold text-gray-700 group-hover:text-blue-600">
+                        #{g.pedidoId} {g.clientName}
+                      </span>
+                      <span className="text-xs text-gray-400">
+                        {g.items.length} {g.items.length === 1 ? 'ítem' : 'ítems'} · estimado {usd(g.items.reduce((s, i) => s + i.estimadoUsd, 0))}
+                        {!detalle && seleccionadosGrupo > 0 && ` · ${seleccionadosGrupo} tildados`}
+                      </span>
+                    </button>
+                  ) : (
+                    <>
+                      <span className="text-sm font-semibold text-gray-700">
+                        #{g.pedidoId} {g.clientName}
+                      </span>
+                      <span className="text-xs text-gray-400">
+                        {g.items.length} {g.items.length === 1 ? 'ítem' : 'ítems'} · estimado {usd(g.items.reduce((s, i) => s + i.estimadoUsd, 0))}
+                      </span>
+                    </>
+                  )}
                 </div>
-                <table className="w-full text-sm">
+                {detalle && <table className="w-full text-sm">
                   <tbody className="divide-y divide-gray-50">
                     {g.items.map(i => (
                       <tr key={i.id} className="hover:bg-gray-50">
@@ -163,7 +197,7 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </table>}
               </div>
             )
           })}
@@ -244,8 +278,9 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
       {abierto && (
         <>
           <p className="text-xs text-gray-400 mb-3">
-            Tildá las que pagaste —una, varias, o &quot;Seleccionar todo&quot;— y poné el total: no
-            hace falta precio exacto por pieza, el reparto es proporcional al estimado del catálogo.
+            Lo normal es &quot;Seleccionar todo&quot; y poner el total. Si pagaste por partes, desplegá un
+            cliente para tildar piezas sueltas: no hace falta precio exacto por pieza, el reparto es
+            proporcional al estimado del catálogo.
           </p>
           <form onSubmit={handleSubmit}>{contenido}</form>
         </>

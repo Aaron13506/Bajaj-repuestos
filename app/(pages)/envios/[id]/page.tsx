@@ -19,7 +19,9 @@ import { inboundDe, inboundMeta } from '@/lib/inbound'
 import { modoDeEnvio, MODOS } from '@/lib/modo'
 import EnvioMaritimo from './maritimo'
 import { lookupDeConjuntos, expandCostPieces, repartirCostoReal } from '@/lib/envio-build'
-import { cobranzaEnvio, type CobranzaEnvio, type CobranzaPedido } from '@/lib/clientes'
+import { financiamientoEnvio, type FinanciamientoEnvio } from '@/lib/financiamiento-envio'
+import FleteRealCard, { type FilaFlete } from '@/components/FleteRealCard'
+import { TRAMOS_FLETE, CATEGORIAS_FLETE, estadoFlete } from '@/lib/flete-real'
 import { itemsSinCostoRealDeEnvio, CATEGORIAS_PAGO_PROVEEDOR } from '@/lib/movimientos'
 import type { BundlePiece } from '@/lib/bundle'
 import { toConfigMap } from '@/lib/config'
@@ -34,6 +36,9 @@ import {
   deleteEnvio,
   saveCostosProveedor,
   saveMedidasCaja,
+  guardarFleteReal,
+  pagarFlete,
+  deshacerPagoFlete,
   saveItemChanges,
   registrarPagoProveedor,
 } from '../actions'
@@ -114,7 +119,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   if (!ruta) notFound()
   if (ruta.modo === 'maritimo_cbm') return <EnvioMaritimo envioId={id} />
 
-  const [envio, cfgRows, sinAsignar, suppliers, pedidosCaja, despiece99, repartidos, egresosCaja, itemsPendientesCosto] = await Promise.all([
+  const [envio, cfgRows, sinAsignar, suppliers, pedidosCaja, despiece99, repartidos, egresosCaja, itemsPendientesCosto, pagosFlete] = await Promise.all([
     db.envio.findUnique({
       where: { id },
       include: {
@@ -195,6 +200,13 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     // Piezas de ESTA caja sin costRealUsd cargado, para el picker de "cuánto pagué de
     // verdad" — corregir peso/dimensión de la caja no dice cuánto costó lo de adentro.
     itemsSinCostoRealDeEnvio(id),
+    // Los pagos de flete de esta caja: el estado "pagado" de cada tramo sale del libro, nunca de
+    // un campo en Envio (un pago borrado desde contabilidad no puede dejar la ficha mintiendo).
+    db.movimiento.findMany({
+      where: { envioId: id, tipo: 'egreso', categoria: { in: [...CATEGORIAS_FLETE] } },
+      select: { id: true, fecha: true, monto: true, metodoPago: true, categoria: true },
+      orderBy: [{ fecha: 'asc' }, { id: 'asc' }],
+    }),
   ])
 
   if (!envio) notFound()
@@ -335,15 +347,19 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     ? calcEnvio(items, cfg, { proveedor, modo: modoEnvio })
     : null
 
-  // Lista de compra: consolida las piezas por SKU (o nombre si no tiene SKU) sumando
-  // cantidades, para saber exactamente qué y cuánto comprar. Separada por origen,
-  // porque son dos órdenes de compra distintas a dos proveedores distintos.
+  // Contenido de la caja consolidado por SKU (o nombre si no tiene SKU), separado por origen.
+  // Cada pieza se valora como la valora el costeo: el precio del proveedor de su línea (USD)
+  // si lo tiene y, si no, el ₹ de 99rpm. Mostrar siempre el ₹ del catálogo daba, en una caja
+  // de Garuda, un total que no era lo que se iba a pagar.
   const inrUsd = parseFloat(cfg.inr_usd_rate ?? '95')
   interface BuyRow {
     sku: string | null
     name: string
     qty: number
-    unitInr: number | null
+    unit: number | null
+    moneda: 'INR' | 'USD'
+    totalUsd: number
+    // Parte del total que está en rupias, para poder decir cuántas hay que cambiar.
     totalInr: number
     missingPrice: boolean
   }
@@ -354,23 +370,27 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
       const key = p.sku ?? p.name
       let row = buyMap.get(key)
       if (!row) {
-        row = { sku: p.sku, name: p.name, qty: 0, unitInr: p.priceInr, totalInr: 0, missingPrice: false }
+        row = { sku: p.sku, name: p.name, qty: 0, unit: null, moneda: 'INR', totalUsd: 0, totalInr: 0, missingPrice: false }
         buyMap.set(key, row)
       }
       row.qty += p.quantity
-      if (p.priceInr != null) {
+      if (p.priceUsd != null) {
+        if (row.unit == null) { row.unit = p.priceUsd; row.moneda = 'USD' }
+        row.totalUsd += p.priceUsd * p.quantity
+      } else if (p.priceInr != null) {
+        if (row.unit == null) { row.unit = p.priceInr; row.moneda = 'INR' }
         row.totalInr += p.priceInr * p.quantity
-        if (row.unitInr == null) row.unitInr = p.priceInr
+        row.totalUsd += (p.priceInr * p.quantity) / inrUsd
       } else {
         row.missingPrice = true
       }
     }
-    return Array.from(buyMap.values()).sort((a, b) => b.totalInr - a.totalInr)
+    return Array.from(buyMap.values()).sort((a, b) => b.totalUsd - a.totalUsd)
   }
   const buyIndia = buildBuyList('india')
   const buyChina = buildBuyList('china')
+  const buyTotalUsd = buyIndia.reduce((s, r) => s + r.totalUsd, 0)
   const buyTotalInr = buyIndia.reduce((s, r) => s + r.totalInr, 0)
-  const buyTotalUsd = buyTotalInr / inrUsd
   const buyUnits = buyIndia.reduce((s, r) => s + r.qty, 0)
 
   // Lo que TODAVÍA falta comprar: las mismas piezas, pero solo de las líneas que siguen
@@ -460,15 +480,35 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   for (const it of envio.items) {
     saleByItem.set(it.id, parseFloat(it.salePrice.toString()) * it.quantity)
   }
-  const saleTotal = Array.from(saleByItem.values()).reduce((s, v) => s + v, 0)
-
-  // Cobranza: contra el landed de la caja, cuánto ya entró y cuánto falta que entre.
-  const cobranza = cobranzaEnvio(pedidosCaja, envio.id)
 
   const landedByItem = new Map<number, number>()
   for (let i = 0; i < calc.lines.length; i++) {
     const itemId = allPieces[i].itemId
     landedByItem.set(itemId, (landedByItem.get(itemId) ?? 0) + calc.lines[i].landedUsd)
+  }
+
+  // Quién pone la plata: el costo de la caja partido en clientes / stock propio / sin aprobar,
+  // con el adelanto prorrateado por la parte del pedido que viaja acá.
+  const financiamiento = financiamientoEnvio(
+    envio.items.map(it => ({
+      pedidoId: it.pedidoId,
+      landedUsd: landedByItem.get(it.id) ?? 0,
+      ventaUsd: saleByItem.get(it.id) ?? 0,
+    })),
+    pedidosCaja,
+  )
+
+  // Piezas sin peso o sin medidas, por línea de pedido: el aviso vive en la tabla de ítems,
+  // junto a quien la pidió, que es donde se puede ir a cargarlas.
+  const faltantesByItem = new Map<number, { sinPeso: number; sinMedidas: number }>()
+  for (let i = 0; i < calc.lines.length; i++) {
+    const l = calc.lines[i]
+    if (!l.missingWeight && !l.missingDims) continue
+    const itemId = allPieces[i].itemId
+    const f = faltantesByItem.get(itemId) ?? { sinPeso: 0, sinMedidas: 0 }
+    if (l.missingWeight) f.sinPeso++
+    if (l.missingDims) f.sinMedidas++
+    faltantesByItem.set(itemId, f)
   }
 
   // Datos serializables para la tabla (client component). Se le pasa todo resuelto para
@@ -486,6 +526,10 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     shippingStatus: it.shippingStatus,
     isLanded: it.isLanded,
     shippingStatusAt: it.shippingStatusAt?.toISOString() ?? null,
+    // Solo las piezas sueltas de un pedido propio mueven Product.stock (ver saveItemChanges).
+    stockUnidades: it.pedido.tipo === 'propio' && it.productId != null ? it.quantity : 0,
+    sinPeso: faltantesByItem.get(it.id)?.sinPeso ?? 0,
+    sinMedidas: faltantesByItem.get(it.id)?.sinMedidas ?? 0,
   }))
 
   // Lo confirmado (status='pedido') es lo que hay que comprar sí o sí; los
@@ -531,38 +575,85 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   const anyMissing = calc.lines.some(l => l.missingWeight || l.missingDims)
   const tierHint = airTierHint(calc.air.chargeableKg, calc.air.costPerKgUsd, calc.air.cajas, calc.air.capKg)
   const ratioPct = calc.air.ratioVW != null ? calc.air.ratioVW * 100 : null
-  // El mismo flete calculado sobre las piezas sueltas: la cuenta que se hacía antes de
-  // saber cuánto pesaba y medía la caja de verdad.
-  const shippingNeto = calcNeto ? calcNeto.airUsd + calcNeto.maritimeUsd + calcNeto.fobUsd : null
-  // El flete SIN pisar por el facturado — para el panel "facturado vs. calculado" de abajo,
-  // que necesita seguir mostrando la tabla aunque el landed ya use el número real.
-  const shippingCalculado = calc.airCalculadoUsd + calc.maritimeCalculadoUsd + calc.fobUsd
-  // El tramo marítimo (USA→Venezuela) por separado del aéreo: el FOB viaja con él porque
-  // es parte de lo que cuesta traer la caja por esa vía, no del tramo a USA. Igual que
-  // arriba, es el estimado de tabla — no el facturado — para esa misma comparación.
-  const marEst = calc.maritimeCalculadoUsd + calc.fobUsd
-  const marNeto = calcNeto ? calcNeto.maritimeUsd + calcNeto.fobUsd : null
-  // El peso siempre sube al medir la caja real (el catálogo no puede sobreestimar), pero el
-  // volumen no tiene esa garantía: piezas que "suman" mucho hueco en el catálogo pueden
-  // terminar acomodándose más compactas de lo que la cuenta por separado asumía, y el
-  // marítimo (que se cobra por volumen) puede salir MÁS BARATO que la suma. El signo tiene
-  // que reflejar esa dirección real, nunca asumir que "+" es la única posible.
-  const fleteDiffPct = (base: number, real: number): { texto: string; tone: 'amber' | 'green' | 'neutral' } => {
-    if (base <= 0) return { texto: '—', tone: 'neutral' }
-    const pct = ((real / base) - 1) * 100
-    return { texto: `${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%`, tone: pct >= 0 ? 'amber' : 'green' }
-  }
-  const fleteDiffCls: Record<'amber' | 'green' | 'neutral', string> = {
-    amber: 'text-amber-700',
-    green: 'text-green-700',
-    neutral: 'text-gray-300',
-  }
   const fmtBound =
     calc.air.binding === 'weight'
       ? { label: 'Atado por PESO', cls: 'bg-green-100 text-green-700' }
       : { label: 'Atado por VOLUMEN', cls: 'bg-red-100 text-red-700' }
 
   const meta = inboundMeta(inboundCaja)
+
+  // Una fila por tramo que existe en ESTA caja. En una caja que despacha el proveedor no hay
+  // flete aéreo que cargar: ese tramo es `tramoUsd` y se le paga a él dentro del giro.
+  const pagosDe = (categoria: string) =>
+    pagosFlete
+      .filter(m => m.categoria === categoria)
+      .map(m => ({
+        id: m.id,
+        fecha: m.fecha.toISOString(),
+        monto: parseFloat(m.monto.toString()),
+        metodoPago: m.metodoPago,
+      }))
+  const filasFlete: FilaFlete[] = []
+  if (!esCbm) {
+    if (inboundCaja !== 'cotizado') {
+      filasFlete.push({
+        tramo: 'aereo', titulo: TRAMOS_FLETE.aereo.titulo, icono: TRAMOS_FLETE.aereo.icono,
+        facturadoUsd: costoRealAereo, calculadoUsd: calc.airCalculadoUsd,
+        nota: 'La factura de Shoppre incluye el processing y no lleva seguro.',
+        pagos: pagosDe(TRAMOS_FLETE.aereo.categoria),
+        guardar: guardarFleteReal.bind(null, envio.id, 'aereo'),
+        pagar: pagarFlete.bind(null, envio.id, 'aereo'),
+        deshacer: deshacerPagoFlete.bind(null, envio.id),
+      })
+    }
+    filasFlete.push({
+      tramo: 'maritimo', titulo: TRAMOS_FLETE.maritimo.titulo, icono: TRAMOS_FLETE.maritimo.icono,
+      facturadoUsd: costoRealMaritimo, calculadoUsd: calc.maritimeCalculadoUsd + calc.fobUsd,
+      pagos: pagosDe(TRAMOS_FLETE.maritimo.categoria),
+      guardar: guardarFleteReal.bind(null, envio.id, 'maritimo'),
+      pagar: pagarFlete.bind(null, envio.id, 'maritimo'),
+      deshacer: deshacerPagoFlete.bind(null, envio.id),
+    })
+  }
+
+  // Qué parte del landed sale de datos reales y qué parte sigue siendo estimada. Una pieza con
+  // costo real manda su costo; el flete es real cuando hay factura; el tramo del proveedor y las
+  // comisiones, cuando se cargaron.
+  const lineasConCostoReal = envio.items.filter(it => it.costRealUsd != null).length
+  const realProductoUsd = allPieces.reduce(
+    (acc, p, i) => acc + (p.costoRealUsd != null ? calc.lines[i].productCostUsd : 0), 0)
+  const realUsd =
+    realProductoUsd +
+    (costoRealAereo != null ? calc.air.costUsd : 0) +
+    (calc.tramo && tramoUsd != null ? calc.tramo.costUsd : 0) +
+    (costoRealMaritimo != null ? calc.maritimeUsd : 0) +
+    (calc.giro ? (calc.giro.salienteCargada ? calc.giro.comisionSalienteUsd : 0) + (calc.giro.entranteCargada ? calc.giro.comisionEntranteUsd : 0) : 0)
+  const realPct = calc.landedUsd > 0 ? Math.min(realUsd / calc.landedUsd, 1) * 100 : 0
+
+  // Pasos de la caja: qué falta hacer con ella. Nada se guarda, cada paso sale de datos que ya
+  // existen (líneas, caja pesada, libro).
+  const pagadoTramo = (cat: string) =>
+    pagosFlete.filter(m => m.categoria === cat).reduce((acc, m) => acc + parseFloat(m.monto.toString()), 0)
+  const compradas = envio.items.filter(it => it.shippingStatus !== 'pendiente').length
+  const entregadas = envio.items.filter(it => it.shippingStatus === 'entregado').length
+  const pasos: { texto: string; hecho: boolean }[] = [
+    { texto: 'Asignada', hecho: envio.items.length > 0 },
+    { texto: `Comprada ${compradas}/${envio.items.length}`, hecho: envio.items.length > 0 && compradas === envio.items.length },
+    { texto: 'Pesada', hecho: calc.caja.medido },
+  ]
+  if (calc.giro && calc.giro.costoTotalUsd > 0) {
+    pasos.push({ texto: 'Proveedor pagado', hecho: pagadoProveedor >= calc.giro.costoTotalUsd - 0.01 })
+  }
+  if (!esCbm) {
+    if (inboundCaja !== 'cotizado') {
+      const e = estadoFlete(costoRealAereo, pagadoTramo(TRAMOS_FLETE.aereo.categoria)).clave
+      pasos.push({ texto: 'Flete aéreo pagado', hecho: e === 'pagado' || e === 'de_mas' })
+    }
+    const em = estadoFlete(costoRealMaritimo, pagadoTramo(TRAMOS_FLETE.maritimo.categoria)).clave
+    pasos.push({ texto: 'Flete marítimo pagado', hecho: em === 'pagado' || em === 'de_mas' })
+  }
+  pasos.push({ texto: `Entregada ${entregadas}/${envio.items.length}`, hecho: envio.items.length > 0 && entregadas === envio.items.length })
+  const proximoPaso = pasos.find(p => !p.hecho)
 
   return (
     <div className="max-w-screen-2xl">
@@ -589,6 +680,25 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
             </span>
           </div>
           {envio.notas && <p className="text-sm text-gray-500 mt-1">{envio.notas}</p>}
+          {/* Qué le falta a la caja, derivado de lo que ya hay cargado. */}
+          {items.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+              {pasos.map(p => (
+                <span
+                  key={p.texto}
+                  className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                    p.hecho
+                      ? 'bg-green-100 text-green-700'
+                      : p === proximoPaso
+                        ? 'bg-amber-100 text-amber-800'
+                        : 'bg-gray-100 text-gray-400'
+                  }`}
+                >
+                  {p.hecho ? '✓' : p === proximoPaso ? '●' : '○'} {p.texto}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {/* El flete ya no se "guarda": la lista de envíos lo calcula en vivo con el mismo
@@ -608,14 +718,10 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
         </div>
       ) : (
         <>
-          {/* La plata va primero: antes de mirar cuánto cuesta la caja, la pregunta es
-              cuánta de esa plata ya está en la mano. */}
-          <Cobranza data={cobranza} landedUsd={calc.landedUsd} />
-
-          {/* Los paneles de costo son angostos por naturaleza (listas de pares
-              etiqueta/valor): en pantalla ancha van lado a lado en vez de apilarse y
-              empujar la tabla de ítems fuera de la vista. */}
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-4 items-start">
+          {/* Arriba, lado a lado, lo que se LEE y no cambia de alto: el tramo y el costo. Todo lo
+              que se edita va debajo a todo el ancho, para que al crecer una tarjeta (la
+              comparación de la caja, un aviso) no reacomode a la vecina. */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-4 items-stretch">
           {esCbm ? (
           /* Modo CBM: no hay tramos a USA. Lo único que gobierna el costo es cuánto
              volumen lleva la caja contra el mínimo que la naviera factura igual. */
@@ -699,19 +805,47 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
             )}
           </div>
           ) : (
-          <>
-          {/* Tramo India → USA (ShipGlobal): el único que cotiza por tabla escalón */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          /* Tramo India → USA (ShipGlobal): el único que cotiza por tabla escalón */
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 h-full">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-                🇮🇳 Tramo India → USA · peso cobrable
+                {calc.air.items === 0 && calc.tramo
+                  ? `✈️ Tramo ${calc.tramo.nombre} → USA · DDP`
+                  : '🇮🇳 Tramo India → USA · peso cobrable'}
               </h2>
               {calc.air.items > 0 && (
                 <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${fmtBound.cls}`}>{fmtBound.label}</span>
               )}
             </div>
-            {calc.air.items === 0 ? (
-              <p className="text-sm text-gray-400">No hay piezas de India en este envío.</p>
+            {calc.air.items === 0 && calc.tramo ? (
+              /* Caja que despacha el proveedor: no hay tabla escalón ni peso cobrable, el
+                 tramo es el total que él facturó. */
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div>
+                    <p className="text-xs text-gray-400 mb-1">Piezas</p>
+                    <p className="text-xl font-bold font-mono text-gray-900">{calc.tramo.leg.items}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400 mb-1">Peso real</p>
+                    <p className="text-xl font-bold font-mono text-gray-900">{kg(calc.tramo.leg.realKg)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400 mb-1">Volumétrico</p>
+                    <p className="text-xl font-bold font-mono text-gray-900">{kg(calc.tramo.leg.volKg)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400 mb-1">Facturado / kg</p>
+                    <p className="text-xl font-bold font-mono text-gray-900">{usd(calc.tramo.leg.costPerKgUsd)}</p>
+                  </div>
+                </div>
+                <p className="text-xs mt-4 px-3 py-2 rounded-lg bg-blue-50 text-blue-700">
+                  Despacha {calc.tramo.nombre} a USA: no hay tarifa por kilo, el tramo es el total que
+                  facturó ({usd(calc.tramo.costUsd)}). Se carga en la tarjeta del proveedor, más abajo.
+                </p>
+              </>
+            ) : calc.air.items === 0 ? (
+              <p className="text-sm text-gray-400">No hay piezas que viajen por Shoppre en este envío.</p>
             ) : (
               <>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -768,10 +902,239 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
 
             {anyMissing && (
               <p className="text-xs mt-3 px-3 py-2 rounded-lg bg-amber-50 text-amber-700">
-                ⚠️ Algunas piezas no tienen peso o dimensiones cargadas — el cálculo las subestima. Revisá las marcadas abajo.
+                ⚠️ Algunas piezas no tienen peso o dimensiones cargadas — el cálculo las subestima. Revisá las marcadas en la tabla de ítems.
               </p>
             )}
           </div>
+
+          )}
+
+          {/* Desglose de costo. Cada fila dice si el número es REAL (factura, costo pagado) o
+              ESTIMADO (tabla, catálogo): sin eso, cargar un dato no se nota. */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 h-full">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Costo del envío (landed)</h2>
+              <span
+                title="Porción del costo total que sale de datos reales (costo pagado de las piezas, facturas, tramo y comisiones cargados)"
+                className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                  realPct >= 99.5 ? 'bg-green-100 text-green-700' : realPct >= 50 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
+                }`}
+              >
+                Real al {realPct.toFixed(0)}%
+              </span>
+            </div>
+            <dl className="space-y-2 text-sm">
+              <Row
+                label="Costo de producto"
+                value={usd(calc.productCostUsd)}
+                tag={
+                  lineasConCostoReal === 0
+                    ? { texto: 'estimado', tono: 'est' }
+                    : lineasConCostoReal === envio.items.length
+                      ? { texto: 'real', tono: 'real' }
+                      : { texto: `${lineasConCostoReal} de ${envio.items.length} líneas reales`, tono: 'est' }
+                }
+              />
+              {esCbm ? (
+                <>
+                  <Row
+                    label={`Marítimo India→VEN · ${m3(calc.billableM3)} × ${usd(calc.cbmRatePerM3)}/m³`}
+                    value={usd(calc.maritimeUsd)}
+                  />
+                  <Row label="FOB India (fijo por embarque)" value={usd(calc.fobUsd)} />
+                </>
+              ) : (
+                <>
+                  {calc.air.items > 0 && (
+                    <Row
+                      label={`Aéreo Shoppre→USA · ${calc.air.chargeableKg.toFixed(1)} kg cobrables${calc.air.cajas > 1 ? ` en ${calc.air.cajas} cajas (${calc.air.cajasKg.map(k => `${k} kg`).join(' + ')})` : ''}`}
+                      value={usd(calc.air.costUsd)}
+                      tag={costoRealAereo != null
+                        ? { texto: 'facturado', tono: 'real' }
+                        : { texto: calc.caja.medido ? 'estimado s/ caja real' : 'estimado', tono: 'est' }}
+                    />
+                  )}
+                  {calc.tramo && (
+                    <Row
+                      label={`Envío ${calc.tramo.nombre}→USA (DDP, total)`}
+                      value={usd(calc.tramo.costUsd)}
+                      tag={tramoUsd != null ? { texto: 'facturado', tono: 'real' } : { texto: 'sin cargar', tono: 'falta' }}
+                    />
+                  )}
+                  <Row
+                    label="Marítimo USA→VEN (volumen)"
+                    value={usd(calc.maritimeUsd)}
+                    tag={costoRealMaritimo != null
+                      ? { texto: 'facturado', tono: 'real' }
+                      : { texto: 'estimado por ft³', tono: 'est' }}
+                  />
+                  {/* Seguro y processing son cargos de Shoppre: solo los paga lo que pasa por su
+                      depósito, y solo se muestran si valen algo (la factura ya trae el processing
+                      y Shoppre no cobra seguro: una fila en $0.00 es un cargo que no existe). */}
+                  {calc.insuranceUsd > 0 && <Row label="Seguro Shoppre" value={usd(calc.insuranceUsd)} />}
+                  {calc.processingUsd > 0 && (
+                    <Row label="Processing Shoppre" value={usd(calc.processingUsd)} tag={{ texto: 'estimado', tono: 'est' }} />
+                  )}
+                  {calc.giro && (
+                    <>
+                      <Row
+                        label={`Comisión saliente · ${calc.giro.nombre}`}
+                        value={calc.giro.salienteCargada ? usd(calc.giro.comisionSalienteUsd) : '—'}
+                        tag={calc.giro.salienteCargada ? { texto: 'real', tono: 'real' } : { texto: 'sin cargar', tono: 'falta' }}
+                      />
+                      <Row
+                        label={`Comisión entrante · ${calc.giro.nombre}`}
+                        value={calc.giro.entranteCargada ? usd(calc.giro.comisionEntranteUsd) : '—'}
+                        tag={calc.giro.entranteCargada ? { texto: 'real', tono: 'real' } : { texto: 'sin cargar', tono: 'falta' }}
+                      />
+                    </>
+                  )}
+                </>
+              )}
+              {calc.landedDirectUsd > 0 && (
+                <Row label="Compras puestas en Venezuela (no viajan)" value={usd(calc.landedDirectUsd)} />
+              )}
+              <div className="flex justify-between pt-3 mt-2 border-t-2 border-gray-200">
+                <dt className="font-bold text-gray-900">Costo total landed</dt>
+                <dd className="font-bold text-xl font-mono text-blue-700">{usd(calc.landedUsd)}</dd>
+              </div>
+              {/* El margen es SOLO de las líneas de cliente: la venta del stock propio es una
+                  estimación de cuando se armó el pedido, no una venta, e inflaba el margen con
+                  plata que todavía no existe. El stock propio se muestra a costo. */}
+              {financiamiento.clientes.ventaUsd > 0 && (
+                <>
+                  <Row label="Venta a clientes" value={usd(financiamiento.clientes.ventaUsd)} />
+                  <div className="flex justify-between">
+                    <dt className="font-semibold text-gray-700">Margen bruto (clientes)</dt>
+                    <dd className={`font-semibold font-mono ${financiamiento.margenClientesUsd >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                      {usd(financiamiento.margenClientesUsd)}
+                      {' '}
+                      <span className="text-xs text-gray-400">
+                        ({((financiamiento.margenClientesUsd / financiamiento.clientes.ventaUsd) * 100).toFixed(0)}%)
+                      </span>
+                    </dd>
+                  </div>
+                </>
+              )}
+              {financiamiento.propio.costoUsd > 0 && (
+                <Row label="Inventario propio (a costo)" value={usd(financiamiento.propio.costoUsd)} />
+              )}
+            </dl>
+          </div>
+          </div>
+
+          {/* La caja real. Es el único dato del envío que no se puede derivar del
+              catálogo: el catálogo tiene la pieza desnuda, la balanza pesa el bulto. */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+                📦 Caja real · peso y medidas
+              </h2>
+              <span
+                className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                  calc.caja.medido ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                }`}
+              >
+                {calc.caja.medido ? 'MEDIDA' : 'SIN MEDIR'}
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 mb-4">
+              Copiá lo que dice el panel del transportista: <em>Actual Weight</em> y{' '}
+              <em>Box Dimensions</em>. Estos números <strong>reemplazan</strong> a la suma
+              de las piezas — es lo que se factura.
+            </p>
+
+            <FormConResultado action={saveMedidasCaja.bind(null, envio.id)}>
+              <div className="flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Peso real (kg)</label>
+                  <input
+                    type="number" step="0.01" min="0" name="pesoRealKg"
+                    defaultValue={medidas.pesoKg ?? ''}
+                    placeholder={calc.netRealKg > 0 ? calc.netRealKg.toFixed(2) : '0.00'}
+                    className="w-28 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Caja L × A × H (cm)</label>
+                  <div className="flex items-center gap-1">
+                    {(['cajaL', 'cajaA', 'cajaH'] as const).map((f, i) => (
+                      <div key={f} className="flex items-center gap-1">
+                        {i > 0 && <span className="text-gray-300 text-sm">×</span>}
+                        <input
+                          type="number" step="0.1" min="0" name={f}
+                          defaultValue={envio[f] ?? ''}
+                          placeholder="0"
+                          className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <PendingButton
+                  className="px-4 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Guardar
+                </PendingButton>
+              </div>
+            </FormConResultado>
+
+            {calc.caja.medido && (
+              <div className="mt-5">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs text-gray-400 uppercase tracking-wide">
+                      <th className="text-left font-medium pb-1"></th>
+                      <th className="text-right font-medium pb-1">Suma de piezas</th>
+                      <th className="text-right font-medium pb-1">Caja real</th>
+                      <th className="text-right font-medium pb-1">Falta en el catálogo</th>
+                    </tr>
+                  </thead>
+                  <tbody className="font-mono">
+                    <tr className="border-t border-gray-100">
+                      <td className="py-2 font-sans text-gray-600">Peso</td>
+                      <td className="py-2 text-right text-gray-400">{kg(calc.netRealKg)}</td>
+                      <td className="py-2 text-right text-gray-900 font-semibold">{kg(calc.realKg)}</td>
+                      <td className="py-2 text-right text-amber-700">{kg(calc.realKg - calc.netRealKg)}</td>
+                    </tr>
+                    <tr className="border-t border-gray-100">
+                      <td className="py-2 font-sans text-gray-600">Volumen</td>
+                      <td className="py-2 text-right text-gray-400">{m3(calc.netVolumeM3)}</td>
+                      <td className="py-2 text-right text-gray-900 font-semibold">{m3(calc.volumeM3)}</td>
+                      <td className="py-2 text-right text-amber-700">{m3(calc.volumeM3 - calc.netVolumeM3)}</td>
+                    </tr>
+                    {!esCbm && (
+                      <tr className="border-t border-gray-100">
+                        <td className="py-2 font-sans text-gray-600">Cobrable max(W,V)</td>
+                        <td className="py-2 text-right text-gray-400">{kg(calcNeto!.air.chargeableKg)}</td>
+                        <td className="py-2 text-right text-blue-700 font-semibold">{kg(calc.air.chargeableKg)}</td>
+                        <td className="py-2 text-right text-gray-300">—</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+
+              </div>
+            )}
+          </div>
+
+          {/* Lo que cobraron los transportistas y si ya se les pagó. Aparte de la caja real: son
+              datos que llegan en momentos distintos y se pagan a empresas distintas. */}
+          <FleteRealCard methods={METODOS_PAGO_EGRESO} filas={filasFlete} />
+
+          {/* Costo real de las piezas de ESTA caja: corregir peso/dimensión (abajo) no dice
+              cuánto costó lo de adentro. Mismo picker que /contabilidad/comprar, acotado a
+              este envío — colapsado por default, y adentro cada cliente también (el precio por pieza o por
+              cliente es opcional: casi siempre se paga todo junto). Va junto a los fletes: son los
+              tres lugares donde se carga lo que de verdad se pagó. */}
+          {itemsPendientesCosto.length > 0 && (
+            <RegistrarCompraPicker
+              items={itemsPendientesCosto}
+              action={registrarCompra}
+              methods={METODOS_PAGO_EGRESO}
+              collapsible
+            />
+          )}
 
           {/* Lo que se le paga al proveedor de la caja. Junta los dos montos que nadie
               puede derivar: lo que facturó por traerla a USA (solo si despacha él) y lo
@@ -799,27 +1162,6 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                   ? ' Despacha él a USA, así que no hay tarifa por kilo: se carga el total que te pasó.'
                   : ' Entra por Shoppre, así que el tramo lo cobra la tabla escalón.'}
               </p>
-
-              {calc.tramo && (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
-                  <div>
-                    <p className="text-xs text-gray-400 mb-1">Piezas</p>
-                    <p className="text-xl font-bold font-mono text-gray-900">{calc.tramo.leg.items}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-400 mb-1">Peso real</p>
-                    <p className="text-xl font-bold font-mono text-gray-900">{kg(calc.tramo.leg.realKg)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-400 mb-1">Volumétrico</p>
-                    <p className="text-xl font-bold font-mono text-gray-900">{kg(calc.tramo.leg.volKg)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-400 mb-1">Costo / kg</p>
-                    <p className="text-xl font-bold font-mono text-gray-900">{usd(calc.tramo.leg.costPerKgUsd)}</p>
-                  </div>
-                </div>
-              )}
 
               <FormConResultado action={saveCostosProveedor.bind(null, envio.id)} className="flex flex-wrap items-end gap-3">
                 {/* El total del envío solo se pide a quien despacha por su cuenta: para una
@@ -933,283 +1275,9 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               </div>
             </div>
           )}
-          </>
-          )}
-
-          {/* Costo real de las piezas de ESTA caja: corregir peso/dimensión (abajo) no dice
-              cuánto costó lo de adentro. Mismo picker que /contabilidad/comprar, acotado a
-              este envío — colapsado por default (esta ficha ya tiene bastante abierto). */}
-          {itemsPendientesCosto.length > 0 && (
-            <RegistrarCompraPicker
-              items={itemsPendientesCosto}
-              action={registrarCompra}
-              methods={METODOS_PAGO_EGRESO}
-              collapsible
-            />
-          )}
-
-          {/* La caja real. Es el único dato del envío que no se puede derivar del
-              catálogo: el catálogo tiene la pieza desnuda, la balanza pesa el bulto. */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center justify-between mb-1">
-              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-                📦 Caja real · peso y medidas
-              </h2>
-              <span
-                className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                  calc.caja.medido ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
-                }`}
-              >
-                {calc.caja.medido ? 'MEDIDA' : 'SIN MEDIR'}
-              </span>
-            </div>
-            <p className="text-xs text-gray-500 mb-4">
-              Copiá lo que dice el panel del transportista: <em>Actual Weight</em> y{' '}
-              <em>Box Dimensions</em>. Estos números <strong>reemplazan</strong> a la suma
-              de las piezas — es lo que se factura.
-            </p>
-
-            <FormConResultado action={saveMedidasCaja.bind(null, envio.id)}>
-              <div className="flex flex-wrap items-end gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Peso real (kg)</label>
-                  <input
-                    type="number" step="0.01" min="0" name="pesoRealKg"
-                    defaultValue={medidas.pesoKg ?? ''}
-                    placeholder={calc.netRealKg > 0 ? calc.netRealKg.toFixed(2) : '0.00'}
-                    className="w-28 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Caja L × A × H (cm)</label>
-                  <div className="flex items-center gap-1">
-                    {(['cajaL', 'cajaA', 'cajaH'] as const).map((f, i) => (
-                      <div key={f} className="flex items-center gap-1">
-                        {i > 0 && <span className="text-gray-300 text-sm">×</span>}
-                        <input
-                          type="number" step="0.1" min="0" name={f}
-                          defaultValue={envio[f] ?? ''}
-                          placeholder="0"
-                          className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Fila propia para el flete: son dos facturas distintas, y compartir la
-                  fila con peso/dimensiones era lo que forzaba el wrap raro (una arriba,
-                  la otra abajo sola con el botón). */}
-              <div className="flex flex-wrap items-end gap-3 mt-3 pt-3 border-t border-gray-100">
-                <p className="w-full text-xs text-gray-500 -mt-1 mb-1">
-                  Igual que el peso y las medidas: una vez cargados, estos dos <strong>reemplazan</strong>{' '}
-                  al estimado de tabla en el landed y el margen de abajo.
-                </p>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Flete aéreo facturado (USD)</label>
-                  <input
-                    type="number" step="0.01" min="0" name="shippingCostRealAereo"
-                    defaultValue={costoRealAereo ?? ''}
-                    placeholder="0.00"
-                    className="w-32 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                  <p className="text-[11px] text-gray-400 mt-1">tramo India→USA</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Flete marítimo facturado (USD)</label>
-                  <input
-                    type="number" step="0.01" min="0" name="shippingCostRealMaritimo"
-                    defaultValue={costoRealMaritimo ?? ''}
-                    placeholder="0.00"
-                    className="w-32 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                  <p className="text-[11px] text-gray-400 mt-1">tramo USA→Venezuela</p>
-                </div>
-                <PendingButton
-                  className="px-4 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  Guardar
-                </PendingButton>
-              </div>
-            </FormConResultado>
-
-            {calc.caja.medido ? (
-              <div className="mt-5">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-xs text-gray-400 uppercase tracking-wide">
-                      <th className="text-left font-medium pb-1"></th>
-                      <th className="text-right font-medium pb-1">Suma de piezas</th>
-                      <th className="text-right font-medium pb-1">Caja real</th>
-                      <th className="text-right font-medium pb-1">Falta en el catálogo</th>
-                    </tr>
-                  </thead>
-                  <tbody className="font-mono">
-                    <tr className="border-t border-gray-100">
-                      <td className="py-2 font-sans text-gray-600">Peso</td>
-                      <td className="py-2 text-right text-gray-400">{kg(calc.netRealKg)}</td>
-                      <td className="py-2 text-right text-gray-900 font-semibold">{kg(calc.realKg)}</td>
-                      <td className="py-2 text-right text-amber-700">{kg(calc.realKg - calc.netRealKg)}</td>
-                    </tr>
-                    <tr className="border-t border-gray-100">
-                      <td className="py-2 font-sans text-gray-600">Volumen</td>
-                      <td className="py-2 text-right text-gray-400">{m3(calc.netVolumeM3)}</td>
-                      <td className="py-2 text-right text-gray-900 font-semibold">{m3(calc.volumeM3)}</td>
-                      <td className="py-2 text-right text-amber-700">{m3(calc.volumeM3 - calc.netVolumeM3)}</td>
-                    </tr>
-                    {!esCbm && (
-                      <tr className="border-t border-gray-100">
-                        <td className="py-2 font-sans text-gray-600">Cobrable max(W,V)</td>
-                        <td className="py-2 text-right text-gray-400">{kg(calcNeto!.air.chargeableKg)}</td>
-                        <td className="py-2 text-right text-blue-700 font-semibold">{kg(calc.air.chargeableKg)}</td>
-                        <td className="py-2 text-right text-gray-300">—</td>
-                      </tr>
-                    )}
-                    {/* Aéreo y marítimo por separado: son dos transportistas y dos
-                        facturas distintas, y mezclarlos en un solo "Flete" no dejaba ver
-                        cuál de los dos tramos explicaba una diferencia contra lo calculado. */}
-                    {(() => {
-                      const dAereo = fleteDiffPct(calcNeto!.airUsd, calc.airCalculadoUsd)
-                      const dMar = fleteDiffPct(marNeto!, marEst)
-                      const dTotal = fleteDiffPct(shippingNeto!, shippingCalculado)
-                      return (
-                        <>
-                          <tr className="border-t-2 border-gray-200">
-                            <td className="py-2 font-sans text-gray-600">Flete aéreo</td>
-                            <td className="py-2 text-right text-gray-400">{usd(calcNeto!.airUsd)}</td>
-                            <td className="py-2 text-right text-gray-900 font-semibold">{usd(calc.airCalculadoUsd)}</td>
-                            <td className={`py-2 text-right font-semibold ${fleteDiffCls[dAereo.tone]}`}>{dAereo.texto}</td>
-                          </tr>
-                          <tr className="border-t border-gray-100">
-                            <td className="py-2 font-sans text-gray-600">Flete marítimo</td>
-                            <td className="py-2 text-right text-gray-400">{usd(marNeto!)}</td>
-                            <td className="py-2 text-right text-gray-900 font-semibold">{usd(marEst)}</td>
-                            <td className={`py-2 text-right font-semibold ${fleteDiffCls[dMar.tone]}`}>{dMar.texto}</td>
-                          </tr>
-                          <tr className="border-t-2 border-gray-200">
-                            <td className="py-2 font-sans font-semibold text-gray-800">Flete total</td>
-                            <td className="py-2 text-right text-gray-400">{usd(shippingNeto!)}</td>
-                            <td className="py-2 text-right text-gray-900 font-bold">{usd(shippingCalculado)}</td>
-                            <td className={`py-2 text-right font-semibold ${fleteDiffCls[dTotal.tone]}`}>{dTotal.texto}</td>
-                          </tr>
-                        </>
-                      )
-                    })()}
-                  </tbody>
-                </table>
-
-                {/* Facturado real vs. calculado, por tramo — cada uno contra SU propia
-                    factura: comparar el aéreo contra un total mezclado con el marítimo
-                    habría acusado al tramo equivocado. */}
-                {costoRealAereo != null && (
-                  <p
-                    className={`text-xs mt-3 px-3 py-2 rounded-lg ${
-                      Math.abs(costoRealAereo - calc.airCalculadoUsd) / Math.max(costoRealAereo, 1) <= 0.05
-                        ? 'bg-green-50 text-green-700'
-                        : 'bg-amber-50 text-amber-700'
-                    }`}
-                  >
-                    Aéreo: facturado {usd(costoRealAereo)} contra {usd(calc.airCalculadoUsd)} calculados:{' '}
-                    <strong>{costoRealAereo >= calc.airCalculadoUsd ? '+' : ''}{usd(costoRealAereo - calc.airCalculadoUsd)}</strong>
-                    {' '}({(((costoRealAereo / Math.max(calc.airCalculadoUsd, 0.01)) - 1) * 100).toFixed(1)}%). Si pasa
-                    del 5%, revisá la tasa INR/USD o el transportista elegido (Shoppre/ShipGlobal vs. lo cotizado).
-                    Ya se está usando el número facturado en el landed y el margen.
-                  </p>
-                )}
-                {costoRealMaritimo != null && (
-                  <p
-                    className={`text-xs mt-2 px-3 py-2 rounded-lg ${
-                      Math.abs(costoRealMaritimo - marEst) / Math.max(costoRealMaritimo, 1) <= 0.05
-                        ? 'bg-green-50 text-green-700'
-                        : 'bg-amber-50 text-amber-700'
-                    }`}
-                  >
-                    Marítimo: facturado {usd(costoRealMaritimo)} contra {usd(marEst)} calculados:{' '}
-                    <strong>{costoRealMaritimo >= marEst ? '+' : ''}{usd(costoRealMaritimo - marEst)}</strong>
-                    {' '}({(((costoRealMaritimo / Math.max(marEst, 0.01)) - 1) * 100).toFixed(1)}%). Si pasa
-                    del 5%, revisá la tarifa por ft³/m³ del tramo Miami→CCS.
-                    Ya se está usando el número facturado en el landed y el margen.
-                  </p>
-                )}
-              </div>
-            ) : (
-              <p className="text-xs mt-4 px-3 py-2 rounded-lg bg-amber-50 text-amber-700">
-                ⚠️ Sin la caja real, todo lo de arriba es un <strong>piso</strong>, no una
-                estimación: por más que cada pieza esté cargada con su empaque, la suma no
-                puede saber el cartón exterior ni el hueco que queda entre piezas
-                irregulares, y ese error solo va para abajo. En la caja 64898 la suma se
-                quedó <strong>3 kg y 27 000 cm³ corta</strong>.
-              </p>
-            )}
-          </div>
-
-          {/* Desglose de costo */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">Costo del envío (landed)</h2>
-            <dl className="space-y-2 text-sm">
-              <Row label="Costo de producto" value={usd(calc.productCostUsd)} />
-              {esCbm ? (
-                <>
-                  <Row
-                    label={`Marítimo India→VEN · ${m3(calc.billableM3)} × ${usd(calc.cbmRatePerM3)}/m³`}
-                    value={usd(calc.maritimeUsd)}
-                  />
-                  <Row label="FOB India (fijo por embarque)" value={usd(calc.fobUsd)} />
-                </>
-              ) : (
-                <>
-                  {calc.air.items > 0 && (
-                    <Row
-                      label={`Aéreo Shoppre→USA · ${calc.air.chargeableKg.toFixed(1)} kg cobrables${calc.air.cajas > 1 ? ` en ${calc.air.cajas} cajas (${calc.air.cajasKg.map(k => `${k} kg`).join(' + ')})` : ''}`}
-                      value={usd(calc.air.costUsd)}
-                    />
-                  )}
-                  {calc.tramo && (
-                    <Row label={`Envío ${calc.tramo.nombre}→USA (DDP, total)`} value={usd(calc.tramo.costUsd)} />
-                  )}
-                  <Row label="Marítimo USA→VEN (volumen)" value={usd(calc.maritimeUsd)} />
-                  {/* Seguro y processing son cargos de Shoppre: solo los paga lo que pasa
-                      por su depósito. Un proveedor DDP no le declara nada. */}
-                  {calc.air.items > 0 && (
-                    <>
-                      <Row label="Seguro Shoppre" value={usd(calc.insuranceUsd)} />
-                      <Row label="Processing Shoppre" value={usd(calc.processingUsd)} />
-                    </>
-                  )}
-                  {calc.giro && calc.giro.salienteCargada && (
-                    <Row label={`Comisión saliente · ${calc.giro.nombre}`} value={usd(calc.giro.comisionSalienteUsd)} />
-                  )}
-                  {calc.giro && calc.giro.entranteCargada && (
-                    <Row label={`Comisión entrante · ${calc.giro.nombre}`} value={usd(calc.giro.comisionEntranteUsd)} />
-                  )}
-                </>
-              )}
-              {calc.landedDirectUsd > 0 && (
-                <Row label="Compras puestas en Venezuela (no viajan)" value={usd(calc.landedDirectUsd)} />
-              )}
-              <div className="flex justify-between pt-3 mt-2 border-t-2 border-gray-200">
-                <dt className="font-bold text-gray-900">Costo total landed</dt>
-                <dd className="font-bold text-xl font-mono text-blue-700">{usd(calc.landedUsd)}</dd>
-              </div>
-              {saleTotal > 0 && (
-                <>
-                  <Row label="Venta (suma de los ítems)" value={usd(saleTotal)} />
-                  <div className="flex justify-between">
-                    <dt className="font-semibold text-gray-700">Margen bruto</dt>
-                    <dd className={`font-semibold font-mono ${saleTotal - calc.landedUsd >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                      {usd(saleTotal - calc.landedUsd)}
-                      {' '}
-                      <span className="text-xs text-gray-400">
-                        ({((1 - calc.landedUsd / saleTotal) * 100).toFixed(0)}%)
-                      </span>
-                    </dd>
-                  </div>
-                </>
-              )}
-            </dl>
-          </div>
-          </div>
+          {/* La plata va primero: antes de mirar cuánto cuesta la caja, la pregunta es
+              cuánta de esa plata ya está en la mano. */}
+          <QuienPonePlata f={financiamiento} />
 
           {/* Ítems del envío: los cambios se pintan al instante y se guardan por detrás
               (la base es remota, esperar cada round-trip mata el uso). */}
@@ -1221,46 +1289,6 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
             quitar={removePedido}
           />
 
-          {/* Desglose por pieza */}
-          <details className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
-            <summary className="px-6 py-3 bg-gray-50 cursor-pointer text-sm font-semibold text-gray-500 uppercase tracking-wide">
-              Desglose por pieza ({calc.lines.length})
-            </summary>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-y border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
-                  <th className="text-left px-6 py-2 font-semibold">Pieza</th>
-                  <th className="text-right px-3 py-2 font-semibold">Real</th>
-                  <th className="text-right px-3 py-2 font-semibold">Vol.</th>
-                  <th className="text-right px-3 py-2 font-semibold">A USA</th>
-                  <th className="text-right px-3 py-2 font-semibold">Marít.</th>
-                  <th className="text-right px-4 py-2 font-semibold">Landed</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {calc.lines.map((l, i) => (
-                  <tr key={i} className="hover:bg-gray-50">
-                    <td className="px-6 py-2.5">
-                      <span className="text-xs mr-1">{l.isLanded ? '📍' : l.origen === 'china' ? '🇨🇳' : '🇮🇳'}</span>
-                      <span className="text-gray-900">{l.name}</span>
-                      {l.quantity > 1 && <span className="text-xs text-gray-400"> ×{l.quantity}</span>}
-                      {(l.missingWeight || l.missingDims) && (
-                        <span className="ml-2 text-xs text-amber-600">
-                          {l.missingWeight ? 'sin peso' : ''}{l.missingWeight && l.missingDims ? ' · ' : ''}{l.missingDims ? 'sin dim.' : ''}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-mono text-gray-600">{l.realKg.toFixed(2)}</td>
-                    <td className="px-3 py-2.5 text-right font-mono text-gray-600">{l.volKg.toFixed(2)}</td>
-                    <td className="px-3 py-2.5 text-right font-mono text-gray-600">{usd(l.airUsd)}</td>
-                    <td className="px-3 py-2.5 text-right font-mono text-gray-600">{usd(l.maritimeUsd)}</td>
-                    <td className="px-4 py-2.5 text-right font-mono font-semibold text-gray-900">{usd(l.landedUsd)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </details>
-
           {/* Lo pendiente de comprar, listo para copiar o bajar en CSV */}
           <PendientesCompraButton
             envio={envio.nombre ?? `Envío #${envio.id}`}
@@ -1269,68 +1297,76 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
             compra99={compra99}
           />
 
-          {/* Lista de compra — separada por origen: son dos órdenes distintas */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
-            <div className="px-6 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-                🇮🇳 Lista de compra India ({buyIndia.length} {buyIndia.length === 1 ? 'ítem' : 'ítems'} · {buyUnits} u.)
-              </h2>
-              <span className="text-xs text-gray-400">Consolidado por código Bajaj</span>
-            </div>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
-                  <th className="text-left px-6 py-2 font-semibold">Código</th>
-                  <th className="text-left px-3 py-2 font-semibold">Pieza</th>
-                  <th className="text-right px-3 py-2 font-semibold">Cant.</th>
-                  <th className="text-right px-3 py-2 font-semibold">Unit. INR</th>
-                  <th className="text-right px-6 py-2 font-semibold">Total INR</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {buyIndia.map((r, i) => (
-                  <tr key={i} className="hover:bg-gray-50">
-                    <td className="px-6 py-2.5 font-mono text-xs text-gray-500">{r.sku ?? '—'}</td>
-                    <td className="px-3 py-2.5 text-gray-900">
-                      {r.name}
-                      {r.missingPrice && (
-                        <span className="ml-2 text-xs text-amber-600">sin precio</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-mono text-gray-700">{r.qty}</td>
-                    <td className="px-3 py-2.5 text-right font-mono text-gray-600">
-                      {r.unitInr != null ? r.unitInr.toLocaleString('es-VE') : '—'}
-                    </td>
-                    <td className="px-6 py-2.5 text-right font-mono font-semibold text-gray-900">
-                      {r.totalInr > 0 ? r.totalInr.toLocaleString('es-VE') : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-gray-200 bg-gray-50">
-                  <td className="px-6 py-3 font-bold text-gray-900" colSpan={2}>Total a comprar</td>
-                  <td className="px-3 py-3 text-right font-mono font-semibold text-gray-700">{buyUnits}</td>
-                  <td className="px-3 py-3"></td>
-                  <td className="px-6 py-3 text-right">
-                    <span className="font-bold font-mono text-blue-700">{buyTotalInr.toLocaleString('es-VE')} INR</span>
-                    <span className="block text-xs text-gray-400 font-mono">≈ {usd(buyTotalUsd)}</span>
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-
-          {buyChina.length > 0 && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
-              <div className="px-6 py-3 border-b border-gray-100 bg-gray-50">
-                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-                  🇨🇳 Lista de compra China ({buyChina.length} {buyChina.length === 1 ? 'ítem' : 'ítems'})
-                </h2>
-              </div>
+          {/* Contenido de la caja por SKU, separado por origen: son dos órdenes distintas. Es la
+              caja ENTERA (incluye lo ya comprado); lo que falta comprar está en el botón de
+              pendientes. Plegado, con el total en el título para no tener que abrirlo. */}
+          {buyIndia.length > 0 && (
+            <details className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
+              <summary className="px-6 py-3 bg-gray-50 cursor-pointer text-sm font-semibold text-gray-500 uppercase tracking-wide">
+                🇮🇳 Contenido de la caja por SKU · {buyIndia.length} {buyIndia.length === 1 ? 'ítem' : 'ítems'} · {buyUnits} u.
+                {' · '}
+                {buyTotalInr > 0 && <>{Math.round(buyTotalInr).toLocaleString('es-VE')} INR ≈ </>}
+                {usd(buyTotalUsd)}
+              </summary>
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
+                  <tr className="border-y border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
+                    <th className="text-left px-6 py-2 font-semibold">Código</th>
+                    <th className="text-left px-3 py-2 font-semibold">Pieza</th>
+                    <th className="text-right px-3 py-2 font-semibold">Cant.</th>
+                    <th className="text-right px-3 py-2 font-semibold">Unitario</th>
+                    <th className="text-right px-6 py-2 font-semibold">Total USD</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {buyIndia.map((r, i) => (
+                    <tr key={i} className="hover:bg-gray-50">
+                      <td className="px-6 py-2.5 font-mono text-xs text-gray-500">{r.sku ?? '—'}</td>
+                      <td className="px-3 py-2.5 text-gray-900">
+                        {r.name}
+                        {r.missingPrice && (
+                          <span className="ml-2 text-xs text-amber-600">sin precio</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono text-gray-700">{r.qty}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-gray-600">
+                        {r.unit != null
+                          ? r.moneda === 'USD' ? usd(r.unit) : `${r.unit.toLocaleString('es-VE')} INR`
+                          : '—'}
+                      </td>
+                      <td className="px-6 py-2.5 text-right font-mono font-semibold text-gray-900">
+                        {r.totalUsd > 0 ? usd(r.totalUsd) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-gray-200 bg-gray-50">
+                    <td className="px-6 py-3 font-bold text-gray-900" colSpan={2}>Total de la caja</td>
+                    <td className="px-3 py-3 text-right font-mono font-semibold text-gray-700">{buyUnits}</td>
+                    <td className="px-3 py-3"></td>
+                    <td className="px-6 py-3 text-right">
+                      <span className="font-bold font-mono text-blue-700">{usd(buyTotalUsd)}</span>
+                      {buyTotalInr > 0 && (
+                        <span className="block text-xs text-gray-400 font-mono">
+                          {Math.round(buyTotalInr).toLocaleString('es-VE')} INR a {inrUsd}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </details>
+          )}
+
+          {buyChina.length > 0 && (
+            <details className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
+              <summary className="px-6 py-3 bg-gray-50 cursor-pointer text-sm font-semibold text-gray-500 uppercase tracking-wide">
+                🇨🇳 Contenido de la caja por SKU · {buyChina.length} {buyChina.length === 1 ? 'ítem' : 'ítems'}
+              </summary>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-y border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
                     <th className="text-left px-6 py-2 font-semibold">Código</th>
                     <th className="text-left px-3 py-2 font-semibold">Pieza</th>
                     <th className="text-right px-6 py-2 font-semibold">Cant.</th>
@@ -1346,7 +1382,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                   ))}
                 </tbody>
               </table>
-            </div>
+            </details>
           )}
         </>
       )}
@@ -1432,161 +1468,77 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   )
 }
 
-// Cobranza de la caja. La pregunta que contesta es de caja chica, no de contabilidad:
-// para comprar esto hay que poner {landed} y de eso el cliente ya adelantó {recibido} —
-// lo que falta es plata que hay que poner de tu bolsillo hasta que entreguen.
-function Cobranza({ data, landedUsd }: { data: CobranzaEnvio; landedUsd: number }) {
-  const { pedidos, vendido, recibido, falta, sinAprobar, propios } = data
-  const hayAlgo = pedidos.length > 0 || sinAprobar.pedidos > 0 || propios.pedidos > 0
-  if (!hayAlgo) return null
-
-  const cobradoPct = vendido > 0 ? recibido / vendido : 0
-  const parciales = pedidos.filter(p => p.parcial).length
-  // Lo que hay que poner de tu bolsillo para comprar la caja: el costo menos lo ya
-  // cobrado. Si da negativo, los adelantos ya la pagan entera.
-  const descubierto = landedUsd - recibido
-
+function Parte({ label, valor, tono }: { label: string; valor: number; tono: string }) {
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 mb-4 overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-100">
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">💵 Cobranza</h2>
-      </div>
+    <span className="inline-flex items-baseline gap-1.5">
+      <span className="text-gray-500">{label}</span>
+      <span className={`font-mono font-semibold ${tono}`}>{usd(valor)}</span>
+    </span>
+  )
+}
 
-      {pedidos.length > 0 && (
-        <>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 px-6 py-5">
-            <div>
-              <p className="text-xs text-gray-400 mb-1">Ya recibí</p>
-              <p className="text-2xl font-bold font-mono text-green-700">{usd(recibido)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-400 mb-1">Falta que paguen</p>
-              <p className={`text-2xl font-bold font-mono ${falta > 0 ? 'text-amber-700' : 'text-green-700'}`}>
-                {usd(falta)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-400 mb-1">Venta total de los pedidos</p>
-              <p className="text-2xl font-bold font-mono text-gray-900">{usd(vendido)}</p>
-            </div>
-          </div>
-
-          <div className="px-6 pb-4">
-            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full bg-green-500"
-                style={{ width: `${Math.min(cobradoPct * 100, 100)}%` }}
-              />
-            </div>
-            <p className="text-xs text-gray-500 mt-2">
-              Cobrado el <span className="font-mono font-semibold">{(cobradoPct * 100).toFixed(0)}%</span> de la venta.
-              {' '}
-              {descubierto > 0 ? (
-                <>
-                  Comprar esta caja cuesta <span className="font-mono">{usd(landedUsd)}</span>, así que hasta
-                  entregar tenés que poner <strong className="font-mono">{usd(descubierto)}</strong> de tu bolsillo.
-                </>
-              ) : (
-                <>
-                  Los adelantos ({usd(recibido)}) ya cubren el costo de la caja ({usd(landedUsd)}): te sobran{' '}
-                  <strong className="font-mono">{usd(-descubierto)}</strong> antes de entregar.
-                </>
-              )}
-            </p>
-          </div>
-
-          {/* El número que importa es el de la caja entera; quién debe qué es el detalle
-              para cuando hay que ir a cobrar, así que va plegado. */}
-          <details className="border-t border-gray-100">
-            <summary className="px-6 py-2 cursor-pointer text-xs font-semibold text-gray-500 uppercase tracking-wide hover:bg-gray-50">
-              Quién debe qué ({pedidos.length} {pedidos.length === 1 ? 'pedido' : 'pedidos'})
-            </summary>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-y border-gray-100 text-xs text-gray-500 uppercase tracking-wide bg-gray-50">
-                  <th className="text-left px-6 py-2 font-semibold">Cliente</th>
-                  <th className="text-right px-3 py-2 font-semibold">Pedido</th>
-                  <th className="text-right px-3 py-2 font-semibold">Recibí</th>
-                  <th className="text-right px-6 py-2 font-semibold">Falta</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {pedidos.map(p => (
-                  <CobranzaRow key={p.pedidoId} p={p} />
-                ))}
-              </tbody>
-            </table>
-          </details>
-        </>
-      )}
-
-      {(sinAprobar.pedidos > 0 || propios.pedidos > 0 || parciales > 0) && (
-        <div className="px-6 py-3 border-t border-gray-100 space-y-1">
-          {parciales > 0 && (
-            <p className="text-xs text-gray-500">
-              {parciales === 1 ? 'Un pedido está partido' : `${parciales} pedidos están partidos`} entre varias cajas.
-              El adelanto se pactó contra el pedido entero, así que arriba cuenta completo — no prorrateado por lo
-              que entró acá.
-            </p>
-          )}
-          {sinAprobar.pedidos > 0 && (
-            <p className="text-xs text-amber-700">
-              ⚠️ {sinAprobar.pedidos} {sinAprobar.pedidos === 1 ? 'presupuesto sin aprobar' : 'presupuestos sin aprobar'} por{' '}
-              <span className="font-mono">{usd(sinAprobar.total)}</span> viajan en esta caja: se están comprando sin
-              adelanto y sin venta cerrada, así que no cuentan arriba.
-            </p>
-          )}
-          {propios.pedidos > 0 && (
-            <p className="text-xs text-gray-500">
-              {propios.pedidos} {propios.pedidos === 1 ? 'pedido de stock propio' : 'pedidos de stock propio'} por{' '}
-              <span className="font-mono">{usd(propios.total)}</span> en venta estimada: no hay a quién cobrarle,
-              es plata que sale y vuelve al vender.
-            </p>
-          )}
-        </div>
+// Quién pone la plata en la caja. La pregunta es de caja chica: para comprar esto hay que poner
+// {costo}; una parte es de clientes que ya adelantaron (o deben), otra es inventario tuyo y otra
+// un presupuesto que todavía no es venta. Separarlas dice cuánto es financiar y cuánto es invertir.
+function QuienPonePlata({ f }: { f: FinanciamientoEnvio }) {
+  if (f.costoUsd <= 0) return null
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-4 mb-4">
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">💵 Quién pone la plata</h2>
+      <p className="text-sm flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="text-gray-500">Costo de la caja</span>
+        <span className="font-mono font-bold text-gray-900">{usd(f.costoUsd)}</span>
+        <span className="text-gray-300">=</span>
+        <Parte label="Clientes" valor={f.clientes.costoUsd} tono="text-gray-900" />
+        {f.propio.costoUsd > 0 && <><span className="text-gray-300">+</span><Parte label="Stock propio" valor={f.propio.costoUsd} tono="text-sky-700" /></>}
+        {f.sinAprobar.costoUsd > 0 && <><span className="text-gray-300">+</span><Parte label="Sin aprobar" valor={f.sinAprobar.costoUsd} tono="text-amber-700" /></>}
+      </p>
+      <p className="text-sm mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="text-gray-500">Adelantos que la cubren</span>
+        <span className="font-mono font-semibold text-green-700">{usd(f.adelantosUsd)}</span>
+        {f.pedidosPartidos > 0 && (
+          <span className="text-xs text-gray-400">
+            ({f.pedidosPartidos === 1 ? 'un pedido está partido' : `${f.pedidosPartidos} pedidos están partidos`} entre cajas: el adelanto cuenta en proporción)
+          </span>
+        )}
+      </p>
+      <p className="text-sm mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="text-gray-500">De tu bolsillo hasta entregar</span>
+        <span className="font-mono font-bold text-lg text-amber-700">{usd(f.bolsilloUsd)}</span>
+        <span className="text-gray-300">=</span>
+        <Parte label="clientes por cobrar" valor={f.clientes.porCobrarUsd} tono="text-gray-900" />
+        {f.propio.costoUsd > 0 && <><span className="text-gray-300">+</span><Parte label="inventario tuyo" valor={f.propio.costoUsd} tono="text-sky-700" /></>}
+        {f.sinAprobar.costoUsd > 0 && <><span className="text-gray-300">+</span><Parte label="riesgo" valor={f.sinAprobar.costoUsd} tono="text-amber-700" /></>}
+      </p>
+      {f.clientes.pedidos > 0 && (
+        <p className="text-xs mt-2">
+          <Link href="/clientes" className="text-blue-600 hover:underline">
+            Ver saldos de {f.clientes.pedidos === 1 ? 'este cliente' : `estos ${f.clientes.pedidos} clientes`} →
+          </Link>
+        </p>
       )}
     </div>
   )
 }
 
-function CobranzaRow({ p }: { p: CobranzaPedido }) {
-  return (
-    <tr className="hover:bg-gray-50">
-      <td className="px-6 py-2">
-        <Link href={`/presupuestos/${p.pedidoId}`} className="font-medium text-gray-900 hover:text-blue-600">
-          {p.clientName}
-        </Link>
-        <span className="ml-2 text-xs text-gray-400">#{p.pedidoId}</span>
-        {/* El pedido está repartido entre cajas: el total y la deuda son del pedido
-            entero, no de lo que entró acá. */}
-        {p.parcial && (
-          <span
-            title="Este pedido está partido entre varias cajas. El total y el saldo son del pedido completo."
-            className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600"
-          >
-            {p.itemsEnCaja} de {p.itemsTotal} acá
-          </span>
-        )}
-        {p.sinAdelanto && (
-          <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
-            Sin adelanto cargado
-          </span>
-        )}
-      </td>
-      <td className="px-3 py-2 text-right font-mono text-gray-700">{usd(p.total)}</td>
-      <td className="px-3 py-2 text-right font-mono text-green-700">{usd(p.recibido)}</td>
-      <td className={`px-6 py-2 text-right font-mono font-semibold ${p.falta > 0 ? 'text-amber-700' : 'text-green-700'}`}>
-        {usd(p.falta)}
-      </td>
-    </tr>
-  )
-}
+const TAG_CLS = {
+  real: 'bg-green-100 text-green-700',
+  est: 'bg-gray-100 text-gray-500',
+  falta: 'bg-amber-100 text-amber-700',
+} as const
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value, tag }: { label: string; value: string; tag?: { texto: string; tono: keyof typeof TAG_CLS } }) {
   return (
-    <div className="flex justify-between">
+    <div className="flex justify-between gap-3">
       <dt className="text-gray-600">{label}</dt>
-      <dd className="font-mono text-gray-800">{value}</dd>
+      <dd className="font-mono text-gray-800 flex items-baseline gap-2 shrink-0">
+        {tag && (
+          <span className={`font-sans text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${TAG_CLS[tag.tono]}`}>
+            {tag.texto}
+          </span>
+        )}
+        {value}
+      </dd>
     </div>
   )
 }

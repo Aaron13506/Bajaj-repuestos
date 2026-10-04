@@ -24,6 +24,8 @@ import {
 import { parseListaSkus } from '../lib/lista-skus'
 import { cotizarTramoAereo, capacidadCajaKg } from '../lib/shipping-rates'
 import { repartirEnCentavos } from '../lib/reparto-compra'
+import { financiamientoEnvio } from '../lib/financiamiento-envio'
+import { estadoFlete, excedeFacturado, resumenFletes } from '../lib/flete-real'
 import { motivoNoEliminable, type PedidoBorrable } from '../lib/pedido-eliminable'
 import { motivoProveedorEnUso } from '../lib/proveedor-en-uso'
 import { motivoProductoEnUso } from '../lib/producto-en-uso'
@@ -143,7 +145,10 @@ check('el facturado reemplaza al estimado del tramo Shoppre', shAereoFacturado.a
 check('el estimado original queda aparte, sin pisar', shAereoFacturado.airCalculadoUsd, sh.air.costUsd)
 check('se repartió entre las piezas', shAereoFacturado.lines.reduce((s, l) => s + l.airUsd, 0), shAereoFacturado.air.costUsd)
 check('Σ landed por línea sigue = landed total', shAereoFacturado.lines.reduce((s, l) => s + l.landedUsd, 0), shAereoFacturado.landedUsd)
-check('el landed total subió lo mismo que el flete', shAereoFacturado.landedUsd, sh.landedUsd + 15)
+// La factura de Shoppre trae el processing adentro: con ella cargada no se suma otra vez.
+check('con la factura de Shoppre el processing no se suma encima', shAereoFacturado.processingUsd, 0)
+check('el landed total subió el flete y bajó el processing que la factura ya incluye',
+  shAereoFacturado.landedUsd, sh.landedUsd + 15 - sh.processingUsd)
 
 const shMarFacturado = calcEnvio(itemsShoppre, cfg, {
   proveedor: provOemship,
@@ -454,6 +459,63 @@ console.log('\nPRECIO FIJO Y PRECIO BCV')
   check('con precio fijo, priceUsd es exactamente el escrito', conFijo.priceUsd ?? -1, 4)
   check('con precio fijo, el BCV sale de ese precio (brecha 9 → escalón 10%: 4 / 0.90 = 4.44)', conFijo.priceBcv?.priceUsdBcv ?? -1, 4.44)
   check('sin precio fijo se sigue derivando del margen', Math.abs((sinFijo.priceUsd ?? 0) - sinFijo.landedCostUsd / (1 - 0.3163)) < 1e-9 ? 1 : 0, 1)
+}
+
+// ── Quién pone la plata en la caja ──────────────────────────────────────────
+console.log('\nQUIÉN PONE LA PLATA (financiamiento de la caja)')
+{
+  const it = (precio: number, quantity = 1) => ({ salePrice: precio, quantity })
+  // Pedido 1: cliente confirmado, $200 en total, $100 de adelanto, la mitad viaja acá.
+  // Pedido 2: stock propio. Pedido 3: presupuesto sin aprobar.
+  const pedidos = [
+    { id: 1, tipo: 'cliente', status: 'pedido', depositUsd: 100, items: [it(100), it(100)] },
+    { id: 2, tipo: 'propio', status: 'pedido', depositUsd: null, items: [it(50)] },
+    { id: 3, tipo: 'cliente', status: 'presupuesto', depositUsd: null, items: [it(30)] },
+  ]
+  const lineas = [
+    { pedidoId: 1, landedUsd: 70, ventaUsd: 100 },
+    { pedidoId: 2, landedUsd: 40, ventaUsd: 50 },
+    { pedidoId: 3, landedUsd: 20, ventaUsd: 30 },
+  ]
+  const f = financiamientoEnvio(lineas, pedidos)
+  check('el costo total es la suma de las líneas', f.costoUsd, 130)
+  check('el adelanto se prorratea por la parte que viaja acá (100 × 100/200)', f.adelantosUsd, 50)
+  check('de tu bolsillo = costo − adelanto prorrateado', f.bolsilloUsd, 80)
+  check('el stock propio queda aparte, a costo', f.propio.costoUsd, 40)
+  check('lo sin aprobar queda aparte', f.sinAprobar.costoUsd, 20)
+  check('el margen es solo de clientes (100 − 70), sin la venta estimada del propio', f.margenClientesUsd, 30)
+  check('un pedido partido se cuenta', f.pedidosPartidos, 1)
+  // La otra mitad del pedido 1 en otra caja: entre las dos, el adelanto aplicado no pasa de lo pagado.
+  const otra = financiamientoEnvio([{ pedidoId: 1, landedUsd: 70, ventaUsd: 100 }], [pedidos[0]])
+  check('entre cajas, el adelanto aplicado no supera lo que pagó el cliente', f.adelantosUsd + otra.adelantosUsd, 100)
+  // Un adelanto mayor al pedido nunca cubre más de lo vendido acá.
+  const sobrepago = financiamientoEnvio(
+    [{ pedidoId: 9, landedUsd: 10, ventaUsd: 20 }],
+    [{ id: 9, tipo: 'cliente', status: 'pedido', depositUsd: 500, items: [it(20)] }],
+  )
+  check('el adelanto no cubre más que la venta de la caja', sobrepago.adelantosUsd, 20)
+}
+
+// ── Flete real: estado del pago y tope ──────────────────────────────────────
+console.log('\nFLETE REAL (estado derivado del libro)')
+{
+  const c = (f: number | null, p: number) => estadoFlete(f, p).clave
+  const uno = (b: boolean) => (b ? 1 : 0)
+  check('sin factura ni pagos: sin cargar', uno(c(null, 0) === 'sin_cargar'), 1)
+  check('facturado y nada pagado: por pagar', uno(c(316, 0) === 'por_pagar'), 1)
+  check('pagado la mitad: parcial', uno(c(316, 100) === 'parcial'), 1)
+  check('pagado exacto: pagado', uno(c(316, 316) === 'pagado'), 1)
+  check('un centavo de diferencia sigue siendo pagado', uno(c(316, 315.995) === 'pagado'), 1)
+  check('pagado de más se marca', uno(c(316, 320) === 'de_mas'), 1)
+  check('un segundo pago completo se rechaza (doble click)', uno(excedeFacturado(316, 316, 316)), 1)
+  check('el saldo exacto se acepta', uno(excedeFacturado(316, 100, 216)), 0)
+  check('un pago de más de un centavo se rechaza', uno(excedeFacturado(316, 100, 216.5)), 1)
+  check('resumen: un tramo por pagar manda', uno(resumenFletes([
+    { facturadoUsd: 316, pagadoUsd: 316 }, { facturadoUsd: 48, pagadoUsd: 0 },
+  ]) === 'por_pagar'), 1)
+  check('resumen: todo pagado', uno(resumenFletes([
+    { facturadoUsd: 316, pagadoUsd: 316 }, { facturadoUsd: 48, pagadoUsd: 48 },
+  ]) === 'pagado'), 1)
 }
 
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)

@@ -8,29 +8,25 @@ import type { ActionResult } from '@/lib/action-result'
 interface Props {
   action: (formData: FormData) => Promise<ActionResult>
   methods: readonly string[]
+  titulo: string
+  // Lo que falta pagar del tramo: el monto viene prellenado y se puede editar por si difiere.
+  montoSugerido: number | null
 }
 
-// Solo lo que se le paga AL PROVEEDOR. El flete se le paga a otra empresa (Shoppre, la naviera)
-// y tiene su propia puerta en la ficha ("Flete real"): anotado acá no aparecía en la caja,
-// porque el "pagado" de esta tarjeta solo suma pago a proveedor y comisión.
-const CATEGORIAS = [
-  { value: 'pago_proveedor', label: 'Pago a proveedor' },
-  { value: 'comision_giro', label: 'Comisión de giro' },
-] as const
-
-// Anota plata que realmente salió de la cuenta contra esta caja. No toca los campos de
-// lo FACTURADO (tramoUsd, comisiones) — esos siguen siendo el form de al lado.
-export default function RegistrarPagoProveedorForm({ action, methods }: Props) {
+// "Marcar pagado" de un tramo del flete. Crea un egreso en el libro contra la caja; si el
+// tramo no tenía factura cargada, el monto pagado pasa a ser también el facturado.
+export default function PagarFleteForm({ action, methods, titulo, montoSugerido }: Props) {
   const [open, setOpen] = useState(false)
   const { enviar, isPending, error, limpiarError } = useEnviarAccion(action, () => setOpen(false))
 
   if (!open) {
     return (
       <button
+        type="button"
         onClick={() => { limpiarError(); setOpen(true) }}
         className="px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
       >
-        + Registrar pago a proveedor
+        Marcar pagado
       </button>
     )
   }
@@ -42,14 +38,7 @@ export default function RegistrarPagoProveedorForm({ action, methods }: Props) {
         onClick={e => e.stopPropagation()}
         className="mt-24 w-80 bg-white rounded-xl shadow-xl border border-gray-200 p-4 space-y-3 text-left"
       >
-        <p className="text-sm font-semibold text-gray-900">Registrar pago a proveedor</p>
-
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Concepto</label>
-          <select name="categoria" defaultValue={CATEGORIAS[0].value} className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-            {CATEGORIAS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-          </select>
-        </div>
+        <p className="text-sm font-semibold text-gray-900">Pago de flete · {titulo}</p>
 
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Monto (USD)</label>
@@ -57,9 +46,13 @@ export default function RegistrarPagoProveedorForm({ action, methods }: Props) {
             <span className="text-sm text-gray-400 mr-1">$</span>
             <input
               type="number" name="monto" min={0.01} step="0.01" required autoFocus
+              defaultValue={montoSugerido != null && montoSugerido > 0 ? montoSugerido.toFixed(2) : ''}
               className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
+          {montoSugerido == null && (
+            <p className="text-[11px] text-gray-400 mt-1">Sin factura cargada: lo que pagues queda también como facturado.</p>
+          )}
         </div>
 
         <div>
@@ -79,13 +72,11 @@ export default function RegistrarPagoProveedorForm({ action, methods }: Props) {
           <input type="text" name="descripcion" className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
         </div>
 
-        {error && (
-          <p role="alert" className="text-xs text-red-600">{error}</p>
-        )}
+        {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
 
         <div className="flex items-center gap-2 pt-1">
           <button type="submit" disabled={isPending} className="flex-1 bg-red-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-40 transition-colors">
-            {isPending ? 'Guardando…' : 'Registrar'}
+            {isPending ? 'Guardando…' : 'Registrar pago'}
           </button>
           <button type="button" onClick={() => setOpen(false)} className="px-3 py-1.5 rounded-lg text-sm text-gray-500 hover:bg-gray-50">
             Cancelar

@@ -82,12 +82,14 @@ export async function crearMovimiento(formData: FormData): Promise<ActionResult>
 // reintento) ya lo había borrado, `count` es 0 y NO se vuelve a restar del depósito. Con un
 // `delete` simple la segunda tiraba P2025 y terminaba en la página de error.
 export async function eliminarMovimiento(id: number) {
+  let envioId = null as number | null
   await db.$transaction(async tx => {
     const mov = await tx.movimiento.findUnique({
       where: { id },
-      select: { pedidoId: true, monto: true, tipo: true },
+      select: { pedidoId: true, monto: true, tipo: true, envioId: true },
     })
     if (!mov) return
+    envioId = mov.envioId
 
     const esCobro = mov.pedidoId != null && mov.tipo === 'ingreso'
     // Cerrojo del pedido ANTES de tocar sus movimientos: mismo orden que el resto de las
@@ -102,6 +104,12 @@ export async function eliminarMovimiento(id: number) {
 
   revalidatePath('/contabilidad')
   revalidatePath('/presupuestos')
+  // Un pago contra una caja (proveedor, flete) se ve en su ficha y en la lista: sin esto, borrarlo
+  // desde acá dejaba la caja mostrando "pagado".
+  if (envioId != null) {
+    revalidatePath('/envios')
+    revalidatePath(`/envios/${envioId}`)
+  }
   revalidateClientes()
 }
 

@@ -7,9 +7,12 @@ import { redirect } from 'next/navigation'
 import { isDelivered, isValidStatus, normalizeToRoute, routeFor } from '@/lib/shipping-status'
 import { inboundDe } from '@/lib/inbound'
 import { isModoApp } from '@/lib/modo'
-import { fallo, ok, type ActionResult } from '@/lib/action-result'
+import { fallo, ok, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
 import { isForeignKeyViolation } from '@/lib/prisma-errors'
 import { CATEGORIAS_EGRESO } from '@/lib/movimientos'
+import {
+  TRAMOS_FLETE, CATEGORIAS_FLETE, esTramoFlete, excedeFacturado, type TramoFlete,
+} from '@/lib/flete-real'
 
 // Crea una caja. La RUTA se elige acá y no se vuelve a tocar: es lo que decide con qué
 // cadena logística se costea y, sobre todo, qué se puede meter adentro.
@@ -212,7 +215,7 @@ export async function assignAllConfirmados(envioId: number, formData: FormData):
   return r
 }
 
-// La caja como la pesó y midió el transportista, más lo que terminó facturando.
+// La caja como la pesó y midió el transportista.
 //
 // Es el único dato del envío que NO se puede derivar del catálogo: el catálogo conoce la
 // pieza desnuda y la balanza pesa el bulto — cada repuesto con su caja, el cartón y el
@@ -225,17 +228,17 @@ export async function assignAllConfirmados(envioId: number, formData: FormData):
 // sé" y reemplaza lo que hubiera, así que tipear mal "18,6x" borraba en silencio el peso ya
 // cargado y la pantalla volvía a la estimación como si nada. Vacío y 0 siguen siendo "sin dato".
 export async function saveMedidasCaja(envioId: number, formData: FormData): Promise<ActionResult> {
+  // Solo lo FÍSICO. El flete facturado tiene su propia acción (guardarFleteReal): estaban en un
+  // mismo form y esta acción arrancaba los seis campos en null, así que guardar el peso borraba
+  // el flete cargado — y viceversa. Son datos que llegan en momentos distintos.
   const campos = {
     pesoRealKg: 'el peso real',
     cajaL: 'el largo de la caja',
     cajaA: 'el ancho de la caja',
     cajaH: 'el alto de la caja',
-    shippingCostRealAereo: 'el flete aéreo',
-    shippingCostRealMaritimo: 'el flete marítimo',
   } as const
   const data: Record<keyof typeof campos, number | null> = {
     pesoRealKg: null, cajaL: null, cajaA: null, cajaH: null,
-    shippingCostRealAereo: null, shippingCostRealMaritimo: null,
   }
   for (const [name, nombre] of Object.entries(campos) as [keyof typeof campos, string][]) {
     const raw = (formData.get(name) as string)?.trim()
@@ -249,6 +252,114 @@ export async function saveMedidasCaja(envioId: number, formData: FormData): Prom
   if (r.count === 0) return fallo('Ese envío ya no existe.')
   revalidatePath('/envios')
   revalidatePath(`/envios/${envioId}`)
+  return ok()
+}
+
+// ── Flete real: lo que cobraron los transportistas y si ya se les pagó ──────────────────────
+// Ver lib/flete-real.ts. El facturado se guarda en la caja; lo pagado sale del libro.
+
+function revalidarFlete(envioId: number) {
+  revalidatePath('/envios')
+  revalidatePath(`/envios/${envioId}`)
+  revalidatePath('/contabilidad')
+}
+
+// El aéreo de una caja que despacha el proveedor (cotizado) no existe: ese tramo es `tramoUsd`
+// y se le paga a él dentro del giro. Cargarlo acá se guardaba y no tenía ningún efecto.
+async function tramoAplica(envioId: number, tramo: TramoFlete) {
+  const envio = await db.envio.findUnique({
+    where: { id: envioId },
+    select: { modo: true, supplier: { select: { origen: true, inbound: true } } },
+  })
+  if (!envio) return { error: 'Ese envío ya no existe.' }
+  if (envio.modo !== 'aereo') return { error: 'El flete real se carga en las cajas aéreas.' }
+  if (tramo === 'aereo' && inboundDe(envio.supplier?.origen, envio.supplier?.inbound) === 'cotizado') {
+    return { error: 'En esta caja el tramo a USA lo factura el proveedor: se carga como "Envío + impuestos" en su tarjeta.' }
+  }
+  return { error: null }
+}
+
+export async function guardarFleteReal(envioId: number, tramo: string, formData: FormData): Promise<ActionResult> {
+  if (!esTramoFlete(tramo)) return fallo('Ese tramo no existe.')
+  const raw = (formData.get('facturado') as string)?.trim()
+  let facturado: number | null = null
+  if (raw) {
+    const v = parseFloat(raw.replace(',', '.'))
+    if (!Number.isFinite(v) || v < 0) return fallo('Revisá el monto: no es un número válido.')
+    facturado = v > 0 ? v : null
+  }
+  const ap = await tramoAplica(envioId, tramo)
+  if (ap.error) return fallo(ap.error)
+
+  await db.envio.update({ where: { id: envioId }, data: { [TRAMOS_FLETE[tramo].columna]: facturado } })
+  revalidarFlete(envioId)
+  return ok()
+}
+
+// Marca un tramo como pagado: un egreso en el libro (llega a /contabilidad sin otro paso),
+// con la caja como referencia. Si el flete no estaba cargado, lo que se paga ES lo que
+// costó: se guarda también como facturado, en la misma transacción.
+//
+// El movimiento es aditivo, así que un doble click o dos pestañas pagarían dos veces. Se toma
+// el candado de la fila de la caja y se rechaza lo que pase de lo facturado.
+export async function pagarFlete(envioId: number, tramo: string, formData: FormData): Promise<ActionResult> {
+  if (!esTramoFlete(tramo)) return fallo('Ese tramo no existe.')
+  const monto = parseFloat(((formData.get('monto') as string) ?? '').trim().replace(',', '.'))
+  if (!Number.isFinite(monto) || monto <= 0) return fallo('El monto tiene que ser mayor que 0.')
+  const metodoPago = (formData.get('metodoPago') as string)?.trim() || null
+  const descripcion = (formData.get('descripcion') as string)?.trim() || null
+  const rawDate = (formData.get('fecha') as string)?.trim()
+  const fecha = rawDate ? new Date(`${rawDate}T12:00:00`) : new Date()
+  const t = TRAMOS_FLETE[tramo]
+
+  const ap = await tramoAplica(envioId, tramo)
+  if (ap.error) return fallo(ap.error)
+
+  return conErrorDeNegocio(async () => {
+    await db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT "id" FROM "Envio" WHERE "id" = ${envioId} FOR UPDATE`
+      const envio = await tx.envio.findUnique({ where: { id: envioId }, select: { [t.columna]: true } })
+      if (!envio) throw new ErrorDeNegocio('Ese envío ya no existe.')
+      const facturadoRaw = (envio as Record<string, { toString(): string } | null>)[t.columna]
+      const facturado = facturadoRaw != null ? parseFloat(facturadoRaw.toString()) : null
+
+      const pagadoAgg = await tx.movimiento.aggregate({
+        where: { envioId, tipo: 'egreso', categoria: t.categoria },
+        _sum: { monto: true },
+      })
+      const pagado = parseFloat((pagadoAgg._sum.monto ?? 0).toString())
+
+      if (facturado == null) {
+        await tx.envio.update({ where: { id: envioId }, data: { [t.columna]: monto } })
+      } else if (excedeFacturado(facturado, pagado, monto)) {
+        throw new ErrorDeNegocio(
+          pagado >= facturado - 0.01
+            ? `Este tramo ya está pagado ($${pagado.toFixed(2)} de $${facturado.toFixed(2)}).`
+            : `Con ese monto se pasa de lo facturado: faltan $${(facturado - pagado).toFixed(2)}.`,
+        )
+      }
+
+      await tx.movimiento.create({
+        data: {
+          fecha, tipo: 'egreso', categoria: t.categoria, monto, metodoPago,
+          descripcion: descripcion ?? `${t.titulo} · caja #${envioId}`,
+          envioId,
+        },
+      })
+    })
+  }).then(r => {
+    if (r.ok) revalidarFlete(envioId)
+    return r
+  })
+}
+
+// Deshace UN pago de flete de esta caja. Acotada a la caja y a las categorías de flete: no es
+// el borrado genérico del libro, que puede tocar cualquier movimiento.
+export async function deshacerPagoFlete(envioId: number, movimientoId: number): Promise<ActionResult> {
+  await db.movimiento.deleteMany({
+    where: { id: movimientoId, envioId, tipo: 'egreso', categoria: { in: [...CATEGORIAS_FLETE] } },
+  })
+  revalidarFlete(envioId)
   return ok()
 }
 

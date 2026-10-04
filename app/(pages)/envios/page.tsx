@@ -6,11 +6,12 @@ import FormConResultado from '@/components/FormConResultado'
 import { stageSummary, SHIPPING_STATUSES } from '@/lib/shipping-status'
 import { inboundDe, inboundMeta } from '@/lib/inbound'
 import { costearEnvios } from '@/lib/costo-envios'
+import { CATEGORIAS_FLETE, resumenFletes } from '@/lib/flete-real'
 
 export default async function EnviosPage() {
   // Una sola tanda: ninguna de las tres depende de las otras y encadenarlas costaba
   // tres veces la latencia hasta la base.
-  const [envios, sinAsignar, suppliers, costos] = await Promise.all([
+  const [envios, sinAsignar, suppliers, costos, pagosFlete] = await Promise.all([
     db.envio.findMany({
       include: {
         items: { select: { id: true, shippingStatus: true, pedidoId: true } },
@@ -29,7 +30,16 @@ export default async function EnviosPage() {
     }),
     // El costo se deriva en vivo (no se lee de una copia guardada): ver lib/costo-envios.
     costearEnvios(),
+    // Lo pagado de flete por caja y tramo, del libro: alimenta el aviso "flete por pagar".
+    db.movimiento.groupBy({
+      by: ['envioId', 'categoria'],
+      where: { tipo: 'egreso', envioId: { not: null }, categoria: { in: [...CATEGORIAS_FLETE] } },
+      _sum: { monto: true },
+    }),
   ])
+  const pagadoFlete = new Map<string, number>(
+    pagosFlete.map(p => [`${p.envioId}:${p.categoria}`, parseFloat((p._sum.monto ?? 0).toString())]),
+  )
   const borradores = envios.filter(e => e.modo === 'maritimo_cbm' && e.estado === 'borrador')
 
   return (
@@ -166,6 +176,13 @@ export default async function EnviosPage() {
             const summary = esMar ? null : stageSummary(e.items)
             const pedidosEnEnvio = new Set(e.items.map(i => i.pedidoId)).size
             const lead = summary?.lead
+            // Solo el aéreo: el marítimo propio no lleva factura de flete. Un tramo sin cargar no
+            // cuenta (no se sabe cuánto es); el aéreo de una caja cotizada no existe.
+            const cotizada = e.supplier ? inboundDe(e.supplier.origen, e.supplier.inbound) === 'cotizado' : false
+            const fletes = esMar ? 'sin_cargar' : resumenFletes([
+              ...(cotizada ? [] : [{ facturadoUsd: e.shippingCostRealAereo != null ? parseFloat(e.shippingCostRealAereo.toString()) : null, pagadoUsd: pagadoFlete.get(`${e.id}:flete_aereo`) ?? 0 }]),
+              { facturadoUsd: e.shippingCostRealMaritimo != null ? parseFloat(e.shippingCostRealMaritimo.toString()) : null, pagadoUsd: pagadoFlete.get(`${e.id}:flete_maritimo`) ?? 0 },
+            ])
             const pct = summary
               ? Math.round((summary.leadIndex / (SHIPPING_STATUSES.length - 1)) * 100)
               : 0
@@ -213,6 +230,16 @@ export default async function EnviosPage() {
                       ? `${e.lineas.length} ${e.lineas.length === 1 ? 'pieza' : 'piezas'}`
                       : `${e.items.length} ${e.items.length === 1 ? 'ítem' : 'ítems'}${pedidosEnEnvio > 0 ? ` · ${pedidosEnEnvio} ${pedidosEnEnvio === 1 ? 'pedido' : 'pedidos'}` : ''}`}
                   </span>
+                  {fletes === 'por_pagar' && (
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                      flete por pagar
+                    </span>
+                  )}
+                  {fletes === 'pagado' && (
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                      flete pagado
+                    </span>
+                  )}
                   {summary && lead && (
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${lead.badge}`}>
                       {lead.icon} {summary.allDelivered ? 'Entregado' : lead.short}

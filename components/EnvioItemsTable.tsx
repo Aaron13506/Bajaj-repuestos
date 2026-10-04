@@ -7,6 +7,9 @@ import {
   routeFor,
   routeStages,
   normalizeToRoute,
+  nextStatus,
+  statusIndex,
+  isDelivered,
   pasosRestantes,
   shippingStatusMeta,
   stageSummary,
@@ -31,6 +34,12 @@ export interface EnvioItemRow {
   // salta el pipeline entero. Es lo único que puede diferir entre líneas de una misma caja.
   isLanded: boolean
   shippingStatusAt: string | null
+  // Unidades de stock propio que esta línea mueve al entregarse (0 si es de un cliente, o un
+  // conjunto, que no acredita stock). Sirve para avisar antes de un movimiento masivo.
+  stockUnidades: number
+  // Piezas de la línea sin peso / sin medidas cargados: el cálculo del flete las subestima.
+  sinPeso: number
+  sinMedidas: number
 }
 
 interface Props {
@@ -44,6 +53,24 @@ interface Props {
   // Se quita el presupuesto COMPLETO, no piezas sueltas: el presupuesto es lo que se le
   // vendió al cliente y no se parte. O viaja entero en esta caja, o no viaja.
   quitar: (envioId: number, pedidoId: number) => Promise<void>
+}
+
+// Aviso ámbar de piezas sin peso o sin medidas. No dice cuáles: lleva al presupuesto, que es
+// donde está el loader de medidas.
+function FaltantesBadge({ its, href }: { its: EnvioItemRow[]; href: string }) {
+  const sinPeso = its.reduce((s, it) => s + it.sinPeso, 0)
+  const sinMedidas = its.reduce((s, it) => s + it.sinMedidas, 0)
+  if (sinPeso === 0 && sinMedidas === 0) return null
+  const partes = [sinPeso > 0 && `${sinPeso} sin peso`, sinMedidas > 0 && `${sinMedidas} sin medidas`].filter(Boolean)
+  return (
+    <Link
+      href={href}
+      title="Estas piezas no suman al flete calculado. Cargá peso y medidas en el presupuesto."
+      className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 hover:bg-amber-200"
+    >
+      {partes.join(' · ')}
+    </Link>
+  )
 }
 
 const usd = (n: number) => `$${n.toFixed(2)}`
@@ -123,6 +150,9 @@ export default function EnvioItemsTable({
   const [guardando, startGuardar] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [guardadoOk, setGuardadoOk] = useState(false)
+  const [incluirNoCompradas, setIncluirNoCompradas] = useState(false)
+  // Qué se salteó en el último movimiento masivo (no es un error: se avisa que se salteaba).
+  const [aviso, setAviso] = useState<string | null>(null)
   // `guardando` recién se ve en el render siguiente: dos cambios seguidos antes de eso pasarían
   // los dos. Con el candado en un ref el segundo se descarta en el momento. (El servidor igual
   // no suma el stock dos veces: ver saveItemChanges.)
@@ -136,6 +166,8 @@ export default function EnvioItemsTable({
   const rutaDe = (it: EnvioItemRow) => routeFor(inbound, it.isLanded)
 
   const visibles = items.filter(it => !quitados.includes(it.pedidoId))
+  // Las etapas de la ruta de la caja (la de sus líneas que sí viajan).
+  const etapasCaja = routeStages(routeFor(inbound, false))
 
   function aplicar(cambios: CambioItem[]) {
     if (cambios.length === 0) return
@@ -161,20 +193,21 @@ export default function EnvioItemsTable({
     })
   }
 
-  // Aplica un patch a un conjunto de filas: pinta primero, guarda después. Sirve igual
-  // para un select suelto (una fila) que para la cabecera (todas las del presupuesto).
-  function aplicarA(filas: EnvioItemRow[], patch: { shippingStatus: string }) {
+  // Lleva cada fila a SU destino: pinta primero, guarda después. Sirve igual para un select
+  // suelto (una fila), la cabecera de un presupuesto (todas las suyas) y el movimiento de la
+  // caja entera, donde el destino puede diferir por línea (avanzar un paso).
+  function aplicarPares(pares: { it: EnvioItemRow; destino: string }[]) {
     // Con un guardado en vuelo no se pinta ni se manda nada: pintar sin guardar dejaría la
     // fila mostrando un estado que el servidor nunca recibió.
     if (enVuelo.current) return
     const cambios: CambioItem[] = []
     const parche: Record<number, { shippingStatus: string }> = {}
 
-    for (const it of filas) {
+    for (const { it, destino } of pares) {
       const actual = valorDe(it)
       // Se normaliza a la ruta de la fila antes de pintarlo, para no mostrar una etapa que
       // esa ruta no tiene y que después "salte" al recargar.
-      const shippingStatus = normalizeToRoute(patch.shippingStatus, rutaDe(it))
+      const shippingStatus = normalizeToRoute(destino, rutaDe(it))
       if (shippingStatus === actual.shippingStatus) continue
       parche[it.id] = { shippingStatus }
       cambios.push({ id: it.id, shippingStatus })
@@ -183,6 +216,61 @@ export default function EnvioItemsTable({
     if (cambios.length === 0) return
     setEditado(prev => ({ ...prev, ...parche }))
     aplicar(cambios)
+  }
+
+  const aplicarA = (filas: EnvioItemRow[], patch: { shippingStatus: string }) =>
+    aplicarPares(filas.map(it => ({ it, destino: patch.shippingStatus })))
+
+  // Mueve la caja entera. `destino` null = avanzar un paso cada línea según su ruta.
+  //
+  // Se saltea lo que no corresponde en vez de arrastrarlo: una línea que el proveedor manda
+  // puesta en Venezuela no tiene la etapa "camino a USA", y normalizarla la llevaría a
+  // "en Venezuela" — adelantaría algo que nunca viajó. Y lo no comprado no puede estar "en
+  // camino", así que no se toca salvo que se pida.
+  function moverTodo(destino: string | null) {
+    if (enVuelo.current) return
+    const pares: { it: EnvioItemRow; destino: string }[] = []
+    let sinEtapa = 0
+    let sinComprar = 0
+    for (const it of visibles) {
+      const actual = valorDe(it).shippingStatus
+      const ruta = rutaDe(it)
+      const hacia = destino ?? nextStatus(actual, ruta)
+      if (hacia == null) continue
+      if (!routeStages(ruta).some(s => s.value === hacia)) { sinEtapa++; continue }
+      if (actual === 'pendiente' && !incluirNoCompradas && hacia !== 'pendiente') { sinComprar++; continue }
+      if (hacia === actual) continue
+      pares.push({ it, destino: hacia })
+    }
+
+    if (pares.length === 0) {
+      setError(
+        sinComprar > 0
+          ? 'Todo lo que se podía mover está sin comprar. Tildá "incluir no compradas" si es a propósito.'
+          : 'No hay líneas para mover a esa etapa.',
+      )
+      return
+    }
+
+    // Lo que pide confirmación: entregar o des-entregar stock propio (toca Product.stock) e ir
+    // para atrás. Ambos son fáciles de hacer sin querer sobre 40 líneas de un click.
+    const entran = pares.filter(p => isDelivered(p.destino) && !isDelivered(valorDe(p.it).shippingStatus))
+    const salen = pares.filter(p => !isDelivered(p.destino) && isDelivered(valorDe(p.it).shippingStatus))
+    const uEntran = entran.reduce((s, p) => s + p.it.stockUnidades, 0)
+    const uSalen = salen.reduce((s, p) => s + p.it.stockUnidades, 0)
+    const atras = pares.filter(p => statusIndex(p.destino) < statusIndex(valorDe(p.it).shippingStatus)).length
+
+    const avisos: string[] = []
+    if (uEntran > 0) avisos.push(`Suma ${uEntran} u. al stock propio.`)
+    if (uSalen > 0) avisos.push(`Resta ${uSalen} u. del stock propio.`)
+    if (atras > 0) avisos.push(`${atras} ${atras === 1 ? 'línea retrocede' : 'líneas retroceden'} de etapa.`)
+    if (avisos.length > 0 && !confirm(`Vas a mover ${pares.length} líneas.\n\n${avisos.join('\n')}\n\n¿Seguro?`)) return
+
+    aplicarPares(pares)
+    const notas: string[] = []
+    if (sinEtapa > 0) notas.push(`${sinEtapa} ${sinEtapa === 1 ? 'línea no tiene' : 'líneas no tienen'} esa etapa y quedaron como estaban`)
+    if (sinComprar > 0) notas.push(`${sinComprar} sin comprar no se movieron`)
+    setAviso(notas.length > 0 ? notas.join(' · ') : null)
   }
 
   function quitarPresupuesto(pedidoId: number, clientName: string, cantidad: number) {
@@ -271,7 +359,41 @@ export default function EnvioItemsTable({
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
           Ítems en el envío ({visibles.length}) · {comprados} comprados
         </h2>
-        <div className="flex items-center gap-4 text-xs">
+        <div className="flex items-center gap-4 text-xs flex-wrap justify-end">
+          {visibles.length > 0 && (
+            <div className="flex items-center gap-2">
+              <select
+                disabled={guardando}
+                value=""
+                onChange={e => { if (e.target.value) moverTodo(e.target.value) }}
+                title="Lleva todas las líneas de la caja a la misma etapa"
+                className="border border-gray-300 rounded-lg px-2 py-1 text-xs bg-white"
+              >
+                <option value="">Mover todo a…</option>
+                {etapasCaja.map(s => (
+                  <option key={s.value} value={s.value}>{s.icon} {s.label}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={guardando}
+                onClick={() => moverTodo(null)}
+                title="Cada línea pasa a la etapa siguiente de su ruta"
+                className="px-2.5 py-1 rounded-lg border border-gray-300 text-gray-700 hover:bg-white disabled:opacity-50"
+              >
+                Avanzar todo un paso →
+              </button>
+              <label className="flex items-center gap-1 text-gray-500" title="Por defecto lo que falta comprar no se mueve">
+                <input
+                  type="checkbox"
+                  checked={incluirNoCompradas}
+                  onChange={e => setIncluirNoCompradas(e.target.checked)}
+                  className="rounded border-gray-300"
+                />
+                incluir no compradas
+              </label>
+            </div>
+          )}
           <button
             type="button"
             onClick={() => setAbiertos(todoAbierto ? [] : grupos.map(g => g.pedidoId))}
@@ -290,6 +412,9 @@ export default function EnvioItemsTable({
           )}
         </div>
       </div>
+      {aviso && (
+        <p className="px-6 py-2 text-xs text-gray-600 bg-amber-50 border-b border-amber-100">{aviso}</p>
+      )}
 
       <table className="w-full text-sm">
         <thead>
@@ -347,6 +472,10 @@ export default function EnvioItemsTable({
                         </span>
                       )}
                     </button>
+                    {/* El flete se calcula con lo que el catálogo sabe de cada pieza: sin peso o
+                        sin medidas la suma queda corta. El loader de medidas está en el
+                        presupuesto. */}
+                    <FaltantesBadge its={its} href={`/presupuestos/${pedidoId}`} />
                   </td>
                   {/* Totales del presupuesto: cuando está contraído siguen visibles. */}
                   <td className="px-3 py-2 text-right font-mono text-xs text-gray-500">{usd(landedGrupo)}</td>
@@ -398,6 +527,12 @@ export default function EnvioItemsTable({
                               no viaja
                             </span>
                           )}
+                          {it.stockUnidades > 0 && (
+                            <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700">
+                              stock propio
+                            </span>
+                          )}
+                          <FaltantesBadge its={[it]} href={`/presupuestos/${it.pedidoId}`} />
                         </p>
                         {/* Las piezas del conjunto: lo que realmente se le pide al
                             proveedor. El ensamble por sí solo no se compra. */}
