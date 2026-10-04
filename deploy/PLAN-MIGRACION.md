@@ -524,7 +524,7 @@ Lo que salió y conviene saber:
    - Borrar `/etc/bajaj/app.env.pre-fase6` (tiene las llaves de Supabase) y los dumps `pre-fase6*` de `/var/backups/bajaj` cuando el backup
      automático esté probado.
    - `lib/db.ts`: la CA de Supabase sobra, pero no molesta. Se puede sacar más adelante.
-4. **Tu `.env` local:** hoy `DATABASE_URL` **y `DIRECT_URL`** apuntan a Supabase (el pooler `aws-1-us-west-2`,
+4. **Tu `.env` local** *(resuelto el 2026-10-04: el `.env` apunta a una base local en Docker, copia de producción —`pnpm db:up` y `pnpm db:pull-prod`—, así que nada desde la PC toca producción por accidente; lo que sigue describe el túnel, que queda solo para operaciones puntuales)*: hoy `DATABASE_URL` **y `DIRECT_URL`** apuntan a Supabase (el pooler `aws-1-us-west-2`,
    puertos 6543 y 5432): cambiar las dos, no solo la de runtime. Mientras tanto, cualquier script que
    escriba desde la PC (`prices:99rpm --apply`, `materialize`…) escribe en la base **vieja**, no en la
    que se usa. Por eso conviene hacer este punto apenas termine la fase 6, no al final de la 7. Los scripts que escriben en
@@ -556,10 +556,9 @@ Pendiente (no se puede cerrar hoy):
   apagarla.
 - **Supabase:** dump completo final archivado (base + inventario del bucket `bajaj-imagenes`, que sigue intacto con las 1513 imágenes originales); después pausar,
   más tarde borrar, y **rotar** la clave de la base y las access keys S3. Hasta entonces esas llaves siguen vivas en tu `.env`.
-- **Tu `.env` local** (punto 4 de «Después»): sigue con `DATABASE_URL` / `DIRECT_URL` de Supabase y con las `S3_*` del bucket viejo, así que hoy `prices:99rpm --apply`
-  y compañía escriben en la base **vieja** y los scripts de imágenes no corren. Usar el túnel y las llaves de `motokira-images` (ejemplo en `.env.example`).
-- **Docker en tu PC:** el contenedor `lightsail` (imagen `bajaj-lightsail-sim`, detenido) tiene datos de clientes restaurados; borrarlo. `bajaj-migtest` (postgres 17,
-  corriendo) probablemente sea el ensayo de la migración de ensambles: decidir si se conserva para la fase 8.
+- **Tu `.env` local:** la base ya es la local (hecho, ver el punto 4 de «Después»; las URLs viejas de Supabase quedaron **comentadas** en el `.env` porque hacen falta para
+  el dump final). Falta que las `S3_*` pasen a las llaves de `motokira-images` (siguen siendo las de Supabase, así que los scripts de imágenes no corren desde la PC).
+- **Docker en tu PC:** limpiado por el usuario (ya no están `lightsail` ni `bajaj-migtest`). Para la fase 8 el ensayo del SQL se rehace sobre la base local (`pnpm db:pull-prod`).
 - Opcionales: `HEROKU-CRON.md` (lo cita `scripts/update-shipping-rates.ts:15`) y los comentarios que aún dicen «Heroku» en el código (el hecho que describen, el servidor en
   UTC, sigue valiendo: `TZ=UTC` en la unidad de systemd).
 

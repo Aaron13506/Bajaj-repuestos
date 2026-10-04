@@ -49,15 +49,16 @@ pnpm scrape:99rpm --out=<file>.json   # crawl (writes only data/scrape/, never t
 pnpm prices:99rpm --file=<file>.json  # report what would change
 pnpm prices:99rpm --file=<file>.json --apply [--skip=SKU,SKU]
 
-# Local database (Docker)
-docker compose up -d    # Start PostgreSQL on port 5432
+# Local database (Docker): a copy of production, Postgres 17 like the server, on 127.0.0.1:5432
+pnpm db:up              # docker compose up -d --wait
+pnpm db:pull-prod       # reload it with the latest production backup (reads prod over SSH, writes only the local container; wipes the local DB)
 docker compose down     # Stop
 ```
 
 ## Environment
 
 Production is a single AWS Lightsail machine (app, Postgres, timers, backups — see `deploy/PLAN-MIGRACION.md`); its variables live in `/etc/bajaj/app.env`, not in the repo. Locally, copy `.env.example` to `.env`. Required variables:
-- `DATABASE_URL` / `DIRECT_URL` — PostgreSQL connection strings. To run scripts from a PC against production, open the SSH tunnel described in `.env.example` (`localhost:15432`); with it open, anything that writes writes to **production**
+- `DATABASE_URL` / `DIRECT_URL` — PostgreSQL connection strings. Locally they point at the Docker copy (`pnpm db:up` + `pnpm db:pull-prod`); production is private (localhost of the server), so nothing run from a PC reaches it by accident. To run something against production **on purpose**, run it on the server (`scp` the input, then `sudo -iu bajaj`) or open the SSH tunnel described in `.env.example` (`localhost:15432`) — with the tunnel open, anything that writes writes to production
 - `ADMIN_USER` / `ADMIN_PASSWORD` — HTTP Basic Auth credentials (the `admin` / `admin123` defaults only apply with `APP_ENV=local`)
 - `S3_*` and `S3_PUBLIC_BASE_URL` — the image bucket (`motokira-images`), used only by the image scripts; `lib/s3-publico.ts` refuses to derive the public URL from the endpoint
 

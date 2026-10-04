@@ -253,4 +253,6 @@ async function main() {
 
 main()
   .catch(e => { console.error(e instanceof Error ? e.message : e); process.exitCode = 1 })
-  .finally(() => db.$disconnect())
+  // process.exit: con la base en localhost la conexión idle mantiene vivo el proceso y `pnpm q` no volvía.
+  // Sin argumento respeta el process.exitCode de arriba.
+  .finally(async () => { await db.$disconnect(); process.exit() })

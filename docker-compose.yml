@@ -1,6 +1,10 @@
+# Base LOCAL de desarrollo: una copia de producción (Postgres 17, la misma versión que el servidor).
+#   pnpm db:up           levanta la base y espera a que responda
+#   pnpm db:pull-prod    la recarga con el último backup de producción (borra lo que haya)
+# Solo escucha en 127.0.0.1. Las credenciales son de juguete a propósito: es una copia local.
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     container_name: bajaj-repuestos-db
     restart: unless-stopped
     environment:
@@ -8,9 +12,14 @@ services:
       POSTGRES_PASSWORD: bajaj123
       POSTGRES_DB: bajaj_repuestos
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres17_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bajaj -d bajaj_repuestos"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
 
 volumes:
-  postgres_data:
+  postgres17_data:
