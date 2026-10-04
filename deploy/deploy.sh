@@ -54,10 +54,14 @@ MIGRAR=(pnpm exec tsx scripts/migrar.ts)
 parada=0
 trap 'if (( parada )); then echo "⚠ bajaj-app QUEDÓ PARADA. Estado de la base: pnpm exec tsx scripts/migrar.ts   Para arrancarla: sudo systemctl start bajaj-app" >&2; fi' EXIT
 
-# DEPLOY_ANTERIOR lo pone desplegar.sh cuando ya adelantó el repo (para correr este script en su
-# versión nueva): el commit de partida, al que vuelve un rollback, no es el HEAD de ahora.
-anterior_full=${DEPLOY_ANTERIOR:-$(git rev-parse HEAD)}
-[[ "$anterior_full" =~ ^[0-9a-f]{40}$ ]] || die "DEPLOY_ANTERIOR no es un commit: '$anterior_full'"
+# El commit que HOY está desplegado (el de la última vez que este script terminó bien) vive en
+# .desplegado, y NO es necesariamente el HEAD del repo: desplegar.sh adelanta el repo antes de correr
+# este script, y un intento fallido deja el HEAD en el commit nuevo sin haberlo construido. Es el
+# destino de un rollback y lo que desplegar.sh compara contra GitHub. Sin el archivo (primer deploy
+# con este mecanismo) se parte del HEAD.
+MARCA="$PWD/.desplegado"
+if [[ -s "$MARCA" ]]; then anterior_full=$(tr -d '[:space:]' < "$MARCA"); else anterior_full=$(git rev-parse HEAD); fi
+[[ "$anterior_full" =~ ^[0-9a-f]{40}$ ]] || die "El commit desplegado no es válido ($MARCA): '$anterior_full'"
 anterior=${anterior_full:0:7}
 git pull --ff-only
 nuevo=$(git rev-parse --short HEAD)
@@ -135,3 +139,6 @@ else
   echo "==> bajaj-app no está corriendo (primer deploy): arrancarlo con"
   echo "    sudo systemctl enable --now bajaj-app"
 fi
+
+# Recién ahora —construido y arrancado— este commit pasa a ser el desplegado.
+git rev-parse HEAD > "$MARCA"

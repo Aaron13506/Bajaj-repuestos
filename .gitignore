@@ -1,4 +1,6 @@
 node_modules/
+# commit actualmente desplegado en el servidor (lo escribe deploy/deploy.sh)
+/.desplegado
 .pnp
 .pnp.js
 /coverage

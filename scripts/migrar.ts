@@ -119,6 +119,26 @@ interface Estado {
   baselineAEscribir: Migracion[]
 }
 
+/**
+ * El archivo al que apunta --baseline. Un baseline equivocado registra como "ya aplicado" algo que
+ * no corrió, así que el criterio es estricto pero perdona lo que es solo un descuido al tipear:
+ * el nombre sin extensión o cortado vale si es un prefijo (de al menos la fecha) que identifica UN
+ * solo archivo. Se dice a cuál se resolvió, por stderr (stdout lo lee deploy.sh).
+ */
+function resolverBaseline(files: Migracion[], pedido: string): string {
+  const exacto = files.find(f => f.nombre === pedido)
+  if (exacto) return exacto.nombre
+  const candidatos = pedido.length >= 10 ? files.filter(f => f.nombre.startsWith(pedido)) : []
+  if (candidatos.length === 1) {
+    console.error(`ℹ --baseline=${pedido} → ${candidatos[0].nombre}`)
+    return candidatos[0].nombre
+  }
+  return die(
+    `--baseline=${pedido}: ${candidatos.length > 1 ? 'es ambiguo' : 'no existe'} en ${path.relative(RAIZ, dir)}.\n` +
+    `  Los últimos archivos: ${files.slice(-4).map(f => f.nombre).join(', ')}`,
+  )
+}
+
 function calcularEstado(files: Migracion[], registro: Map<string, string> | null): Estado {
   let aplicadas: Map<string, string>
   let baselineAEscribir: Migracion[] = []
@@ -136,8 +156,8 @@ function calcularEstado(files: Migracion[], registro: Map<string, string> | null
       '  Se registran como ya aplicados ese y los anteriores, sin ejecutarlos.',
     )
   } else {
-    const i = files.findIndex(f => f.nombre === baseline)
-    if (i < 0) die(`--baseline=${baseline}: no existe en ${path.relative(RAIZ, dir)}.`)
+    const nombreBase = resolverBaseline(files, baseline)
+    const i = files.findIndex(f => f.nombre === nombreBase)
     baselineAEscribir = files.slice(0, i + 1)
     aplicadas = new Map(baselineAEscribir.map(f => [f.nombre, f.checksum]))
   }

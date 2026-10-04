@@ -40,7 +40,12 @@ die() { echo "✗ $*" >&2; exit 1; }
 srv() { ssh -o ConnectTimeout=10 "$HOST" "sudo -iu bajaj git -C $APP_DIR $*" | tr -d '\r'; }
 
 srv fetch --quiet origin master || die "El servidor no pudo traer de GitHub (¿Tailscale prendido? ¿deploy key?)."
-actual=$(srv rev-parse HEAD)
+# "Lo que está desplegado" NO es el HEAD del repo del servidor: un intento fallido (o --migrar, que lo
+# adelanta antes de correr deploy.sh) deja el HEAD en un commit que todavía no se construyó. Lo dice
+# .desplegado, que deploy.sh escribe al terminar bien. Sin él (primera vez) se usa el HEAD.
+MARCA="$APP_DIR/.desplegado"
+marca=$(ssh -o ConnectTimeout=10 "$HOST" "sudo -iu bajaj cat $MARCA 2>/dev/null || true" | tr -d '\r\n ')
+if [[ "$marca" =~ ^[0-9a-f]{40}$ ]]; then actual=$marca; else actual=$(srv rev-parse HEAD); marca=''; fi
 destino=$(srv rev-parse origin/master)
 [[ "$actual" =~ ^[0-9a-f]{40}$ && "$destino" =~ ^[0-9a-f]{40}$ ]] || die "Respuesta rara del servidor: '$actual' / '$destino'"
 
@@ -80,16 +85,17 @@ fi
 (( dry )) && { echo "--dry: no se despliega nada."; exit 0; }
 
 echo "==> deploy.sh en $HOST"
-extra=''; envs=''
+extra=''
 if (( migrar )); then
   extra=' --migrar'; [[ -n "$baseline" ]] && extra+=" $baseline"
   # El deploy.sh que ya está en el servidor puede ser anterior a --migrar (el primer deploy con este
   # mecanismo) y no lo entendería: se trae el repo ANTES de correrlo, para ejecutar la versión nueva,
-  # y se le dice cuál era el commit de partida (el destino de un rollback), que si no sería este.
+  # (el commit de partida de un rollback no se pierde: lo guarda .desplegado).
+  # Sin .desplegado todavía, se fija ahora con lo que hay desplegado, antes de mover el repo.
+  [[ -n "$marca" ]] || ssh "$HOST" "sudo -iu bajaj sh -c 'echo $actual > $MARCA'" || die "No se pudo escribir $MARCA en el servidor."
   srv merge --ff-only origin/master >/dev/null || die "El servidor no pudo adelantar su repo a origin/master."
-  envs="env DEPLOY_ANTERIOR=$actual "
 fi
-ssh "$HOST" "sudo -iu bajaj $envs$APP_DIR/deploy/deploy.sh$extra" || die "deploy.sh falló (leé arriba: si fue el build de un deploy sin migraciones, la versión anterior sigue sirviendo; si migraba, el mensaje dice en qué estado quedó la app)."
+ssh "$HOST" "sudo -iu bajaj $APP_DIR/deploy/deploy.sh$extra" || die "deploy.sh falló (leé arriba: si fue el build de un deploy sin migraciones, la versión anterior sigue sirviendo; si migraba, el mensaje dice en qué estado quedó la app)."
 
 nuevo=$(srv rev-parse HEAD)
 [[ "$nuevo" == "$destino" ]] || die "El servidor quedó en ${nuevo:0:7}, no en ${destino:0:7}."
