@@ -4,12 +4,16 @@
 #
 #   pnpm deploy:prod                    muestra qué trae el servidor y lo despliega
 #   pnpm deploy:prod --dry              solo muestra; no despliega nada
-#   pnpm deploy:prod --esquema-aplicado confirma que el cambio de esquema ya se aplicó a mano en la base
+#   pnpm deploy:prod --migrar           además aplica las migraciones de esquema que traiga (prisma/manual/*.sql)
+#   pnpm deploy:prod --migrar --baseline=<archivo>
+#                                       la primera vez en una base sin registro de migraciones (ver scripts/migrar.ts)
 #
 # Todo se consulta al servidor, que es quien hace el pull: no depende de tu git local (Windows,
-# WSL, saltos de línea). Se detiene si lo que llega cambia prisma/schema.prisma: deploy.sh no
-# corre migraciones, y una app nueva (su cliente de Prisma sale de ese archivo) contra una base
-# vieja arranca rota. Un .sql en prisma/manual/ solo avisa: deploy.sh no lo ejecuta.
+# WSL, saltos de línea). Si lo que llega trae un .sql nuevo en prisma/manual/ se niega a seguir sin
+# --migrar, ANTES de que el servidor haga nada: aplicar un cambio de esquema implica parar la app unos
+# segundos y hacer un backup, y eso se pide a propósito. Qué hace --migrar, paso a paso: deploy.sh.
+# Un cambio de prisma/schema.prisma SIN .sql ya no se detecta acá (podría ser solo un comentario): lo
+# frena deploy.sh comparando la base real contra el esquema, antes de construir.
 # Avisa (sin bloquear) si tu commit local todavía no está en GitHub, porque entonces el
 # servidor no lo verá.
 #
@@ -19,15 +23,17 @@ set -euo pipefail
 HOST=${DEPLOY_HOST:-ubuntu@motokira}
 APP_DIR=${DEPLOY_APP_DIR:-/srv/bajaj/app}
 
-dry=0; esquema_ok=0
+dry=0; migrar=0; baseline=''
 for a in "$@"; do
   case "$a" in
     --) ;;
     --dry) dry=1 ;;
-    --esquema-aplicado) esquema_ok=1 ;;
+    --migrar) migrar=1 ;;
+    --baseline=*) baseline="$a" ;;
     *) echo "Opción desconocida: $a"; exit 2 ;;
   esac
 done
+[[ -z "$baseline" || $migrar -eq 1 ]] || { echo "--baseline va con --migrar."; exit 2; }
 
 die() { echo "✗ $*" >&2; exit 1; }
 # git en el servidor, como el usuario que hace el deploy (-i: su HOME, donde está la deploy key)
@@ -57,13 +63,15 @@ echo
 cambios=$(srv diff --name-only "$actual" "$destino")
 
 if grep -Eq '^prisma/schema\.prisma$' <<<"$cambios"; then
-  echo "⚠ Esto cambia prisma/schema.prisma."
-  (( esquema_ok )) || die "deploy.sh no corre migraciones. Aplicá el cambio en la base (SQL manual, con backup) y repetí con --esquema-aplicado."
-  echo "  (--esquema-aplicado: seguimos)"
+  echo "ℹ Cambia prisma/schema.prisma (deploy.sh comprueba que la base coincida antes de construir)."
 fi
-if grep -Eq '^prisma/manual/' <<<"$cambios"; then
-  echo "ℹ Trae SQL en prisma/manual/ (deploy.sh no lo aplica; se corre a mano, con backup, cuando toque):"
-  grep -E '^prisma/manual/' <<<"$cambios" | sed 's/^/    /'
+if grep -Eq '^prisma/manual/.+\.sql$' <<<"$cambios"; then
+  echo "⚠ Trae migraciones de esquema (prisma/manual/):"
+  grep -E '^prisma/manual/.+\.sql$' <<<"$cambios" | sed 's/^/    /'
+  (( migrar )) || die "Aplicarlas implica parar la app unos segundos y hacer un backup. Repetí con --migrar (antes podés ensayarlas contra la base real, sin dejar nada: en el servidor, 'pnpm exec tsx scripts/migrar.ts --probar')."
+  echo "  (--migrar: se ensayan, se para la app, se hace backup, se aplican y se arranca)"
+elif (( migrar )) && [[ -z "$baseline" ]]; then
+  echo "ℹ --migrar: este deploy no trae .sql nuevos; solo se aplicará algo si el servidor ya tenía pendientes."
 fi
 if grep -Eq '^deploy/(systemd/|setup\.sh|oauth2-proxy\.cfg)' <<<"$cambios"; then
   echo "⚠ Cambió la infraestructura (deploy/systemd, setup.sh u oauth2-proxy.cfg): deploy.sh NO la reinstala; hay que aplicarla a mano en el servidor."
@@ -72,7 +80,16 @@ fi
 (( dry )) && { echo "--dry: no se despliega nada."; exit 0; }
 
 echo "==> deploy.sh en $HOST"
-ssh "$HOST" "sudo -iu bajaj $APP_DIR/deploy/deploy.sh" || die "deploy.sh falló (si fue el build, la versión anterior sigue sirviendo)."
+extra=''; envs=''
+if (( migrar )); then
+  extra=' --migrar'; [[ -n "$baseline" ]] && extra+=" $baseline"
+  # El deploy.sh que ya está en el servidor puede ser anterior a --migrar (el primer deploy con este
+  # mecanismo) y no lo entendería: se trae el repo ANTES de correrlo, para ejecutar la versión nueva,
+  # y se le dice cuál era el commit de partida (el destino de un rollback), que si no sería este.
+  srv merge --ff-only origin/master >/dev/null || die "El servidor no pudo adelantar su repo a origin/master."
+  envs="env DEPLOY_ANTERIOR=$actual "
+fi
+ssh "$HOST" "sudo -iu bajaj $envs$APP_DIR/deploy/deploy.sh$extra" || die "deploy.sh falló (leé arriba: si fue el build de un deploy sin migraciones, la versión anterior sigue sirviendo; si migraba, el mensaje dice en qué estado quedó la app)."
 
 nuevo=$(srv rev-parse HEAD)
 [[ "$nuevo" == "$destino" ]] || die "El servidor quedó en ${nuevo:0:7}, no en ${destino:0:7}."

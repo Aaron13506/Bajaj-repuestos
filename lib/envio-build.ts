@@ -90,15 +90,19 @@ export function repartirCostoReal(
 //
 // Para una pieza suelta devuelve la pieza tal cual. Para un CONJUNTO (bundleItems
 // presente) resuelve cada pieza incluida a su producto real para costearla por las
-// piezas que efectivamente lleva, en vez del priceInr/peso del ensamble entero
-// (que agrega TODAS sus piezas y sobreestima el costo).
+// piezas que efectivamente lleva: un ensamble no tiene peso, medidas ni precio propios
+// (no es una pieza), así que `product` es null y solo importa el snapshot.
+//
+// Una línea sin conjunto y sin pieza no existe: el CHECK PedidoItem_pieza_xor_conjunto lo
+// impide en la base. Si llegara acá, mejor cortar que costearla en cero sin avisar.
 export function expandCostPieces(
-  product: ProductCost,
+  product: ProductCost | null,
   quantity: number,
   bundleItems: BundlePiece[] | null,
   lookup: ProductLookup,
 ): CostPiece[] {
   if (!bundleItems || bundleItems.length === 0) {
+    if (!product) throw new Error('Línea sin pieza ni conjunto: viola PedidoItem_pieza_xor_conjunto')
     return [{
       productId: product.id,
       name: product.nameEs,

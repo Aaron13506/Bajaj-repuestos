@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from 'react'
 import type { ActionResult } from '@/lib/action-result'
+import { esRedireccion } from '@/lib/redireccion'
 
 // Un <form> para una server action que puede negarse por una regla del negocio y devolver
 // `{ ok: false, error }`. Con un `<form action={accion}>` pelado ese resultado se pierde: el
@@ -23,7 +24,9 @@ export default function FormConResultado({
     try {
       const r = await action(formData)
       if (r && !r.ok) setError(r.error)
-    } catch {
+    } catch (e) {
+      // Guardar y redirigir es el éxito normal: no se muestra como error (ver redireccion.ts).
+      if (esRedireccion(e)) return
       setError('No se pudo completar la acción. Probá de nuevo.')
     }
   }

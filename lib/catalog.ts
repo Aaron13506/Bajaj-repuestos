@@ -50,27 +50,26 @@ export async function getCatalogFilters(
   { categorias = true }: { categorias?: boolean } = {},
 ): Promise<{ models: MotoModelInfo[]; categories: string[] }> {
   const [modelRows, catRows] = await Promise.all([
-    db.product.findMany({
-      where: { isAssembly: true, compatibleModels: { not: null } },
+    db.ensamble.findMany({
       distinct: ['compatibleModels'],
       select: { compatibleModels: true },
     }),
     // /products ya no filtra por categoría: se ahorra la consulta.
     categorias
-      ? db.product.findMany({
-          where: { isAssembly: true, ...whereModel(model) },
+      ? db.ensamble.findMany({
+          where: whereModel(model),
           distinct: ['nameEs'],
           select: { nameEs: true },
         })
-      : Promise.resolve([] as { nameEs: string }[]),
+      : Promise.resolve([] as { nameEs: string | null }[]),
   ])
   // Las etiquetas presentes se resuelven contra la tabla de motos: lo que no matchea es
   // texto viejo o mal escrito y no puede ser una opción del dropdown, porque al elegirla
   // el filtro no devolvería nada. Se ordenan por MOTO_MODELS, que ya está por cilindrada.
   const presentes = new Set(
-    modelRows.flatMap((r) => (r.compatibleModels ?? '').split(',')).map((m) => m.trim()).filter(Boolean)
+    modelRows.flatMap((r) => r.compatibleModels.split(',')).map((m) => m.trim()).filter(Boolean)
   )
   const models = MOTO_MODELS.filter((m) => presentes.has(m.label))
-  const categories = catRows.map((r) => r.nameEs).filter(Boolean).sort((a, b) => a.localeCompare(b))
+  const categories = catRows.map((r) => r.nameEs).filter((n): n is string => !!n).sort((a, b) => a.localeCompare(b))
   return { models, categories }
 }

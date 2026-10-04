@@ -84,12 +84,12 @@ async function main() {
   // 2) Product: agrupar las copias por el código escondido
   // ───────────────────────────────────────────────────────────────────────────
   const sinCodigo = await prisma.product.findMany({
-    where: { bajajCode: null, isAssembly: false },
+    where: { bajajCode: null },
     select: {
       id: true, nameEs: true, nameEn: true, compatibleModels: true, priceInr: true,
       weightGrams: true, dimL: true, dimA: true, dimH: true, stock: true,
       price: true, margin: true, landedCostUsd: true, priceLocked: true, discontinuedAt: true,
-      _count: { select: { components: true, pedidoItems: true, envioLineas: true } },
+      _count: { select: { pedidoItems: true, envioLineas: true } },
     },
   })
 
@@ -118,18 +118,10 @@ async function main() {
   const usado = (p: Prod) => p._count.pedidoItems + p._count.envioLineas
   const medido = (p: Prod) => p.weightGrams != null || p.dimL != null
 
-  let fusionados = 0, borrados = 0, conflictos = 0, conHijos = 0
+  let fusionados = 0, borrados = 0, conflictos = 0
   const detalle: string[] = []
 
   for (const [codigo, copias] of [...grupos.entries()].sort()) {
-    // Una pieza no debería tener hijos; si los tiene no es una copia suelta y no se toca.
-    const padres = copias.filter(p => p._count.components > 0)
-    if (padres.length) {
-      conHijos++
-      console.log(`  ⚠ ${codigo}: ${padres.map(p => '#' + p.id).join(',')} tienen componentes propios → se saltea el código entero`)
-      continue
-    }
-
     const enUso = copias.filter(p => usado(p) > 0)
     if (enUso.length > 1) {
       conflictos++
@@ -182,18 +174,18 @@ async function main() {
 
     // ── Mover todo lo que cuelga de las perdedoras ───────────────────────────
     for (const perd of perdedoras) {
-      // Enlaces de ensamble. El (padre, hijo, grupo) es único: si el sobreviviente ya está
-      // en ese mismo grupo del mismo padre, el enlace duplicado se borra en vez de moverse.
-      const enlaces = await prisma.productComponent.findMany({
-        where: { childId: perd.id }, select: { id: true, parentId: true, groupName: true },
+      // Enlaces de ensamble. El (ensamble, pieza, grupo) es único: si el sobreviviente ya está
+      // en ese mismo grupo del mismo ensamble, el enlace duplicado se borra en vez de moverse.
+      const enlaces = await prisma.ensambleComponente.findMany({
+        where: { productId: perd.id }, select: { id: true, ensambleId: true, groupName: true },
       })
       for (const e of enlaces) {
-        const choca = await prisma.productComponent.findUnique({
-          where: { parentId_childId_groupName: { parentId: e.parentId, childId: survId, groupName: e.groupName } },
+        const choca = await prisma.ensambleComponente.findUnique({
+          where: { ensambleId_productId_groupName: { ensambleId: e.ensambleId, productId: survId, groupName: e.groupName } },
           select: { id: true },
         })
-        if (choca) await prisma.productComponent.delete({ where: { id: e.id } })
-        else await prisma.productComponent.update({ where: { id: e.id }, data: { childId: survId } })
+        if (choca) await prisma.ensambleComponente.delete({ where: { id: e.id } })
+        else await prisma.ensambleComponente.update({ where: { id: e.id }, data: { productId: survId } })
       }
 
       // Líneas de embarque marítimo: (envio, producto) es único → se suman las cantidades,
@@ -258,13 +250,12 @@ async function main() {
   console.log(`\n${detalle.join('\n')}`)
   console.log(`\nResumen: ${fusionados} códigos rescatados · ${borrados} productos duplicados ${APPLY ? 'borrados' : 'a borrar'}`)
   if (conflictos) console.log(`  ${conflictos} códigos salteados por uso en documentos distintos`)
-  if (conHijos) console.log(`  ${conHijos} códigos salteados por tener componentes propios`)
 
   if (!APPLY) {
     console.log(`\nSIMULACRO — no se escribió nada. Corré con --apply para aplicar.`)
     return
   }
-  const restan = await prisma.product.count({ where: { bajajCode: null, isAssembly: false } })
+  const restan = await prisma.product.count({ where: { bajajCode: null } })
   console.log(`\nPiezas sin código que quedan: ${restan} (las que 99rpm publica sin número)`)
   console.log(`Ahora reimportá la lista del proveedor para que estos SKU tomen precio:`)
   console.log(`  npx tsx scripts/import-supplier-prices.ts --file=<lista.xlsx> --supplier="Oemship" --commit`)

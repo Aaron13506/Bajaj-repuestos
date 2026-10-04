@@ -174,7 +174,7 @@ function Compra99({ datos }: { datos: CompraPorEnsamble }) {
   return (
     <div className="divide-y divide-gray-100">
       {datos.ensambles.map(e => (
-        <div key={e.assemblyId} className="px-6 py-3">
+        <div key={e.ensambleId} className="px-6 py-3">
           <div className="flex items-baseline justify-between gap-3 flex-wrap">
             <h3 className="text-sm font-semibold text-gray-900">
               {e.nombre}

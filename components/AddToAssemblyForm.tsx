@@ -1,25 +1,26 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { searchProductsForPicker } from '@/app/(pages)/products/[id]/component-actions'
+import { buscarEnsambles } from '@/app/(pages)/ensambles/component-actions'
+import { formatModels, toModelIds } from '@/lib/modelo'
 import PendingButton from '@/components/PendingButton'
 import FormConResultado from '@/components/FormConResultado'
 import type { ActionResult } from '@/lib/action-result'
 
-interface Product {
+interface Ensamble {
   id: number
   nameEs: string
-  bajajCode: string | null
+  compatibleModels: string
 }
 
 interface Props {
-  childId: number
-  action: (childId: number, formData: FormData) => Promise<ActionResult>
+  productId: number
+  action: (productId: number, formData: FormData) => Promise<ActionResult>
 }
 
-export default function AddToAssemblyForm({ childId, action }: Props) {
+export default function AddToAssemblyForm({ productId, action }: Props) {
   const [search, setSearch] = useState('')
-  const [found, setFound] = useState<Product[]>([])
+  const [found, setFound] = useState<Ensamble[]>([])
   const q = search.trim()
   // Con el término corto no hay resultados: se deriva al renderizar en vez de vaciar el
   // estado desde el efecto.
@@ -30,13 +31,13 @@ export default function AddToAssemblyForm({ childId, action }: Props) {
     if (q.length < 2) return
     let cancelled = false
     const t = setTimeout(async () => {
-      const rows = await searchProductsForPicker(q, childId, true)
+      const rows = await buscarEnsambles(q)
       if (!cancelled) setFound(rows)
     }, 250)
     return () => { cancelled = true; clearTimeout(t) }
-  }, [q, childId])
+  }, [q])
 
-  const bound = action.bind(null, childId)
+  const bound = action.bind(null, productId)
 
   return (
     <FormConResultado action={bound} className="bg-gray-50 rounded-lg border border-gray-200 p-4 space-y-3 mt-3">
@@ -46,18 +47,18 @@ export default function AddToAssemblyForm({ childId, action }: Props) {
         <input
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="Buscar ensamble por nombre o código (2+ letras)..."
+          placeholder="Buscar ensamble por nombre o moto (2+ letras)..."
           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 mb-1"
         />
         <select
-          name="parentId"
+          name="ensambleId"
           required
           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         >
           <option value="">Seleccionar ensamble...</option>
           {filtered.map(p => (
             <option key={p.id} value={p.id}>
-              {p.bajajCode ? `[${p.bajajCode}] ` : ''}{p.nameEs}
+              {p.nameEs} — {formatModels(toModelIds(p.compatibleModels))}
             </option>
           ))}
         </select>

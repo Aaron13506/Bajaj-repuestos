@@ -41,7 +41,6 @@ function parseProductForm(formData: FormData, modelosActuales: string | null = n
   const margin       = formData.get('margin') as string
 
   return {
-    isAssembly:       formData.get('isAssembly') === 'true',
     bajajCode:        (formData.get('bajajCode') as string) || null,
     sourceUrl:        (formData.get('sourceUrl') as string) || null,
     nameEs:           ((formData.get('nameEs') as string | null) ?? '').trim(),
@@ -81,7 +80,7 @@ function deltaDeStock(formData: FormData): number {
 export async function createProduct(formData: FormData): Promise<ActionResult> {
   const data     = parseProductForm(formData)
   if (!data.nameEs) return fallo('El nombre en español es obligatorio.')
-  const parentId = formData.get('parentId') as string
+  const ensambleId = formData.get('ensambleId') as string
   const groupName = (formData.get('parentGroupName') as string)?.trim() ?? ''
 
   const landed = await computeLanded(data)
@@ -89,11 +88,11 @@ export async function createProduct(formData: FormData): Promise<ActionResult> {
 
   const product = await db.product.create({ data })
 
-  if (parentId) {
-    const pid = parseInt(parentId)
-    if (!isNaN(pid)) {
-      await db.productComponent.create({
-        data: { parentId: pid, childId: product.id, groupName, quantity: 1 },
+  if (ensambleId) {
+    const eid = parseInt(ensambleId)
+    if (!isNaN(eid)) {
+      await db.ensambleComponente.create({
+        data: { ensambleId: eid, productId: product.id, groupName, quantity: 1 },
       })
     }
   }

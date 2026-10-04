@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
+import { nombreEnsamble } from '@/lib/linea-pedido'
 import { toConfigMap, num as cfgNum, type ConfigMap } from '@/lib/config'
 import { isBought, isDelivered } from '@/lib/shipping-status'
 import { calcLanded } from '@/lib/calc'
@@ -578,7 +579,6 @@ export interface ItemPendienteCosto {
   id: number
   pedidoId: number
   clientName: string
-  productId: number
   nombre: string
   sku: string | null
   quantity: number
@@ -615,6 +615,7 @@ async function itemsConEstimado(where: Prisma.PedidoItemWhereInput): Promise<Ite
             weightGrams: true, dimL: true, dimA: true, dimH: true,
           },
         },
+        ensamble: { select: { nameEs: true, nameEn: true } },
       },
       orderBy: [{ pedidoId: 'asc' }, { id: 'asc' }],
     }),
@@ -661,9 +662,10 @@ async function itemsConEstimado(where: Prisma.PedidoItemWhereInput): Promise<Ite
       id: i.id,
       pedidoId: i.pedido.id,
       clientName: i.pedido.clientName,
-      productId: i.product.id,
-      nombre: i.product.nameEs,
-      sku: i.product.bajajCode,
+      // Una línea es una pieza o un conjunto (CHECK PedidoItem_pieza_xor_conjunto): un
+      // conjunto no tiene código propio, solo el nombre del ensamble.
+      nombre: i.product?.nameEs ?? (i.ensamble ? nombreEnsamble(i.ensamble) : ''),
+      sku: i.product?.bajajCode ?? null,
       quantity: i.quantity,
       estimadoUsd,
       envioId: i.envioId,

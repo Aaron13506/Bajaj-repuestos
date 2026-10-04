@@ -19,6 +19,7 @@ import { modeloLabel, type MotoModelId, toModelIds } from '@/lib/modelo'
 import { pedidoLogistics } from '@/lib/pedido-logistics'
 import { toConfigMap } from '@/lib/config'
 import { motivoNoEliminable } from '@/lib/pedido-eliminable'
+import { cabeceraDeLinea } from '@/lib/linea-pedido'
 
 export default async function PresupuestoDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const id = parseInt((await params).id)
@@ -37,6 +38,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
                 dimL: true, dimA: true, dimH: true, priceInr: true,
               },
             },
+            ensamble: { select: { id: true, nameEs: true, nameEn: true, imageUrl: true, compatibleModels: true } },
             supplier: { select: { name: true } },
           },
           orderBy: { id: 'asc' },
@@ -54,9 +56,10 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
 
   // Las piezas se listan alfabéticamente (mismo criterio que el builder, ver
   // compararNombre): el orden de carga no le dice nada a quien lee el presupuesto.
-  const items = [...presupuesto.items].sort((a, b) =>
-    compararNombre(a.product.nameEs, b.product.nameEs)
-  )
+  // `cab` es lo que se muestra de la línea, sea pieza suelta o conjunto (ver cabeceraDeLinea).
+  const items = presupuesto.items
+    .map(it => ({ ...it, cab: cabeceraDeLinea(it) }))
+    .sort((a, b) => compararNombre(a.cab.nameEs, b.cab.nameEs))
 
   const isPropio = presupuesto.tipo === 'propio'
   const isPresupuesto = presupuesto.status === 'presupuesto'
@@ -106,7 +109,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
   for (const it of presupuesto.items) {
     const piezasBundle = (it.bundleItems as BundlePiece[] | null) ?? []
     if (piezasBundle.length === 0) {
-      sueltas.push(comoPieza(it.product, it.quantity))
+      if (it.product) sueltas.push(comoPieza(it.product, it.quantity))
       continue
     }
     // Solo las piezas que resolvieron contra el catálogo: a las que no matchearon por SKU
@@ -120,8 +123,8 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
     if (piezas.length > 0) {
       grupos.push({
         key: `item-${it.id}`,
-        titulo: it.product.nameEs,
-        subtitulo: it.product.bajajCode,
+        titulo: cabeceraDeLinea(it).nameEs,
+        subtitulo: null,
         piezas,
       })
     }
@@ -164,10 +167,10 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
     items: items.map(item => {
       // Solo cuando el producto apunta a UNA moto (los ensambles): la lista larga de
       // compatibilidades de una pieza suelta no le dice nada al cliente.
-      const m = modeloLabel(toModelIds(item.product.compatibleModels))
+      const m = modeloLabel(toModelIds(item.cab.compatibleModels))
       return {
-      nameEs: item.product.nameEs,
-      bajajCode: item.product.bajajCode,
+      nameEs: item.cab.nameEs,
+      bajajCode: item.cab.bajajCode,
       modelo: m && m.count === 1 ? m.full : null,
       quantity: item.quantity,
       unitPrice: parseFloat(item.salePrice.toString()),
@@ -429,15 +432,15 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
               const unitPrice = parseFloat(item.salePrice.toString())
               const subtotal = unitPrice * item.quantity
               const bundlePieces = (item.bundleItems as BundlePiece[] | null) ?? []
-              const modelo = modeloLabel(toModelIds(item.product.compatibleModels))
+              const modelo = modeloLabel(toModelIds(item.cab.compatibleModels))
               return (
                 <tr key={item.id} className="hover:bg-gray-50">
                   <td className="px-3 py-3 align-top">
-                    {item.product.imageUrl ? (
+                    {item.cab.imageUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={item.product.imageUrl}
-                        alt={item.product.nameEs}
+                        src={item.cab.imageUrl}
+                        alt={item.cab.nameEs}
                         loading="lazy"
                         className="w-12 h-12 object-contain rounded-lg border border-gray-100 bg-white"
                       />
@@ -446,11 +449,11 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
                     )}
                   </td>
                   <td className="px-3 py-3 align-top">
-                    <p className="text-sm font-medium text-gray-900">{item.product.nameEs}</p>
-                    {(item.product.bajajCode || modelo) && (
+                    <p className="text-sm font-medium text-gray-900">{item.cab.nameEs}</p>
+                    {(item.cab.bajajCode || modelo) && (
                       <p className="flex items-center gap-1.5 flex-wrap">
-                        {item.product.bajajCode && (
-                          <span className="text-xs font-mono text-gray-400">{item.product.bajajCode}</span>
+                        {item.cab.bajajCode && (
+                          <span className="text-xs font-mono text-gray-400">{item.cab.bajajCode}</span>
                         )}
                         {modelo && (
                           <span

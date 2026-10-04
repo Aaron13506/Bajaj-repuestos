@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { toModelIds } from '@/lib/modelo'
+import { nombreEnsamble } from '@/lib/linea-pedido'
 import Link from 'next/link'
 import PresupuestoBuilder from '@/components/PresupuestoBuilder'
 import { createPresupuesto } from '../actions'
@@ -14,10 +15,9 @@ export default async function NewPresupuestoPage({
 
   // Solo headers de ensamble; los componentes se cargan on-demand al seleccionar uno.
   const [assemblies, clientes] = await Promise.all([
-    db.product.findMany({
-      where: { isAssembly: true },
-      select: { id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true, compatibleModels: true },
-      orderBy: { nameEs: 'asc' },
+    db.ensamble.findMany({
+      select: { id: true, nameEs: true, nameEn: true, imageUrl: true, compatibleModels: true },
+      orderBy: [{ nameEs: 'asc' }, { compatibleModels: 'asc' }],
     }),
     db.cliente.findMany({
       orderBy: { nombre: 'asc' },
@@ -27,9 +27,7 @@ export default async function NewPresupuestoPage({
 
   const assembliesForClient = assemblies.map(a => ({
     id: a.id,
-    nameEs: a.nameEs,
-    bajajCode: a.bajajCode,
-    price: parseFloat(a.price.toString()),
+    nameEs: nombreEnsamble(a),
     imageUrl: a.imageUrl,
     models: toModelIds(a.compatibleModels),
   }))

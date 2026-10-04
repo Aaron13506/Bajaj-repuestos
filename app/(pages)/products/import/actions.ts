@@ -24,7 +24,6 @@ export interface ImportResult {
 // JSON laxo: la IA puede devolver strings o números, así que normalizamos
 // campo por campo. Todos los campos son opcionales salvo nameEs.
 interface RawProduct {
-  isAssembly?: unknown
   nameEs?: unknown
   name?: unknown            // alias tolerado
   nameEn?: unknown
@@ -52,20 +51,22 @@ interface RawSubgroup {
 }
 
 interface RawGroup extends RawProduct {
+  isAssembly?: unknown       // pista de formato (el JSON de la IA la trae); ya no se guarda
   subgroups?: unknown
   products?: unknown        // hijos directos sin subgrupo
 }
 
 const norm = (s: string) => s.trim().toUpperCase()
 
-// Construye el objeto que se inserta en Prisma. Lanza si falta nameEs.
+// Construye la PIEZA que se inserta en Prisma. Lanza si falta nameEs. Un ensamble no pasa por
+// acá: no tiene costo, medidas ni precio (ver resolverEnsamble).
 //
 // Peso y medidas pasan por `chequearMedidas`, el gate del catálogo (ver lib/measures-check):
 // este importador escribía lo que trajera el JSON —casi siempre la respuesta de una IA— sin
 // mirarlo, así que el caso del alerón de 1 g podía volver a entrar por acá. Si el juego es
 // físicamente imposible NO se guarda (la pieza se crea igual, sin peso ni medidas) y se
 // devuelve el motivo: costearla con un dato roto sería peor que costearla con uno faltante.
-function buildProductData(it: RawProduct, cfg: ConfigMap, defaultMargin: number, forceAssembly = false) {
+function buildProductData(it: RawProduct, cfg: ConfigMap, defaultMargin: number) {
   const nameEs = toStr(it.nameEs) ?? toStr(it.name)
   if (!nameEs) throw new Error('Falta nameEs (nombre en español).')
 
@@ -93,7 +94,6 @@ function buildProductData(it: RawProduct, cfg: ConfigMap, defaultMargin: number,
   const price = explicitPrice ?? (breakdown?.priceUsd != null ? round2(breakdown.priceUsd) : 0)
 
   const data = {
-    isAssembly:       forceAssembly || it.isAssembly === true || it.isAssembly === 'true',
     nameEs,
     nameEn:           toStr(it.nameEn),
     bajajCode:        toStr(it.bajajCode),
@@ -194,23 +194,22 @@ export async function importProducts(
     const filas = await db.$queryRaw<{ id: number; code: string; compatibleModels: string | null }[]>`
       SELECT "id", UPPER(TRIM("bajajCode")) AS code, "compatibleModels"
       FROM "Product"
-      WHERE "isAssembly" = false AND "bajajCode" IS NOT NULL
+      WHERE "bajajCode" IS NOT NULL
         AND UPPER(TRIM("bajajCode")) = ANY(${codigosBuscados})`
     for (const f of filas) if (!piezasExistentes.has(f.code)) piezasExistentes.set(f.code, f)
   }
 
   const nombresEnsambles = groups
-    ? [...new Set(groups.map(g => (toStr(g.nameEs) ?? toStr(g.name))?.toLowerCase()).filter((n): n is string => !!n))]
+    ? [...new Set(groups.map(g => (toStr(g.nameEs) ?? toStr(g.name) ?? toStr(g.nameEn))?.toLowerCase()).filter((n): n is string => !!n))]
     : []
-  // nombre|motos → id. Solo cuenta si el ensamble trae motos: dos "Spark Plugs" sin moto no
-  // son el mismo ensamble, son dos a los que les falta el dato.
+  // nombre|motos → id. Un ensamble siempre tiene moto (columna obligatoria): es lo que lo
+  // distingue de otro "Spark Plugs" de otra moto.
   const ensamblesExistentes = new Map<string, number>()
   if (nombresEnsambles.length > 0) {
-    const filas = await db.$queryRaw<{ id: number; name: string; compatibleModels: string | null }[]>`
-      SELECT "id", LOWER(TRIM("nameEs")) AS name, "compatibleModels"
-      FROM "Product"
-      WHERE "isAssembly" = true AND "compatibleModels" IS NOT NULL
-        AND LOWER(TRIM("nameEs")) = ANY(${nombresEnsambles})`
+    const filas = await db.$queryRaw<{ id: number; name: string; compatibleModels: string }[]>`
+      SELECT "id", LOWER(TRIM(COALESCE("nameEs", "nameEn"))) AS name, "compatibleModels"
+      FROM "Ensamble"
+      WHERE LOWER(TRIM(COALESCE("nameEs", "nameEn"))) = ANY(${nombresEnsambles})`
     for (const f of filas) {
       const k = `${f.name}|${clavePorMotos(f.compatibleModels)}`
       if (!ensamblesExistentes.has(k)) ensamblesExistentes.set(k, f.id)
@@ -231,7 +230,7 @@ export async function importProducts(
     motosASumar.set(id, set)
   }
 
-  // Crea una pieza o ensamble NUEVO y devuelve su id (o null si falló).
+  // Crea una pieza NUEVA y devuelve su id (o null si falló).
   async function crearNuevo(
     data: ReturnType<typeof buildProductData>['data'],
     label: string,
@@ -288,27 +287,52 @@ export async function importProducts(
     return crearNuevo(data, label, medidasRechazadas)
   }
 
-  // Crea (o reutiliza) un producto y devuelve su id (o null si falló).
-  async function createOne(it: RawProduct, label: string, forceAssembly = false): Promise<number | null> {
+  // Crea (o reutiliza) un ENSAMBLE y devuelve su id (o null si falló). Se identifica por
+  // nombre + moto: si ya existe uno igual, se reutiliza y se le enlazan las piezas.
+  async function resolverEnsamble(g: RawGroup, label: string): Promise<number | null> {
+    // En un ensamble el nombre en inglés es el obligatorio y el de español, opcional.
+    const nameEs = toStr(g.nameEs) ?? toStr(g.name)
+    const nameEn = toStr(g.nameEn)
+    if (!nameEn) {
+      errors.push({ name: label, message: 'Falta nameEn (nombre en inglés): es obligatorio en un ensamble.' })
+      return null
+    }
+    const compatibleModels = toModelIds(g.models ?? g.compatibleModels).map(fullModel).join(', ')
+    if (!compatibleModels) {
+      errors.push({
+        name: label,
+        message: 'Falta la moto del ensamble (models): es lo que lo distingue de otro con el mismo nombre. No se creó.',
+      })
+      return null
+    }
+    const clave = `${(nameEs ?? nameEn).trim().toLowerCase()}|${clavePorMotos(compatibleModels)}`
+    const ya = ensamblesExistentes.get(clave)
+    if (ya != null) { linked++; return ya }
+    try {
+      const e = await db.ensamble.create({
+        data: { nameEs, nameEn, compatibleModels, sourceUrl: toStr(g.sourceUrl) },
+        select: { id: true },
+      })
+      created++
+      ensamblesExistentes.set(clave, e.id)
+      return e.id
+    } catch (err) {
+      const duplicada = (err as { code?: string }).code === 'P2002'
+      errors.push({ name: label, message: duplicada ? 'Ya hay un ensamble con esa URL fuente.' : msg(err) })
+      return null
+    }
+  }
+
+  // Crea (o reutiliza) una PIEZA y devuelve su id (o null si falló).
+  async function createOne(it: RawProduct, label: string): Promise<number | null> {
     let built
     try {
-      built = buildProductData(it, cfg, defaultMargin, forceAssembly)
+      built = buildProductData(it, cfg, defaultMargin)
     } catch (e) {
       errors.push({ name: label, message: msg(e) })
       return null
     }
     const { data, medidasRechazadas } = built
-
-    if (data.isAssembly) {
-      const clave = data.compatibleModels
-        ? `${data.nameEs.trim().toLowerCase()}|${clavePorMotos(data.compatibleModels)}`
-        : null
-      const ya = clave ? ensamblesExistentes.get(clave) : undefined
-      if (ya != null) { linked++; return ya }
-      const id = await crearNuevo(data, label, medidasRechazadas)
-      if (id != null && clave) ensamblesExistentes.set(clave, id)
-      return id
-    }
 
     if (!data.bajajCode) return crearNuevo(data, label, medidasRechazadas)
 
@@ -345,10 +369,10 @@ export async function importProducts(
 
   if (groups) {
     for (const g of groups) {
-      const parentName = toStr(g.nameEs) ?? toStr(g.name) ?? 'Ensamble'
-      // El padre sí va antes que todo: los hijos necesitan su id para enlazarse.
-      const parentId = await createOne(g, parentName, true)
-      if (parentId == null) continue
+      const parentName = toStr(g.nameEs) ?? toStr(g.name) ?? toStr(g.nameEn) ?? 'Ensamble'
+      // El ensamble sí va antes que todo: las piezas necesitan su id para enlazarse.
+      const ensambleId = await resolverEnsamble(g, parentName)
+      if (ensambleId == null) continue
 
       for (const sg of subgruposDe(g)) {
         const groupName = toStr(sg.name) ?? toStr(sg.groupName) ?? ''
@@ -356,27 +380,27 @@ export async function importProducts(
         const ruta = (child: RawProduct) =>
           `${parentName} › ${groupName || '(sin subgrupo)'} › ${toStr(child.nameEs) ?? toStr(child.name) ?? '?'}`
 
-        const childIds = await crearPiezas(prods, ruta)
+        const productIds = await crearPiezas(prods, ruta)
 
         // sortOrder sale del índice en el JSON, no de un contador que avanza al escribir:
         // así el orden es el del documento y no el de quién terminó primero.
-        const enlaces = childIds
-          .map((childId, i) => ({ childId, child: prods[i], sortOrder: i }))
-          .filter((e): e is { childId: number; child: RawProduct; sortOrder: number } => e.childId != null)
+        const enlaces = productIds
+          .map((productId, i) => ({ productId, child: prods[i], sortOrder: i }))
+          .filter((e): e is { productId: number; child: RawProduct; sortOrder: number } => e.productId != null)
 
         await Promise.all(enlaces.map(async e => {
           try {
-            await db.productComponent.create({
+            await db.ensambleComponente.create({
               data: {
-                parentId,
-                childId: e.childId,
+                ensambleId,
+                productId: e.productId,
                 groupName,
                 quantity: toInt(e.child.quantity) ?? 1,
                 sortOrder: e.sortOrder,
               },
             })
           } catch (err) {
-            // (padre, hijo, subgrupo) es único: si ya estaba enlazada —reimportar un ensamble
+            // (ensamble, pieza, subgrupo) es único: si ya estaba enlazada —reimportar un ensamble
             // que ya existe— no hay nada que hacer, y tampoco es un error.
             if ((err as { code?: string }).code === 'P2002') return
             errors.push({ name: ruta(e.child), message: `Creado pero no se enlazó al ensamble: ${msg(err)}` })

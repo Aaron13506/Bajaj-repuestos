@@ -11,7 +11,6 @@ import { toConfigMap } from '@/lib/config'
 export default async function SimularPage() {
   const [products, pedidos, cfgRows, suppliers] = await Promise.all([
     db.product.findMany({
-      where: { isAssembly: false },
       select: {
         id: true,
         nameEs: true,
@@ -68,7 +67,7 @@ export default async function SimularPage() {
       saleTotal += parseFloat(it.salePrice.toString()) * it.quantity
       pieceCount += it.quantity
       return expandCostPieces(
-        it.product as ProductCost,
+        it.product,
         it.quantity,
         it.bundleItems as BundlePiece[] | null,
         lookup,

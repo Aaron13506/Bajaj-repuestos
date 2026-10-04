@@ -86,7 +86,7 @@ export async function resolverLista(_prev: ListaResuelta, formData: FormData): P
   const productos = await db.product.findMany({
     where: { OR: todos.map(c => ({ bajajCode: { equals: c, mode: 'insensitive' as const } })) },
     select: {
-      id: true, bajajCode: true, nameEs: true, isAssembly: true, stock: true,
+      id: true, bajajCode: true, nameEs: true, stock: true,
       weightGrams: true, dimL: true, dimA: true, dimH: true, priceInr: true, discontinuedAt: true,
     },
   })
@@ -101,12 +101,6 @@ export async function resolverLista(_prev: ListaResuelta, formData: FormData): P
     const p = candidatos.map(c => porCodigo.get(c)).find(Boolean)
 
     if (!p) { out.noEncontrados.push(linea.sku); continue }
-    if (p.isAssembly) {
-      // Un ensamble no es una pieza que se compre: es el grupo que las contiene. Sumarlo
-      // al embarque contaría dos veces todo lo que ya está adentro.
-      out.avisos.push(`«${linea.sku}» es un ensamble (${p.nameEs}), no una pieza suelta: no entra.`)
-      continue
-    }
     if (p.discontinuedAt) {
       out.avisos.push(`«${linea.sku}» (${p.nameEs}) está descontinuada de fábrica: no la consigue ningún proveedor.`)
     }
@@ -201,7 +195,7 @@ export async function cargarPedido(pedidoId: number): Promise<ListaResuelta> {
 
   const lookup = await lookupDeConjuntos(pedido.items.map(it => it.bundleItems as BundlePiece[] | null))
   const piezas = pedido.items.flatMap(it =>
-    expandCostPieces(it.product as ProductCost, it.quantity, it.bundleItems as BundlePiece[] | null, lookup),
+    expandCostPieces(it.product, it.quantity, it.bundleItems as BundlePiece[] | null, lookup),
   )
 
   // Un mismo SKU puede venir de dos líneas (suelto en una, dentro de un conjunto en otra).
@@ -218,7 +212,7 @@ export async function cargarPedido(pedidoId: number): Promise<ListaResuelta> {
     }
     const ya = porProducto.get(p.productId)
     if (ya) { ya.qty += p.quantity; continue }
-    const cat = pedido.items.find(it => it.product.id === p.productId)?.product
+    const cat = pedido.items.find(it => it.product?.id === p.productId)?.product
     porProducto.set(p.productId, {
       sku: p.sku ?? `#${p.productId}`,
       skuCatalogo: null,

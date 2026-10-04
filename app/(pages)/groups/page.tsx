@@ -4,6 +4,7 @@ import { getCatalogFilters, whereModel } from '@/lib/catalog'
 import { formatModels, toModelIds } from '@/lib/modelo'
 import CatalogFilters from '@/components/CatalogFilters'
 import { toInt } from '@/lib/parse'
+import { nombreEnsamble } from '@/lib/linea-pedido'
 
 interface SearchParams {
   model?: string
@@ -24,7 +25,6 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
 
   const where = {
     AND: [
-      { isAssembly: true },
       whereModel(model),
       category ? { nameEs: { equals: category, mode: 'insensitive' as const } } : {},
       search
@@ -32,11 +32,10 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
             OR: [
               { nameEs: { contains: search, mode: 'insensitive' as const } },
               { nameEn: { contains: search, mode: 'insensitive' as const } },
-              { bajajCode: { contains: search, mode: 'insensitive' as const } },
               {
-                components: {
+                componentes: {
                   some: {
-                    child: {
+                    product: {
                       OR: [
                         { nameEs: { contains: search, mode: 'insensitive' as const } },
                         { nameEn: { contains: search, mode: 'insensitive' as const } },
@@ -53,19 +52,19 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
   }
 
   const [groups, total, filters] = await Promise.all([
-    db.product.findMany({
+    db.ensamble.findMany({
       where,
       skip: (page - 1) * limit,
       take: limit,
       orderBy: [{ nameEs: 'asc' }, { id: 'asc' }],
       include: {
-        components: {
-          include: { child: { select: { id: true, nameEs: true, bajajCode: true, price: true } } },
+        componentes: {
+          include: { product: { select: { id: true, nameEs: true, bajajCode: true, price: true } } },
           orderBy: [{ groupName: 'asc' }, { sortOrder: 'asc' }, { id: 'asc' }],
         },
       },
     }),
-    db.product.count({ where }),
+    db.ensamble.count({ where }),
     getCatalogFilters(model),
   ])
 
@@ -86,7 +85,7 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Ensambles</h1>
-        <Link href="/products/new" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+        <Link href="/ensambles/new" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
           + Nuevo ensamble
         </Link>
       </div>
@@ -110,15 +109,15 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-400">
           <p className="text-lg">Sin ensambles</p>
           <p className="text-sm mt-1">
-            {hasFilters ? 'Probá con otros filtros o ' : 'Creá un producto y marcá "Es un ensamble", o '}
+            {hasFilters ? 'Probá con otros filtros o ' : 'Creá uno con «Nuevo ensamble», o '}
             <Link href="/groups" className="text-blue-600 hover:underline">limpiá los filtros</Link>.
           </p>
         </div>
       ) : (
         <div className="space-y-4">
           {groups.map((group) => {
-            const subGroups = new Map<string, typeof group.components>()
-            for (const comp of group.components) {
+            const subGroups = new Map<string, typeof group.componentes>()
+            for (const comp of group.componentes) {
               const key = comp.groupName || '—'
               if (!subGroups.has(key)) subGroups.set(key, [])
               subGroups.get(key)!.push(comp)
@@ -133,18 +132,15 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={group.imageUrl}
-                        alt={group.nameEs}
+                        alt={nombreEnsamble(group)}
                         loading="lazy"
                         className="w-14 h-14 object-contain rounded-lg border border-gray-100 bg-white shrink-0"
                       />
                     )}
                     <div className="min-w-0">
-                      <Link href={`/products/${group.id}`} className="font-semibold text-gray-900 hover:text-blue-600">
-                        {group.nameEs}
+                      <Link href={`/ensambles/${group.id}`} className="font-semibold text-gray-900 hover:text-blue-600">
+                        {nombreEnsamble(group)}
                       </Link>
-                      {group.bajajCode && (
-                        <span className="ml-2 text-xs font-mono text-gray-400">{group.bajajCode}</span>
-                      )}
                       {toModelIds(group.compatibleModels).length > 0 && (
                         <span className="ml-2 text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">{formatModels(toModelIds(group.compatibleModels))}</span>
                       )}
@@ -152,10 +148,10 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
                     <span className="text-xs text-gray-400">
-                      {group.components.length} {group.components.length === 1 ? 'pieza' : 'piezas'}
+                      {group.componentes.length} {group.componentes.length === 1 ? 'pieza' : 'piezas'}
                       {subGroups.size > 0 && ` · ${subGroups.size} sub-grupos`}
                     </span>
-                    <Link href={`/products/${group.id}`} className="text-sm text-blue-600 hover:text-blue-800 font-medium">
+                    <Link href={`/ensambles/${group.id}`} className="text-sm text-blue-600 hover:text-blue-800 font-medium">
                       Editar
                     </Link>
                   </div>
@@ -172,15 +168,15 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
                             <div key={comp.id} className="flex items-center justify-between text-sm">
                               <div className="flex items-center gap-2 min-w-0">
                                 <span className="text-gray-400 text-xs w-5 text-right shrink-0">{comp.quantity}×</span>
-                                <Link href={`/products/${comp.child.id}`} className="text-gray-800 hover:text-blue-600 truncate">
-                                  {comp.child.nameEs}
+                                <Link href={`/products/${comp.product.id}`} className="text-gray-800 hover:text-blue-600 truncate">
+                                  {comp.product.nameEs}
                                 </Link>
-                                {comp.child.bajajCode && (
-                                  <span className="text-xs font-mono text-gray-400 shrink-0">{comp.child.bajajCode}</span>
+                                {comp.product.bajajCode && (
+                                  <span className="text-xs font-mono text-gray-400 shrink-0">{comp.product.bajajCode}</span>
                                 )}
                               </div>
                               <span className="text-gray-500 text-xs shrink-0">
-                                ${parseFloat(comp.child.price.toString()).toFixed(2)}
+                                ${parseFloat(comp.product.price.toString()).toFixed(2)}
                               </span>
                             </div>
                           ))}

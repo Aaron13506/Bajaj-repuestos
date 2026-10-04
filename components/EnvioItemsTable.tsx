@@ -20,7 +20,6 @@ export interface EnvioItemRow {
   id: number
   pedidoId: number
   clientName: string
-  productId: number
   nombre: string
   bajajCode: string | null
   quantity: number

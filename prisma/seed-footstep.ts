@@ -1,15 +1,15 @@
 import { PrismaClient } from '@prisma/client'
-import { type MotoModelId } from '@/lib/modelo'
+import { fullModel, type MotoModelId } from '@/lib/modelo'
 
 const prisma = new PrismaClient()
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rear Footstep | Pulsar N250 (Single ABS, 2021-23)
 //
-// El ensamble actúa como "categoría". Cada sub-grupo (Footrest RH/LH, Holder
-// RH/LH) es un groupName y cada pieza un Product hijo. Las piezas compartidas
-// entre lados (goma, pasador, resorte, bola, chaveta, tornillo) son UN solo
-// Product que aparece en varios grupos vía ProductComponent.
+// El ensamble actúa como "categoría" y vive en su propia tabla (Ensamble). Cada sub-grupo
+// (Footrest RH/LH, Holder RH/LH) es un groupName y cada pieza un Product. Las piezas
+// compartidas entre lados (goma, pasador, resorte, bola, chaveta, tornillo) son UN solo
+// Product que aparece en varios grupos vía EnsambleComponente.
 //
 // Precio: solo se guarda priceInr (moneda de origen). El campo `price` es
 // NOT NULL, así que lo poblamos con la CONVERSIÓN directa INR→USD a la tasa
@@ -85,7 +85,6 @@ async function upsertByBajajCode(p: {
   nameEs: string
   priceInr: number
   price: number
-  isAssembly?: boolean
   description?: string | null
   models?: readonly MotoModelId[]
   notes?: string | null
@@ -96,9 +95,9 @@ async function upsertByBajajCode(p: {
     bajajCode: p.bajajCode,
     priceInr: p.priceInr,
     price: p.price,
-    isAssembly: p.isAssembly ?? false,
     description: p.description ?? null,
-    models: [...(p.models ?? COMPAT)],
+    // Las motos se guardan como texto con las etiquetas (ver lib/modelo.ts).
+    compatibleModels: (p.models ?? COMPAT).map(fullModel).join(', '),
     notes: p.notes ?? null,
   }
   const existing = await prisma.product.findFirst({ where: { bajajCode: p.bajajCode } })
@@ -135,36 +134,31 @@ async function main() {
   }, 0)
   const assemblyPrice = toUsd(assemblyPriceInr)
 
-  let assembly = await prisma.product.findFirst({ where: { nameEn: ASSEMBLY.nameEn } })
+  // Un ensamble no tiene precio ni descripción: solo identidad (nombre y moto).
   const assemblyData = {
     nameEs: ASSEMBLY.nameEs,
     nameEn: ASSEMBLY.nameEn,
-    description: ASSEMBLY.description,
-    models: [...ASSEMBLY.models],
-    isAssembly: true,
-    priceInr: assemblyPriceInr,
-    price: assemblyPrice,
+    compatibleModels: ASSEMBLY.models.map(fullModel).join(', '),
   }
-  if (assembly) {
-    assembly = await prisma.product.update({ where: { id: assembly.id }, data: assemblyData })
-  } else {
-    assembly = await prisma.product.create({ data: assemblyData })
-  }
+  const previo = await prisma.ensamble.findFirst({ where: { nameEn: ASSEMBLY.nameEn } })
+  const assembly = previo
+    ? await prisma.ensamble.update({ where: { id: previo.id }, data: assemblyData })
+    : await prisma.ensamble.create({ data: assemblyData })
 
-  // 3) Componentes (upsert por la clave única parentId+childId+groupName)
+  // 3) Componentes (upsert por la clave única ensambleId+productId+groupName)
   let sort = 0
   for (const [groupName, key, quantity] of layout) {
-    const childId = ids[key]
-    await prisma.productComponent.upsert({
-      where: { parentId_childId_groupName: { parentId: assembly.id, childId, groupName } },
+    const productId = ids[key]
+    await prisma.ensambleComponente.upsert({
+      where: { ensambleId_productId_groupName: { ensambleId: assembly.id, productId, groupName } },
       update: { quantity, sortOrder: sort },
-      create: { parentId: assembly.id, childId, groupName, quantity, sortOrder: sort },
+      create: { ensambleId: assembly.id, productId, groupName, quantity, sortOrder: sort },
     })
     sort++
   }
 
   console.log(`Ensamble "${ASSEMBLY.nameEs}" (#${assembly.id}) listo:`)
-  console.log(`  ${parts.length} piezas · ${layout.length} vínculos · INR ${assemblyPriceInr} · venta ~$${assemblyPrice}`)
+  console.log(`  ${parts.length} piezas · ${layout.length} vínculos · suma de las piezas: INR ${assemblyPriceInr} (~$${assemblyPrice}, solo informativo)`)
 }
 
 main()

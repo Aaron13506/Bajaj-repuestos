@@ -72,12 +72,12 @@ interface Resultado {
   descontinuada: boolean
 }
 
+// Un ensamble no tiene código propio: se distingue por su nombre y su moto.
 export interface AssemblyOption {
   id: number
   nameEs: string
-  bajajCode: string | null
   imageUrl: string | null
-  compatibleModels: string | null
+  compatibleModels: string
 }
 
 interface Componente {
@@ -330,7 +330,7 @@ export default function EmbarqueMaritimo({
     return assemblies.filter(a => {
       if (modelFilter && !sirveParaModelo(a.compatibleModels, modelFilter)) return false
       if (!q) return true
-      return a.nameEs.toLowerCase().includes(q) || !!a.bajajCode?.toLowerCase().includes(q)
+      return a.nameEs.toLowerCase().includes(q)
     })
   }, [assemblies, modelFilter, asmSearch])
 
@@ -531,11 +531,7 @@ export default function EmbarqueMaritimo({
                 )}
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-900 truncate">{a.nameEs}</p>
-                  <p className="text-xs text-gray-400 truncate">
-                    {a.bajajCode && <span className="font-mono">{a.bajajCode}</span>}
-                    {a.bajajCode && a.compatibleModels && ' · '}
-                    {a.compatibleModels}
-                  </p>
+                  <p className="text-xs text-gray-400 truncate">{a.compatibleModels}</p>
                 </div>
               </button>
             ))
@@ -556,7 +552,6 @@ export default function EmbarqueMaritimo({
               <VisorEnsamble
                 src={selectedAssembly.imageUrl}
                 nameEs={selectedAssembly.nameEs}
-                bajajCode={selectedAssembly.bajajCode}
               />
             ) : (
               <p className="text-xs text-gray-400 mb-4">Este ensamble no tiene despiece cargado.</p>

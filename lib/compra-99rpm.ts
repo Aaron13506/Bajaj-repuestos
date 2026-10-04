@@ -7,7 +7,7 @@ import { limpiarNombre } from './utils'
  *
  * A 99rpm no se le compra por código: se entra a la página del ensamble, se tildan las
  * piezas que hacen falta y se pone UN `Qty` que multiplica TODA la selección. La cantidad
- * de cada línea la fija el despiece (`ProductComponent.quantity`) y no se elige: el sello
+ * de cada línea la fija el despiece (`EnsambleComponente.quantity`) y no se elige: el sello
  * que va de a 4 entra de a 4, y para tener 8 hay que poner Qty 2.
  *
  * Una lista consolidada por SKU —que es la correcta para Garuda o cualquier proveedor que
@@ -46,7 +46,7 @@ export interface BloqueCompra {
 }
 
 export interface EnsambleCompra {
-  assemblyId: number
+  ensambleId: number
   nombre: string
   sku: string | null
   // Las motos del ensamble ya colapsadas por familia (formatModels); '' si no tiene.
@@ -70,7 +70,10 @@ export interface CompraPorEnsamble {
 
 // Una línea pendiente del envío, ya filtrada a las que se le compran a 99rpm.
 export interface LineaPendiente99 {
-  assemblyId: number
+  // El ensamble del que sale el conjunto; null en una pieza suelta, que no tiene página de
+  // ensamble a la que entrar. Las dos cosas llegan en `assemblyName`/`assemblySku` (el nombre y
+  // el código de lo que se compra, sea un conjunto o una pieza).
+  ensambleId: number | null
   assemblyName: string
   assemblySku: string | null
   compatibleModels: string | null
@@ -82,7 +85,7 @@ export interface LineaPendiente99 {
 
 // El despiece tal como lo publica 99rpm: cuánto entra por tilde de cada pieza del ensamble.
 export interface BaseDespiece {
-  parentId: number
+  ensambleId: number
   bajajCode: string | null
   nameEs: string
   quantity: number
@@ -122,7 +125,7 @@ export function armarCompra99rpm(
 ): CompraPorEnsamble {
   const despiece = new Map<string, BaseDespiece>()
   for (const b of bases) {
-    despiece.set(`${b.parentId}|${clavePieza(b.bajajCode, b.nameEs)}`, b)
+    despiece.set(`${b.ensambleId}|${clavePieza(b.bajajCode, b.nameEs)}`, b)
   }
 
   interface EnCurso {
@@ -135,7 +138,7 @@ export function armarCompra99rpm(
   const sinEnsamble = new Map<string, { sku: string | null; name: string; qty: number }>()
 
   for (const l of lineas) {
-    if (!l.bundleItems || l.bundleItems.length === 0) {
+    if (l.ensambleId == null || !l.bundleItems || l.bundleItems.length === 0) {
       const k = clavePieza(l.assemblySku, l.assemblyName)
       const prev = sinEnsamble.get(k)
       if (prev) prev.qty += l.quantity
@@ -143,16 +146,16 @@ export function armarCompra99rpm(
       continue
     }
 
-    let e = porEnsamble.get(l.assemblyId)
+    let e = porEnsamble.get(l.ensambleId)
     if (!e) {
       e = { linea: l, piezas: new Map(), pedidos: new Set(), avisos: [] }
-      porEnsamble.set(l.assemblyId, e)
+      porEnsamble.set(l.ensambleId, e)
     }
     e.pedidos.add(l.clientName)
 
     for (const bp of l.bundleItems) {
       const k = clavePieza(bp.bajajCode, bp.nameEs)
-      const d = despiece.get(`${l.assemblyId}|${k}`)
+      const d = despiece.get(`${l.ensambleId}|${k}`)
       // Sin fila en el despiece no hay con qué saber de a cuánto se vende: se toma la
       // cantidad del presupuesto como si fuera la base (un tilde). Se avisa, porque
       // significa que el ensamble cambió en 99rpm desde que se armó el presupuesto.
@@ -185,7 +188,7 @@ export function armarCompra99rpm(
   }
 
   const ensambles: EnsambleCompra[] = []
-  for (const [assemblyId, e] of porEnsamble) {
+  for (const [ensambleId, e] of porEnsamble) {
     const avisos = [...e.avisos]
 
     // Un tilde es indivisible: si el presupuesto pide 6 de algo que va de a 4, hay que
@@ -237,7 +240,7 @@ export function armarCompra99rpm(
 
     const modelo = formatModels(toModelIds(e.linea.compatibleModels))
     ensambles.push({
-      assemblyId,
+      ensambleId,
       nombre: limpiarNombre(e.linea.assemblyName),
       sku: e.linea.assemblySku,
       modelo,

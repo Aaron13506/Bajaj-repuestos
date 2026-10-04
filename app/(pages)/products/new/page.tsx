@@ -3,14 +3,14 @@ import Link from 'next/link'
 import ProductForm from '@/components/ProductForm'
 import type { ConfigMap } from '@/lib/calc'
 import { createProduct } from '../actions'
+import { nombreEnsamble } from '@/lib/linea-pedido'
 import { toConfigMap, margenPorDefecto } from '@/lib/config'
 
 export default async function NewProductPage() {
   const [groups, configRows] = await Promise.all([
-    db.product.findMany({
-      where: { isAssembly: true },
-      orderBy: { nameEs: 'asc' },
-      select: { id: true, nameEs: true, bajajCode: true },
+    db.ensamble.findMany({
+      orderBy: [{ nameEs: 'asc' }, { compatibleModels: 'asc' }],
+      select: { id: true, nameEs: true, nameEn: true, compatibleModels: true },
     }),
     db.config.findMany(),
   ])
@@ -27,7 +27,7 @@ export default async function NewProductPage() {
       </div>
       <ProductForm
         action={createProduct}
-        groups={groups}
+        groups={groups.map(g => ({ id: g.id, nameEs: nombreEnsamble(g), compatibleModels: g.compatibleModels }))}
         cfg={cfg}
         defaultValues={{ margin: defaultMargin }}
         submitLabel="Guardar Producto"

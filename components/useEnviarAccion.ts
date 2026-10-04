@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition, type FormEvent } from 'react'
 import type { ActionResult } from '@/lib/action-result'
+import { esRedireccion } from '@/lib/redireccion'
 
 export const ERROR_GENERICO = 'No se pudo completar la acción. Probá de nuevo.'
 
@@ -40,8 +41,9 @@ export function useEnviarAccion(
         const r = await action(fd)
         if (r.ok) alExito(form)
         else setError(r.error)
-      } catch {
-        setError(ERROR_GENERICO)
+      } catch (e) {
+        // Una acción que redirige rechaza su promesa a propósito: no es una falla (ver redireccion.ts).
+        if (!esRedireccion(e)) setError(ERROR_GENERICO)
       } finally {
         enVuelo.current = false
       }
@@ -65,8 +67,8 @@ export function useAccionDirecta() {
       try {
         const r = await accion()
         if (!r.ok) setError(r.error)
-      } catch {
-        setError(ERROR_GENERICO)
+      } catch (e) {
+        if (!esRedireccion(e)) setError(ERROR_GENERICO)
       }
     })
   }

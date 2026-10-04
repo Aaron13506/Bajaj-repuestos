@@ -141,8 +141,11 @@ grep -q 'bajaj/app.env' "$PROFILE" 2>/dev/null || {
   chown "$APP_USER:$APP_USER" "$PROFILE"
 }
 
-# deploy.sh corre como `bajaj` y tiene que reiniciar la app. Solo eso, y solo esa unidad.
-echo "$APP_USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart bajaj-app" > /etc/sudoers.d/bajaj-deploy
+# deploy.sh corre como `bajaj` y tiene que reiniciar la app — y, con --migrar, pararla mientras se
+# cambia el esquema y volver a arrancarla. Solo esas tres cosas, y solo esa unidad.
+cat > /etc/sudoers.d/bajaj-deploy <<EOF
+$APP_USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart bajaj-app, /usr/bin/systemctl stop bajaj-app, /usr/bin/systemctl start bajaj-app
+EOF
 chmod 440 /etc/sudoers.d/bajaj-deploy
 visudo -cf /etc/sudoers.d/bajaj-deploy >/dev/null
 

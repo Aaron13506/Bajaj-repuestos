@@ -124,7 +124,7 @@ export async function costearEnvios(): Promise<Map<number, CostoEnvio>> {
 
     const piezas = e.items.flatMap(it => {
       const expandidas = expandCostPieces(
-        it.product as ProductCost, it.quantity, it.bundleItems as BundlePiece[] | null, lookup,
+        it.product, it.quantity, it.bundleItems as BundlePiece[] | null, lookup,
       )
       const priceUsdDe = (productId: number | null) =>
         it.supplierId != null && productId != null
@@ -136,7 +136,7 @@ export async function costearEnvios(): Promise<Map<number, CostoEnvio>> {
       )
       return expandidas.map((p, idx): EnvioItemInput => ({
         pedidoId: it.pedidoId,
-        productId: it.productId,
+        productId: p.productId,
         name: p.name,
         weightGrams: p.weightGrams,
         dimL: p.dimL, dimA: p.dimA, dimH: p.dimH,

@@ -45,7 +45,7 @@ interface Props {
   /** Rutas a revalidar además del catálogo — la pantalla desde la que se está cargando. */
   revalidate?: string
   /** Ficha de ensamble: se revalida esa página puntual. */
-  assemblyId?: number
+  ensambleId?: number
   titulo?: string
   /** Abierto de entrada (útil cuando faltan medidas y sin ellas no hay costo posible). */
   defaultOpen?: boolean
@@ -82,7 +82,7 @@ function SubmitButton() {
 export default function MedidasIA({
   grupos,
   revalidate,
-  assemblyId,
+  ensambleId,
   titulo = 'Cargar peso y medidas',
   defaultOpen = false,
 }: Props) {
@@ -288,7 +288,7 @@ export default function MedidasIA({
 
           {/* Pegar la respuesta */}
           <form action={formAction} className="space-y-3">
-            {assemblyId != null && <input type="hidden" name="assemblyId" value={assemblyId} />}
+            {ensambleId != null && <input type="hidden" name="ensambleId" value={ensambleId} />}
             {revalidate && <input type="hidden" name="revalidate" value={revalidate} />}
             <label className="block text-sm font-medium text-gray-700">Pegá la respuesta de la IA</label>
             <p className="text-xs text-gray-400 -mt-1">

@@ -159,12 +159,12 @@ export async function sincronizarLineas(
 // Componentes de UN ensamble, on-demand al seleccionarlo (traer los ~14k del catálogo de
 // una sería inmanejable). Se informa si le faltan medidas: por mar, una pieza sin
 // dimensiones no suma volumen al embarque y el m³ que ves queda corto.
-export async function componentesDeEnsamble(assemblyId: number, envioId: number) {
+export async function componentesDeEnsamble(ensambleId: number, envioId: number) {
   const costoDe = await costeador(envioId)
-  const comps = await db.productComponent.findMany({
-    where: { parentId: assemblyId },
+  const comps = await db.ensambleComponente.findMany({
+    where: { ensambleId },
     include: {
-      child: {
+      product: {
         select: {
           id: true, nameEs: true, bajajCode: true, priceInr: true, compatibleModels: true,
           weightGrams: true, dimL: true, dimA: true, dimH: true, discontinuedAt: true,
@@ -175,39 +175,39 @@ export async function componentesDeEnsamble(assemblyId: number, envioId: number)
   })
   // El otro código del par, para las piezas que tienen dos: es el número con el que el
   // proveedor la lista, y sin él la fila parece otra pieza distinta.
-  const alternos = await alternosDe(comps.map(c => c.child.id))
+  const alternos = await alternosDe(comps.map(c => c.product.id))
 
   return comps.map(c => {
-    const { costoUsd, moq } = costoDe(c.child.id, c.child.priceInr)
+    const { costoUsd, moq } = costoDe(c.product.id, c.product.priceInr)
     return {
       id: c.id,
       groupName: c.groupName,
       quantity: c.quantity,
       child: {
-        id: c.child.id,
-        nameEs: c.child.nameEs,
-        bajajCode: c.child.bajajCode,
-        altCode: alternos.get(c.child.id) ?? null,
+        id: c.product.id,
+        nameEs: c.product.nameEs,
+        bajajCode: c.product.bajajCode,
+        altCode: alternos.get(c.product.id) ?? null,
         // A qué motos sirve ESTA pieza. El ensamble nace scopeado a una sola moto (hay 11
         // "Front Brake Lever", uno por bici), pero sus piezas coinciden de a pedazos: la
         // manilla sirve a 8 motos y el microswitch se parte en dos SKUs. Sin este dato,
         // recorrer la segunda moto es adivinar si estás repitiendo o sumando algo nuevo.
-        compatibleModels: c.child.compatibleModels,
+        compatibleModels: c.product.compatibleModels,
         // Costo de compra unitario y cantidad mínima con el proveedor de este embarque.
         costoUsd,
         moq,
         // Bajaj no la fabrica más: no la consigue ningún proveedor, así que no entra a la
         // caja. Se manda igual a la pantalla para poder mostrarla tachada — verla y saber
         // por qué no se puede es más útil que que desaparezca del despiece.
-        descontinuada: c.child.discontinuedAt != null,
-        dimL: c.child.dimL,
-        dimA: c.child.dimA,
-        dimH: c.child.dimH,
-        sinMedidas: !(c.child.dimL && c.child.dimA && c.child.dimH) || c.child.weightGrams == null,
-        weightKg: c.child.weightGrams != null ? c.child.weightGrams / 1000 : 0,
+        descontinuada: c.product.discontinuedAt != null,
+        dimL: c.product.dimL,
+        dimA: c.product.dimA,
+        dimH: c.product.dimH,
+        sinMedidas: !(c.product.dimL && c.product.dimA && c.product.dimH) || c.product.weightGrams == null,
+        weightKg: c.product.weightGrams != null ? c.product.weightGrams / 1000 : 0,
         // Volumen de UNA unidad, en m³ — lo que va a sumar al embarque.
-        volumeM3: c.child.dimL && c.child.dimA && c.child.dimH
-          ? (c.child.dimL * c.child.dimA * c.child.dimH) / CM3_PER_M3
+        volumeM3: c.product.dimL && c.product.dimA && c.product.dimH
+          ? (c.product.dimL * c.product.dimA * c.product.dimH) / CM3_PER_M3
           : 0,
       },
     }

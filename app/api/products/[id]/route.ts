@@ -25,8 +25,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const product = await db.product.findUnique({
       where: { id },
       include: {
-        components: { include: { child: true }, orderBy: [{ groupName: 'asc' }, { sortOrder: 'asc' }] },
-        assemblies: { include: { parent: true } },
+        // En qué ensambles aparece la pieza. Un ensamble ya no es un producto: su despiece se
+        // lee desde el ensamble, no desde acá.
+        assemblies: { include: { ensamble: true } },
       },
     })
 

@@ -53,7 +53,6 @@ extraiga los datos de una página (99rpm, Boodmo, etc.).
 | `dimH`             | número  | No          | Alto en **cm**. |
 | `quantity`         | número  | No          | Solo dentro de un ensamble: cuántas unidades de esa pieza lleva (default `1`). |
 | `price`            | número  | No          | Precio de venta en USD. Solo si querés forzarlo (normalmente se calcula). |
-| `isAssembly`       | boolean | No          | `true` si la pieza es en sí un ensamble. Normalmente no hace falta ponerlo. |
 
 ### Tamaño y peso — cómo se cargan
 
@@ -114,7 +113,10 @@ Cada objeto del array se crea como un producto independiente.
 
 - **Ensamble (assembly / `group`):** un conjunto que agrupa piezas. Por ejemplo
   *"Pedal de freno trasero"* es un ensamble que contiene tornillos, un resorte, el pedal, etc.
-  En la base se guarda como un producto con `isAssembly: true`.
+  En la base vive en su propia tabla (`Ensamble`), no como producto: no tiene peso, precio
+  ni stock, solo nombre, **moto** y de dónde salió. Por eso un ensamble **tiene que traer
+  `models`** (una moto): es lo que lo distingue de otro con el mismo nombre. Si ya existe uno
+  con el mismo nombre y la misma moto, se reutiliza en vez de duplicarlo.
 - **Subgrupo (`subgroups[].name`):** una sección **dentro** del ensamble que agrupa piezas
   relacionadas. Ej. `Fasteners` (tornillería), `Spring` (resortes). Es solo una etiqueta
   de agrupación; el mismo ensamble puede tener varios subgrupos.
@@ -129,8 +131,8 @@ group (ensamble)
 ```
 
 Al importar:
-1. Se crea el ensamble como producto (`isAssembly: true`).
-2. Cada pieza de cada subgrupo se crea como producto.
+1. Se crea el ensamble (o se reutiliza si ya existe uno con ese nombre y esa moto).
+2. Cada pieza de cada subgrupo se crea como producto (o se reutiliza si el código ya existe).
 3. Cada pieza se **enlaza** al ensamble, guardando el nombre del subgrupo y el orden.
 
 ### Ejemplo: un ensamble con subgrupos

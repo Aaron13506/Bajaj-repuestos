@@ -3,10 +3,10 @@
  * (La carga por JSON vieja calculaba el precio con el default pero no persistía el
  * campo margin; este script lo completa.)
  *
- * Alcance: Product con isAssembly=false, priceLocked=false, margin=null.
+ * Alcance: Product (solo piezas: los ensambles ya no son Product) con priceLocked=false, margin=null.
  *   - Todas → margin = default_margin_pct/100 (de Config).
  *   - Las que tienen INR + peso → además recalcula landedCostUsd y price (= landed/(1-margen)).
- * No toca ensambles ni piezas con precio fijo (priceLocked) ni las que ya tienen margen.
+ * No toca piezas con precio fijo (priceLocked) ni las que ya tienen margen.
  *
  * Uso:
  *   pnpm exec tsx scripts/backfill-default-margin.ts            # DRY-RUN
@@ -37,7 +37,7 @@ async function main() {
   const defaultMargin = margenPorDefecto(cfg)
   console.log(`Margen por defecto (Config.default_margin_pct): ${(defaultMargin * 100).toFixed(2)}%`)
 
-  const base = { isAssembly: false as const, priceLocked: false, margin: null }
+  const base = { priceLocked: false, margin: null }
 
   // Cuántas caen en total, y cuántas pueden recalcular precio (tienen INR + peso).
   const total = await prisma.product.count({ where: base })
@@ -45,7 +45,7 @@ async function main() {
   const computableCount = await prisma.product.count({ where: computableWhere })
   const marginOnly = total - computableCount
 
-  console.log(`Piezas sin margen (no fijas, no ensamble): ${total}`)
+  console.log(`Piezas sin margen (no fijas): ${total}`)
   console.log(`  · con INR+peso (recalculan precio): ${computableCount}`)
   console.log(`  · solo margen (sin costo aún):       ${marginOnly}`)
 

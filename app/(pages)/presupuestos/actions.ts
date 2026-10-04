@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { type BundlePiece } from '@/lib/bundle'
+import { claveLinea, type RefLinea } from '@/lib/linea-pedido'
 import { findOrCreateCliente, revalidateClientes } from '@/lib/clientes'
 import { isDelivered } from '@/lib/shipping-status'
 import { ok, fallo, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
@@ -12,8 +13,8 @@ import { motivoNoEliminable } from '@/lib/pedido-eliminable'
 import { isForeignKeyViolation } from '@/lib/prisma-errors'
 import { bloquearPedido, descontarIngresosPedido, registrarIngresoPedido } from '@/lib/movimientos'
 
-interface ItemInput {
-  productId: number
+// Una línea es una pieza (productId) O un conjunto (ensambleId + snapshot de piezas).
+interface ItemInput extends RefLinea {
   quantity: number
   salePrice: number
   bundleItems?: BundlePiece[] | null
@@ -24,10 +25,15 @@ interface ItemInput {
  *
  * Era un `JSON.parse(formData.get('items') as string)` pelado: un payload cortado tiraba
  * un SyntaxError crudo, y una cantidad en 0 o un precio negativo entraban tal cual a un
- * documento comercial. También rechaza el mismo producto dos veces, porque PedidoItem
- * tiene `@@unique([pedidoId, productId])`: pasaba como un P2002 ilegible, y fusionar las
- * cantidades en silencio sería peor —hay dos precios de venta y ninguno es más cierto
- * que el otro.
+ * documento comercial. También rechaza el mismo producto (o el mismo conjunto) dos veces,
+ * porque PedidoItem tiene `@@unique([pedidoId, productId])` y `@@unique([pedidoId, ensambleId])`:
+ * pasaba como un P2002 ilegible, y fusionar las cantidades en silencio sería peor —hay dos
+ * precios de venta y ninguno es más cierto que el otro.
+ *
+ * Y exige la forma que la base exige (CHECK PedidoItem_pieza_xor_conjunto y
+ * PedidoItem_conjunto_lleva_piezas): una pieza suelta no lleva snapshot, un conjunto no puede
+ * ir sin piezas. Con una pestaña vieja —que mandaba el ensamble como `productId`— el rechazo
+ * llega acá con un texto, y no como una violación de CHECK sin explicación.
  */
 function parseItems(formData: FormData): ItemInput[] {
   let crudo: unknown
@@ -38,25 +44,33 @@ function parseItems(formData: FormData): ItemInput[] {
   }
   if (!Array.isArray(crudo)) throw new ErrorDeNegocio('Las líneas del presupuesto llegaron en un formato inesperado.')
 
-  const vistos = new Set<number>()
+  const vistos = new Set<string>()
   return crudo.map((raw, i): ItemInput => {
-    const it = raw as Partial<ItemInput>
-    const productId = Number(it.productId)
+    const it = raw as Partial<Record<keyof ItemInput, unknown>>
+    const id = (v: unknown) => (v == null ? null : Number(v))
+    const productId = id(it.productId)
+    const ensambleId = id(it.ensambleId)
     const quantity = Number(it.quantity)
     const salePrice = Number(it.salePrice)
+    const bundleItems = Array.isArray(it.bundleItems) && it.bundleItems.length > 0 ? (it.bundleItems as BundlePiece[]) : null
 
-    if (!Number.isInteger(productId) || productId <= 0) throw new ErrorDeNegocio(`Línea ${i + 1}: producto inválido.`)
+    const esId = (n: number | null): n is number => n != null && Number.isInteger(n) && n > 0
+    if ((productId == null) === (ensambleId == null)) throw new ErrorDeNegocio(`Línea ${i + 1}: tiene que ser una pieza o un conjunto, no las dos ni ninguna. Recargá la página.`)
+    if (productId != null && !esId(productId)) throw new ErrorDeNegocio(`Línea ${i + 1}: producto inválido.`)
+    if (ensambleId != null && !esId(ensambleId)) throw new ErrorDeNegocio(`Línea ${i + 1}: ensamble inválido.`)
+    if (ensambleId != null && !bundleItems) throw new ErrorDeNegocio(`Línea ${i + 1}: un conjunto necesita al menos una pieza.`)
+    if (productId != null && bundleItems) throw new ErrorDeNegocio(`Línea ${i + 1}: una pieza suelta no lleva desglose. Recargá la página.`)
     if (!Number.isInteger(quantity) || quantity < 1) throw new ErrorDeNegocio(`Línea ${i + 1}: la cantidad tiene que ser un entero ≥ 1.`)
     if (!Number.isFinite(salePrice) || salePrice < 0) throw new ErrorDeNegocio(`Línea ${i + 1}: el precio de venta no es un número válido.`)
-    if (vistos.has(productId)) throw new ErrorDeNegocio(`El producto ${productId} aparece dos veces en el presupuesto.`)
-    vistos.add(productId)
 
-    return {
-      productId,
-      quantity,
-      salePrice,
-      bundleItems: it.bundleItems && it.bundleItems.length > 0 ? it.bundleItems : null,
+    const linea = { productId, ensambleId }
+    const clave = claveLinea(linea)
+    if (vistos.has(clave)) {
+      throw new ErrorDeNegocio(`${ensambleId != null ? 'El conjunto' : 'El producto'} ${ensambleId ?? productId} aparece dos veces en el presupuesto.`)
     }
+    vistos.add(clave)
+
+    return { ...linea, quantity, salePrice, bundleItems }
   })
 }
 
@@ -87,8 +101,9 @@ function snapshotBundle(items: BundlePiece[] | null | undefined) {
  * normal de enterarse: lo normal es verlas tachadas en el armador. Que falle es preferible a
  * guardar la promesa.
  */
-async function bloquearDescontinuadas(items: { productId: number }[]) {
-  const ids = [...new Set(items.map(i => i.productId))]
+async function bloquearDescontinuadas(items: RefLinea[]) {
+  // Solo las piezas sueltas: un conjunto no es una pieza y no tiene `discontinuedAt`.
+  const ids = [...new Set(items.flatMap(i => (i.productId != null ? [i.productId] : [])))]
   if (ids.length === 0) return
   const nls = await db.product.findMany({
     where: { id: { in: ids }, discontinuedAt: { not: null } },
@@ -163,6 +178,7 @@ async function crearPresupuesto(formData: FormData) {
       items: {
         create: items.map(i => ({
           productId: i.productId,
+          ensambleId: i.ensambleId,
           quantity: i.quantity,
           salePrice: i.salePrice,
           bundleItems: snapshotBundle(i.bundleItems),
@@ -207,7 +223,7 @@ async function editarPresupuesto(id: number, formData: FormData) {
   const notas = (formData.get('notas') as string)?.trim() || null
   const existing = await db.pedido.findUnique({
     where: { id },
-    select: { tipo: true, status: true, items: { select: { productId: true, quantity: true, shippingStatus: true } } },
+    select: { tipo: true, status: true, items: { select: { productId: true, ensambleId: true, quantity: true, shippingStatus: true } } },
   })
   if (!existing) throw new ErrorDeNegocio(`El presupuesto #${id} ya no existe.`)
 
@@ -236,19 +252,28 @@ async function editarPresupuesto(id: number, formData: FormData) {
     clienteId = cliente.id
   }
 
-  const antes = new Set(existing.items.map(i => i.productId))
-  const ahora = new Set(items.map(i => i.productId))
-  const aBorrar = [...antes].filter(pid => !ahora.has(pid))
+  // La identidad de una línea es pieza-o-conjunto (claveLinea), no solo productId: un id de
+  // pieza y uno de ensamble pueden coincidir.
+  const antes = new Set(existing.items.map(claveLinea))
+  const ahora = new Set(items.map(claveLinea))
+  const sacadas = existing.items.filter(i => !ahora.has(claveLinea(i)))
+  const piezasSacadas = sacadas.flatMap(i => (i.productId != null ? [i.productId] : []))
+  const conjuntosSacados = sacadas.flatMap(i => (i.ensambleId != null ? [i.ensambleId] : []))
 
   const ops: Prisma.PrismaPromise<unknown>[] = []
 
-  if (aBorrar.length > 0) {
-    ops.push(db.pedidoItem.deleteMany({ where: { pedidoId: id, productId: { in: aBorrar } } }))
+  if (piezasSacadas.length > 0) {
+    ops.push(db.pedidoItem.deleteMany({ where: { pedidoId: id, productId: { in: piezasSacadas } } }))
+  }
+  if (conjuntosSacados.length > 0) {
+    ops.push(db.pedidoItem.deleteMany({ where: { pedidoId: id, ensambleId: { in: conjuntosSacados } } }))
   }
 
-  for (const i of items.filter(i => antes.has(i.productId))) {
+  for (const i of items.filter(i => antes.has(claveLinea(i)))) {
     ops.push(db.pedidoItem.update({
-      where: { pedidoId_productId: { pedidoId: id, productId: i.productId } },
+      where: i.ensambleId != null
+        ? { pedidoId_ensambleId: { pedidoId: id, ensambleId: i.ensambleId } }
+        : { pedidoId_productId: { pedidoId: id, productId: i.productId! } },
       // Solo lo comercial. Todo lo logístico queda como estaba, que es el punto.
       data: { quantity: i.quantity, salePrice: i.salePrice, bundleItems: snapshotBundle(i.bundleItems) },
     }))
@@ -259,12 +284,14 @@ async function editarPresupuesto(id: number, formData: FormData) {
   // acompañarlo, o queda describiendo una entrega que ya no es la del documento: se edita la
   // cantidad de 10 a 6 y el depósito sigue diciendo que entraron 10. El ajuste va en la misma
   // transacción que la edición. Las líneas que todavía no llegaron no tocan stock.
+  //
+  // Solo las piezas sueltas: un conjunto no mueve stock (ver saveItemChanges en envios/actions).
   const ajusteStock = new Map<number, number>()
   if (existing.tipo === 'propio') {
-    const cantidadAhora = new Map(items.map(i => [i.productId, i.quantity]))
+    const cantidadAhora = new Map(items.map(i => [claveLinea(i), i.quantity]))
     for (const it of existing.items) {
-      if (!isDelivered(it.shippingStatus)) continue
-      const delta = (cantidadAhora.get(it.productId) ?? 0) - it.quantity
+      if (it.productId == null || !isDelivered(it.shippingStatus)) continue
+      const delta = (cantidadAhora.get(claveLinea(it)) ?? 0) - it.quantity
       if (delta !== 0) ajusteStock.set(it.productId, delta)
     }
   }
@@ -291,12 +318,13 @@ async function editarPresupuesto(id: number, formData: FormData) {
     }
   }
 
-  const nuevos = items.filter(i => !antes.has(i.productId))
+  const nuevos = items.filter(i => !antes.has(claveLinea(i)))
   if (nuevos.length > 0) {
     ops.push(db.pedidoItem.createMany({
       data: nuevos.map(i => ({
         pedidoId: id,
         productId: i.productId,
+        ensambleId: i.ensambleId,
         quantity: i.quantity,
         salePrice: i.salePrice,
         bundleItems: snapshotBundle(i.bundleItems),

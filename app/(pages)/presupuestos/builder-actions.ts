@@ -6,14 +6,15 @@ import { lookupDeConjuntos, expandCostPieces, type ProductCost } from '@/lib/env
 import type { BundlePiece } from '@/lib/bundle'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
 import { toConfigMap, margenPorDefecto } from '@/lib/config'
+import type { RefLinea } from '@/lib/linea-pedido'
 
 // Componentes de UN ensamble, cargados on-demand cuando se selecciona (evita traer
 // los ~14k componentes de todo el catálogo al abrir el armador de presupuestos).
-export async function getAssemblyComponents(assemblyId: number) {
-  const comps = await db.productComponent.findMany({
-    where: { parentId: assemblyId },
+export async function getAssemblyComponents(ensambleId: number) {
+  const comps = await db.ensambleComponente.findMany({
+    where: { ensambleId },
     include: {
-      child: {
+      product: {
         select: {
           id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true,
           compatibleModels: true, discontinuedAt: true,
@@ -26,17 +27,17 @@ export async function getAssemblyComponents(assemblyId: number) {
     id: c.id,
     groupName: c.groupName,
     quantity: c.quantity,
-    child: {
-      id: c.child.id,
-      nameEs: c.child.nameEs,
-      bajajCode: c.child.bajajCode,
-      price: parseFloat(c.child.price.toString()),
-      imageUrl: c.child.imageUrl,
-      models: toModelIds(c.child.compatibleModels),
+    product: {
+      id: c.product.id,
+      nameEs: c.product.nameEs,
+      bajajCode: c.product.bajajCode,
+      price: parseFloat(c.product.price.toString()),
+      imageUrl: c.product.imageUrl,
+      models: toModelIds(c.product.compatibleModels),
       // Bajaj no la fabrica más. Acá pesa incluso más que en un embarque: el negocio es por
       // encargo, así que cotizarla es prometerle a un cliente algo que no se va a poder
       // comprar — y con seña cobrada.
-      descontinuada: c.child.discontinuedAt != null,
+      descontinuada: c.product.discontinuedAt != null,
     },
   }))
 }
@@ -54,15 +55,13 @@ export async function getAssemblyComponents(assemblyId: number) {
 // armar la caja (ver /envios y /simular).
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface CarritoLineaInput {
-  productId: number
+export interface CarritoLineaInput extends RefLinea {
   quantity: number
   salePrice: number
   bundleItems?: BundlePiece[] | null
 }
 
-export interface CostoLinea {
-  productId: number
+export interface CostoLinea extends RefLinea {
   /** Cantidad con la que se costeó: todos los totales de la línea ya la incluyen. */
   quantity: number
   landedUsd: number
@@ -96,7 +95,7 @@ export async function costearCarrito(lineas: CarritoLineaInput[]): Promise<Costo
   const [configRows, productos, lookup] = await Promise.all([
     db.config.findMany(),
     db.product.findMany({
-      where: { id: { in: lineas.map(l => l.productId) } },
+      where: { id: { in: lineas.flatMap(l => (l.productId != null ? [l.productId] : [])) } },
       select: {
         id: true, nameEs: true, bajajCode: true, weightGrams: true,
         dimL: true, dimA: true, dimH: true, priceInr: true,
@@ -110,7 +109,7 @@ export async function costearCarrito(lineas: CarritoLineaInput[]): Promise<Costo
   const defaultMargin = margenPorDefecto(cfg)
 
   // Margen de cada pieza que puede aparecer (las de conjuntos incluidas), para sugerir precio.
-  const piezasIds = new Set<number>(lineas.map(l => l.productId))
+  const piezasIds = new Set<number>(lineas.flatMap(l => (l.productId != null ? [l.productId] : [])))
   for (const l of lineas) {
     for (const bp of l.bundleItems ?? []) {
       const r = lookup(bp.bajajCode, bp.nameEs)
@@ -125,11 +124,15 @@ export async function costearCarrito(lineas: CarritoLineaInput[]): Promise<Costo
 
   const out: CostoLinea[] = []
   for (const l of lineas) {
-    const product = porId.get(l.productId)
-    if (!product) continue
+    // Una pieza suelta se costea por sí misma; un conjunto, solo por el snapshot de sus piezas
+    // (el ensamble no tiene peso, medidas ni precio). Una línea que no resuelve a nada se
+    // omite: el carrito pudo quedar con una pieza que se borró mientras tanto.
+    const product = l.productId != null ? porId.get(l.productId) ?? null : null
+    const esConjunto = l.ensambleId != null
+    if (esConjunto ? !(l.bundleItems && l.bundleItems.length > 0) : !product) continue
 
     const linea: CostoLinea = {
-      productId: l.productId, quantity: l.quantity, landedUsd: 0, weightKg: 0,
+      productId: l.productId, ensambleId: l.ensambleId, quantity: l.quantity, landedUsd: 0, weightKg: 0,
       sugeridoUsd: 0, sugeridoUnitUsd: null, sinPeso: 0, totalPiezas: 0,
     }
 
@@ -186,12 +189,9 @@ export async function costearCarrito(lineas: CarritoLineaInput[]): Promise<Costo
 export async function searchAssembliesByPiece(term: string) {
   const q = term.trim()
   if (q.length < 2) return []
-  const comps = await db.productComponent.findMany({
-    where: {
-      parent: { isAssembly: true },
-      child: { bajajCode: { contains: q, mode: 'insensitive' } },
-    },
-    select: { parentId: true, child: { select: { nameEs: true, bajajCode: true } } },
+  const comps = await db.ensambleComponente.findMany({
+    where: { product: { bajajCode: { contains: q, mode: 'insensitive' } } },
+    select: { ensambleId: true, product: { select: { nameEs: true, bajajCode: true } } },
     // Una pieza genérica (un tornillo) vive en cientos de ensambles; el tope evita
     // traer esa cola entera para una lista que igual no se puede recorrer a mano.
     take: 400,
@@ -199,16 +199,16 @@ export async function searchAssembliesByPiece(term: string) {
   })
   // Un ensamble puede repetir la misma pieza en varios subgrupos: nos quedamos con
   // la primera aparición, que es la que se muestra como motivo del match.
-  const byParent = new Map<number, { parentId: number; pieceName: string; pieceCode: string }>()
+  const porEnsamble = new Map<number, { ensambleId: number; pieceName: string; pieceCode: string }>()
   for (const c of comps) {
-    if (byParent.has(c.parentId)) continue
-    byParent.set(c.parentId, {
-      parentId: c.parentId,
-      pieceName: c.child.nameEs,
-      pieceCode: c.child.bajajCode ?? '',
+    if (porEnsamble.has(c.ensambleId)) continue
+    porEnsamble.set(c.ensambleId, {
+      ensambleId: c.ensambleId,
+      pieceName: c.product.nameEs,
+      pieceCode: c.product.bajajCode ?? '',
     })
   }
-  return Array.from(byParent.values())
+  return Array.from(porEnsamble.values())
 }
 
 // Búsqueda de piezas sueltas por nombre o código (server-side), en vez de mandar los

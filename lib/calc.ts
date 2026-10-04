@@ -269,7 +269,8 @@ export function calcLanded(
 
 export interface EnvioItemInput {
   pedidoId: number
-  productId: number
+  // null: pieza de un conjunto que no se pudo resolver contra el catálogo (SKU sin match).
+  productId: number | null
   name: string
   weightGrams: number | null
   dimL: number | null
@@ -358,7 +359,7 @@ export function cbmCostPerM3(p: CbmParams): number {
 
 export interface EnvioItemLine {
   pedidoId: number
-  productId: number
+  productId: number | null
   name: string
   quantity: number
   origen: 'india' | 'china'

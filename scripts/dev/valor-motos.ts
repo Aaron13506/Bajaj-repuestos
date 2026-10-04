@@ -1,5 +1,5 @@
-// Valor por piezas de cada moto: recorre los ensambles de cada modelo, expande sus
-// componentes (con anidamiento) y suma el costo de origen de cada pieza por cantidad.
+// Valor por piezas de cada moto: recorre los ensambles de cada modelo, toma sus
+// componentes y suma el costo de origen de cada pieza por cantidad.
 import { db } from '../../lib/db'
 import { calcLanded } from '../../lib/calc'
 import { parseModelos, modelosDistintos } from '../../lib/modelos'
@@ -7,7 +7,6 @@ import { sortModels } from '../../lib/catalog'
 
 interface Nodo {
   id: number
-  isAssembly: boolean
   nameEs: string
   bajajCode: string | null
   compatibleModels: string | null
@@ -26,7 +25,7 @@ async function main() {
 
   const prods = await db.product.findMany({
     select: {
-      id: true, isAssembly: true, nameEs: true, bajajCode: true, compatibleModels: true,
+      id: true, nameEs: true, bajajCode: true, compatibleModels: true,
       priceInr: true, weightGrams: true, dimL: true, dimA: true, dimH: true, margin: true, price: true,
     },
   })
@@ -34,37 +33,27 @@ async function main() {
     prods.map(p => [p.id, { ...p, price: Number(p.price) } as Nodo]),
   )
 
-  const links = await db.productComponent.findMany({
-    select: { parentId: true, childId: true, quantity: true },
+  const links = await db.ensambleComponente.findMany({
+    select: { ensambleId: true, productId: true, quantity: true },
   })
-  const hijos = new Map<number, { childId: number; quantity: number }[]>()
+  const hijos = new Map<number, { productId: number; quantity: number }[]>()
   for (const l of links) {
-    const arr = hijos.get(l.parentId) ?? []
-    arr.push({ childId: l.childId, quantity: l.quantity })
-    hijos.set(l.parentId, arr)
+    const arr = hijos.get(l.ensambleId) ?? []
+    arr.push({ productId: l.productId, quantity: l.quantity })
+    hijos.set(l.ensambleId, arr)
   }
 
-  // Expande un ensamble a piezas hoja con su cantidad acumulada. Corta ciclos.
-  function expandir(rootId: number): Map<number, number> {
+  // Un ensamble contiene solo piezas (no hay anidamiento): se suma la cantidad de cada una.
+  function expandir(ensambleId: number): Map<number, number> {
     const out = new Map<number, number>()
-    const walk = (id: number, mult: number, path: Set<number>) => {
-      const kids = hijos.get(id)
-      if (!kids?.length) {
-        out.set(id, (out.get(id) ?? 0) + mult)
-        return
-      }
-      if (path.has(id)) return
-      const next = new Set(path).add(id)
-      for (const k of kids) walk(k.childId, mult * k.quantity, next)
-    }
-    for (const k of hijos.get(rootId) ?? []) walk(k.childId, k.quantity, new Set([rootId]))
+    for (const k of hijos.get(ensambleId) ?? []) out.set(k.productId, (out.get(k.productId) ?? 0) + k.quantity)
     return out
   }
 
   // ── Factor observado landed/origen, sobre las piezas que SÍ tienen medidas ──
   let origenMedido = 0, landedMedido = 0, nMedidas = 0
   for (const p of prods) {
-    if (p.isAssembly || !p.priceInr) continue
+    if (!p.priceInr) continue
     const l = calcLanded({ ...p, margin: p.margin }, cfg, 'aereo')
     if (!l) continue
     origenMedido += l.productCostUsd
@@ -73,7 +62,7 @@ async function main() {
   }
   const factorLanded = landedMedido / origenMedido
 
-  const ensambles = prods.filter(p => p.isAssembly)
+  const ensambles = await db.ensamble.findMany({ select: { id: true, nameEs: true, compatibleModels: true } })
   const modelos = sortModels(modelosDistintos(ensambles.map(e => e.compatibleModels)))
 
   interface Fila {
@@ -104,7 +93,7 @@ async function main() {
         acumSku.set(pid, (acumSku.get(pid) ?? 0) + qty)
         if (p.priceInr) costoAsm += (p.priceInr / inrUsd) * qty
       }
-      det.push({ nombre: a.nameEs, code: a.bajajCode, piezas: unidades, origenUsd: costoAsm })
+      det.push({ nombre: a.nameEs ?? '(sin nombre)', code: null, piezas: unidades, origenUsd: costoAsm })
     }
 
     let piezas = 0, origenUsd = 0, conMedidas = 0, ventaUsd = 0, sinInr = 0

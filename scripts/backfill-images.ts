@@ -1,6 +1,6 @@
 /**
- * Backfill QUIRÚRGICO de imágenes: copia ScrapedProduct.imageS3Url → Product.imageUrl
- * en los ensambles, cruzando por sourceUrl.
+ * Backfill QUIRÚRGICO de imágenes: copia ScrapedProduct.imageS3Url → Ensamble.imageUrl,
+ * cruzando por sourceUrl.
  *
  * Solo hace updateMany sobre la columna imageUrl (y solo donde está en null).
  * NO crea, NO borra, NO resetea, NO toca ningún otro campo. Idempotente.
@@ -23,15 +23,15 @@ async function main() {
 
   let updated = 0
   for (const s of scraped) {
-    const res = await prisma.product.updateMany({
-      where: { sourceUrl: s.sourceUrl, isAssembly: true, imageUrl: null },
+    const res = await prisma.ensamble.updateMany({
+      where: { sourceUrl: s.sourceUrl, imageUrl: null },
       data: { imageUrl: s.imageS3Url },
     })
     updated += res.count
   }
 
-  const withImg = await prisma.product.count({ where: { isAssembly: true, imageUrl: { not: null } } })
-  console.log(`Product.imageUrl rellenados este run: ${updated}`)
+  const withImg = await prisma.ensamble.count({ where: { imageUrl: { not: null } } })
+  console.log(`Ensamble.imageUrl rellenados este run: ${updated}`)
   console.log(`Ensambles con imagen ahora: ${withImg}`)
 }
 

@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { db } from '@/lib/db'
+import { nombreEnsamble } from '@/lib/linea-pedido'
 import DeleteButton from '@/components/DeleteButton'
 import PendingButton from '@/components/PendingButton'
 import FormConResultado from '@/components/FormConResultado'
@@ -86,11 +87,10 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
   // Solo headers de ensamble, y solo mientras se arma: sus piezas se cargan on-demand al
   // seleccionar uno (el catálogo tiene ~14k componentes).
   const assemblies: AssemblyOption[] = esBorrador
-    ? await db.product.findMany({
-        where: { isAssembly: true },
-        select: { id: true, nameEs: true, bajajCode: true, imageUrl: true, compatibleModels: true },
-        orderBy: { nameEs: 'asc' },
-      })
+    ? (await db.ensamble.findMany({
+        select: { id: true, nameEs: true, nameEn: true, imageUrl: true, compatibleModels: true },
+        orderBy: [{ nameEs: 'asc' }, { compatibleModels: 'asc' }],
+      })).map(a => ({ id: a.id, nameEs: nombreEnsamble(a), imageUrl: a.imageUrl, compatibleModels: a.compatibleModels }))
     : []
   const models = sortModels(modelosDistintos(assemblies.map(a => a.compatibleModels)))
 
@@ -190,28 +190,25 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
   // Carga de medidas: UN GRUPO POR ENSAMBLE, igual que en el presupuesto. La caja se arma
   // recorriendo despieces, así que sus piezas vienen de unos pocos ensambles — pero la
   // línea no guarda de cuál (es producto y cantidad, nada más), hay que reconstruirlo
-  // desde ProductComponent. Mandar las 126 piezas juntas es justamente la tanda que
+  // desde EnsambleComponente. Mandar las 126 piezas juntas es justamente la tanda que
   // degrada la respuesta de la IA y vuelve imposible auditarla.
   const enlaces = envio.lineas.length > 0
-    ? await db.productComponent.findMany({
-        where: { childId: { in: envio.lineas.map(l => l.productId) } },
-        select: { childId: true, parentId: true, parent: { select: { nameEs: true, bajajCode: true } } },
+    ? await db.ensambleComponente.findMany({
+        where: { productId: { in: envio.lineas.map(l => l.productId) } },
+        select: { productId: true, ensamble: { select: { nameEs: true, nameEn: true } } },
       })
     : []
 
   // Se agrupa por NOMBRE del ensamble, no por su id: el mismo despiece existe como varias
-  // filas de Product (una por variante de color o de año — hay dos "Headlamp Fairing" y dos
+  // filas de Ensamble (una por variante de color o de año — hay dos "Headlamp Fairing" y dos
   // "Mudguard"). Por id salían dos pestañas con el mismo título y la pieza estaba en una
   // sola: buscarla ahí es indistinguible de que falte.
-  const ensambles = new Map<string, { nombre: string; sku: string | null; hijos: Set<number> }>()
+  const ensambles = new Map<string, { nombre: string; hijos: Set<number> }>()
   for (const e of enlaces) {
-    const clave = e.parent.nameEs.trim().toLowerCase()
-    const g = ensambles.get(clave)
-      ?? { nombre: e.parent.nameEs.trim(), sku: e.parent.bajajCode, hijos: new Set<number>() }
-    // Variantes distintas del mismo despiece no comparten código: sin uno solo que valga
-    // para el grupo, mejor ninguno que el de una de ellas.
-    if (g.sku !== e.parent.bajajCode) g.sku = null
-    g.hijos.add(e.childId)   // el mismo hijo puede venir repetido: uno por subgrupo del ensamble
+    const nombre = nombreEnsamble(e.ensamble)
+    const clave = nombre.toLowerCase()
+    const g = ensambles.get(clave) ?? { nombre, hijos: new Set<number>() }
+    g.hijos.add(e.productId)   // la misma pieza puede venir repetida: una por subgrupo del ensamble
     ensambles.set(clave, g)
   }
 
@@ -262,7 +259,6 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
     grupos.push({
       key: `ens-${clave}`,
       titulo: g.nombre,
-      subtitulo: g.sku,
       piezas: envio.lineas.filter(l => asignado.get(l.productId) === clave).map(comoPieza),
     })
   }

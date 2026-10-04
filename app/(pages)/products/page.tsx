@@ -9,6 +9,7 @@ import { type ConfigMap } from '@/lib/calc'
 import { getSupplierPriceMap } from '@/lib/suppliers'
 import { toConfigMap } from '@/lib/config'
 import { toInt } from '@/lib/parse'
+import { nombreEnsamble } from '@/lib/linea-pedido'
 
 interface SearchParams {
   search?: string
@@ -21,20 +22,19 @@ interface SearchParams {
 }
 
 /** Los ensambles de una pieza, uno por ensamble aunque la pieza esté en varios de sus grupos. */
-function ensamblesDe(filas: { groupName: string; quantity: number; parent: { id: number; nameEs: string; bajajCode: string | null; compatibleModels: string | null } }[]): EnsambleDePieza[] {
+function ensamblesDe(filas: { groupName: string; quantity: number; ensamble: { id: number; nameEs: string | null; nameEn: string; compatibleModels: string } }[]): EnsambleDePieza[] {
   const porId = new Map<number, EnsambleDePieza>()
   for (const f of filas) {
-    const previo = porId.get(f.parent.id)
+    const previo = porId.get(f.ensamble.id)
     if (previo) {
       if (f.groupName && !previo.grupos.includes(f.groupName)) previo.grupos.push(f.groupName)
       continue
     }
-    porId.set(f.parent.id, {
-      id: f.parent.id,
-      nameEs: f.parent.nameEs,
-      bajajCode: f.parent.bajajCode,
+    porId.set(f.ensamble.id, {
+      id: f.ensamble.id,
+      nameEs: nombreEnsamble(f.ensamble),
       // Dos ensambles "Spark Plugs" se distinguen solo por la moto: sin ella la lista no sirve.
-      models: toModelIds(f.parent.compatibleModels),
+      models: toModelIds(f.ensamble.compatibleModels),
       grupos: f.groupName ? [f.groupName] : [],
       quantity: f.quantity,
     })
@@ -68,9 +68,6 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
       } : {},
       whereModel(model),
       onlyLowStock ? { stock: { lt: 5 } } : {},
-      // Solo piezas: los ensambles ya tienen su pantalla (/groups). Cada pieza aparece
-      // directamente, esté o no dentro de un ensamble, y la fila dice a cuáles pertenece.
-      { isAssembly: false },
     ],
   }
 
@@ -84,14 +81,14 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
       take: limit,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       include: {
-        // Un mismo hijo puede estar en varios grupos de un mismo ensamble (la unicidad es
-        // parentId+childId+groupName): se colapsa por ensamble más abajo.
+        // Una misma pieza puede estar en varios grupos de un mismo ensamble (la unicidad es
+        // ensambleId+productId+groupName): se colapsa por ensamble más abajo.
         assemblies: {
-          orderBy: { parent: { nameEs: 'asc' } },
+          orderBy: { ensamble: { nameEs: 'asc' } },
           select: {
             groupName: true,
             quantity: true,
-            parent: { select: { id: true, nameEs: true, bajajCode: true, compatibleModels: true } },
+            ensamble: { select: { id: true, nameEs: true, nameEn: true, compatibleModels: true } },
           },
         },
       },

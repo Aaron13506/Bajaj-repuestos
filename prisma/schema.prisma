@@ -1,3 +1,12 @@
+// Registro de los .sql de prisma/manual ya aplicados a esta base. Lo escribe scripts/migrar.ts
+// (pnpm db:migrar) y la app no lo lee; está declarado acá para que `prisma migrate diff` no lo
+// tome por una tabla sobrante. `checksum` detecta un archivo editado después de aplicarse.
+model MigracionManual {
+  nombre     String   @id
+  checksum   String
+  aplicadaAt DateTime @default(now())
+}
+
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["driverAdapters"]
@@ -11,10 +20,9 @@ datasource db {
 
 model Product {
   id               Int       @id @default(autoincrement())
-  isAssembly       Boolean   @default(false)
   bajajCode        String?
   sourceUrl        String?
-  imageUrl         String? // imagen del ensamble (de ScrapedProduct.imageS3Url); piezas no tienen
+  imageUrl         String? // imagen de la pieza, si hay (las del ensamble viven en Ensamble.imageUrl)
   nameEs           String
   nameEn           String?
   description      String?
@@ -44,7 +52,7 @@ model Product {
   price            Decimal   @db.Decimal(10, 2)
   // Precio fijado a mano: cuando es true, los recálculos (carga de medidas, costos)
   // NO pisan `price`; solo actualizan landedCostUsd y ajustan el margen para reflejar
-  // el precio elegido. Aplica tanto a piezas como al precio del conjunto (ensamble).
+  // el precio elegido.
   priceLocked      Boolean   @default(false)
   // Descontinuado de FÁBRICA. Bajaj dejó de producir la pieza, así que no la consigue
   // ningún proveedor: no es una falta de stock de uno, es que no existe para nadie. Por eso
@@ -57,8 +65,8 @@ model Product {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  components     ProductComponent[] @relation("ParentProduct")
-  assemblies     ProductComponent[] @relation("ChildProduct")
+  // En qué ensambles aparece esta pieza (una fila por subgrupo).
+  assemblies     EnsambleComponente[]
   pedidoItems    PedidoItem[]
   // Partes scrapeadas que hacen match por SKU (bajajCode). El cruce copia mi
   // peso/dim/margen a ScrapedPart; esto solo deja la traza de origen.
@@ -69,20 +77,54 @@ model Product {
   @@index([bajajCode])
 }
 
-// Un producto padre puede tener muchos hijos agrupados por nombre de grupo.
-// El mismo hijo puede aparecer en distintos grupos del mismo padre (ej: mismo damper en
-// "Brake Pedal" y "Rubber Boot"), y también puede ser hijo de múltiples padres distintos.
-model ProductComponent {
-  id        Int     @id @default(autoincrement())
-  parentId  Int
-  childId   Int
-  quantity  Int     @default(1)
-  groupName String  @default("")
-  sortOrder Int     @default(0)
-  parent    Product @relation("ParentProduct", fields: [parentId], references: [id], onDelete: Cascade)
-  child     Product @relation("ChildProduct", fields: [childId], references: [id], onDelete: Restrict)
+// Un ENSAMBLE es la página de 99rpm que AGRUPA piezas (un despiece), no un producto: no se
+// compra, no se pesa, no tiene precio ni stock, y por eso no vive en `Product`. Lo único que
+// tiene es identidad (nombre, moto, de dónde salió) y la lista de piezas que lo componen.
+//
+// Antes era una fila de `Product` con `isAssembly = true` y arrastraba todas las columnas de
+// una pieza sin usar ninguna (1520 ensambles: 0 con peso, medidas, precio, margen, landed,
+// código, stock). Compartir la tabla obligaba a cada consulta a recordar `isAssembly`.
+//
+// Los ids se preservaron de `Product` al migrar (prisma/manual/2026-10-03-ensambles.sql).
+//
+// No tiene precio a propósito: casi nunca se vende completo — en el armador se destildan
+// piezas y se cambian cantidades —, así que el precio de una línea de conjunto se calcula en
+// el front sobre las piezas elegidas y se congela en PedidoItem.salePrice.
+model Ensamble {
+  id               Int      @id @default(autoincrement())
+  // El nombre en inglés es el obligatorio: es el que publica 99rpm y la identidad del ensamble.
+  // El de español es opcional (una traducción para los presupuestos): si falta, se muestra el
+  // inglés — ver nombreEnsamble (lib/linea-pedido.ts).
+  nameEs           String?
+  nameEn           String
+  // UNA moto: esa es la identidad del ensamble, y lo único que distingue dos conjuntos
+  // homónimos ("Spark Plugs") de motos distintas. Texto con la etiqueta, igual que en
+  // Product.compatibleModels (ver lib/modelo.ts).
+  compatibleModels String
+  sourceUrl        String?  @unique
+  imageUrl         String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  @@unique([parentId, childId, groupName])
+  componentes EnsambleComponente[]
+  pedidoItems PedidoItem[]
+}
+
+// Una pieza dentro de un ensamble, agrupada por nombre de subgrupo. La misma pieza puede
+// aparecer en distintos subgrupos del mismo ensamble (ej: mismo damper en "Brake Pedal" y
+// "Rubber Boot"), y también en ensambles distintos.
+model EnsambleComponente {
+  id         Int      @id @default(autoincrement())
+  ensambleId Int
+  productId  Int
+  quantity   Int      @default(1)
+  groupName  String   @default("")
+  sortOrder  Int      @default(0)
+  ensamble   Ensamble @relation(fields: [ensambleId], references: [id], onDelete: Cascade)
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([ensambleId, productId, groupName])
+  @@index([productId])
 }
 
 // Cliente recurrente: entidad maestra para agrupar todos los pedidos de una misma
@@ -347,11 +389,16 @@ model Pedido {
 model PedidoItem {
   id          Int     @id @default(autoincrement())
   pedidoId    Int
-  productId   Int
+  // Una línea es una pieza O un conjunto, nunca las dos (CHECK PedidoItem_pieza_xor_conjunto,
+  // que Prisma no modela y vive solo en el SQL): `productId` para una pieza suelta,
+  // `ensambleId` para un conjunto.
+  productId   Int?
+  ensambleId  Int?
   quantity    Int     @default(1)
   salePrice   Decimal @db.Decimal(10, 2)
-  // Cuando el item es un conjunto/ensamble vendido a precio único, guarda el
-  // snapshot de las piezas elegidas: [{ nameEs, bajajCode, quantity }]. Null = pieza suelta.
+  // Un conjunto vendido a precio único guarda el snapshot de las piezas elegidas:
+  // [{ nameEs, bajajCode, quantity }]. Null = pieza suelta. El CHECK
+  // PedidoItem_conjunto_lleva_piezas lo ata a ensambleId: hay snapshot si y solo si hay conjunto.
   bundleItems Json?
 
   // ── Eje logístico ──────────────────────────────────────────────────────────
@@ -382,11 +429,13 @@ model PedidoItem {
   compradoAt       DateTime?
 
   pedido   Pedido    @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
-  product  Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  product  Product?  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  ensamble Ensamble? @relation(fields: [ensambleId], references: [id], onDelete: Restrict)
   envio    Envio?    @relation(fields: [envioId], references: [id], onDelete: SetNull)
   supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
 
   @@unique([pedidoId, productId])
+  @@unique([pedidoId, ensambleId])
   @@index([envioId])
   @@index([shippingStatus])
 }

@@ -42,7 +42,7 @@ snapshots automáticos ≈ USD 1–2, dos buckets ≈ USD 1 c/u → **≈ USD 15
 | 5 | Pasarse: timers, apagar Heroku | Servidor + Heroku | Sí (minutos) | ✅ hecha (2026-10-04) |
 | 6 | Imágenes fuera de Supabase | Servidor | Sí (URLs) | ✅ hecha (2026-10-04) |
 | 7 | Estabilización y baja de Heroku/Supabase | Todo | Sí | 🔶 en curso: lo del servidor y el repo hecho (2026-10-04); falta tiempo y lo de Heroku/Supabase |
-| 8 | Recién después: migración de ensambles | — | — | ⏳ |
+| 8 | Recién después: migración de ensambles | Repo + servidor | Sí (corte de minutos) | 🔶 código hecho y ensayado en local (2026-10-04); **falta el corte en producción** |
 
 Cada fase termina en un **criterio de salida**: no se pasa a la siguiente sin cumplirlo.
 
@@ -345,11 +345,7 @@ Lo que salió y conviene saber:
 - `StrictHostKeyChecking accept-new` en `~/.ssh/config` de `bajaj` evita que el primer `git clone` pida confirmar
   la huella de GitHub.
 
-**Abierto (sigue sin resolver; Heroku ya está apagado, ya no hay con qué comparar):** al borrar un presupuesto, la pantalla muestra «No se pudo completar la
-acción» aunque el borrado **sí ocurrió**. En el servidor la acción terminó bien (`POST /presupuestos` → 200, 20 KB,
-0,16 s, sin errores en ningún log), así que la falla es del lado del navegador al procesar el redirect de
-`deletePresupuesto` (`components/DeleteButton.tsx:32` es el mensaje genérico). Falta saber si en Heroku pasaba
-igual y qué dice la consola del navegador. Con Heroku apagado ya no habrá con qué comparar.
+**Resuelto (2026-10-04):** al borrar un presupuesto (y al guardar, aunque ahí no se veía) aparecía «No se pudo completar la acción» aunque la acción terminaba bien. No era de Heroku ni de Lightsail: cuando una server action hace `redirect()`, Next **rechaza a propósito** su promesa en el cliente (`server-action-reducer.js`) mientras ya navega, y los `catch` de `DeleteButton`, `FormConResultado`, `PresupuestoBuilder` y `useEnviarAccion` lo tomaban por una falla. Ahora lo reconoce `esRedireccion()` (`lib/redireccion.ts`) y no lo muestra como error; las fallas reales siguen mostrándose. De paso, el armador ya no vuelve a habilitar el botón de guardar en pleno redireccionamiento.
 
 ---
 
@@ -570,9 +566,7 @@ Va recién acá, con la base ya estable en Lightsail. Está ensayada en
 `prisma/manual/2026-10-03-ensambles.sql`. Mezclarla con la mudanza haría inservibles los
 checksums: si el esquema cambia a la vez, ya no hay contra qué comparar la copia.
 
-**Estado.** El archivo `.sql` ya está en el repo y, desde el deploy `4abfc30`, también en el servidor, **como archivo: no se aplicó**
-(`deploy.sh` no corre migraciones). Cuando llegue el momento: backup, aplicarlo a mano (ver "Migración SQL manual" en "Operación diaria") y
-recién después desplegar el código que cambie `prisma/schema.prisma`; `pnpm deploy:prod` se detiene en ese caso hasta que pases `--esquema-aplicado`.
+**Estado.** El archivo `.sql` ya está en el repo y, desde el deploy `4abfc30`, también en el servidor (en su versión anterior: ver abajo), **como archivo: no se aplicó**. Los cambios de esquema ahora se aplican con `pnpm deploy:prod --migrar` (ver "Cambios de esquema" en "Operación diaria"): ya no hay un paso manual con `psql`.
 
 **Medido el 2026-10-04 (solo lectura, base del servidor).** La base **no está migrada** (no existen `Ensamble` ni `EnsambleComponente`; `Product.isAssembly`
 sigue). Los datos cumplen todos los chequeos previos del SQL (7 de 7 en 0): 1520 ensambles, 4197 piezas, 14 592 componentes, 106 líneas de pedido
@@ -580,8 +574,32 @@ sigue). Los datos cumplen todos los chequeos previos del SQL (7 de 7 en 0): 1520
 y 16 usan `ProductComponent`; ninguno conoce `Ensamble`, `EnsambleComponente` ni `PedidoItem.ensambleId`. Aplicar el SQL hoy rompería la app.
 Pendiente para cerrar la fase: (1) esquema + refactor de esos archivos, con `/products/<id>` de un ensamble redirigiendo a `/ensambles/<id>`;
 (2) ensayar el SQL en una base descartable restaurada del último backup (no se re-verificó en esta sesión), con `typecheck`, `check:costeo` y
-`check:libro`; (3) el orden del corte: backup → parar `bajaj-app` → aplicar el SQL → `pnpm deploy:prod --esquema-aplicado` (si no se para,
-la app vieja corre contra la base nueva mientras compila el build).
+`check:libro`; (3) el corte (más abajo: ahora lo hace `pnpm deploy:prod --migrar`, que ensaya, para la app, hace backup, aplica y arranca, en ese orden).
+
+**Hecho (2026-10-04) — (1) y (2), sin tocar producción.**
+- **Esquema.** `Ensamble` y `EnsambleComponente` en `prisma/schema.prisma`; `PedidoItem` con `productId` nulable + `ensambleId` (el CHECK pieza-xor-conjunto vive solo en el SQL).
+  `prisma migrate diff` entre la base ya migrada y el esquema da **vacío**: nombres de índices y FKs coinciden (verificado de nuevo con `nameEn` obligatorio y `nameEs` opcional).
+- **Cambios al SQL** respecto del que ya está en el servidor (**hay que traer el `.sql` actualizado antes del corte**: `sudo -iu bajaj git -C /srv/bajaj/app pull --ff-only`, sin correr `deploy.sh`, o aplicar el archivo desde la PC): `Ensamble.nameEn` es `NOT NULL` (el nombre del catálogo, la identidad del ensamble) y `nameEs` es opcional (`TEXT`). Se agregó un chequeo previo que aborta con un mensaje legible si algún ensamble no tiene `nameEn` (hoy: 0 de 1520; probado el camino de error: aborta y no deja nada a medias). En código `nameEs` es `String?` y se muestra con `nombreEnsamble()` (español si hay, si no inglés); crear o editar exige el inglés.
+- **Ensayo del SQL** sobre una copia de la base local (backup de producción): corre limpio. Resultado: `Ensamble` 1520, `EnsambleComponente` 14 592, `Product` 4197, líneas de conjunto 105, de pieza 1.
+  Datos previos: ningún ensamble sin moto (la columna es `NOT NULL`), uno con varias motos, sin `sourceUrl` repetida. Sobre esa base migrada: `check:costeo` y `check:libro` limpios, `typecheck` y `eslint` limpios,
+  `next build` ok, 31 URLs responden sin error de servidor (listado, ficha de pieza y de ensamble, presupuestos con conjuntos, envíos aéreos y marítimo, simular, contabilidad, API; editar un pedido ya confirmado da 404, que es lo diseñado).
+- **Server actions** ejercitados contra esa base con un arnés temporal (32 comprobaciones, ya borrado): editar un presupuesto con conjunto conserva el id de la línea y sus datos logísticos; agregar/sacar una pieza suelta;
+  rechazo de la forma vieja (ensamble mandado como `productId`), de un conjunto sin piezas, de un conjunto repetido y de una pieza descontinuada; crear y borrar presupuesto; crear ensamble (sin moto → rechazo),
+  agregar/quitar componentes (pieza inexistente → mensaje, no 500), un ensamble vendido no se borra y uno libre sí (con cascada de enlaces); el importador JSON no duplica al reimportar y exige moto.
+  **No se probó en un navegador**: la pestaña de ensayo no llegó a hidratar a través del proxy de prueba y no se pudo ejercitar el armador de presupuestos con clics (sí sus acciones de servidor).
+- **Decisiones de código:** el ensamble no tiene precio (se eliminó `BundlePriceEditor` y `setBundlePrice`); no hay chequeo de ciclos (ya no puede haberlos); `Product.imageUrl` y `sourceUrl` quedan en `Product` aunque ya no se escriban
+  (eran del ensamble; sacarlos es otra migración); entregar un conjunto de un pedido propio no suma stock a sus piezas (nunca lo hizo: sumaba a la fila del ensamble). Nuevo: `/ensambles/new`, `/ensambles/[id]`, `/ensambles/[id]/edit`.
+- **El `.env` local** sigue apuntando a una base **sin migrar**: con este código hay que migrarla (`pnpm db:pull-prod` después del corte, o aplicar el `.sql` a la copia local) o la app local falla con tablas inexistentes.
+
+**Falta — (3) el corte** (cuando se decida), con el mecanismo nuevo y en este orden:
+1. `git push` de todo (incluido `scripts/migrar.ts`, `deploy/` y el `.sql` actualizado).
+2. **Una sola vez**, como `ubuntu` en el servidor: ampliar el sudoers para poder parar/arrancar la app (`deploy.sh` se niega con el comando exacto si falta):
+   `echo 'bajaj ALL=(root) NOPASSWD: /usr/bin/systemctl restart bajaj-app, /usr/bin/systemctl stop bajaj-app, /usr/bin/systemctl start bajaj-app' | sudo tee /etc/sudoers.d/bajaj-deploy && sudo visudo -cf /etc/sudoers.d/bajaj-deploy`
+3. **Opcional pero recomendado**, ensayo contra los datos reales sin dejar nada (en el servidor, tras un `git pull` del repo): `sudo -iu bajaj bash -c 'cd ~/app && pnpm exec tsx scripts/migrar.ts --probar --baseline=2026-09-03-comision-saliente-entrante.sql'`.
+4. Desde la PC: `pnpm deploy:prod --migrar --baseline=2026-09-03-comision-saliente-entrante.sql`. El `--baseline` declara que los 7 `.sql` anteriores ya están en producción (lo están: es lo que se aplicó a mano en su día) y se necesita solo esta primera vez, porque la base todavía no tiene la tabla `MigracionManual`. Hace solo: traer el repo → ensayo → parar la app → backup verificado → aplicar → build → arrancar.
+5. Verificar: `systemctl status bajaj-app`, /products, /groups, un presupuesto con conjunto, y `pnpm check:libro` en el servidor. El dump `/var/backups/bajaj/pre-migracion-*.dump` no lo poda el timer: borrarlo cuando la versión nueva esté probada.
+
+Marcha atrás: si el SQL falla sin haber aplicado nada, `deploy.sh` vuelve solo al commit anterior y arranca la versión vieja; si falla con algo aplicado, la app queda parada y el mensaje indica el dump y los comandos. Un `.sql` que falla en su transacción no deja nada a medias.
 
 ---
 
@@ -589,10 +607,10 @@ la app vieja corre contra la base nueva mientras compila el build).
 
 | Tarea | Cómo |
 |---|---|
-| Deploy | Primero `git push`; después, desde la PC, **`pnpm deploy:prod`** (`deploy/desplegar.sh`): le dice al servidor que traiga lo de GitHub, muestra los commits que llegan, corre `deploy.sh` por SSH y verifica que quedó en el mismo commit que GitHub y que la app responde (401). **No hace push ni mira tu árbol local**; solo avisa si tu commit local no está en GitHub. `--dry` solo muestra. Si lo que llega cambia `prisma/schema.prisma` se detiene hasta que apliques el cambio en la base y pases `--esquema-aplicado` (un `.sql` nuevo en `prisma/manual/` solo avisa: `deploy.sh` no lo ejecuta). Es manual a propósito: no hay CI ni timer, un push roto no llega solo a producción. A mano en el servidor: `sudo -iu bajaj /srv/bajaj/app/deploy/deploy.sh` (ruta entera: un `~` lo expande tu shell, no el de `bajaj`) |
+| Deploy | Primero `git push`; después, desde la PC, **`pnpm deploy:prod`** (`deploy/desplegar.sh`): le dice al servidor que traiga lo de GitHub, muestra los commits que llegan, corre `deploy.sh` por SSH y verifica que quedó en el mismo commit que GitHub y que la app responde (401). **No hace push ni mira tu árbol local**; solo avisa si tu commit local no está en GitHub. `--dry` solo muestra. Si lo que llega trae un `.sql` nuevo en `prisma/manual/` se niega sin `--migrar` (que las aplica con ensayo y backup, ver "Cambios de esquema"); un cambio de `prisma/schema.prisma` sin `.sql` lo frena `deploy.sh` comparando la base real contra el esquema. Es manual a propósito: no hay CI ni timer, un push roto no llega solo a producción. A mano en el servidor: `sudo -iu bajaj /srv/bajaj/app/deploy/deploy.sh` (ruta entera: un `~` lo expande tu shell, no el de `bajaj`) |
 | Logs de la app | `journalctl -u bajaj-app -f` |
 | Estado general | `systemctl status bajaj-app bajaj-oauth2-proxy` · `systemctl list-timers bajaj-*` · `tailscale funnel status` |
-| Migración SQL manual | `sudo -iu bajaj bash -c 'psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f ~/app/prisma/manual/<archivo>.sql'`, con un backup a mano antes |
+| Cambios de esquema | Un `.sql` en `prisma/manual/` (sin `BEGIN`/`COMMIT`) junto con el cambio de `schema.prisma`; en producción **`pnpm deploy:prod --migrar`** (ensaya, para la app, backup, aplica, compara con `schema.prisma`, construye, arranca). Estado/ensayo a mano en el servidor: `sudo -iu bajaj bash -c 'cd ~/app && pnpm exec tsx scripts/migrar.ts [--probar]'`. Convenciones y por qué: `CLAUDE.md`, "Schema changes" |
 | Restaurar un backup | Bajar con `rclone copy`, restaurar en una base nueva, comprobar y recién ahí cambiar |
 | Dispositivo nuevo | Nada: entrás por la URL con Google. Solo para *administrar* hace falta Tailscale |
 | Perdiste el celular | Cerrar las sesiones de Google y sacar el dispositivo en el admin de Tailscale |

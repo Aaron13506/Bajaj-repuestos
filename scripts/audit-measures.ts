@@ -23,16 +23,17 @@ const padR = (s: string | number, n: number) => String(s).padEnd(n)
 async function main() {
   const [productos, pedidoItems, envioLineas] = await Promise.all([
     db.product.findMany({
-      where: { isAssembly: false },
       select: { id: true, nameEs: true, bajajCode: true, weightGrams: true, dimL: true, dimA: true, dimH: true },
     }),
-    db.pedidoItem.groupBy({ by: ['productId'], _sum: { quantity: true } }),
+    // Un conjunto no es una pieza (productId null): sus piezas no se miden por esta vía.
+    db.pedidoItem.groupBy({ by: ['productId'], where: { productId: { not: null } }, _sum: { quantity: true } }),
     db.envioLinea.groupBy({ by: ['productId'], _sum: { quantity: true } }),
   ])
 
   // Unidades que pasaron por un pedido o un embarque: la medida de cuánto importa la pieza.
   const uso = new Map<number, number>()
   for (const r of [...pedidoItems, ...envioLineas]) {
+    if (r.productId == null) continue
     uso.set(r.productId, (uso.get(r.productId) ?? 0) + (r._sum.quantity ?? 0))
   }
 

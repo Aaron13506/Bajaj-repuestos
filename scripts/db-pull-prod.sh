@@ -49,6 +49,17 @@ if (( total != esperados )); then
   die "La restauración tuvo errores inesperados (arriba)."
 fi
 
+# Los ensambles salieron de Product a su propia tabla (fase 8). Un backup anterior al corte todavía
+# tiene el esquema viejo, así que el conteo se adapta a lo que se restauró en vez de fallar acá,
+# después de haber restaurado bien.
+migrada=$(docker exec "$CONTENEDOR" psql -U bajaj -d "$DB" -At -c "SELECT to_regclass('\"Ensamble\"') IS NOT NULL")
+if [[ "$migrada" == "t" ]]; then
+  ensambles='(SELECT count(*) FROM "Ensamble")'
+  componentes='(SELECT count(*) FROM "EnsambleComponente")'
+else
+  ensambles='(SELECT count(*) FROM "Product" WHERE "isAssembly")'
+  componentes='(SELECT count(*) FROM "ProductComponent")'
+fi
 docker exec "$CONTENEDOR" psql -U bajaj -d "$DB" -At -c \
-  "SELECT 'Product='||(SELECT count(*) FROM \"Product\")||' Pedido='||(SELECT count(*) FROM \"Pedido\")||' ProductComponent='||(SELECT count(*) FROM \"ProductComponent\")"
+  "SELECT 'Product='||(SELECT count(*) FROM \"Product\")||' Pedido='||(SELECT count(*) FROM \"Pedido\")||' Ensamble='||$ensambles||' Componentes='||$componentes"
 echo "✓ Base local lista (copia de ${ultimo##*/})."

@@ -1,12 +1,12 @@
 /**
  * Materializa el catálogo scrapeado (ScrapedProduct → ScrapedGroup → ScrapedPart)
- * dentro de las tablas OFICIALES (Product + ProductComponent), que son las que lee la UI.
+ * dentro de las tablas OFICIALES (Ensamble + Product + EnsambleComponente), que son las que lee la UI.
  *
- *   ScrapedProduct (ensamble) → Product (isAssembly=true)
+ *   ScrapedProduct (ensamble) → Ensamble
  *   ScrapedPart (parte)       → Product  — DEDUPLICADO por bajajCode (1 por SKU, reusado)
- *   subgrupo + qty            → ProductComponent (groupName = subgrupo, quantity, sortOrder)
+ *   subgrupo + qty            → EnsambleComponente (groupName = subgrupo, quantity, sortOrder)
  *
- * - Dedup por SKU: cada código = un solo Product, enlazado como hijo en todos los
+ * - Dedup por SKU: cada código = un solo Product, enlazado como componente en todos los
  *   ensambles donde aparezca. Así el peso/dim curado se carga una vez por SKU.
  * - Overlay curado: si ya existe un Product con ese bajajCode (tus curados), NO se duplica;
  *   se reusa y se le rellenan nameEn/priceInr/sourceUrl si estaban vacíos (no toca peso/dim/margen).
@@ -53,7 +53,6 @@ function partData(pt: { name: string; sku: string | null; priceInr: number | nul
   const etiquetas = (pt.models ?? []).map(fullModel).join(', ') || null
   // sin peso ⇒ sin costo landed ⇒ price 0 y margin null (se completa al cargar peso por SKU)
   return {
-    isAssembly: false,
     nameEs: pt.name || '(sin nombre)',
     nameEn: pt.name || null,
     bajajCode: pt.sku && pt.sku.trim() ? pt.sku.trim() : null,
@@ -79,8 +78,8 @@ async function main() {
   for (const p of existingParts) partBySku.set(norm(p.bajajCode), p.id)
   const preExisting = new Set(partBySku.keys()) // curados previos, para el enrich
 
-  const existingAsm = await prisma.product.findMany({
-    where: { isAssembly: true }, select: { id: true, sourceUrl: true, imageUrl: true },
+  const existingAsm = await prisma.ensamble.findMany({
+    select: { id: true, sourceUrl: true, imageUrl: true },
   })
   const asmByUrl = new Map<string, number>()
   const asmImg = new Map<string, string | null>() // para backfill de imageUrl sin pisar
@@ -172,71 +171,69 @@ async function main() {
 
   // ── Reuse de piezas SIN SKU (idempotencia entre corridas) ──
   // Sin bajajCode no se puede deduplicar por SKU, así que las llaveamos por
-  // (parentId, groupName, nameEs). Precargamos las que ya existen para reusarlas
+  // (ensambleId, groupName, nameEs). Precargamos las que ya existen para reusarlas
   // en vez de crear un Product nuevo por corrida (lo que antes las triplicaba).
-  const noSkuKey = (parentId: number, groupName: string, name: string) =>
-    `${parentId} ${groupName} ${name || '(sin nombre)'}`
+  const noSkuKey = (ensambleId: number, groupName: string, name: string) =>
+    `${ensambleId} ${groupName} ${name || '(sin nombre)'}`
   const noSkuByKey = new Map<string, number>()
   {
-    const existing = await prisma.productComponent.findMany({
-      where: { child: { bajajCode: null, isAssembly: false } },
-      select: { parentId: true, groupName: true, child: { select: { id: true, nameEs: true } } },
+    const existing = await prisma.ensambleComponente.findMany({
+      where: { product: { bajajCode: null } },
+      select: { ensambleId: true, groupName: true, product: { select: { id: true, nameEs: true } } },
     })
-    for (const l of existing) noSkuByKey.set(noSkuKey(l.parentId, l.groupName, l.child.nameEs), l.child.id)
+    for (const l of existing) noSkuByKey.set(noSkuKey(l.ensambleId, l.groupName, l.product.nameEs), l.product.id)
   }
 
   // ── PASS 2: ensambles + enlaces ──
   let done = 0, links = 0, noSku = 0, imgFilled = 0
   await pool(sps, CONCURRENCY, async (sp) => {
-    let parentId = asmByUrl.get(sp.sourceUrl)
-    if (parentId == null) {
-      const asm = await prisma.product.create({
+    let ensambleId = asmByUrl.get(sp.sourceUrl)
+    if (ensambleId == null) {
+      const asm = await prisma.ensamble.create({
         data: {
-          isAssembly: true,
           nameEs: sp.title.split('|')[0].trim() || sp.title,
           nameEn: sp.title,
           sourceUrl: sp.sourceUrl,
           imageUrl: sp.imageS3Url ?? null,
           compatibleModels: fullModel(sp.model),
-          margin: null, landedCostUsd: null, price: 0, stock: 0,
         },
       })
-      parentId = asm.id
-      asmByUrl.set(sp.sourceUrl, parentId)
+      ensambleId = asm.id
+      asmByUrl.set(sp.sourceUrl, ensambleId)
     } else if (sp.imageS3Url && asmImg.get(sp.sourceUrl) !== sp.imageS3Url) {
       // backfill: ensamble ya existía sin imagen (o cambió) → rellenar desde el scrape
-      await prisma.product.update({ where: { id: parentId }, data: { imageUrl: sp.imageS3Url } })
+      await prisma.ensamble.update({ where: { id: ensambleId }, data: { imageUrl: sp.imageS3Url } })
       asmImg.set(sp.sourceUrl, sp.imageS3Url)
       imgFilled++
     }
 
-    const linkData: { parentId: number; childId: number; groupName: string; quantity: number; sortOrder: number }[] = []
+    const linkData: { ensambleId: number; productId: number; groupName: string; quantity: number; sortOrder: number }[] = []
     for (const g of sp.groups) {
       let so = 0
       for (const pt of g.parts) {
         const k = norm(pt.sku)
-        let childId: number | undefined
+        let productId: number | undefined
         if (k) {
-          childId = partBySku.get(k)
+          productId = partBySku.get(k)
         } else {
-          // Pieza sin SKU: reusar por (parent, grupo, nombre) si ya existe; si no, crear.
-          const nkey = noSkuKey(parentId, g.title, pt.name)
+          // Pieza sin SKU: reusar por (ensamble, grupo, nombre) si ya existe; si no, crear.
+          const nkey = noSkuKey(ensambleId, g.title, pt.name)
           const existingId = noSkuByKey.get(nkey)
           if (existingId != null) {
-            childId = existingId
+            productId = existingId
           } else {
-            const child = await prisma.product.create({ data: partData({ name: pt.name, sku: null, priceInr: pt.priceInr, models: [sp.model], discontinued: pt.discontinued }) })
-            childId = child.id
-            noSkuByKey.set(nkey, childId)
+            const pieza = await prisma.product.create({ data: partData({ name: pt.name, sku: null, priceInr: pt.priceInr, models: [sp.model], discontinued: pt.discontinued }) })
+            productId = pieza.id
+            noSkuByKey.set(nkey, productId)
             noSku++
           }
         }
-        if (childId == null) continue
-        linkData.push({ parentId, childId, groupName: g.title, quantity: pt.qty ?? 1, sortOrder: so++ })
+        if (productId == null) continue
+        linkData.push({ ensambleId, productId, groupName: g.title, quantity: pt.qty ?? 1, sortOrder: so++ })
       }
     }
     if (linkData.length) {
-      const res = await prisma.productComponent.createMany({ data: linkData, skipDuplicates: true })
+      const res = await prisma.ensambleComponente.createMany({ data: linkData, skipDuplicates: true })
       links += res.count
     }
     if (++done % 100 === 0 || done === sps.length) console.log(`  [${done}/${sps.length}] ensambles · ${links} enlaces`)
@@ -244,11 +241,12 @@ async function main() {
 
   // ── resumen ──
   const totProd = await prisma.product.count()
-  const totAsm = await prisma.product.count({ where: { isAssembly: true } })
-  const totComp = await prisma.productComponent.count()
+  const totAsm = await prisma.ensamble.count()
+  const totComp = await prisma.ensambleComponente.count()
   console.log('\n✓ Materialización lista')
-  console.log(`  Product total:        ${totProd}  (ensambles: ${totAsm}, partes: ${totProd - totAsm})`)
-  console.log(`  ProductComponent:     ${totComp}`)
+  console.log(`  Product (piezas):     ${totProd}`)
+  console.log(`  Ensamble:             ${totAsm}`)
+  console.log(`  EnsambleComponente:   ${totComp}`)
   console.log(`  partes sin SKU creadas este run: ${noSku}`)
   console.log(`  imágenes backfilleadas este run: ${imgFilled}`)
 }

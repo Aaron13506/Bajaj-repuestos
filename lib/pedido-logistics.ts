@@ -71,13 +71,10 @@ export async function pedidoLogistics(
   // Las piezas de un conjunto se guardan como snapshot (nombre + SKU), no como
   // relación: hay que resolverlas contra el catálogo para saber lo que pesan. Un
   // ensamble sin expandir agrega TODAS sus piezas y sobreestima (ver expandCostPieces).
-  const bundles = new Map<number, BundlePiece[]>()
   const codes = new Set<string>()
   const names = new Set<string>()
   for (const it of items) {
     const pieces = (it.bundleItems as BundlePiece[] | null) ?? []
-    if (pieces.length === 0) continue
-    bundles.set(it.productId, pieces)
     for (const p of pieces) {
       if (p.bajajCode) codes.add(p.bajajCode)
       names.add(p.nameEs)
@@ -95,19 +92,19 @@ export async function pedidoLogistics(
     : []
 
   const lookup = makeProductLookup([
-    ...items.map(it => it.product as ProductCost),
+    ...items.flatMap(it => it.product ? [it.product as ProductCost] : []),
     ...(piezasDeConjuntos as ProductCost[]),
   ])
 
   const inputs: EnvioItemInput[] = items.flatMap(it =>
     expandCostPieces(
-      it.product as ProductCost,
+      it.product,
       it.quantity,
       (it.bundleItems as BundlePiece[] | null),
       lookup,
     ).map(piece => ({
       pedidoId: it.pedidoId,
-      productId: it.productId,
+      productId: piece.productId,
       name: piece.name,
       weightGrams: piece.weightGrams,
       dimL: piece.dimL,

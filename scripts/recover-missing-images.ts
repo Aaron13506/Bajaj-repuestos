@@ -102,11 +102,11 @@ async function main() {
       data: { imageS3Key: key, imageS3Url: url, mainImageUrl: meta(html, 'og:image') ?? `${BASE}/media/catalog/product/${ip}` },
     })
     // mismo cruce por sourceUrl que scripts/backfill-images.ts, y solo si sigue en null
-    const upd = await prisma.product.updateMany({
-      where: { sourceUrl: p.sourceUrl, isAssembly: true, imageUrl: null },
+    const upd = await prisma.ensamble.updateMany({
+      where: { sourceUrl: p.sourceUrl, imageUrl: null },
       data: { imageUrl: url },
     })
-    console.log(`      subida a ${key} · Product.imageUrl actualizados: ${upd.count}`)
+    console.log(`      subida a ${key} · Ensamble.imageUrl actualizados: ${upd.count}`)
     recuperados++
   }
 

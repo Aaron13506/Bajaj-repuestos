@@ -172,7 +172,7 @@ async function cmdSearch(args: string[]) {
     },
     select: {
       bajajCode: true, nameEs: true, weightGrams: true,
-      dimL: true, dimA: true, dimH: true, isAssembly: true, stock: true,
+      dimL: true, dimA: true, dimH: true, stock: true,
     },
     orderBy: { nameEs: 'asc' },
     take: limit,
@@ -180,11 +180,10 @@ async function cmdSearch(args: string[]) {
 
   if (flags.json) return console.log(JSON.stringify(products, null, 2))
   table(
-    ['SKU', 'Nombre', 'Tipo', 'gr', 'Medidas cm', 'Stock'],
+    ['SKU', 'Nombre', 'gr', 'Medidas cm', 'Stock'],
     products.map(p => [
       p.bajajCode ?? '—',
       p.nameEs.slice(0, 42),
-      p.isAssembly ? 'ensamble' : 'pieza',
       p.weightGrams ?? '—',
       p.dimL != null && p.dimA != null && p.dimH != null ? `${p.dimL}×${p.dimA}×${p.dimH}` : '—',
       p.stock,
@@ -197,7 +196,6 @@ async function cmdMissing(args: string[]) {
   const { flags } = parseFlags(args)
   const limit = Number(flags.limit ?? 50)
   const where = {
-    isAssembly: false,
     OR: [
       { weightGrams: null }, { dimL: null }, { dimA: null }, { dimH: null },
     ],

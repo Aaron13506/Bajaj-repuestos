@@ -481,7 +481,7 @@ async function main() {
   // ── Catálogo: solo se rellenan SKU que ya existen ─────────────────────────
   const catalog = await prisma.product.findMany({
     where: { bajajCode: { not: null } },
-    select: { id: true, bajajCode: true, nameEs: true, priceInr: true, isAssembly: true },
+    select: { id: true, bajajCode: true, nameEs: true, priceInr: true },
   })
   const byExact = new Map<string, (typeof catalog)[number]>()
   const byLoose = new Map<string, (typeof catalog)[number] | null>()  // null = ambiguo
@@ -736,14 +736,13 @@ async function main() {
 
   // ── Por qué faltó cada uno ────────────────────────────────────────────────
   // "No tiene precio" tiene causas muy distintas y cada una se arregla distinto:
-  // que lo escriban con otro formato se resuelve con --loose, que sea un ensamble no
-  // se resuelve nunca (nadie vende un conjunto por código), y que no esté es un dato
-  // para pedirle al proveedor. Sin separarlas, los 293 parecen un problema solo.
+  // que lo escriban con otro formato se resuelve con --loose, y que no esté es un dato
+  // para pedirle al proveedor. Sin separarlas, los 293 parecen un problema solo. (Los
+  // ensambles ya no estorban acá: viven en su propia tabla y no tienen código.)
   const porQue = {
     enArchivoSinPrecio: [] as typeof faltantes,             // sí lo cotizan, pero el precio no servía
     otroFormato:        [] as { p: (typeof catalog)[number]; enArchivo: string }[],
     contenido:          [] as { p: (typeof catalog)[number]; enArchivo: string }[],
-    ensamble:           [] as typeof faltantes,             // conjunto mío, no una pieza comprable
     ausente:            [] as typeof faltantes,
   }
   // Índice por prefijo de 4 caracteres: comparar 293 × 45.781 códigos a lo bruto son
@@ -764,7 +763,6 @@ async function main() {
     const candidato = (porPrefijo.get(suelto.slice(0, 4)) ?? [])
       .find(c => c !== suelto && (c.includes(suelto) || suelto.includes(c)))
     if (candidato) { porQue.contenido.push({ p, enArchivo: codigosLoose.get(candidato)! }); continue }
-    if (p.isAssembly) { porQue.ensamble.push(p); continue }
     porQue.ausente.push(p)
   }
 
@@ -773,7 +771,6 @@ async function main() {
   causa(porQue.enArchivoSinPrecio.length, 'SÍ están en la lista, pero el precio no era usable (ver anomalías)')
   causa(porQue.otroFormato.length,        'están con el código escrito distinto → los recuperás con --loose')
   causa(porQue.contenido.length,          'hay un código parecido (uno contiene al otro): revisar a mano')
-  causa(porQue.ensamble.length,           'son ensambles míos, no piezas: ningún proveedor los cotiza por código')
   causa(porQue.ausente.length,            'no aparecen en la lista de ninguna forma')
 
   // ── Reporte único, todo referido a MI catálogo ─────────────────────────────
@@ -818,9 +815,6 @@ async function main() {
 
     seccion('SIN PRECIO: HAY UN CÓDIGO PARECIDO — uno contiene al otro, revisar a mano',
       porQue.contenido.map(d => `${d.p.bajajCode}\t${d.p.nameEs}\tparecido: "${d.enArchivo}"`)) +
-
-    seccion('SIN PRECIO: SON ENSAMBLES MÍOS — nadie los cotiza por código',
-      porQue.ensamble.map(p => `${p.bajajCode}\t${p.nameEs}\t${p.priceInr ?? ''}`)) +
 
     seccion('SIN PRECIO: ESTÁN EN LA LISTA PERO EL PRECIO NO SERVÍA — ver secciones de abajo',
       porQue.enArchivoSinPrecio.map(p => `${p.bajajCode}\t${p.nameEs}\t${p.priceInr ?? ''}`)) +

@@ -18,12 +18,13 @@ import { calcEnvio, type EnvioItemInput, type ConfigMap, type ProveedorEnvio } f
 import { inboundDe, inboundMeta } from '@/lib/inbound'
 import { modoDeEnvio, MODOS } from '@/lib/modo'
 import EnvioMaritimo from './maritimo'
-import { lookupDeConjuntos, expandCostPieces, repartirCostoReal, type ProductCost } from '@/lib/envio-build'
+import { lookupDeConjuntos, expandCostPieces, repartirCostoReal } from '@/lib/envio-build'
 import { cobranzaEnvio, type CobranzaEnvio, type CobranzaPedido } from '@/lib/clientes'
 import { itemsSinCostoRealDeEnvio, CATEGORIAS_PAGO_PROVEEDOR } from '@/lib/movimientos'
 import type { BundlePiece } from '@/lib/bundle'
 import { toConfigMap } from '@/lib/config'
 import { armarCompra99rpm } from '@/lib/compra-99rpm'
+import { cabeceraDeLinea, nombreEnsamble } from '@/lib/linea-pedido'
 import { registrarCompra } from '@/app/(pages)/contabilidad/actions'
 import {
   assignPedido,
@@ -118,7 +119,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
       where: { id },
       include: {
         items: {
-          include: { product: true, pedido: true, supplier: true },
+          include: { product: true, ensamble: true, pedido: true, supplier: true },
           orderBy: [{ pedidoId: 'asc' }, { id: 'asc' }],
         },
         // El proveedor de la caja: decide el precio de las piezas, cómo se cobra el tramo
@@ -131,6 +132,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
       where: { envioId: null },
       include: {
         product: { select: { nameEs: true, bajajCode: true, discontinuedAt: true } },
+        ensamble: { select: { nameEs: true, nameEn: true } },
         pedido: true,
       },
       orderBy: [{ pedidoId: 'asc' }, { id: 'asc' }],
@@ -159,16 +161,16 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     //
     // Va en el mismo Promise.all aunque dependa de qué ítems tiene la caja: filtrar por la
     // relación lo resuelve en una sola consulta, en vez de encadenar un round-trip más.
-    db.productComponent.findMany({
+    db.ensambleComponente.findMany({
       where: {
-        parent: { pedidoItems: { some: { envioId: id, supplierId: null, shippingStatus: 'pendiente' } } },
+        ensamble: { pedidoItems: { some: { envioId: id, supplierId: null, shippingStatus: 'pendiente' } } },
       },
       select: {
-        parentId: true,
+        ensambleId: true,
         quantity: true,
         groupName: true,
         sortOrder: true,
-        child: { select: { bajajCode: true, nameEs: true, discontinuedAt: true } },
+        product: { select: { bajajCode: true, nameEs: true, discontinuedAt: true } },
       },
     }),
     // Dónde viaja el resto de los presupuestos que todavía tienen líneas sueltas. Sin esto
@@ -202,7 +204,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   // proveedor. Es una vuelta más a la base, pero baja filas por miles; no se puede pedir
   // antes porque depende de qué conjuntos trae la caja.
   const lookup = await lookupDeConjuntos(envio.items.map(it => it.bundleItems as BundlePiece[] | null))
-  const idsPrecio = new Set<number>(envio.items.map(it => it.productId))
+  const idsPrecio = new Set<number>(envio.items.flatMap(it => (it.productId != null ? [it.productId] : [])))
   for (const it of envio.items) {
     for (const bp of (it.bundleItems as BundlePiece[] | null) ?? []) {
       const pid = lookup(bp.bajajCode, bp.nameEs)?.id
@@ -234,7 +236,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   const inrUsdPieza = parseFloat(cfg.inr_usd_rate ?? '95')
   const allPieces = envio.items.flatMap(it => {
     const piezas = expandCostPieces(
-      it.product as ProductCost,
+      it.product,
       it.quantity,
       it.bundleItems as BundlePiece[] | null,
       lookup,
@@ -255,9 +257,6 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
       costoRealUsd: reales[idx],
       itemId: it.id,
       pedidoId: it.pedidoId,
-      // productId de la LÍNEA (el ensamble, si es un conjunto). El de la pieza suelta
-      // vive en piece.productId y solo se usa para resolver el precio de proveedor.
-      productId: it.productId,
       origen: (it.origen === 'china' ? 'china' : 'india') as 'india' | 'china',
       // El snapshot de la línea manda sobre el proveedor actual de la caja: lo que ya se
       // compró conserva la vía con la que se compró. En una caja armada normalmente todas
@@ -418,23 +417,26 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   const compra99datos = armarCompra99rpm(
     envio.items
       .filter(it => it.supplierId == null && it.shippingStatus === 'pendiente' && it.origen !== 'china')
-      .map(it => ({
-        assemblyId: it.productId,
-        assemblyName: it.product.nameEs,
-        assemblySku: it.product.bajajCode,
-        compatibleModels: it.product.compatibleModels,
-        quantity: it.quantity,
-        bundleItems: it.bundleItems as BundlePiece[] | null,
-        clientName: it.pedido.clientName,
-      })),
+      .map(it => {
+        const cab = cabeceraDeLinea(it)
+        return {
+          ensambleId: it.ensambleId,
+          assemblyName: cab.nameEs,
+          assemblySku: cab.bajajCode,
+          compatibleModels: cab.compatibleModels,
+          quantity: it.quantity,
+          bundleItems: it.bundleItems as BundlePiece[] | null,
+          clientName: it.pedido.clientName,
+        }
+      }),
     despiece99.map(c => ({
-      parentId: c.parentId,
-      bajajCode: c.child.bajajCode,
-      nameEs: c.child.nameEs,
+      ensambleId: c.ensambleId,
+      bajajCode: c.product.bajajCode,
+      nameEs: c.product.nameEs,
       quantity: c.quantity,
       groupName: c.groupName,
       sortOrder: c.sortOrder,
-      descontinuada: c.child.discontinuedAt != null,
+      descontinuada: c.product.discontinuedAt != null,
     })),
   )
   // La clave con la que `pendMap` agrupa lo de 99rpm sin proveedor puntual.
@@ -475,9 +477,8 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     id: it.id,
     pedidoId: it.pedidoId,
     clientName: it.pedido.clientName,
-    productId: it.productId,
-    nombre: it.product.nameEs,
-    bajajCode: it.product.bajajCode,
+    nombre: cabeceraDeLinea(it).nameEs,
+    bajajCode: cabeceraDeLinea(it).bajajCode,
     quantity: it.quantity,
     piezas: (it.bundleItems as BundlePiece[] | null) ?? [],
     landed: landedByItem.get(it.id) ?? 0,
@@ -517,11 +518,12 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   const lineasSueltas = (its: typeof sinAsignar): LineaSuelta[] =>
     its.map(it => ({
       id: it.id,
-      nameEs: limpiarNombre(it.product.nameEs),
-      bajajCode: it.product.bajajCode,
+      // Un conjunto no tiene código ni se descontinúa (lo hacen sus piezas).
+      nameEs: limpiarNombre(it.product?.nameEs ?? (it.ensamble ? nombreEnsamble(it.ensamble) : '')),
+      bajajCode: it.product?.bajajCode ?? null,
       quantity: it.quantity,
       salePrice: parseFloat(it.salePrice.toString()),
-      descontinuada: it.product.discontinuedAt != null,
+      descontinuada: it.product?.discontinuedAt != null,
     }))
   const otrasCajasDe = (pedidoId: number): EnOtraCaja[] =>
     Array.from(repartoPorPedido.get(pedidoId)?.values() ?? []).sort((a, b) => a.envioId - b.envioId)

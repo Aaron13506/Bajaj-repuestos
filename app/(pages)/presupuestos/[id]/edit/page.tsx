@@ -5,6 +5,7 @@ import Link from 'next/link'
 import PresupuestoBuilder from '@/components/PresupuestoBuilder'
 import { updatePresupuesto } from '../../actions'
 import { type BundlePiece } from '@/lib/bundle'
+import { cabeceraDeLinea, nombreEnsamble } from '@/lib/linea-pedido'
 
 export default async function EditPresupuestoPage({ params }: { params: Promise<{ id: string }> }) {
   const id = parseInt((await params).id)
@@ -22,16 +23,16 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
                 compatibleModels: true, discontinuedAt: true,
               },
             },
+            ensamble: { select: { id: true, nameEs: true, nameEn: true, imageUrl: true, compatibleModels: true } },
           },
           orderBy: { id: 'asc' },
         },
       },
     }),
     // Solo headers de ensamble; los componentes se cargan on-demand al seleccionar uno.
-    db.product.findMany({
-      where: { isAssembly: true },
-      select: { id: true, nameEs: true, bajajCode: true, price: true, imageUrl: true, compatibleModels: true },
-      orderBy: { nameEs: 'asc' },
+    db.ensamble.findMany({
+      select: { id: true, nameEs: true, nameEn: true, imageUrl: true, compatibleModels: true },
+      orderBy: [{ nameEs: 'asc' }, { compatibleModels: 'asc' }],
     }),
     db.cliente.findMany({
       orderBy: { nombre: 'asc' },
@@ -44,25 +45,28 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
   const editable = presupuesto && (presupuesto.status === 'presupuesto' || presupuesto.tipo === 'propio')
   if (!presupuesto || !editable) notFound()
 
-  const initialItems = presupuesto.items.map(item => ({
-    productId: item.productId,
-    nameEs: item.product.nameEs,
-    bajajCode: item.product.bajajCode,
-    unitPrice: parseFloat(item.salePrice.toString()),
-    quantity: item.quantity,
-    imageUrl: item.product.imageUrl,
-    models: toModelIds(item.product.compatibleModels),
-    // Se pudo marcar DESPUÉS de cotizarla: el armador la muestra tachada en vez de
-    // dejar que parezca normal hasta que el servidor rechace el guardado.
-    descontinuada: item.product.discontinuedAt != null,
-    bundleItems: (item.bundleItems as BundlePiece[] | null) ?? undefined,
-  }))
+  const initialItems = presupuesto.items.map(item => {
+    const cab = cabeceraDeLinea(item)
+    return {
+      productId: item.productId,
+      ensambleId: item.ensambleId,
+      nameEs: cab.nameEs,
+      bajajCode: cab.bajajCode,
+      unitPrice: parseFloat(item.salePrice.toString()),
+      quantity: item.quantity,
+      imageUrl: cab.imageUrl,
+      models: toModelIds(cab.compatibleModels),
+      // Se pudo marcar DESPUÉS de cotizarla: el armador la muestra tachada en vez de
+      // dejar que parezca normal hasta que el servidor rechace el guardado. Un conjunto no
+      // se descontinúa (lo hacen sus piezas).
+      descontinuada: item.product?.discontinuedAt != null,
+      bundleItems: (item.bundleItems as BundlePiece[] | null) ?? undefined,
+    }
+  })
 
   const assembliesForClient = assemblies.map(a => ({
     id: a.id,
-    nameEs: a.nameEs,
-    bajajCode: a.bajajCode,
-    price: parseFloat(a.price.toString()),
+    nameEs: nombreEnsamble(a),
     imageUrl: a.imageUrl,
     models: toModelIds(a.compatibleModels),
   }))

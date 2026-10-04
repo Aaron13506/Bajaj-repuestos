@@ -2,6 +2,7 @@
 
 import { useTransition } from 'react'
 import type { ActionResult } from '@/lib/action-result'
+import { esRedireccion } from '@/lib/redireccion'
 
 interface DeleteButtonProps {
   // Si devuelve `{ ok: false, error }`, el motivo se le muestra al usuario. Un `throw` en el
@@ -28,7 +29,9 @@ export default function DeleteButton({
       try {
         const r = await action()
         if (r && !r.ok) alert(r.error)
-      } catch {
+      } catch (e) {
+        // Borrar y redirigir (la ficha ya no existe) es el éxito normal, no una falla: ver redireccion.ts.
+        if (esRedireccion(e)) return
         alert('No se pudo completar la acción. Probá de nuevo.')
       }
     })

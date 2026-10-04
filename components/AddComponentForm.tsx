@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { searchProductsForPicker } from '@/app/(pages)/products/[id]/component-actions'
+import { buscarPiezas } from '@/app/(pages)/ensambles/component-actions'
 import PendingButton from '@/components/PendingButton'
 import FormConResultado from '@/components/FormConResultado'
 import type { ActionResult } from '@/lib/action-result'
@@ -13,12 +13,12 @@ interface Product {
 }
 
 interface Props {
-  parentId: number
+  ensambleId: number
   existingGroups: string[]
-  action: (parentId: number, formData: FormData) => Promise<ActionResult>
+  action: (ensambleId: number, formData: FormData) => Promise<ActionResult>
 }
 
-export default function AddComponentForm({ parentId, existingGroups, action }: Props) {
+export default function AddComponentForm({ ensambleId, existingGroups, action }: Props) {
   const [search, setSearch] = useState('')
   const [found, setFound] = useState<Product[]>([])
   const q = search.trim()
@@ -31,13 +31,13 @@ export default function AddComponentForm({ parentId, existingGroups, action }: P
     if (q.length < 2) return
     let cancelled = false
     const t = setTimeout(async () => {
-      const rows = await searchProductsForPicker(q, parentId)
+      const rows = await buscarPiezas(q)
       if (!cancelled) setFound(rows)
     }, 250)
     return () => { cancelled = true; clearTimeout(t) }
-  }, [q, parentId])
+  }, [q])
 
-  const bound = action.bind(null, parentId)
+  const bound = action.bind(null, ensambleId)
 
   return (
     <FormConResultado action={bound} className="bg-gray-50 rounded-lg border border-gray-200 p-4 space-y-3">
@@ -51,7 +51,7 @@ export default function AddComponentForm({ parentId, existingGroups, action }: P
           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 mb-1"
         />
         <select
-          name="childId"
+          name="productId"
           required
           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         >

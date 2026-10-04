@@ -150,18 +150,21 @@ async function asignarAEnvio(envioId: number, itemIds: number[]): Promise<Action
   const inbound = inboundDe(origen, sup?.inbound)
 
   // isLanded no sale del proveedor sino de la fila explícita (proveedor, producto): el
-  // mismo proveedor puede cotizar unas piezas puestas en Venezuela y otras no.
-  const landed = sup
+  // mismo proveedor puede cotizar unas piezas puestas en Venezuela y otras no. Un conjunto no
+  // es una pieza y no tiene precio de proveedor propio (cotizan cada pieza, no el ensamble),
+  // así que nunca es landed.
+  const piezaIds = items.flatMap(i => (i.productId != null ? [i.productId] : []))
+  const landed = sup && piezaIds.length > 0
     ? new Set(
         (await db.supplierPrice.findMany({
-          where: { supplierId: sup.id, productId: { in: items.map(i => i.productId) }, isLanded: true },
+          where: { supplierId: sup.id, productId: { in: piezaIds }, isLanded: true },
           select: { productId: true },
         })).map(r => r.productId),
       )
     : new Set<number>()
 
   await db.$transaction(items.map(it => {
-    const esLanded = landed.has(it.productId)
+    const esLanded = it.productId != null && landed.has(it.productId)
     return db.pedidoItem.update({
       where: { id: it.id },
       data: {
@@ -375,8 +378,12 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]) {
     // otro lado), así que ida y vuelta del estado nunca duplica ni pierde el crédito: si el
     // ítem ya estaba entregado antes de este cambio, ya se sumó, y si deja de estarlo hay
     // que restarlo.
+    //
+    // Solo las piezas sueltas mueven stock. Un conjunto no tiene stock propio (el ensamble no
+    // es un producto) y su snapshot de piezas no alcanza para acreditarlas sin adivinar a qué
+    // fila del catálogo corresponde cada una: no suma nada, ni a la ida ni a la vuelta.
     let delta = 0
-    if (it.pedido.tipo === 'propio') {
+    if (it.pedido.tipo === 'propio' && it.productId != null) {
       const eraEntregado = isDelivered(it.shippingStatus)
       const quedaEntregado = isDelivered(status)
       if (eraEntregado !== quedaEntregado) delta = quedaEntregado ? it.quantity : -it.quantity
@@ -412,7 +419,7 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]) {
       UPDATE "Product" AS p
       SET "stock" = p."stock" + s.delta
       FROM (
-        SELECT "productId", SUM(delta)::int AS delta FROM movidas WHERE delta <> 0 GROUP BY "productId"
+        SELECT "productId", SUM(delta)::int AS delta FROM movidas WHERE delta <> 0 AND "productId" IS NOT NULL GROUP BY "productId"
       ) AS s
       WHERE p."id" = s."productId"`
   }

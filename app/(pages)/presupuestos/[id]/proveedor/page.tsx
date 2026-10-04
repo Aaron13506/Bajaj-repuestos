@@ -43,7 +43,7 @@ export default async function ProveedorPage({ params }: { params: Promise<{ id: 
       for (const p of bundlePieces) {
         addLine(p.bajajCode, p.nameEs, p.quantity * item.quantity)
       }
-    } else {
+    } else if (item.product) {
       addLine(item.product.bajajCode, item.product.nameEs, item.quantity)
     }
   }

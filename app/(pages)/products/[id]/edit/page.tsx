@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation'
 import ProductForm from '@/components/ProductForm'
 import type { ConfigMap } from '@/lib/calc'
 import { updateProduct } from '../../actions'
+import { nombreEnsamble } from '@/lib/linea-pedido'
 import { toConfigMap } from '@/lib/config'
 
 export default async function EditProductPage({ params }: { params: Promise<{ id: string }> }) {
@@ -13,10 +14,9 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
 
   const [product, groups, configRows] = await Promise.all([
     db.product.findUnique({ where: { id } }),
-    db.product.findMany({
-      where: { isAssembly: true, id: { not: id } },
-      orderBy: { nameEs: 'asc' },
-      select: { id: true, nameEs: true, bajajCode: true },
+    db.ensamble.findMany({
+      orderBy: [{ nameEs: 'asc' }, { compatibleModels: 'asc' }],
+      select: { id: true, nameEs: true, nameEn: true, compatibleModels: true },
     }),
     db.config.findMany(),
   ])
@@ -35,7 +35,7 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
       </div>
       <ProductForm
         action={updateAction}
-        groups={groups}
+        groups={groups.map(g => ({ id: g.id, nameEs: nombreEnsamble(g), compatibleModels: g.compatibleModels }))}
         cfg={cfg}
         submitLabel="Guardar Cambios"
         defaultValues={{
@@ -52,7 +52,6 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
           dimH:             product.dimH,
           priceInr:         product.priceInr,
           landedCostUsd:    product.landedCostUsd ? parseFloat(product.landedCostUsd.toString()) : null,
-          isAssembly:       product.isAssembly,
           margin:           product.margin,
           price:            parseFloat(product.price.toString()),
           priceLocked:      product.priceLocked,

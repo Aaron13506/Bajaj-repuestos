@@ -51,7 +51,7 @@ export default async function CompararProveedoresPage({ params }: { params: Prom
     const bundlePieces = (item.bundleItems as BundlePiece[] | null) ?? []
     if (bundlePieces.length > 0) {
       for (const p of bundlePieces) addLine(p.bajajCode, p.nameEs, p.quantity * item.quantity)
-    } else {
+    } else if (item.product) {
       addLine(item.product.bajajCode, item.product.nameEs, item.quantity)
     }
   }

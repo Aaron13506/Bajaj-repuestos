@@ -59,6 +59,11 @@ BEGIN
    WHERE p."isAssembly" <> (pi."bundleItems" IS NOT NULL);
   IF n > 0 THEN RAISE EXCEPTION '% PedidoItem no coinciden ensamble <-> bundleItems', n; END IF;
 
+  -- El nombre en inglés es la identidad del ensamble (el que publica 99rpm) y la columna es
+  -- NOT NULL: uno vacío haría fallar el INSERT de más abajo con un mensaje poco legible.
+  SELECT count(*) INTO n FROM "Product" WHERE "isAssembly" AND (NULLIF(trim("nameEn"), '') IS NULL);
+  IF n > 0 THEN RAISE EXCEPTION '% ensambles no tienen nameEn (nombre en inglés)', n; END IF;
+
   -- Datos de pieza cargados en un ensamble: se perderían al borrar la fila.
   SELECT count(*) INTO n FROM "Product" WHERE "isAssembly" AND (
     "weightGrams" IS NOT NULL OR "dimL" IS NOT NULL OR "dimA" IS NOT NULL OR "dimH" IS NOT NULL
@@ -72,7 +77,7 @@ END $$;
 CREATE TABLE "Ensamble" (
     "id"               SERIAL NOT NULL,
     "nameEs"           TEXT,
-    "nameEn"           TEXT,
+    "nameEn"           TEXT NOT NULL,
     "compatibleModels" TEXT NOT NULL,
     "sourceUrl"        TEXT,
     "imageUrl"         TEXT,

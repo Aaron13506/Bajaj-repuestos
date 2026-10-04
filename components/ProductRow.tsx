@@ -18,7 +18,6 @@ import { deleteProduct } from '@/app/(pages)/products/actions'
 export interface EnsambleDePieza {
   id: number
   nameEs: string
-  bajajCode: string | null
   models: string[]
   grupos: string[]
   quantity: number
@@ -289,9 +288,8 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
               {ensambles.map((e) => (
                 <li key={e.id} className="flex flex-wrap items-center gap-x-2 text-gray-700">
                   <span className="text-gray-300">└</span>
-                  <Link href={`/products/${e.id}`} className="hover:text-blue-600 transition-colors">{e.nameEs}</Link>
+                  <Link href={`/ensambles/${e.id}`} className="hover:text-blue-600 transition-colors">{e.nameEs}</Link>
                   {e.models.length > 0 && <span className="text-gray-400">{formatModels(e.models)}</span>}
-                  {e.bajajCode && <span className="font-mono text-[11px] text-gray-400">{e.bajajCode}</span>}
                   {e.quantity > 1 && <span className="text-gray-400">×{e.quantity}</span>}
                   {e.grupos.map((g) => (
                     <span key={g} className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{g}</span>

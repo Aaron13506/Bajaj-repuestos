@@ -53,7 +53,7 @@ interface Props {
   onError?: (mensaje: string) => void
   /**
    * Cuántas unidades de esta pieza usa el ensamble desde el que se abrió el editor
-   * (ProductComponent.quantity de ese enlace puntual). priceInr/weightGrams SIEMPRE se
+   * (EnsambleComponente.quantity de ese enlace puntual). priceInr/weightGrams SIEMPRE se
    * guardan por unidad; esto es solo para mostrar el total del paquete al lado y evitar
    * cargar por error el total donde va la unidad (o viceversa). Sin ensamble de contexto
    * (ej. lista plana de productos, donde la misma pieza puede repetirse con cantidades

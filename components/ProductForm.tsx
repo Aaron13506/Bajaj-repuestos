@@ -7,15 +7,17 @@ import Link from 'next/link'
 import { useRef, useState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
+import { formatModels, toModelIds } from '@/lib/modelo'
 
+// Un ensamble al que se puede asignar la pieza. La moto va junto al nombre porque es lo único
+// que distingue dos ensambles homónimos.
 interface Group {
   id: number
   nameEs: string
-  bajajCode: string | null
+  compatibleModels: string
 }
 
 interface ProductFormValues {
-  isAssembly?: boolean
   bajajCode?: string | null
   sourceUrl?: string | null
   nameEs?: string
@@ -123,24 +125,12 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
   const filteredGroups = groupSearch.length > 0
     ? groups.filter(g =>
         g.nameEs.toLowerCase().includes(groupSearch.toLowerCase()) ||
-        g.bajajCode?.toLowerCase().includes(groupSearch.toLowerCase())
+        g.compatibleModels.toLowerCase().includes(groupSearch.toLowerCase())
       )
     : groups
 
   return (
     <FormConResultado action={action} className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-6">
-
-      {/* Tipo */}
-      <section>
-        <label className="flex items-center gap-3 cursor-pointer">
-          <input type="checkbox" name="isAssembly" value="true" defaultChecked={d.isAssembly ?? false}
-            className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-          <div>
-            <span className="text-sm font-medium text-gray-900">Es un ensamble / grupo</span>
-            <p className="text-xs text-gray-500">Marcá esto si es un conjunto de piezas (ej: Rear Brake Pedal, Crankcase LH)</p>
-          </div>
-        </label>
-      </section>
 
       {/* Identificación */}
       <section>
@@ -188,12 +178,12 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
                 placeholder="Filtrar ensambles..."
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 mb-1"
               />
-              <select name="parentId"
+              <select name="ensambleId"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                 <option value="">Sin ensamble padre</option>
                 {filteredGroups.map(g => (
                   <option key={g.id} value={g.id}>
-                    {g.bajajCode ? `[${g.bajajCode}] ` : ''}{g.nameEs}
+                    {g.nameEs} — {formatModels(toModelIds(g.compatibleModels))}
                   </option>
                 ))}
               </select>
