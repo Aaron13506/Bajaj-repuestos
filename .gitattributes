@@ -1,0 +1,3 @@
+# deploy/ corre en Ubuntu: un CRLF en un .sh o en un .service lo rompe (bad interpreter / unit inválida).
+deploy/** text eol=lf
+*.sh text eol=lf

@@ -1,0 +1,25 @@
+[Unit]
+Description=Bajaj Repuestos (Next.js)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+User=bajaj
+Group=bajaj
+WorkingDirectory=/srv/bajaj/app
+EnvironmentFile=/etc/bajaj/app.env
+# TZ=UTC como en Heroku: los formularios con fecha asumen que el servidor renderiza en UTC
+# (ver CampoFecha). COREPACK_...=0 para que nada espere una confirmación que nadie va a dar.
+Environment=NODE_ENV=production TZ=UTC COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+# Directo a `next`, sin pasar por pnpm/corepack: arrancar no depende de bajar nada.
+# Solo en 127.0.0.1: la entrada es oauth2-proxy, nunca el puerto 3000.
+ExecStart=/usr/bin/node node_modules/next/dist/bin/next start -H 127.0.0.1 -p 3000
+Restart=always
+RestartSec=3
+
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

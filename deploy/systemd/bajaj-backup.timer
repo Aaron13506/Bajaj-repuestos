@@ -1,0 +1,9 @@
+[Unit]
+Description=Bajaj Repuestos: respaldo diario (03:30 en Caracas)
+
+[Timer]
+OnCalendar=*-*-* 07:30:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

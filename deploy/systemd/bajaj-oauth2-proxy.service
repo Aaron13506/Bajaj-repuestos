@@ -1,0 +1,20 @@
+[Unit]
+Description=oauth2-proxy (Google) delante de Bajaj Repuestos
+After=network-online.target bajaj-app.service
+Wants=network-online.target
+
+[Service]
+DynamicUser=yes
+# systemd lo lee como root antes de bajar privilegios: el secreto de Google no lo ve la app
+# ni el propio proceso del proxy en disco. El .cfg y la lista de correos (sin secretos, de
+# root) viven en /etc/oauth2-proxy/, que un usuario dinámico sí puede leer: /etc/bajaj no.
+EnvironmentFile=/etc/bajaj/oauth2-proxy.env
+ExecStart=/usr/local/bin/oauth2-proxy --config=/etc/oauth2-proxy/oauth2-proxy.cfg
+Restart=always
+RestartSec=3
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

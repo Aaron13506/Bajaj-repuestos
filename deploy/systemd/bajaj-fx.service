@@ -1,0 +1,16 @@
+[Unit]
+Description=Bajaj Repuestos: tasas de cambio y tarifas de flete
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=bajaj
+Group=bajaj
+WorkingDirectory=/srv/bajaj/app
+EnvironmentFile=/etc/bajaj/app.env
+Environment=NODE_ENV=production TZ=UTC COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+ExecStart=/usr/bin/pnpm run fx:update
+TimeoutStartSec=10min
+NoNewPrivileges=true
+PrivateTmp=true

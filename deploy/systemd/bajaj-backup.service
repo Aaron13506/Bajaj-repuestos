@@ -1,0 +1,21 @@
+[Unit]
+Description=Bajaj Repuestos: respaldo de la base a un bucket
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=bajaj
+Group=bajaj
+# app.env trae DATABASE_URL; backup.env, el destino. Un archivo con solo las claves del
+# bucket no alcanzaría para correr a mano, y los dos juntos son lo que ve `sudo -iu bajaj`.
+EnvironmentFile=/etc/bajaj/app.env
+EnvironmentFile=/etc/bajaj/backup.env
+Environment=TZ=UTC
+# Por bash y no directo: el bit de ejecución no sobrevive a un git checkout desde Windows.
+ExecStart=/usr/bin/bash /srv/bajaj/app/deploy/backup.sh
+TimeoutStartSec=30min
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true

@@ -1,0 +1,11 @@
+[Unit]
+Description=Bajaj Repuestos: tasas cada hora (reemplaza al Heroku Scheduler)
+
+[Timer]
+OnCalendar=hourly
+# Si la máquina estuvo apagada a la hora, corre al volver.
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target
