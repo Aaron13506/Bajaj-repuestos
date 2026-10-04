@@ -7,7 +7,7 @@
  * página puede tener el diagrama HOY: este script vuelve a preguntar.
  *
  * Repite exactamente la cadena de prisma/seed-scraped.ts — misma regex, mismo original
- * limpio de media/catalog/product/, mismo bucket, misma key `99rpm/<archivo>` — para que la
+ * limpio de media/catalog/product/, mismo bucket, misma key `<archivo>` — para que la
  * imagen recuperada sea indistinguible de una scrapeada de entrada.
  *
  * Quirúrgico: solo toca ScrapedProduct.{mainImageUrl,imageS3Key,imageS3Url} y
@@ -20,6 +20,7 @@ import { PrismaClient } from '@prisma/client'
 import { S3Client, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3'
 import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { s3PublicBase, s3ClientConfig } from '@/lib/s3-publico'
 
 try { process.loadEnvFile() } catch {}
 const prisma = new PrismaClient({
@@ -32,17 +33,9 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 const RAW_DIR = path.join('data', '99rpm', 'raw')
 
 const BUCKET = process.env.S3_BUCKET_NAME!
-const s3 = new S3Client({
-  region: process.env.S3_REGION!,
-  endpoint: process.env.S3_ENDPOINT_URL!,
-  forcePathStyle: true,
-  credentials: {
-    accessKeyId: process.env.S3_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
-  },
-})
-const PROJECT_REF = new URL(process.env.S3_ENDPOINT_URL!).hostname.split('.')[0]
-const PUBLIC_BASE = `https://${PROJECT_REF}.supabase.co/storage/v1/object/public/${BUCKET}`
+const s3 = new S3Client(s3ClientConfig())
+// URL pública: la declara S3_PUBLIC_BASE_URL (lib/s3-publico.ts); no se deriva del endpoint.
+const PUBLIC_BASE = s3PublicBase()
 
 /** Idéntica a la del scraper: la ruta `x/y/archivo.jpg` sale de cualquier URL cacheada. */
 function imagePath(html: string): string | null {
@@ -55,7 +48,7 @@ function meta(html: string, prop: string): string | undefined {
 }
 
 async function uploadImage(name: string, body: Buffer): Promise<{ key: string; url: string }> {
-  const key = `99rpm/${name}`
+  const key = name // sin prefijo: la URL pública no debe delatar de dónde viene la imagen
   const url = `${PUBLIC_BASE}/${key}`
   try {
     await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }))

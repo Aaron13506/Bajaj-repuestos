@@ -14,6 +14,7 @@ import { PrismaClient, MotoModel } from '@prisma/client'
 import { S3Client, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3'
 import { readFile, writeFile, access, mkdir } from 'node:fs/promises'
 import path from 'node:path'
+import { s3PublicBase, s3ClientConfig } from '../lib/s3-publico'
 
 try { process.loadEnvFile() } catch {} // carga .env (S3_* y DATABASE_URL)
 
@@ -35,24 +36,15 @@ const BASE = 'https://www.99rpm.com'
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
 const RAW_DIR = path.join('data', '99rpm', 'raw')
 
-// ── Supabase Storage (API S3-compatible) ──
+// ── Bucket de imágenes (API S3) ──
 const BUCKET = process.env.S3_BUCKET_NAME!
-const s3 = new S3Client({
-  region: process.env.S3_REGION!,
-  endpoint: process.env.S3_ENDPOINT_URL!,
-  forcePathStyle: true,
-  credentials: {
-    accessKeyId: process.env.S3_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
-  },
-})
-// URL pública: https://<ref>.supabase.co/storage/v1/object/public/<bucket>/<key>
-const PROJECT_REF = new URL(process.env.S3_ENDPOINT_URL!).hostname.split('.')[0]
-const PUBLIC_BASE = `https://${PROJECT_REF}.supabase.co/storage/v1/object/public/${BUCKET}`
+const s3 = new S3Client(s3ClientConfig())
+// URL pública: la declara S3_PUBLIC_BASE_URL (lib/s3-publico.ts); no se deriva del endpoint.
+const PUBLIC_BASE = s3PublicBase()
 
 /** Sube la imagen limpia al bucket (idempotente: si ya está, la reusa). */
 async function uploadImage(name: string): Promise<{ key: string; url: string; uploaded: boolean } | null> {
-  const key = `99rpm/${name}`
+  const key = name // sin prefijo: la URL pública no debe delatar de dónde viene la imagen
   const url = `${PUBLIC_BASE}/${key}`
   try {
     await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }))

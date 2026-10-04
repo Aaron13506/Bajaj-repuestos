@@ -37,7 +37,8 @@
     "check:libro": "tsx scripts/check-libro.ts",
     "rates:update": "tsx scripts/update-shipping-rates.ts",
     "rates:baseline": "tsx scripts/update-shipping-rates.ts --baseline",
-    "q": "tsx scripts/q.ts"
+    "q": "tsx scripts/q.ts",
+    "deploy:prod": "bash deploy/desplegar.sh"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
