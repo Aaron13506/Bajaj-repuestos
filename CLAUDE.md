@@ -34,7 +34,7 @@ pnpm fx:update                 # tasas INR/USD + BsD/USD, y de paso las tarifas 
 pnpm rates:update [--force]    # solo tarifas Shoppre → Config.shoppre_rates_usd
 pnpm rates:baseline            # regenera shipping_rates.json (el fallback del bundle)
 
-# Producción (Lightsail): sube a GitHub, corre deploy.sh por SSH y verifica. --dry solo comprueba
+# Producción (Lightsail): el servidor trae lo de GitHub (hacé el push antes), corre deploy.sh y verifica. --dry solo muestra
 pnpm deploy:prod
 
 # Database
