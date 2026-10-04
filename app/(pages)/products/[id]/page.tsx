@@ -65,7 +65,11 @@ export default async function ProductDetailPage({
   }
   // Aéreo: siempre 99rpm (ningún otro proveedor llega al mínimo de Shoppre).
   // Marítimo: el proveedor elegido, que es a quien se le compra por barco.
-  const forCalc = { ...fisico, priceInr: product.priceInr, priceUsd: null, priceIsLanded: false }
+  const forCalc = {
+    ...fisico, priceInr: product.priceInr, priceUsd: null, priceIsLanded: false,
+    // Precio fijo: el escrito manda, no se recompone desde el margen.
+    precioFijo: product.priceLocked ? Number(product.price) : null,
+  }
   const forMar = {
     ...fisico,
     priceInr:      product.priceInr,
@@ -169,7 +173,7 @@ export default async function ProductDetailPage({
             Editar
           </Link>
           <DeleteButton
-            action={deleteProduct.bind(null, id)}
+            action={deleteProduct.bind(null, id, true)}
             confirmMessage={`¿Eliminar "${product.nameEs}"?`}
           />
         </div>

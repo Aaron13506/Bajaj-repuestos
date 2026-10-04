@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import PendingButton from './PendingButton'
+import FormConResultado from './FormConResultado'
+import type { ActionResult } from '@/lib/action-result'
 
 // Una línea del presupuesto que todavía no viaja en ninguna caja.
 export interface LineaSuelta {
@@ -31,8 +33,8 @@ interface Props {
   lineas: LineaSuelta[]
   otrasCajas: EnOtraCaja[]
   sinAprobar?: boolean
-  agregarTodo: (envioId: number, pedidoId: number) => Promise<void>
-  agregarElegidas: (envioId: number, itemIds: number[]) => Promise<void>
+  agregarTodo: (envioId: number, pedidoId: number) => Promise<ActionResult>
+  agregarElegidas: (envioId: number, itemIds: number[]) => Promise<ActionResult>
 }
 
 const usd = (n: number) => `$${n.toFixed(2)}`
@@ -72,8 +74,9 @@ export default function SueltoPedido({
     setEnviando(true)
     setError(null)
     try {
-      await agregarElegidas(envioId, Array.from(elegidas))
-      setElegidas(new Set())
+      const r = await agregarElegidas(envioId, Array.from(elegidas))
+      if (r.ok) setElegidas(new Set())
+      else setError(r.error)
     } catch {
       setError('No se pudieron agregar las líneas.')
     } finally {
@@ -125,11 +128,11 @@ export default function SueltoPedido({
           >
             {abierto ? 'Ocultar' : 'Elegir líneas'}
           </button>
-          <form action={agregarTodo.bind(null, envioId, pedidoId)}>
+          <FormConResultado action={agregarTodo.bind(null, envioId, pedidoId)}>
             <PendingButton pendingLabel="Agregando…" className="text-sm text-blue-600 hover:text-blue-800 font-medium">
               + Agregar
             </PendingButton>
-          </form>
+          </FormConResultado>
         </div>
       </div>
 

@@ -6,7 +6,7 @@ import { useFormStatus } from 'react-dom'
 import { importProducts } from '@/app/(pages)/products/import/actions'
 import type { ImportResult } from '@/app/(pages)/products/import/actions'
 
-const emptyImportResult: ImportResult = { ok: false, created: 0, errors: [] }
+const emptyImportResult: ImportResult = { ok: false, created: 0, linked: 0, errors: [] }
 
 const SCHEMA_EXAMPLE = `{
   "group": {

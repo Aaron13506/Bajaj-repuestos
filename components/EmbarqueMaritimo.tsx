@@ -170,7 +170,7 @@ export default function EmbarqueMaritimo({
   envioId, nombre, proveedor, lineas, volumeM3, minM3, ratePerM3, fobUsd, assemblies, models,
 }: Props) {
   const [search, setSearch] = useState('')
-  const [resultados, setResultados] = useState<Resultado[]>([])
+  const [encontrados, setEncontrados] = useState<Resultado[]>([])
   const [pending, startTransition] = useTransition()
 
   // ── Borrador local ────────────────────────────────────────────────────────
@@ -190,12 +190,16 @@ export default function EmbarqueMaritimo({
   // la verdad y el historial se descarta: deshacer hacia un estado ya guardado sería
   // prometer algo que este componente no puede cumplir.
   const servidorKey = lineas.map(l => `${l.id}:${l.quantity}`).join(',')
-  useEffect(() => {
+  // Se compara al renderizar contra la última clave vista (el patrón de React para derivar
+  // estado de una prop) en vez de un efecto: así no hay un render intermedio con el
+  // borrador viejo. `lineas` cambia de identidad en cada render; la clave es lo que de
+  // verdad cambió.
+  const [servidorVisto, setServidorVisto] = useState(servidorKey)
+  if (servidorKey !== servidorVisto) {
+    setServidorVisto(servidorKey)
     setBorrador(lineas)
     setHistorial([])
-    // `lineas` cambia de identidad en cada render; la clave es lo que de verdad cambió.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [servidorKey])
+  }
 
   // Marca de la última edición, para agrupar. Sin esto, tipear "50" en una cantidad dejaba
   // dos pasos de historial ("5" y "50") y deshacer se volvía tecla por tecla.
@@ -291,14 +295,21 @@ export default function EmbarqueMaritimo({
     setGuardando(true)
     setError(null)
     startTransition(async () => {
-      const r = await sincronizarLineas(
-        envioId,
-        borrador.map(l => ({ productId: l.productId, quantity: l.quantity })),
-      )
-      setGuardando(false)
-      // Si falló, el borrador queda como estaba: lo que venías armando no se pierde por
-      // un error de red.
-      if (!r.ok) setError(r.error ?? 'No se pudo guardar.')
+      // El botón se libera siempre: si la acción RECHAZA (red caída, error del servidor) y
+      // no solo devuelve `ok: false`, sin el finally "Guardar" quedaba deshabilitado hasta
+      // recargar la página. En cualquier fallo el borrador queda como estaba: lo que venías
+      // armando no se pierde.
+      try {
+        const r = await sincronizarLineas(
+          envioId,
+          borrador.map(l => ({ productId: l.productId, quantity: l.quantity })),
+        )
+        if (!r.ok) setError(r.error ?? 'No se pudo guardar.')
+      } catch {
+        setError('No se pudo guardar. Revisá la conexión y probá de nuevo.')
+      } finally {
+        setGuardando(false)
+      }
     })
   }
 
@@ -403,16 +414,20 @@ export default function EmbarqueMaritimo({
   // pantalla, y un segundo gesto para lo mismo obligaría a explicar cuál manda.
   const paraCopiar = marcadas.length > 0 ? marcadas : (componentes ?? [])
 
+  // Con el término corto no hay resultados: se deriva al renderizar en vez de vaciar el
+  // estado desde el efecto.
+  const termino = search.trim()
+  const resultados = termino.length < 2 ? [] : encontrados
+
   useEffect(() => {
-    const q = search.trim()
-    if (q.length < 2) { setResultados([]); return }
+    if (termino.length < 2) return
     let cancelled = false
     const t = setTimeout(async () => {
-      const rows = await buscarProductos(q, envioId)
-      if (!cancelled) setResultados(rows)
+      const rows = await buscarProductos(termino, envioId)
+      if (!cancelled) setEncontrados(rows)
     }, 250)
     return () => { cancelled = true; clearTimeout(t) }
-  }, [search, envioId])
+  }, [termino, envioId])
 
   // productId → cuánto ya llevás. Es un Map y no un Set porque al recorrer la SEGUNDA moto
   // la pregunta deja de ser "¿está?" y pasa a ser "¿cuánto tengo?": el mismo SKU sirve a

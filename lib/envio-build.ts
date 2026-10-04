@@ -70,6 +70,22 @@ export function makeProductLookup(products: ProductCost[]): ProductLookup {
   return (code, name) => (code ? byCode.get(code) : undefined) ?? byName.get(name)
 }
 
+// Reparte lo que se pagó de verdad por una LÍNEA (`PedidoItem.costRealUsd`, el total de la
+// línea, no por unidad) entre las piezas físicas en que se expandió, en proporción a lo que
+// cada una costaba según el catálogo. Una pieza suelta se lleva el monto entero.
+//
+// Devuelve null por pieza cuando la línea no tiene costo real: ahí vale el estimado. Si el
+// catálogo no sabe el precio de ninguna pieza (denominador 0) se reparte en partes iguales,
+// igual que registrarCompra, en vez de dividir por cero.
+export function repartirCostoReal(
+  costRealUsd: number | null,
+  estimadosUsd: number[],
+): (number | null)[] {
+  if (costRealUsd == null) return estimadosUsd.map(() => null)
+  const denom = estimadosUsd.reduce((s, e) => s + e, 0)
+  return estimadosUsd.map(e => (denom > 0 ? costRealUsd * (e / denom) : costRealUsd / estimadosUsd.length))
+}
+
 // Expande una línea de presupuesto en sus piezas físicas reales.
 //
 // Para una pieza suelta devuelve la pieza tal cual. Para un CONJUNTO (bundleItems

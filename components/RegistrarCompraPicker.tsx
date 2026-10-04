@@ -1,11 +1,13 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useMemo, useRef, useState, useTransition } from 'react'
 import type { ItemPendienteCosto } from '@/lib/movimientos'
+import type { ActionResult } from '@/lib/action-result'
+import CampoFecha from '@/components/CampoFecha'
 
 interface Props {
   items: ItemPendienteCosto[]
-  action: (formData: FormData) => Promise<void>
+  action: (formData: FormData) => Promise<ActionResult>
   methods: readonly string[]
   // Modo embebido (ej. en /envios/[id]): arranca cerrado detrás de un botón, porque la
   // ficha del envío ya tiene bastante contenido abierto. En /contabilidad/comprar, donde
@@ -19,7 +21,10 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [abierto, setAbierto] = useState(!collapsible)
   const [isPending, startTransition] = useTransition()
-  const today = new Date().toISOString().slice(0, 10)
+  const [error, setError] = useState<string | null>(null)
+  // `isPending` recién se ve en el próximo render: un segundo submit que entre antes pasaría
+  // igual. El ref lo corta en el mismo tick.
+  const enVuelo = useRef(false)
 
   const grupos = useMemo(() => {
     const porPedido = new Map<number, { pedidoId: number; clientName: string; items: ItemPendienteCosto[] }>()
@@ -67,12 +72,31 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    const fd = new FormData(e.currentTarget)
+    if (enVuelo.current) return
+    // El form se captura ACÁ: React anula `e.currentTarget` al terminar el dispatch, así que
+    // después del `await` ya es null y `.reset()` tiraba un TypeError aunque la compra sí
+    // se hubiera guardado.
+    const form = e.currentTarget
+    const fd = new FormData(form)
     for (const id of selected) fd.append('itemIds', String(id))
+    enVuelo.current = true
+    setError(null)
     startTransition(async () => {
-      await action(fd)
-      setSelected(new Set())
-      ;(e.currentTarget as HTMLFormElement).reset()
+      try {
+        const r = await action(fd)
+        if (r.ok) {
+          setSelected(new Set())
+          form.reset()
+        } else {
+          // La selección y lo tipeado quedan como estaban: si la lista estaba vieja, lo que
+          // hay que hacer es recargarla, no volver a armar todo.
+          setError(r.error)
+        }
+      } catch {
+        setError('No se pudo registrar la compra. Revisá tu conexión y probá de nuevo.')
+      } finally {
+        enVuelo.current = false
+      }
     })
   }
 
@@ -146,6 +170,12 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
         </div>
       </div>
 
+      {error && (
+        <div role="alert" className="bg-red-50 border border-red-200 text-red-800 text-sm rounded-lg px-4 py-3 mb-4">
+          {error}
+        </div>
+      )}
+
       {/* Barra fija: qué se seleccionó y cuánto se pagó de verdad por eso. */}
       <div className="sticky bottom-4 bg-white rounded-xl shadow-lg border border-gray-200 p-4 flex flex-wrap items-end gap-3">
         <div className="text-sm text-gray-600 mr-auto">
@@ -171,7 +201,7 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Fecha</label>
-          <input type="date" name="fecha" defaultValue={today} className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+          <CampoFecha name="fecha" className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Método de pago</label>

@@ -1,13 +1,16 @@
 import { db } from '@/lib/db'
 import Link from 'next/link'
 import { createEnvio } from './actions'
+import PendingButton from '@/components/PendingButton'
+import FormConResultado from '@/components/FormConResultado'
 import { stageSummary, SHIPPING_STATUSES } from '@/lib/shipping-status'
 import { inboundDe, inboundMeta } from '@/lib/inbound'
+import { costearEnvios } from '@/lib/costo-envios'
 
 export default async function EnviosPage() {
   // Una sola tanda: ninguna de las tres depende de las otras y encadenarlas costaba
   // tres veces la latencia hasta la base.
-  const [envios, sinAsignar, suppliers] = await Promise.all([
+  const [envios, sinAsignar, suppliers, costos] = await Promise.all([
     db.envio.findMany({
       include: {
         items: { select: { id: true, shippingStatus: true, pedidoId: true } },
@@ -24,6 +27,8 @@ export default async function EnviosPage() {
       select: { id: true, name: true, origen: true, inbound: true, fobUsd: true },
       orderBy: { name: 'asc' },
     }),
+    // El costo se deriva en vivo (no se lee de una copia guardada): ver lib/costo-envios.
+    costearEnvios(),
   ])
   const borradores = envios.filter(e => e.modo === 'maritimo_cbm' && e.estado === 'borrador')
 
@@ -86,7 +91,7 @@ export default async function EnviosPage() {
             btn: 'bg-cyan-600 hover:bg-cyan-700',
           },
         ].map(r => (
-          <form
+          <FormConResultado
             key={r.modo}
             action={createEnvio}
             className={`rounded-xl border p-5 flex flex-col gap-3 ${r.cls}`}
@@ -131,13 +136,13 @@ export default async function EnviosPage() {
                 })}
               </select>
             </label>
-            <button
-              type="submit"
+            <PendingButton
+              pendingLabel="Creando…"
               className={`text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors ${r.btn}`}
             >
               + Crear {r.modo === 'aereo' ? 'envío aéreo' : 'embarque marítimo'}
-            </button>
-          </form>
+            </PendingButton>
+          </FormConResultado>
         ))}
       </div>
 
@@ -154,6 +159,7 @@ export default async function EnviosPage() {
         <div className="space-y-3">
           {envios.map(e => {
             const esMar = e.modo === 'maritimo_cbm'
+            const costo = costos.get(e.id)
             const esBorrador = e.estado === 'borrador'
             // El aéreo se mide en ítems de pedido; el marítimo en líneas propias. Mezclar
             // los dos conteos haría ver vacía una caja que está llena de lo otro.
@@ -235,10 +241,25 @@ export default async function EnviosPage() {
                 </p>
               </div>
               <div className="flex items-center gap-4 shrink-0">
-                {e.shippingCostEst != null && (
-                  <span className="text-xs text-gray-500">
-                    Flete est. <span className="font-mono font-semibold text-gray-800">${parseFloat(e.shippingCostEst.toString()).toFixed(2)}</span>
-                  </span>
+                {costo && (costo.lineas > 0) && (
+                  <div className="text-right text-xs text-gray-500 leading-tight">
+                    <p>
+                      Flete{costo.incompleto ? ' ≥' : ''}{' '}
+                      <span className="font-mono font-semibold text-gray-800">${costo.fleteUsd.toFixed(2)}</span>
+                    </p>
+                    <p className="mt-0.5">
+                      Landed{costo.incompleto ? ' ≥' : ''}{' '}
+                      <span className="font-mono font-semibold text-gray-800">${costo.landedUsd.toFixed(2)}</span>
+                    </p>
+                    {!esMar && (
+                      <p
+                        className={`mt-0.5 text-[10px] ${costo.conCostoReal === costo.lineas ? 'text-green-700' : 'text-gray-400'}`}
+                        title="Líneas con el precio realmente pagado cargado; el resto usa el precio de catálogo"
+                      >
+                        {costo.conCostoReal}/{costo.lineas} con precio real
+                      </p>
+                    )}
+                  </div>
                 )}
                 <Link href={`/envios/${e.id}`} className="text-sm text-blue-600 hover:text-blue-800">
                   {esMar && esBorrador ? 'Llenar' : 'Ver'}

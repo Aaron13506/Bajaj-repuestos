@@ -295,3 +295,22 @@ export function toModelIds(input: unknown): MotoModelId[] {
     .filter((id): id is MotoModelId => id != null)
   return sortModels(ids)
 }
+
+/**
+ * Lo que se guarda en `compatibleModels` al editar una pieza desde un formulario.
+ *
+ * El selector solo sabe devolver ids de MOTO_MODELS, pero el campo es texto libre y puede
+ * traer etiquetas que la tabla no reconoce (una variante nueva que todavía no se cargó
+ * acá, un typo heredado del scrape). Reescribir el campo con solo lo que devolvió el
+ * selector las BORRABA en silencio, aunque el usuario ni hubiera tocado las motos. Como no
+ * hay forma de desmarcarlas desde la pantalla, se conservan siempre; lo que sí se puede
+ * quitar —las motos de la tabla— sigue dependiendo de lo que marcó el usuario.
+ */
+export function compatibleModelsFrom(
+  ids: readonly FormDataEntryValue[],
+  actual: string | null | undefined,
+): string | null {
+  const tipadas = sortModels(ids.filter(isMotoModelId)).map(fullModel)
+  const noTipadas = parseModels(actual).filter(label => !modelByLabel(label))
+  return [...tipadas, ...noTipadas].join(', ') || null
+}

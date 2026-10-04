@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import DeleteButton from '@/components/DeleteButton'
 import EnvioItemsTable, { type EnvioItemRow } from '@/components/EnvioItemsTable'
 import PendingButton from '@/components/PendingButton'
+import FormConResultado from '@/components/FormConResultado'
 import SueltoPedido, { type LineaSuelta, type EnOtraCaja } from '@/components/SueltoPedido'
 import PendientesCompraButton, {
   type PendienteGrupo,
@@ -17,9 +18,9 @@ import { calcEnvio, type EnvioItemInput, type ConfigMap, type ProveedorEnvio } f
 import { inboundDe, inboundMeta } from '@/lib/inbound'
 import { modoDeEnvio, MODOS } from '@/lib/modo'
 import EnvioMaritimo from './maritimo'
-import { makeProductLookup, expandCostPieces, type ProductCost } from '@/lib/envio-build'
+import { lookupDeConjuntos, expandCostPieces, repartirCostoReal, type ProductCost } from '@/lib/envio-build'
 import { cobranzaEnvio, type CobranzaEnvio, type CobranzaPedido } from '@/lib/clientes'
-import { itemsSinCostoRealDeEnvio } from '@/lib/movimientos'
+import { itemsSinCostoRealDeEnvio, CATEGORIAS_PAGO_PROVEEDOR } from '@/lib/movimientos'
 import type { BundlePiece } from '@/lib/bundle'
 import { toConfigMap } from '@/lib/config'
 import { armarCompra99rpm } from '@/lib/compra-99rpm'
@@ -30,7 +31,6 @@ import {
   assignAllConfirmados,
   removePedido,
   deleteEnvio,
-  saveEstimate,
   saveCostosProveedor,
   saveMedidasCaja,
   saveItemChanges,
@@ -113,7 +113,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   if (!ruta) notFound()
   if (ruta.modo === 'maritimo_cbm') return <EnvioMaritimo envioId={id} />
 
-  const [envio, cfgRows, sinAsignar, allProducts, supplierPrices, suppliers, pedidosCaja, despiece99, repartidos, egresosCaja, itemsPendientesCosto] = await Promise.all([
+  const [envio, cfgRows, sinAsignar, suppliers, pedidosCaja, despiece99, repartidos, egresosCaja, itemsPendientesCosto] = await Promise.all([
     db.envio.findUnique({
       where: { id },
       include: {
@@ -135,10 +135,6 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
       },
       orderBy: [{ pedidoId: 'asc' }, { id: 'asc' }],
     }),
-    db.product.findMany({
-      select: { id: true, nameEs: true, bajajCode: true, weightGrams: true, dimL: true, dimA: true, dimH: true, priceInr: true },
-    }),
-    db.supplierPrice.findMany({ select: { productId: true, supplierId: true, priceUsd: true, isLanded: true } }),
     db.supplier.findMany({
       select: { id: true, name: true, origen: true, inbound: true },
       orderBy: { name: 'asc' },
@@ -186,8 +182,14 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
       select: { pedidoId: true, envio: { select: { id: true, nombre: true } } },
     }),
     // Plata que ya salió de la cuenta contra esta caja (ver registrarPagoProveedor):
-    // "pagado" del giro se calcula en vivo sumando esto, nunca se cachea en Envio.
-    db.movimiento.aggregate({ where: { envioId: id, tipo: 'egreso' }, _sum: { monto: true } }),
+    // "pagado" del giro se calcula en vivo sumando esto, nunca se cachea en Envio. Solo lo
+    // que salda lo que se le debe al PROVEEDOR (mercancía, tramo, comisión del giro): un
+    // flete anotado contra la caja se le pagó a Shoppre o a la naviera, y contarlo acá
+    // reducía una deuda que sigue viva. Es la misma definición que usa cuentasPorPagar.
+    db.movimiento.aggregate({
+      where: { envioId: id, tipo: 'egreso', categoria: { in: [...CATEGORIAS_PAGO_PROVEEDOR] } },
+      _sum: { monto: true },
+    }),
     // Piezas de ESTA caja sin costRealUsd cargado, para el picker de "cuánto pagué de
     // verdad" — corregir peso/dimensión de la caja no dice cuánto costó lo de adentro.
     itemsSinCostoRealDeEnvio(id),
@@ -195,12 +197,29 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
 
   if (!envio) notFound()
 
+  // Solo lo que esta caja necesita, no el catálogo entero (~5.8k filas) ni los precios de
+  // todos los proveedores: las piezas de sus conjuntos, y el precio de cada línea con SU
+  // proveedor. Es una vuelta más a la base, pero baja filas por miles; no se puede pedir
+  // antes porque depende de qué conjuntos trae la caja.
+  const lookup = await lookupDeConjuntos(envio.items.map(it => it.bundleItems as BundlePiece[] | null))
+  const idsPrecio = new Set<number>(envio.items.map(it => it.productId))
+  for (const it of envio.items) {
+    for (const bp of (it.bundleItems as BundlePiece[] | null) ?? []) {
+      const pid = lookup(bp.bajajCode, bp.nameEs)?.id
+      if (pid != null) idsPrecio.add(pid)
+    }
+  }
+  const idsProveedor = [...new Set(envio.items.map(it => it.supplierId).filter((x): x is number => x != null))]
+  const supplierPrices = idsProveedor.length
+    ? await db.supplierPrice.findMany({
+        where: { supplierId: { in: idsProveedor }, productId: { in: [...idsPrecio] } },
+        select: { productId: true, supplierId: true, priceUsd: true },
+      })
+    : []
+
   const pagadoProveedor = parseFloat((egresosCaja._sum.monto ?? 0).toString())
 
   const cfg = toConfigMap(cfgRows)
-
-  // Lookup para resolver piezas de conjuntos a su producto real (por bajajCode).
-  const lookup = makeProductLookup(allProducts as ProductCost[])
 
   // Precio del proveedor por (proveedor, producto): cuando la línea se compró a un
   // proveedor puntual, ese USD es el costo real y le gana al priceInr del catálogo.
@@ -212,14 +231,28 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   // para costearlos por las piezas que llevan, no por el ensamble entero. Cada pieza
   // hereda el origen y el isLanded de SU línea de pedido: eso define por qué tramo
   // entra y si viaja o no en esta caja.
-  const allPieces = envio.items.flatMap(it =>
-    expandCostPieces(
+  const inrUsdPieza = parseFloat(cfg.inr_usd_rate ?? '95')
+  const allPieces = envio.items.flatMap(it => {
+    const piezas = expandCostPieces(
       it.product as ProductCost,
       it.quantity,
       it.bundleItems as BundlePiece[] | null,
       lookup,
-    ).map(piece => ({
+    )
+    // Lo pagado de verdad por la línea manda sobre el catálogo: se reparte entre sus piezas
+    // en proporción a lo que cada una costaba.
+    const reales = repartirCostoReal(
+      it.costRealUsd != null ? parseFloat(it.costRealUsd.toString()) : null,
+      piezas.map(p => {
+        const pu = it.supplierId != null && p.productId != null
+          ? precioProveedor.get(`${it.supplierId}:${p.productId}`) ?? null
+          : null
+        return (pu ?? (p.priceInr ?? 0) / inrUsdPieza) * p.quantity
+      }),
+    )
+    return piezas.map((piece, idx) => ({
       ...piece,
+      costoRealUsd: reales[idx],
       itemId: it.id,
       pedidoId: it.pedidoId,
       // productId de la LÍNEA (el ensamble, si es un conjunto). El de la pieza suelta
@@ -238,9 +271,10 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
         ? precioProveedor.get(`${it.supplierId}:${piece.productId}`) ?? null
         : null,
     }))
-  )
+  })
 
   const items: EnvioItemInput[] = allPieces.map(p => ({
+    costoRealUsd: p.costoRealUsd,
     pedidoId: p.pedidoId,
     productId: p.productId,
     name: p.name,
@@ -453,12 +487,6 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     shippingStatusAt: it.shippingStatusAt?.toISOString() ?? null,
   }))
 
-  // Pares (proveedor, producto) que cotizan puestos en Venezuela: con esto la tabla deduce
-  // la ruta al vuelo cuando cambiás de proveedor, sin consultar nada.
-  const landedPairs = supplierPrices
-    .filter(sp => sp.isLanded)
-    .map(sp => `${sp.supplierId}:${sp.productId}`)
-
   // Lo confirmado (status='pedido') es lo que hay que comprar sí o sí; los
   // presupuestos sin aprobar todavía pueden caerse, así que se separan y nunca
   // entran al agregado masivo.
@@ -501,11 +529,6 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   const anyMissing = calc.lines.some(l => l.missingWeight || l.missingDims)
   const tierHint = airTierHint(calc.air.chargeableKg, calc.air.costPerKgUsd, calc.air.cajas, calc.air.capKg)
   const ratioPct = calc.air.ratioVW != null ? calc.air.ratioVW * 100 : null
-  // Flete efectivo de la caja: el facturado donde ya se cargó, si no el estimado de tabla.
-  // `fobUsd` es 0 fuera del modo CBM, así que esto no cambia nada en aéreo; en CBM el FOB es
-  // parte del costo de traerla y tiene que ir adentro. Es lo que se guarda con "Guardar
-  // flete est." — una vez cargado el facturado, ese botón pasa a guardar el real.
-  const shippingEst = calc.airUsd + calc.maritimeUsd + calc.fobUsd
   // El mismo flete calculado sobre las piezas sueltas: la cuenta que se hacía antes de
   // saber cuánto pesaba y medía la caja de verdad.
   const shippingNeto = calcNeto ? calcNeto.airUsd + calcNeto.maritimeUsd + calcNeto.fobUsd : null
@@ -566,18 +589,9 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
           {envio.notas && <p className="text-sm text-gray-500 mt-1">{envio.notas}</p>}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {/* En CBM el peso es irrelevante: una caja puede tener flete sin que haya un
-              solo gramo cargado, así que el botón se habilita por lo que se va a pagar. */}
-          {shippingEst > 0 && (
-            <form action={saveEstimate.bind(null, envio.id, shippingEst)}>
-              <button
-                type="submit"
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Guardar flete est. ({usd(shippingEst)})
-              </button>
-            </form>
-          )}
+          {/* El flete ya no se "guarda": la lista de envíos lo calcula en vivo con el mismo
+              costeo que esta ficha (lib/costo-envios). Una copia guardada quedaba vieja en
+              cuanto se cargaba un peso, un precio real o se movía una tasa. */}
           <DeleteButton
             action={deleteEnvio.bind(null, envio.id)}
             confirmMessage={`¿Eliminar el envío "${envio.nombre ?? `#${envio.id}`}"? Los ítems quedarán libres.`}
@@ -805,7 +819,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                 </div>
               )}
 
-              <form action={saveCostosProveedor.bind(null, envio.id)} className="flex flex-wrap items-end gap-3">
+              <FormConResultado action={saveCostosProveedor.bind(null, envio.id)} className="flex flex-wrap items-end gap-3">
                 {/* El total del envío solo se pide a quien despacha por su cuenta: para una
                     caja que entra por Shoppre ese número lo pone la tabla escalón, y un
                     campo vacío al lado invitaría a cargarlo dos veces. */}
@@ -870,13 +884,12 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                     lo que le descontaron al recibir y le completaste
                   </p>
                 </div>
-                <button
-                  type="submit"
+                <PendingButton
                   className="px-4 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   Guardar
-                </button>
-              </form>
+                </PendingButton>
+              </FormConResultado>
 
               {calc.tramo?.faltaCosto && (
                 <p className="text-xs text-amber-700 bg-amber-50 px-3 py-2 rounded-lg mt-3">
@@ -954,7 +967,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               de las piezas — es lo que se factura.
             </p>
 
-            <form action={saveMedidasCaja.bind(null, envio.id)}>
+            <FormConResultado action={saveMedidasCaja.bind(null, envio.id)}>
               <div className="flex flex-wrap items-end gap-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Peso real (kg)</label>
@@ -1011,14 +1024,13 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                   />
                   <p className="text-[11px] text-gray-400 mt-1">tramo USA→Venezuela</p>
                 </div>
-                <button
-                  type="submit"
+                <PendingButton
                   className="px-4 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   Guardar
-                </button>
+                </PendingButton>
               </div>
-            </form>
+            </FormConResultado>
 
             {calc.caja.medido ? (
               <div className="mt-5">
@@ -1344,9 +1356,9 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
             Pedidos confirmados con ítems sueltos ({confirmadosSinAsignar.length})
           </h2>
           {confirmadosSinAsignar.length > 0 && (
-            <form
+            <FormConResultado
               action={assignAllConfirmados.bind(null, envio.id)}
-              className="flex items-center gap-3"
+              className="flex items-center gap-3 flex-wrap"
             >
               <label className="flex items-center gap-1.5 text-xs text-gray-600">
                 <input type="checkbox" name="incluirPropio" defaultChecked className="rounded border-gray-300" />
@@ -1358,7 +1370,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               >
                 + Agregar todos los confirmados
               </PendingButton>
-            </form>
+            </FormConResultado>
           )}
         </div>
         {confirmadosSinAsignar.length === 0 ? (

@@ -62,6 +62,17 @@ export function toJSON<T>(data: T): T {
   return decimalesANumero(data) as T
 }
 
+/**
+ * La fecha de hoy como `YYYY-MM-DD` en la zona horaria de QUIEN la mira. `toISOString()` es
+ * UTC: en Venezuela (UTC-4), desde las 20:00 devuelve el día de mañana, y un movimiento que
+ * se dejaba con esa fecha caía en otro mes en los reportes de fin de mes. El locale `en-CA`
+ * es el que imprime año-mes-día.
+ *
+ * Solo tiene sentido en el navegador: en el server (Heroku, UTC) devolvería la fecha de
+ * allá. Para el valor inicial de un campo de fecha usar `CampoFecha`.
+ */
+export const hoyLocal = () => new Date().toLocaleDateString('en-CA')
+
 // "hace 12 min" / "hace 3 h" / "hace 2 d" — para saber si una tasa que actualiza un cron
 // (BCV, BsD, INR) es la del día o quedó vieja porque el cron se cayó. Redondea hacia abajo:
 // "hace 0 min" avisa que acaba de correr, no hace falta un caso especial para eso.

@@ -116,8 +116,8 @@ export default function Sidebar() {
       </div>
       <nav className="flex-1 p-4 space-y-1">
         {navItems.map((item) => {
-          // Gana el prefijo MÁS LARGO que matchee: /envios/plan tiene entrada propia y no
-          // debe prender también la de /envios.
+          // Gana el prefijo MÁS LARGO que matchee, para que una entrada con subruta propia
+          // no prenda también la de su padre.
           const match = navItems
             .filter(i => i.href !== '/' && pathname.startsWith(i.href))
             .sort((a, b) => b.href.length - a.href.length)[0]

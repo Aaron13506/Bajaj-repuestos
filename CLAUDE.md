@@ -8,14 +8,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Development
 pnpm dev          # Start Next.js dev server
 pnpm build        # Production build
-pnpm lint         # ESLint via next lint
+pnpm lint         # eslint .
+pnpm typecheck    # tsc --noEmit
 
 # Auditoría de peso y dimensiones ya cargadas (solo lee)
 pnpm measures:audit            cobertura + chequeo físico, ordenado por piezas que se mueven
 pnpm measures:audit --usadas   solo lo que aparece en un pedido o un embarque
 
-# Aritmética del costeo de una caja (sin DB): tramos, cargos de Shoppre, comisiones de giro
+# Aritmética del costeo de una caja (sin DB): tramos, cargos de Shoppre, comisiones de giro,
+# reparto de una compra en centavos, y qué pedidos/proveedores se pueden borrar
 pnpm check:costeo
+
+# Coherencia del libro (solo lee): depósito de cada pedido vs sus ingresos, stock negativo
+pnpm check:libro
 
 # Catálogo — consulta de peso, medidas y volumen (sin levantar la app)
 pnpm q sku <SKU...>            # ficha: peso, medidas, ft³/u, CBM/u, ₹, stock
@@ -50,13 +55,13 @@ docker compose down     # Stop
 
 Copy `.env.example` to `.env`. Required variables:
 - `DATABASE_URL` — PostgreSQL connection string
-- `ADMIN_USER` / `ADMIN_PASSWORD` — HTTP Basic Auth credentials (defaults: `admin` / `admin123`)
+- `ADMIN_USER` / `ADMIN_PASSWORD` — HTTP Basic Auth credentials (the `admin` / `admin123` defaults only apply with `APP_ENV=local`)
 
 ## Architecture
 
-**Stack:** Next.js 14 App Router · Prisma 5 (PostgreSQL) · Tailwind CSS · TypeScript · pnpm
+**Stack:** Next.js 16 App Router · React 19 · Prisma 5 (PostgreSQL) · Tailwind CSS · TypeScript · pnpm
 
-**Auth:** `middleware.ts` enforces HTTP Basic Auth on every route (excluding Next.js static assets). Credentials come from env vars with insecure defaults.
+**Auth:** `proxy.ts` (Next 16's name for what was `middleware.ts`) enforces HTTP Basic Auth on every route (excluding Next.js static assets), with a per-IP lockout after repeated failures. Credentials come from `ADMIN_USER` / `ADMIN_PASSWORD`; the `admin` / `admin123` fallback exists only when `APP_ENV=local` — anywhere else a missing variable makes the site fail closed (503).
 
 **Routing:** All UI lives under the `app/(pages)/` route group. The layout in `app/(pages)/layout.tsx` wraps pages with the `Sidebar`. Pages are Server Components that query the DB directly via `lib/db.ts`.
 
@@ -170,6 +175,22 @@ By sea the **volume is what is billed**, so a part without dimensions cannot be 
 **Where the rate table lives (`lib/shipping-rates.ts`):** the live table is `Config.shoppre_rates_usd`, refreshed by the hourly Heroku cron (`pnpm fx:update` → `scripts/update-shipping-rates.ts` → `scripts/shoppre-scraper.js`); Heroku's filesystem is ephemeral, so it can't be a file, and `Config` is the channel that already reaches `calcLanded`/`calcEnvio` through `cfg`. `shipping_rates.json` is the **bundled fallback** for when that key is missing or corrupt — regenerate with `pnpm rates:baseline`. Both use the same shape: `[maxKg, basicUsd]` steps per carrier, since the tariff *is* a step function (216 scraped weights collapse to 144 steps, ~1.9 KB — it ships in the payload of every page that costs something). The member price is derived, not stored: a fixed 5% Shoppre applies client-side. The scraper covers 0.5 → 22 kg, and **22 kg is the carrier's cap per box, not where the scrape stopped** — so past it there is no dearer step, there is a second box. `cotizarTramoAereo` is the only door into the table for that reason: it splits the chargeable weight into as many boxes as the cap requires and returns the sum. Saturating at the last step (what a plain lookup does, and what this used to do) billed 24 kg at the 22 kg price and 44 kg at it too — an error with no ceiling, pushing the wrong way, since the air lane gets cheaper per kilo as you pile weight on and under-costing the excess rewarded piling it into a box that cannot be dispatched. **The split is into equal boxes, and that is a decision rather than the cheapest arithmetic.** The cheapest split concentrates weight — 24.42 kg costs $27.93 less as 18.9 + 5.5 than as 12.21 + 12.21, since the tariff falls per kilo as a box gets heavier — but that optimum exists only if you choose which piece goes in which box, and you don't: you hand over the goods and Shoppre boxes them. Quoting the optimum would cost the shipment with a saving that will not be realized, and the error would run in the direction that hurts, because the number ends up in a sale price. `LegBreakdown.cajas` / `.cajasKg` / `.capKg` carry it so every screen can say so, and the sweet-spot hint inverts past the cap: another kilo no longer buys a better rate, it opens a box at the most expensive end of the table. The cron self-throttles to one scrape every 3 days (`SHOPPRE_RATES_MAX_AGE_H`, default 72) because freight tariffs move in weeks, not hours.
 
 **`lib/quote-metrics.ts`** resolves a plain `{ sku, qty }[]` into `EnvioItemInput[]` and hands it to `calcEnvio`. This is the entry point for any "how much does this quote weigh / how many ft³" question — from the CLI (`pnpm q`), from a page, or from a Server Action. It exists so those answers come from `Config` and `calcEnvio` rather than from a one-off script with hardcoded rates: a hand-rolled query silently drifts from what the app shows the moment a config value changes.
+
+### Ledger and stock (`lib/movimientos.ts`)
+
+The ledger (`Movimiento`) is the truth about money; `Pedido.depositUsd` is a **cache** of what a client has paid, and every action that charges, corrects or deletes an income goes through one place so the two never disagree: `registrarIngresoPedido` (movement + deposit), `ajustarDeposito` (a single `UPDATE … COALESCE(depositUsd,0) + x`, never read-then-write), `descontarIngresosPedido`, all under the row lock taken by `bloquearPedido`. Lock order is always *pedido first, then its movimientos* — keep it, or two actions on the same pedido can deadlock. Lowering an advance (`aprobarPedido`) is a **typo correction, not a refund**: it trims the pedido's incomes newest-first instead of leaving the wrong movement inflating the cash balance; a real refund is a separate expense. Leaving the advance empty on a pedido that already collected is refused (type `0` to zero it). `pnpm check:libro` is the check that the cache and the ledger still agree.
+
+**State transitions are guarded writes, not read-then-write**: `recibirEmbarque`/`deshacerRecepcion`/`cerrarEmbarque`/`reabrirEmbarque` do `updateMany where estado = <expected>` and only run their side effect (the stock `UPDATE … FROM "EnvioLinea"`) when `count === 1`, so a double click or a second tab is a no-op. `registrarCompra` does the same with `costRealUsd IS NULL`: if fewer rows update than were selected the whole transaction (and its expense) aborts. The paid total is split with `repartirEnCentavos` so the parts sum to it **to the cent**.
+
+**"Paid to the supplier"** is only `CATEGORIAS_PAGO_PROVEEDOR` (`pago_proveedor`, `comision_giro`) — freight is paid to Shoppre or the carrier, not to him. `cuentasPorPagar` returns `{ pendientes, sobrepagadas }` and prices a sea box's debt as merchandise + FOB (`giroUsd`), since `EnvioLinea` has no real cost.
+
+**What can be deleted** is decided by pure functions shared by the screen (hides the button) and the action (the real lock): `motivoNoEliminable` (`lib/pedido-eliminable.ts`) — a client order past `presupuesto`, or anything with money collected, ledger entries, a real cost, a box or a purchased line, stays; `motivoProveedorEnUso` (`lib/proveedor-en-uso.ts`) — a supplier with boxes, lines or payments stays, because `SetNull` would turn its history into "99rpm" and re-cost it. Editing a `propio` order adjusts `Product.stock` for lines already `entregado` (and refuses to push stock negative).
+
+Actions that can fail for a reason the user must read return `ActionResult` (`lib/action-result.ts`) instead of a silent `return` (the client reads that as success and closes the form) or a `throw` (production hides the message). Deep inside a helper or a transaction, throw `ErrorDeNegocio` and wrap the action body in `conErrorDeNegocio` — it turns only that class into `{ ok: false }` and lets `redirect()` and real bugs through. `DeleteButton` and `PresupuestoBuilder` read the result; for a plain `<form action>` use `FormConResultado`, which has somewhere to show it and keeps `PendingButton` working. Client panels that submit by hand (the payment and cash-opening modals) use `useEnviarAccion`, and a loose control (a select, a row button) uses `useAccionDirecta` — both in `components/useEnviarAccion.ts`: they act on `{ ok: false }` instead of closing, read `e.currentTarget` before the `await`, and release the button on a rejection. An unreadable number is **rejected**, never saved as empty: empty means "not known yet" and replaces what was stored. `app/(pages)/error.tsx` is the net for what is *not* expected.
+
+**Default dates are local, not UTC.** `toISOString()` is UTC, so from 20:00 in Venezuela it proposes tomorrow. A date field's initial value goes through `CampoFecha`, not `defaultValue={hoyLocal()}`: those forms render on the server (UTC) first, and React does not patch a differing attribute on hydration.
+
+**The quick-edit modal has two modes** (`/products?proveedor=` is only a comparison filter). Without a supplier it edits the part's cost, margin and sale price. With one it edits only that supplier's `SupplierPrice` plus the part's physical fields; the part's price, margin and landed always come from the air lane on 99rpm's base price (`reprice`), and are recomputed only if weight or dimensions changed. `compatibleModelsFrom` keeps any model label the picker cannot represent, so saving a part never erases them.
 
 ### Pages
 

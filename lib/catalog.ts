@@ -45,18 +45,24 @@ export function whereModel(model?: string) {
 //    tres motos pegadas, que no matchea nada al filtrar.
 //  - categories: las categorías (nameEs del ensamble, ej "Swing Arm") — SCOPEADAS al
 //    modelo si se pasa uno, para que Categoría muestre solo las de ese modelo (cascada).
-export async function getCatalogFilters(model?: string): Promise<{ models: MotoModelInfo[]; categories: string[] }> {
+export async function getCatalogFilters(
+  model?: string,
+  { categorias = true }: { categorias?: boolean } = {},
+): Promise<{ models: MotoModelInfo[]; categories: string[] }> {
   const [modelRows, catRows] = await Promise.all([
     db.product.findMany({
       where: { isAssembly: true, compatibleModels: { not: null } },
       distinct: ['compatibleModels'],
       select: { compatibleModels: true },
     }),
-    db.product.findMany({
-      where: { isAssembly: true, ...whereModel(model) },
-      distinct: ['nameEs'],
-      select: { nameEs: true },
-    }),
+    // /products ya no filtra por categoría: se ahorra la consulta.
+    categorias
+      ? db.product.findMany({
+          where: { isAssembly: true, ...whereModel(model) },
+          distinct: ['nameEs'],
+          select: { nameEs: true },
+        })
+      : Promise.resolve([] as { nameEs: string }[]),
   ])
   // Las etiquetas presentes se resuelven contra la tabla de motos: lo que no matchea es
   // texto viejo o mal escrito y no puede ser una opción del dropdown, porque al elegirla

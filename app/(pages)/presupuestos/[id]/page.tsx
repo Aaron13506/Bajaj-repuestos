@@ -18,6 +18,7 @@ import { stageSummary, shippingStatusMeta, SHIPPING_STATUSES } from '@/lib/shipp
 import { modeloLabel, type MotoModelId, toModelIds } from '@/lib/modelo'
 import { pedidoLogistics } from '@/lib/pedido-logistics'
 import { toConfigMap } from '@/lib/config'
+import { motivoNoEliminable } from '@/lib/pedido-eliminable'
 
 export default async function PresupuestoDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const id = parseInt((await params).id)
@@ -40,6 +41,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
           },
           orderBy: { id: 'asc' },
         },
+        _count: { select: { movimientos: true } },
       },
     }),
     db.config.findMany(),
@@ -58,6 +60,8 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
 
   const isPropio = presupuesto.tipo === 'propio'
   const isPresupuesto = presupuesto.status === 'presupuesto'
+  // Un pedido con cobros, compras o piezas en una caja no se borra (ver motivoNoEliminable).
+  const noEliminable = motivoNoEliminable({ ...presupuesto, movimientos: presupuesto._count.movimientos })
   const terminos = await getTerminos(presupuesto.status)
   // Peso y volumen: solo en el stock propio. En un presupuesto de cliente el flete ya
   // está adentro del precio y el dato no le dice nada a nadie; en lo mío es la pregunta
@@ -270,10 +274,16 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
             Para proveedor
           </Link>
           <PresupuestoPdfButton fileName={fileName} data={pdfData} />
-          <DeleteButton
-            action={deletePresupuesto.bind(null, id)}
-            confirmMessage={`¿Eliminar ${isPropio ? 'stock propio' : isPresupuesto ? 'presupuesto' : 'pedido'} de "${presupuesto.clientName}"?`}
-          />
+          {noEliminable ? (
+            <span className="text-sm text-gray-400 cursor-help select-none" title={noEliminable}>
+              🔒 No se puede eliminar
+            </span>
+          ) : (
+            <DeleteButton
+              action={deletePresupuesto.bind(null, id)}
+              confirmMessage={`¿Eliminar ${isPropio ? 'stock propio' : isPresupuesto ? 'presupuesto' : 'pedido'} de "${presupuesto.clientName}"?`}
+            />
+          )}
         </div>
       </div>
 

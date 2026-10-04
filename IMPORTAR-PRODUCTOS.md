@@ -11,15 +11,26 @@ extraiga los datos de una página (99rpm, Boodmo, etc.).
 
 ## Reglas generales
 
-- **Margen:** NO lo pongas en el JSON. El margen se aplica internamente y es fijo en **40%**.
+- **Margen:** NO lo pongas en el JSON. Si no lo mandás, se aplica el **margen por defecto** de
+  `/config` (`default_margin_pct`, hoy 40%); luego se ajusta por producto.
 - **Stock:** NO hace falta. Entra siempre en `0` y se ajusta después desde la ficha.
 - **Precio:** tampoco hace falta normalmente. Se calcula solo a partir de
-  `priceInr` + `weightGrams` (+ dimensiones) y el margen del 40%.
+  `priceInr` + `weightGrams` (+ dimensiones) y el margen por defecto.
   - Si querés forzar un precio de venta, podés mandar `price` (en USD) y ese gana.
   - Si una pieza no tiene `priceInr` ni `price`, se crea igual con **precio $0** para
     completarlo luego.
 - **Cada pieza se crea por separado:** si una falla (ej. le falta `nameEs`), las demás
   igual se importan. Al final la página te muestra qué piezas fallaron y por qué.
+- **Lo que ya existe no se duplica.** Una pieza se reconoce por `bajajCode` (también por su
+  **código alterno**: Bajaj publica muchas piezas con dos números y el catálogo guarda uno).
+  Si ya está, se **enlaza** al ensamble en vez de crearse de nuevo, y la moto del JSON se
+  **suma** a sus motos compatibles. Sus datos (precio, peso, medidas) **no se pisan**.
+  La misma pieza repetida en varios subgrupos del JSON es una sola fila. Un ensamble se
+  reconoce por **nombre + motos**, así que reimportar el mismo JSON no lo duplica. Si los dos
+  códigos de una pieza corresponden a filas distintas del catálogo, se avisa y no se toca.
+- **Peso y medidas pasan por el chequeo físico** (el mismo de la carga con IA): una densidad
+  imposible —más que el acero, o menos que el telgopor— o un valor en 0 **no se guarda**. La
+  pieza se crea igual, sin peso ni medidas, y la página te lo avisa para que lo cargues bien.
 - Los números pueden venir como número o como texto (`"450"`, `"₹450"` → `450`).
 
 ---

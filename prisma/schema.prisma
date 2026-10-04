@@ -112,10 +112,11 @@ model Config {
 model Supplier {
   id          Int             @id @default(autoincrement())
   name        String          @unique
-  // País de origen: define por qué ruta física entra lo que se le compra. 'india' pasa
-  // por Shoppre; 'china' va directo al consolidador de USA. Es un hecho fijo del
-  // proveedor (no del producto: el mismo SKU puede comprarse en los dos lados), y de
-  // acá lo hereda PedidoItem.origen al momento de comprar. Ver lib/shipping-status.ts.
+  // País donde está la mercancía ('india' | 'china'). NO decide la ruta ni el costeo del
+  // tramo a USA: eso lo decide `inbound` (abajo), porque un proveedor indio puede despachar
+  // directo sin pasar por Shoppre (Garuda). Es un hecho fijo del proveedor (no del producto:
+  // el mismo SKU puede comprarse en los dos lados), y de acá lo hereda PedidoItem.origen al
+  // momento de comprar. Ver lib/inbound.ts y lib/shipping-status.ts.
   origen      String          @default("india")
   // CÓMO llega a USA lo que se le compra. Es un eje DISTINTO de `origen`, y hubo que
   // separarlo porque `origen` estaba haciendo dos trabajos a la vez: dónde está la
@@ -192,9 +193,9 @@ model Envio {
   notas            String?
   // Cadena logística con la que se costeó ESTA caja: 'aereo' (India → USA en avión →
   // Venezuela) o 'maritimo_cbm' (India → Venezuela directo, tarifa por m³ + FOB fijo).
-  // Es un SNAPSHOT tomado al crear el envío desde el modo global activo (ver lib/modo.ts):
-  // alternar el switch no debe re-costear una caja que ya viajó. Las filas anteriores a
-  // los modos quedan en 'aereo', que es exactamente como se costearon.
+  // Se elige al crear el envío y no cambia después: re-costear una caja que ya viajó con
+  // otra cadena sería inventar un costo. No hay modo global (ver lib/modo.ts). Las filas
+  // anteriores a los modos quedan en 'aereo', que es exactamente como se costearon.
   modo             String       @default("aereo")
   // 'borrador'   = todavía se está llenando (solo marítimo: se arma pieza por pieza).
   // 'confirmado' = cerrado, ya viaja. Las cajas anteriores a los borradores nacen acá,

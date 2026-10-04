@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
 import { quickUpdateProduct } from '@/app/(pages)/products/actions'
+import { ERROR_GENERICO } from '@/components/useEnviarAccion'
 
 export interface QuickEditValues {
   id: number
@@ -42,8 +43,14 @@ interface Props {
   /** Clases del botón disparador (para adaptarlo a la lista o al ensamble) */
   triggerClassName?: string
   triggerLabel?: string
-  /** Llamado al guardar con los valores nuevos, para un update optimista en el padre. */
-  onOptimistic?: (values: QuickEditValues) => void
+  /**
+   * Llamado al guardar con los valores nuevos, para un update optimista en el padre. Con esta
+   * prop el modal se cierra al instante; si el guardado falla se vuelve a llamar con `null`
+   * (el padre tiene que soltar el valor que pintó) y se avisa por `onError`.
+   */
+  onOptimistic?: (values: QuickEditValues | null) => void
+  /** Por qué no se guardó, cuando el modal ya se cerró por el camino optimista. */
+  onError?: (mensaje: string) => void
   /**
    * Cuántas unidades de esta pieza usa el ensamble desde el que se abrió el editor
    * (ProductComponent.quantity de ese enlace puntual). priceInr/weightGrams SIEMPRE se
@@ -65,7 +72,7 @@ interface Props {
    */
 }
 
-export default function QuickEditProduct({ product, cfg, triggerClassName, triggerLabel = 'Editar', onOptimistic, packQty, activeSupplierId }: Props) {
+export default function QuickEditProduct({ product, cfg, triggerClassName, triggerLabel = 'Editar', onOptimistic, onError, packQty, activeSupplierId }: Props) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -77,14 +84,15 @@ export default function QuickEditProduct({ product, cfg, triggerClassName, trigg
       >
         {triggerLabel}
       </button>
-      {open && <EditModal product={product} cfg={cfg} onClose={() => setOpen(false)} onOptimistic={onOptimistic} packQty={packQty} activeSupplierId={activeSupplierId} />}
+      {open && <EditModal product={product} cfg={cfg} onClose={() => setOpen(false)} onOptimistic={onOptimistic} onError={onError} packQty={packQty} activeSupplierId={activeSupplierId} />}
     </>
   )
 }
 
-function EditModal({ product: d, cfg, onClose, onOptimistic, packQty, activeSupplierId }: { product: QuickEditValues; cfg: ConfigMap; onClose: () => void; onOptimistic?: (values: QuickEditValues) => void; packQty?: number; activeSupplierId?: number | null }) {
+function EditModal({ product: d, cfg, onClose, onOptimistic, onError, packQty, activeSupplierId }: { product: QuickEditValues; cfg: ConfigMap; onClose: () => void; onOptimistic?: (values: QuickEditValues | null) => void; onError?: (mensaje: string) => void; packQty?: number; activeSupplierId?: number | null }) {
   const router = useRouter()
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   // Precio fijo: si está activo, la recarga de medidas no pisa este precio.
   const [locked, setLocked] = useState(d.priceLocked ?? false)
 
@@ -124,6 +132,10 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty, activeSupp
   const landedRef   = useRef<HTMLInputElement>(null)
   const marginRef   = useRef<HTMLInputElement>(null)
   const priceRef    = useRef<HTMLInputElement>(null)
+  // El landed SIN redondear. El campo solo muestra 2 decimales, y calcular margen o precio
+  // desde lo que muestra era el error: con landed 2.7349 mostrado como 2.73, escribir un
+  // precio de $4 guardaba un margen que después daba $4.01 al recomponer el precio.
+  const landedExacto = useRef<number | null>(initialLanded)
 
   function computeLanded(landedOverride?: boolean): number | null {
     const num = (r: React.RefObject<HTMLInputElement | null>) => {
@@ -145,6 +157,7 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty, activeSupp
 
   function recalcFromCost() {
     const landed = computeLanded()
+    landedExacto.current = landed
     if (landedRef.current) landedRef.current.value = landed != null ? landed.toFixed(2) : ''
     recalcPriceFromLanded(landed)
   }
@@ -152,6 +165,7 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty, activeSupp
   function handleLandedToggle(checked: boolean) {
     setIsLanded(checked)
     const landed = computeLanded(checked)
+    landedExacto.current = landed
     if (landedRef.current) landedRef.current.value = landed != null ? landed.toFixed(2) : ''
     recalcPriceFromLanded(landed)
   }
@@ -172,7 +186,7 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty, activeSupp
   }
 
   function recalcFromMargin() {
-    const landed = parseFloat(landedRef.current?.value ?? '')
+    const landed = landedExacto.current ?? NaN
     const margin = parseFloat(marginRef.current?.value ?? '')
     if (!isNaN(landed) && !isNaN(margin) && margin < 100 && priceRef.current) {
       priceRef.current.value = (landed / (1 - margin / 100)).toFixed(2)
@@ -182,11 +196,12 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty, activeSupp
   function recalcFromPrice() {
     // Escribir un precio a mano lo marca como fijo (no se pisa al recalcular).
     setLocked(true)
-    const landed = parseFloat(landedRef.current?.value ?? '')
+    const landed = landedExacto.current ?? NaN
     const price  = parseFloat(priceRef.current?.value ?? '')
     if (!isNaN(landed) && !isNaN(price) && price > 0 && marginRef.current) {
-      // Margen con precisión suficiente para que el precio fijo cuadre al recalcular.
-      marginRef.current.value = String(+((1 - landed / price) * 100).toFixed(4))
+      // Margen con precisión de sobra: el precio escrito es el que manda, y el margen es
+      // solo su consecuencia — que no se pueda recomponer con unos decimales de más.
+      marginRef.current.value = String(+((1 - landed / price) * 100).toFixed(6))
     }
   }
 
@@ -194,10 +209,13 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty, activeSupp
     e.preventDefault()
     if (saving) return
     setSaving(true)
+    setError(null)
     const fd = new FormData(e.currentTarget)
 
     // Update optimista: pintamos los valores nuevos en la fila al instante y
-    // cerramos el modal, sin esperar el round-trip a la DB remota.
+    // cerramos el modal, sin esperar el round-trip a la DB remota. Solo cuando el padre
+    // sabe pintar y soltar el valor (`onOptimistic`); sin eso, cerrar antes de guardar
+    // dejaba un modal que desaparecía sin decir si había funcionado.
     const fdStr   = (k: string) => (fd.get(k) as string)?.trim() ?? ''
     const fdInt   = (k: string) => { const v = fdStr(k); return v ? parseInt(v) : null }
     const fdFloat = (k: string) => { const v = fdStr(k); return v ? parseFloat(v) : null }
@@ -214,15 +232,36 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty, activeSupp
       dimL:             fdFloat('dimL'),
       dimA:             fdFloat('dimA'),
       dimH:             fdFloat('dimH'),
-      margin:           fdStr('margin') ? parseFloat(fdStr('margin')) / 100 : null,
-      price:            parseFloat(fdStr('price')),
-      priceLocked:      locked,
+      // En modo proveedor el formulario no trae margen ni precio de venta (no se editan
+      // desde ahí), así que se conservan los de la pieza.
+      margin:           isSupplierMode ? d.margin : (fdStr('margin') ? parseFloat(fdStr('margin')) / 100 : null),
+      price:            isSupplierMode ? d.price : parseFloat(fdStr('price')),
+      priceLocked:      isSupplierMode ? (d.priceLocked ?? false) : locked,
       stock:            fdInt('stock') ?? 0,
     })
-    onClose()
+    if (onOptimistic) onClose()
 
-    await quickUpdateProduct(d.id, activeSupplierId ?? null, fd)
-    router.refresh()
+    let motivo: string | null = null
+    try {
+      const r = await quickUpdateProduct(d.id, activeSupplierId ?? null, fd)
+      if (!r.ok) motivo = r.error
+    } catch {
+      motivo = ERROR_GENERICO
+    }
+
+    if (motivo == null) {
+      if (!onOptimistic) onClose()
+      router.refresh()
+      return
+    }
+    // No se guardó: la fila no puede quedarse mostrando un valor que no existe.
+    if (onOptimistic) {
+      onOptimistic(null)
+      onError?.(motivo)
+    } else {
+      setError(motivo)
+      setSaving(false)
+    }
   }
 
   const input = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
@@ -300,22 +339,35 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty, activeSupp
                 </div>
               )}
               <div>
-                <label className={label}>Costo landed</label>
+                <label className={label} title={isSupplierMode ? 'Costo puesto en Venezuela por barco con este proveedor. Es solo para comparar: no se guarda en la pieza' : undefined}>
+                  {isSupplierMode ? 'Landed 🚢 (referencia)' : 'Costo landed'}
+                </label>
                 <input ref={landedRef} name="landedCostUsd" type="number" readOnly tabIndex={-1}
                   defaultValue={initialLanded != null ? initialLanded.toFixed(2) : ''}
                   className="w-full border border-gray-200 bg-gray-50 text-gray-600 rounded-lg px-3 py-2 text-sm cursor-not-allowed" />
               </div>
-              <div>
-                <label className={label}>Margen (%)</label>
-                <input ref={marginRef} name="margin" type="number" min="0" max="99" step="any"
-                  defaultValue={d.margin != null ? +(d.margin * 100).toFixed(4) : ''} onChange={recalcFromMargin} className={input} />
-              </div>
-              <div>
-                <label className={label}>Precio venta (USD) <span className="text-red-500">*</span></label>
-                <input ref={priceRef} name="price" type="number" min="0" step="0.01" required
-                  defaultValue={d.price} onChange={recalcFromPrice} className={input} />
-              </div>
+              {!isSupplierMode && (
+                <>
+                  <div>
+                    <label className={label}>Margen (%)</label>
+                    <input ref={marginRef} name="margin" type="number" min="0" max="99" step="any"
+                      defaultValue={d.margin != null ? +(d.margin * 100).toFixed(6) : ''} onChange={recalcFromMargin} className={input} />
+                  </div>
+                  <div>
+                    <label className={label}>Precio venta (USD) <span className="text-red-500">*</span></label>
+                    <input ref={priceRef} name="price" type="number" min="0" step="0.01" required
+                      defaultValue={d.price} onChange={recalcFromPrice} className={input} />
+                  </div>
+                </>
+              )}
             </div>
+            {isSupplierMode && (
+              <p className="text-xs text-gray-500">
+                Precio de venta de la pieza: <span className="font-mono text-gray-700">${d.price.toFixed(2)}</span>
+                {d.margin != null && <> · margen <span className="font-mono text-gray-700">{+(d.margin * 100).toFixed(1)}%</span></>}
+                . Sale del aéreo con 99rpm y no cambia con el precio de un proveedor; se edita sin proveedor seleccionado.
+              </p>
+            )}
             {hasPack && (
               <p className="text-xs text-gray-500">
                 {isSupplierMode ? (
@@ -333,6 +385,7 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty, activeSupp
             )}
 
             {/* Precio fijo */}
+            {!isSupplierMode && (
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -346,6 +399,7 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty, activeSupp
                 Precio fijo — no recalcular al cargar medidas/costos (el margen se ajusta solo)
               </span>
             </label>
+            )}
 
             {/* Físico */}
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
@@ -371,6 +425,7 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty, activeSupp
               </div>
               <div>
                 <label className={label}>Stock</label>
+                <input type="hidden" name="stockCargado" value={d.stock} />
                 <input name="stock" type="number" min="0" defaultValue={d.stock} className={input} />
               </div>
             </div>
@@ -381,9 +436,15 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, packQty, activeSupp
               </p>
             )}
             <p className="text-xs text-gray-400">
-              El costo landed se calcula solo desde INR + peso. El precio sale del margen (o ajustá el precio y el margen se recalcula).
+              {isSupplierMode
+                ? 'Peso y medidas son de la pieza, no del proveedor: si los cambiás se recalcula su costo y su precio de venta por el aéreo.'
+                : 'El costo landed se calcula solo desde INR + peso. El precio sale del margen (o ajustá el precio y el margen se recalcula).'}
             </p>
           </div>
+
+          {error && (
+            <p role="alert" className="px-6 pb-3 text-xs text-red-600">{error}</p>
+          )}
 
           <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-gray-100">
             <Link href={`/products/${d.id}/edit`} className="text-xs text-gray-500 hover:text-gray-700">

@@ -1,6 +1,9 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState } from 'react'
+import CampoFecha from '@/components/CampoFecha'
+import { useEnviarAccion } from '@/components/useEnviarAccion'
+import type { ActionResult } from '@/lib/action-result'
 
 interface Categoria {
   value: string
@@ -24,7 +27,7 @@ interface Supplier {
 }
 
 interface Props {
-  action: (formData: FormData) => Promise<void>
+  action: (formData: FormData) => Promise<ActionResult>
   categoriasIngreso: Categoria[]
   categoriasEgreso: Categoria[]
   metodosIngreso: readonly string[]
@@ -50,25 +53,17 @@ export default function MovimientoForm({
   suppliers,
 }: Props) {
   const [categoria, setCategoria] = useState(categoriasIngreso[0]?.value ?? '')
-  const [isPending, startTransition] = useTransition()
-  const today = new Date().toISOString().slice(0, 10)
+  const { enviar, isPending, error } = useEnviarAccion(action, form => {
+    form.reset()
+    setCategoria(categoriasIngreso[0]?.value ?? '')
+  })
 
   const esEgreso = categoriasEgreso.some(c => c.value === categoria)
   const metodos = esEgreso ? metodosEgreso : metodosIngreso
 
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    const fd = new FormData(e.currentTarget)
-    startTransition(async () => {
-      await action(fd)
-      ;(e.currentTarget as HTMLFormElement).reset()
-      setCategoria(categoriasIngreso[0]?.value ?? '')
-    })
-  }
-
   return (
     <form
-      onSubmit={handleSubmit}
+      onSubmit={enviar}
       className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8 flex flex-wrap items-end gap-3"
     >
       <div>
@@ -100,8 +95,8 @@ export default function MovimientoForm({
       </div>
       <div>
         <label className="block text-sm font-medium text-gray-800 mb-1">Fecha</label>
-        <input
-          type="date" name="fecha" defaultValue={today}
+        <CampoFecha
+          name="fecha"
           className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         />
       </div>
@@ -164,6 +159,9 @@ export default function MovimientoForm({
       >
         {isPending ? 'Guardando…' : '+ Movimiento'}
       </button>
+      {error && (
+        <p role="alert" className="basis-full text-xs text-red-600">{error}</p>
+      )}
     </form>
   )
 }

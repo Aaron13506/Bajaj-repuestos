@@ -1,9 +1,11 @@
 'use client'
 
 import { useState, useRef, useTransition } from 'react'
+import type { ActionResult } from '@/lib/action-result'
+import CampoFecha from '@/components/CampoFecha'
 
 interface Props {
-  action: (formData: FormData) => Promise<void>
+  action: (formData: FormData) => Promise<ActionResult>
   methods: readonly string[]
   /** Monto sugerido (50% del total) al aprobar por primera vez. */
   suggestedDeposit: number
@@ -27,17 +29,30 @@ export default function AprobarPedidoForm({
 }: Props) {
   const [open, setOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+  const enVuelo = useRef(false)
   const formRef = useRef<HTMLFormElement>(null)
 
-  const today = new Date().toISOString().slice(0, 10)
   const defaultDeposit = initialDeposit ?? suggestedDeposit
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (enVuelo.current) return
     const fd = new FormData(e.currentTarget)
+    enVuelo.current = true
+    setError(null)
     startTransition(async () => {
-      await action(fd)
-      setOpen(false)
+      try {
+        const r = await action(fd)
+        // Solo se cierra si se guardó: un rechazo (p. ej. dejar vacío el adelanto de un
+        // pedido que ya cobró) tiene que quedar a la vista, no desaparecer con el modal.
+        if (r.ok) setOpen(false)
+        else setError(r.error)
+      } catch {
+        setError('No se pudo guardar. Revisá tu conexión y probá de nuevo.')
+      } finally {
+        enVuelo.current = false
+      }
     })
   }
 
@@ -106,13 +121,18 @@ export default function AprobarPedidoForm({
 
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Fecha</label>
-          <input
-            type="date"
+          <CampoFecha
             name="depositAt"
-            defaultValue={initialDate ?? today}
+            defaultValue={initialDate ?? undefined}
             className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
+
+        {error && (
+          <p role="alert" className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            {error}
+          </p>
+        )}
 
         <div className="flex items-center gap-2 pt-1">
           <button

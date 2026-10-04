@@ -1,9 +1,13 @@
 'use client'
 
 import { useTransition } from 'react'
+import type { ActionResult } from '@/lib/action-result'
 
 interface DeleteButtonProps {
-  action: () => Promise<void>
+  // Si devuelve `{ ok: false, error }`, el motivo se le muestra al usuario. Un `throw` en el
+  // server llega a producción sin su texto, así que las acciones de borrado que pueden
+  // negarse por una regla del negocio devuelven el resultado en vez de tirarlo.
+  action: () => Promise<void | ActionResult>
   confirmMessage?: string
   // Para acciones destructivas que no son "eliminar" (ej. deshacer una compra).
   label?: string
@@ -19,9 +23,15 @@ export default function DeleteButton({
   const [isPending, startTransition] = useTransition()
 
   function handleClick() {
-    if (confirm(confirmMessage)) {
-      startTransition(() => action())
-    }
+    if (!confirm(confirmMessage)) return
+    startTransition(async () => {
+      try {
+        const r = await action()
+        if (r && !r.ok) alert(r.error)
+      } catch {
+        alert('No se pudo completar la acción. Probá de nuevo.')
+      }
+    })
   }
 
   return (
@@ -30,7 +40,7 @@ export default function DeleteButton({
       disabled={isPending}
       className="text-red-600 hover:text-red-800 disabled:opacity-40 text-sm font-medium"
     >
-      {isPending ? 'Eliminando...' : 'Eliminar'}
+      {isPending ? pendingLabel : label}
     </button>
   )
 }

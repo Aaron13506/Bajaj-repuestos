@@ -204,7 +204,7 @@ function malConfigurado(): NextResponse {
   )
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   if (MAL_CONFIGURADO) return malConfigurado()
 
   const ahora = Date.now()

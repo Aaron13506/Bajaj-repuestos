@@ -1,6 +1,6 @@
 'use client'
 
-import { useTransition } from 'react'
+import { useAccionDirecta } from '@/components/useEnviarAccion'
 import { cambiarProveedor } from '@/app/(pages)/envios/linea-actions'
 
 // Proveedor de ESTE embarque. Vive en la caja y no en el sidebar porque es un dato de la
@@ -19,7 +19,7 @@ interface Props {
 export default function SelectorProveedorEmbarque({
   envioId, supplierId, suppliers, fobEfectivoUsd, editable,
 }: Props) {
-  const [pending, startTransition] = useTransition()
+  const { pending, error, ejecutar } = useAccionDirecta()
   const actual = suppliers.find(s => s.id === supplierId)
 
   if (!editable) {
@@ -41,7 +41,7 @@ export default function SelectorProveedorEmbarque({
         disabled={pending}
         onChange={e => {
           const v = e.target.value
-          startTransition(() => { cambiarProveedor(envioId, v === '' ? null : parseInt(v)) })
+          ejecutar(() => cambiarProveedor(envioId, v === '' ? null : parseInt(v)))
         }}
         className="bg-white border border-gray-300 rounded-full px-2 py-0.5 text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
         title="Define el precio de cada pieza y el FOB de este embarque"
@@ -54,6 +54,9 @@ export default function SelectorProveedorEmbarque({
         ))}
       </select>
       <span className="text-gray-500 pr-1.5">FOB ${fobEfectivoUsd.toFixed(0)}</span>
+      {error && (
+        <span role="alert" className="text-red-600 pr-1.5">{error}</span>
+      )}
     </span>
   )
 }

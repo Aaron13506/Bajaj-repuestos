@@ -2,6 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import { searchProductsForPicker } from '@/app/(pages)/products/[id]/component-actions'
+import PendingButton from '@/components/PendingButton'
+import FormConResultado from '@/components/FormConResultado'
+import type { ActionResult } from '@/lib/action-result'
 
 interface Product {
   id: number
@@ -11,29 +14,32 @@ interface Product {
 
 interface Props {
   childId: number
-  action: (childId: number, formData: FormData) => Promise<void>
+  action: (childId: number, formData: FormData) => Promise<ActionResult>
 }
 
 export default function AddToAssemblyForm({ childId, action }: Props) {
   const [search, setSearch] = useState('')
-  const [filtered, setFiltered] = useState<Product[]>([])
+  const [found, setFound] = useState<Product[]>([])
+  const q = search.trim()
+  // Con el término corto no hay resultados: se deriva al renderizar en vez de vaciar el
+  // estado desde el efecto.
+  const filtered = q.length < 2 ? [] : found
 
   // Búsqueda de ensambles contra la DB (debounce 250ms); no se cargan todos.
   useEffect(() => {
-    const q = search.trim()
-    if (q.length < 2) { setFiltered([]); return }
+    if (q.length < 2) return
     let cancelled = false
     const t = setTimeout(async () => {
       const rows = await searchProductsForPicker(q, childId, true)
-      if (!cancelled) setFiltered(rows)
+      if (!cancelled) setFound(rows)
     }, 250)
     return () => { cancelled = true; clearTimeout(t) }
-  }, [search, childId])
+  }, [q, childId])
 
   const bound = action.bind(null, childId)
 
   return (
-    <form action={bound} className="bg-gray-50 rounded-lg border border-gray-200 p-4 space-y-3 mt-3">
+    <FormConResultado action={bound} className="bg-gray-50 rounded-lg border border-gray-200 p-4 space-y-3 mt-3">
       <p className="text-sm font-medium text-gray-700">Agregar a un ensamble</p>
 
       <div>
@@ -78,12 +84,11 @@ export default function AddToAssemblyForm({ childId, action }: Props) {
         </div>
       </div>
 
-      <button
-        type="submit"
+      <PendingButton
         className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors"
       >
         + Agregar a ensamble
-      </button>
-    </form>
+      </PendingButton>
+    </FormConResultado>
   )
 }

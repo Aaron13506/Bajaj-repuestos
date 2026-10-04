@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState, useEffect, useMemo, useState, useTransition } from 'react'
+import { useActionState, useMemo, useState, useTransition } from 'react'
 import { useFormStatus } from 'react-dom'
 import { resolverLista, cargarPedido, type ListaResuelta } from '@/app/(pages)/simular/actions'
 import {
@@ -122,11 +122,14 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
     setDetalleId(undefined)
   }
 
-  // La lista pegada llega por useActionState, así que se adopta cuando cambia.
-  useEffect(() => {
+  // La lista pegada llega por useActionState, así que se adopta cuando cambia. Se compara
+  // al renderizar contra la última adoptada (el patrón de React para derivar estado de una
+  // prop) en vez de un efecto, que pintaba primero la canasta vieja y re-renderizaba.
+  const [listaAdoptada, setListaAdoptada] = useState(lista)
+  if (lista !== listaAdoptada) {
+    setListaAdoptada(lista)
     if (lista.lineas.length > 0 || lista.errores.length > 0) adoptar(lista)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lista])
+  }
 
   function elegirPedido(id: number) {
     setPedidoId(id)

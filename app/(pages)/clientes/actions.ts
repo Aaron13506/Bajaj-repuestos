@@ -3,10 +3,11 @@
 import { db } from '@/lib/db'
 import { redirect } from 'next/navigation'
 import { findOrCreateCliente, isUniqueViolation, revalidateClientes } from '@/lib/clientes'
+import { fallo, ok, type ActionResult } from '@/lib/action-result'
 
-export async function createCliente(formData: FormData) {
+export async function createCliente(formData: FormData): Promise<ActionResult> {
   const nombre = (formData.get('nombre') as string)?.trim()
-  if (!nombre) return
+  if (!nombre) return fallo('Escribí el nombre del cliente.')
   const telefono = (formData.get('telefono') as string)?.trim() || null
 
   const { cliente, created } = await findOrCreateCliente(nombre, telefono)
@@ -14,11 +15,12 @@ export async function createCliente(formData: FormData) {
   // Si ya existía no se crea un duplicado, pero hay que decirlo: antes el form se
   // limpiaba y parecía que había agregado algo.
   if (!created) redirect(`/clientes?existe=${cliente.id}`)
+  return ok()
 }
 
-export async function updateCliente(id: number, formData: FormData) {
+export async function updateCliente(id: number, formData: FormData): Promise<ActionResult> {
   const nombre = (formData.get('nombre') as string)?.trim()
-  if (!nombre) return
+  if (!nombre) return fallo('Escribí el nombre del cliente.')
   const telefono = (formData.get('telefono') as string)?.trim() || null
   const notas = (formData.get('notas') as string)?.trim() || null
 

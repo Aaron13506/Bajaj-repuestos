@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client'
+import { isUniqueViolation } from '@/lib/prisma-errors'
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
 
@@ -6,9 +7,7 @@ import { db } from '@/lib/db'
 // puede caerse, así que no debe inflar el total vendido ni el saldo del cliente.
 export const VENTA_STATUS = 'pedido'
 
-export function isUniqueViolation(e: unknown): boolean {
-  return e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002'
-}
+export { isUniqueViolation }
 
 // Busca por nombre ignorando mayúsculas. El @unique de Postgres SÍ distingue
 // mayúsculas, así que pueden convivir "Andry" y "andry" (heredados de datos viejos):

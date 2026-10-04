@@ -1,5 +1,7 @@
 'use client'
 import ModelPicker from '@/components/ModelPicker'
+import FormConResultado from '@/components/FormConResultado'
+import type { ActionResult } from '@/lib/action-result'
 
 import Link from 'next/link'
 import { useRef, useState } from 'react'
@@ -34,7 +36,7 @@ interface ProductFormValues {
 }
 
 interface Props {
-  action: (formData: FormData) => Promise<void>
+  action: (formData: FormData) => Promise<ActionResult>
   groups?: Group[]
   defaultValues?: ProductFormValues
   submitLabel: string
@@ -126,7 +128,7 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
     : groups
 
   return (
-    <form action={action} className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-6">
+    <FormConResultado action={action} className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-6">
 
       {/* Tipo */}
       <section>
@@ -301,6 +303,7 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Stock</label>
+            <input type="hidden" name="stockCargado" value={d.stock ?? 0} />
             <input name="stock" type="number" min="0" defaultValue={d.stock ?? 0}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
           </div>
@@ -313,6 +316,6 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
         </Link>
         <SubmitButton label={submitLabel} />
       </div>
-    </form>
+    </FormConResultado>
   )
 }

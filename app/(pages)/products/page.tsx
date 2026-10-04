@@ -1,6 +1,6 @@
 import { db } from '@/lib/db'
 import Link from 'next/link'
-import ProductRow from '@/components/ProductRow'
+import ProductRow, { type EnsambleDePieza } from '@/components/ProductRow'
 import { costHeaders } from '@/lib/cost-columns'
 import CatalogFilters from '@/components/CatalogFilters'
 import { getCatalogFilters, whereModel } from '@/lib/catalog'
@@ -13,7 +13,6 @@ import { toInt } from '@/lib/parse'
 interface SearchParams {
   search?: string
   model?: string
-  category?: string
   page?: string
   lowStock?: string
   /** Contra qué proveedor comparar la columna 🚢. Es un filtro de ESTA pantalla, no un
@@ -21,11 +20,32 @@ interface SearchParams {
   proveedor?: string
 }
 
+/** Los ensambles de una pieza, uno por ensamble aunque la pieza esté en varios de sus grupos. */
+function ensamblesDe(filas: { groupName: string; quantity: number; parent: { id: number; nameEs: string; bajajCode: string | null; compatibleModels: string | null } }[]): EnsambleDePieza[] {
+  const porId = new Map<number, EnsambleDePieza>()
+  for (const f of filas) {
+    const previo = porId.get(f.parent.id)
+    if (previo) {
+      if (f.groupName && !previo.grupos.includes(f.groupName)) previo.grupos.push(f.groupName)
+      continue
+    }
+    porId.set(f.parent.id, {
+      id: f.parent.id,
+      nameEs: f.parent.nameEs,
+      bajajCode: f.parent.bajajCode,
+      // Dos ensambles "Spark Plugs" se distinguen solo por la moto: sin ella la lista no sirve.
+      models: toModelIds(f.parent.compatibleModels),
+      grupos: f.groupName ? [f.groupName] : [],
+      quantity: f.quantity,
+    })
+  }
+  return [...porId.values()]
+}
+
 export default async function ProductsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const sp = await searchParams
   const search = sp.search ?? ''
   const model = sp.model ?? ''
-  const category = sp.category ?? ''
   const onlyLowStock = sp.lowStock === '1'
   // `parseInt('abc')` da NaN y NaN sobrevive a Math.max, así que entraba como
   // `skip: NaN` y Prisma tiraba: un 500 servible desde la barra de direcciones.
@@ -47,11 +67,10 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
         ]
       } : {},
       whereModel(model),
-      category ? { nameEs: { equals: category, mode: 'insensitive' as const } } : {},
       onlyLowStock ? { stock: { lt: 5 } } : {},
-      // Catálogo: ensambles + piezas sueltas (no incluidas en ningún ensamble).
-      // Las piezas de un ensamble se ven desplegando el ensamble (dropdown en la fila).
-      { OR: [{ isAssembly: true }, { assemblies: { none: {} } }] },
+      // Solo piezas: los ensambles ya tienen su pantalla (/groups). Cada pieza aparece
+      // directamente, esté o no dentro de un ensamble, y la fila dice a cuáles pertenece.
+      { isAssembly: false },
     ],
   }
 
@@ -65,16 +84,21 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
       take: limit,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       include: {
-        _count: { select: { components: true } },
-        components: {
-          orderBy: [{ groupName: 'asc' }, { sortOrder: 'asc' }],
-          include: { child: true },
+        // Un mismo hijo puede estar en varios grupos de un mismo ensamble (la unicidad es
+        // parentId+childId+groupName): se colapsa por ensamble más abajo.
+        assemblies: {
+          orderBy: { parent: { nameEs: 'asc' } },
+          select: {
+            groupName: true,
+            quantity: true,
+            parent: { select: { id: true, nameEs: true, bajajCode: true, compatibleModels: true } },
+          },
         },
       },
     }),
     db.product.count({ where }),
     db.config.findMany(),
-    getCatalogFilters(model),
+    getCatalogFilters(model, { categorias: false }),
     getSupplierPriceMap(compararContra),
     // Va dentro de la tanda: quedaba colgando después del Promise.all y era, sola, un
     // viaje entero a us-west-2 sin que nada dependiera de ella.
@@ -90,7 +114,6 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
     const params = new URLSearchParams()
     if (search) params.set('search', search)
     if (model) params.set('model', model)
-    if (category) params.set('category', category)
     if (onlyLowStock) params.set('lowStock', '1')
     if (compararContra != null) params.set('proveedor', String(compararContra))
     params.set('page', String(p))
@@ -124,12 +147,11 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
         </div>
       </div>
 
-      {/* Filtros: Modelo → Categoría (cascada) + buscador + stock bajo */}
+      {/* Filtros: modelo + buscador (nombre, SKU o moto) + stock bajo */}
       <CatalogFilters
         basePath="/products"
         models={filters.models}
-        categories={filters.categories}
-        current={{ model, category, search, lowStock: onlyLowStock }}
+        current={{ model, search, lowStock: onlyLowStock }}
         showLowStock
         suppliers={suppliers}
         currentSupplierId={compararContra}
@@ -184,29 +206,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                     priceLocked: product.priceLocked,
                     descontinuada: product.discontinuedAt != null,
                     stock: product.stock,
-                    isAssembly: product.isAssembly,
-                    componentsCount: product._count.components,
-                    components: product.components.map((pc) => ({
-                      id: pc.child.id,
-                      quantity: pc.quantity,
-                      groupName: pc.groupName,
-                      nameEs: pc.child.nameEs,
-                      nameEn: pc.child.nameEn,
-                      bajajCode: pc.child.bajajCode,
-                      models: toModelIds(pc.child.compatibleModels),
-                      priceInr: pc.child.priceInr,
-                      priceUsd: priceMap.get(pc.child.id)?.priceUsd ?? null,
-                      priceIsLanded: priceMap.get(pc.child.id)?.isLanded ?? false,
-                      weightGrams: pc.child.weightGrams,
-                      dimL: pc.child.dimL,
-                      dimA: pc.child.dimA,
-                      dimH: pc.child.dimH,
-                      margin: pc.child.margin,
-                      price: parseFloat(pc.child.price.toString()),
-                      priceLocked: pc.child.priceLocked,
-                      descontinuada: pc.child.discontinuedAt != null,
-                      stock: pc.child.stock,
-                    })),
+                    assemblies: ensamblesDe(product.assemblies),
                   }}
                 />
               ))}

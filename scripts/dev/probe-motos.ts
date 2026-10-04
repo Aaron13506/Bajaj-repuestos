@@ -1,5 +1,5 @@
-import { db } from '../lib/db'
-import { parseModelos, modelosDistintos } from '../lib/modelos'
+import { db } from '../../lib/db'
+import { parseModelos, modelosDistintos } from '../../lib/modelos'
 
 async function main() {
   const asms = await db.product.findMany({

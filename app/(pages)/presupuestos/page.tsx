@@ -4,10 +4,11 @@ import DeleteButton from '@/components/DeleteButton'
 import { deletePresupuesto } from './actions'
 import { stageSummary } from '@/lib/shipping-status'
 import { pedidoLogistics } from '@/lib/pedido-logistics'
+import { motivoNoEliminable } from '@/lib/pedido-eliminable'
 
 export default async function PresupuestosPage() {
   const todos = await db.pedido.findMany({
-    include: { items: true },
+    include: { items: true, _count: { select: { movimientos: true } } },
     orderBy: { createdAt: 'desc' },
   })
 
@@ -32,6 +33,8 @@ export default async function PresupuestosPage() {
     const saldo = depositUsd != null ? total - depositUsd : null
     const compra = stageSummary(p.items)
     const log = isPropio ? logPropios.get(p.id) : undefined
+    // Un pedido con cobros, compras o piezas en una caja no se borra (ver motivoNoEliminable).
+    const noEliminable = motivoNoEliminable({ ...p, movimientos: p._count.movimientos })
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-4 flex items-center justify-between">
         <div>
@@ -94,10 +97,14 @@ export default async function PresupuestosPage() {
           <Link href={`/presupuestos/${p.id}`} className="text-sm text-blue-600 hover:text-blue-800">
             Ver
           </Link>
-          <DeleteButton
-            action={deletePresupuesto.bind(null, p.id)}
-            confirmMessage={`¿Eliminar ${isPropio ? 'stock propio' : isPresupuesto ? 'presupuesto' : 'pedido'} de "${p.clientName}"?`}
-          />
+          {noEliminable ? (
+            <span className="text-sm text-gray-300 cursor-help select-none" title={noEliminable}>🔒</span>
+          ) : (
+            <DeleteButton
+              action={deletePresupuesto.bind(null, p.id)}
+              confirmMessage={`¿Eliminar ${isPropio ? 'stock propio' : isPresupuesto ? 'presupuesto' : 'pedido'} de "${p.clientName}"?`}
+            />
+          )}
         </div>
       </div>
     )

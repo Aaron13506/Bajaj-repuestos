@@ -1,9 +1,9 @@
 // Valor por piezas de cada moto: recorre los ensambles de cada modelo, expande sus
 // componentes (con anidamiento) y suma el costo de origen de cada pieza por cantidad.
-import { db } from '../lib/db'
-import { calcLanded } from '../lib/calc'
-import { parseModelos, modelosDistintos } from '../lib/modelos'
-import { sortModels } from '../lib/catalog'
+import { db } from '../../lib/db'
+import { calcLanded } from '../../lib/calc'
+import { parseModelos, modelosDistintos } from '../../lib/modelos'
+import { sortModels } from '../../lib/catalog'
 
 interface Nodo {
   id: number

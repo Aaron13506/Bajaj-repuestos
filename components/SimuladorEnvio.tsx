@@ -200,12 +200,17 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
   // Se costean SIEMPRE los dos escenarios, no solo el activo: la pregunta del simulador no
   // es "cuánto sale por mar" sino "¿me conviene el mar sobre el aéreo, para esta caja?".
   //
-  // Las deps son `itemsKey` y no `items` a propósito, y por eso el linter avisa acá: `items`
-  // se arma inline y es un array nuevo en cada render, así que ponerlo en las deps haría
-  // que el memo no acierte nunca. La clave serializada determina el contenido por completo.
+  // Las deps son `itemsKey` y no `items` a propósito: `items` se arma inline y es un array
+  // nuevo en cada render, así que ponerlo en las deps haría que el memo no acierte nunca.
+  // La clave serializada determina el contenido por completo (solo números, textos,
+  // booleanos y nulls), así que no hay riesgo de memo desactualizado. Por eso el
+  // `eslint-disable` de cada línea.
   const itemsKey = JSON.stringify(items)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const calcAereo    = useMemo(() => calcEnvio(items, cfg, { modo: 'aereo' }),    [itemsKey, cfg])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const calcMaritimo = useMemo(() => calcEnvio(items, cfg, { modo: 'maritimo' }), [itemsKey, cfg])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const calcCbm      = useMemo(() => calcEnvio(items, cfg, { modo: 'maritimo_cbm' }), [itemsKey, cfg])
 
   const esCbm = modo === 'maritimo_cbm'

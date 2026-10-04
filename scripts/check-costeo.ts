@@ -16,13 +16,18 @@
 //   pnpm check:costeo
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { calcEnvio, type ConfigMap, type EnvioItemInput, type ProveedorEnvio } from '../lib/calc'
+import { calcEnvio, calcLanded, calcPrecioBcv, type ConfigMap, type EnvioItemInput, type ProveedorEnvio } from '../lib/calc'
 import {
   compararCompra, MONTOS_VACIOS,
   type MontosProveedor, type PiezaCompra, type ProveedorOpcion,
 } from '../lib/comparar-compra'
 import { parseListaSkus } from '../lib/lista-skus'
 import { cotizarTramoAereo, capacidadCajaKg } from '../lib/shipping-rates'
+import { repartirEnCentavos } from '../lib/reparto-compra'
+import { motivoNoEliminable, type PedidoBorrable } from '../lib/pedido-eliminable'
+import { motivoProveedorEnUso } from '../lib/proveedor-en-uso'
+import { motivoProductoEnUso } from '../lib/producto-en-uso'
+import { compatibleModelsFrom } from '../lib/modelo'
 
 const cfg: ConfigMap = {
   inr_usd_rate: '94.95',
@@ -348,6 +353,108 @@ check('el renglón sin código queda a la vista', leida.sinCodigo.length, 1)
 const plano = parseListaSkus('JR161036 x2\nJS121064 4')
 check('también lee texto plano', plano.lineas.length, 2)
 check('y le saca la cantidad', plano.lineas[0]?.qty ?? 0, 2)
+
+// ── Reparto de una compra ───────────────────────────────────────────────────
+// Lo pagado de verdad es el único número real: lo repartido tiene que sumarlo AL CENTAVO.
+// Redondear cada parte por separado no lo garantiza (3 × 3.33 = 9.99) y la diferencia es
+// plata en el libro sin ninguna línea que la explique.
+console.log('\nREPARTO DE UNA COMPRA')
+const centavos = (xs: number[]) => Math.round(xs.reduce((s, x) => s + x, 0) * 100)
+const tresIguales = repartirEnCentavos(10, [1, 1, 1])
+check('tres partes iguales de $10 suman $10.00', centavos(tresIguales), 1000)
+check('y ninguna se aparta más de un centavo', Math.max(...tresIguales) - Math.min(...tresIguales), 0.01, 0.0001)
+const desigual = repartirEnCentavos(100, [3, 1])
+check('el reparto es proporcional al estimado (75)', desigual[0], 75)
+check('y (25)', desigual[1], 25)
+const sinPesos = repartirEnCentavos(9, [0, 0, 0])
+check('sin estimado en ninguna, a partes iguales', sinPesos[0], 3)
+const diminuto = repartirEnCentavos(0.05, Array(10).fill(1))
+check('$0.05 entre diez suma $0.05', centavos(diminuto), 5)
+check('sin ninguna parte negativa', Math.min(...diminuto) >= 0 ? 1 : 0, 1)
+// Barrido: muchas formas de lista, siempre exacto y nunca negativo.
+let malos = 0
+for (let n = 1; n <= 40; n++) {
+  for (const monto of [0.01, 1, 17.77, 99.99, 1234.56]) {
+    const pesos = Array.from({ length: n }, (_, i) => ((i * 7919) % 13) + (i % 3 === 0 ? 0 : 0.37))
+    const r = repartirEnCentavos(monto, pesos)
+    if (centavos(r) !== Math.round(monto * 100) || r.some(x => x < 0)) malos++
+  }
+}
+check('200 combinaciones: siempre exacto y nunca negativo', malos, 0)
+
+// ── Qué se puede borrar ─────────────────────────────────────────────────────
+console.log('\nBORRADOS QUE ROMPEN HISTORIA')
+const limpio: PedidoBorrable = {
+  tipo: 'cliente', status: 'presupuesto', depositUsd: null, movimientos: 0,
+  items: [{ envioId: null, shippingStatus: 'pendiente', costRealUsd: null }],
+}
+const bloqueado = (p: PedidoBorrable) => (motivoNoEliminable(p) != null ? 1 : 0)
+check('un presupuesto sin historia se puede borrar', bloqueado(limpio), 0)
+check('un pedido confirmado de cliente no', bloqueado({ ...limpio, status: 'pedido' }), 1)
+check('con plata cobrada no', bloqueado({ ...limpio, depositUsd: 150 }), 1)
+check('con movimientos en el libro no', bloqueado({ ...limpio, movimientos: 2 }), 1)
+check('con una pieza en una caja no', bloqueado({ ...limpio, items: [{ envioId: 4, shippingStatus: 'pendiente', costRealUsd: null }] }), 1)
+check('con una pieza ya comprada no', bloqueado({ ...limpio, items: [{ envioId: null, shippingStatus: 'camino_shoppre', costRealUsd: null }] }), 1)
+check('con un costo real cargado no', bloqueado({ ...limpio, items: [{ envioId: null, shippingStatus: 'pendiente', costRealUsd: 12.5 }] }), 1)
+check('stock propio sin historia sí (nace como pedido)', bloqueado({ ...limpio, tipo: 'propio', status: 'pedido' }), 0)
+check('stock propio con una pieza entregada no', bloqueado({ ...limpio, tipo: 'propio', status: 'pedido', items: [{ envioId: 1, shippingStatus: 'entregado', costRealUsd: null }] }), 1)
+const enUso = (u: { envios: number; pedidoItems: number; movimientos: number }) => (motivoProveedorEnUso(u) != null ? 1 : 0)
+check('un proveedor sin historia se puede borrar', enUso({ envios: 0, pedidoItems: 0, movimientos: 0 }), 0)
+check('con una caja no', enUso({ envios: 1, pedidoItems: 0, movimientos: 0 }), 1)
+check('con líneas de pedido no', enUso({ envios: 0, pedidoItems: 3, movimientos: 0 }), 1)
+check('con pagos en el libro no', enUso({ envios: 0, pedidoItems: 0, movimientos: 1 }), 1)
+
+const prodEnUso = (u: { pedidoItems: number; envioLineas: number; ensambles: number }) => (motivoProductoEnUso(u) != null ? 1 : 0)
+check('un producto sin uso se puede borrar', prodEnUso({ pedidoItems: 0, envioLineas: 0, ensambles: 0 }), 0)
+check('en una línea de pedido no', prodEnUso({ pedidoItems: 2, envioLineas: 0, ensambles: 0 }), 1)
+check('en un embarque marítimo no', prodEnUso({ pedidoItems: 0, envioLineas: 1, ensambles: 0 }), 1)
+check('como componente de un ensamble no', prodEnUso({ pedidoItems: 0, envioLineas: 0, ensambles: 1 }), 1)
+
+// ── Motos compatibles: editar no borra lo que el selector no sabe mostrar ───
+console.log('\nMOTOS COMPATIBLES AL EDITAR')
+const N250 = 'PULSAR_N250_DUAL_ABS_2022_23'
+const N250_LABEL = 'Pulsar N250 Dual ABS 2022 23'
+const DESCONOCIDA = 'Moto Que Aun No Esta En La Tabla'
+const conExtra = `${N250_LABEL}, ${DESCONOCIDA}`
+check('conserva una etiqueta desconocida al guardar sin tocar las motos',
+  compatibleModelsFrom([N250], conExtra) === conExtra ? 1 : 0, 1)
+check('quitar una moto de la tabla la saca, y la desconocida queda',
+  compatibleModelsFrom([], conExtra) === DESCONOCIDA ? 1 : 0, 1)
+check('agregar una moto de la tabla conserva la desconocida',
+  compatibleModelsFrom([N250, 'PULSAR_N160_DUAL_ABS_2022_23'], DESCONOCIDA)
+    === `Pulsar N160 Dual ABS 2022 23, ${N250_LABEL}, ${DESCONOCIDA}` ? 1 : 0, 1) // orden de catálogo: por cilindrada
+check('sin motos y sin nada previo queda null', compatibleModelsFrom([], null) === null ? 1 : 0, 1)
+check('un valor que no es id del enum se ignora', compatibleModelsFrom(['cualquier cosa'], null) === null ? 1 : 0, 1)
+
+// ── Precio de venta y precio BCV: los números "redondos" tienen que seguir redondos ───
+console.log('\nPRECIO FIJO Y PRECIO BCV')
+{
+  const r2 = (n: number) => Math.round(n * 100) / 100
+  // 1) Con la brecha de cada escalón, el BCV cotizado vuelve EXACTO al precio al aplicarle el
+  //    descuento de la brecha, para TODO precio en centavos (no solo 4, 5, 10).
+  let malos = 0
+  const ejemplos: string[] = []
+  for (const brecha of [2, 8, 9.8, 12, 17, 24, 30, 45]) {
+    const cfgB: ConfigMap = { bcv_usd_rate: '100', bcv_brecha_pct: String(brecha) }
+    for (let cent = 1; cent <= 100000; cent++) {
+      const precio = cent / 100
+      const b = calcPrecioBcv(precio, cfgB)!
+      const vuelve = r2(b.priceUsdBcv * (1 - b.brechaEscalonPct / 100))
+      if (vuelve !== precio) { malos++; if (ejemplos.length < 3) ejemplos.push(`${precio}@${brecha}% → ${b.priceUsdBcv} → ${vuelve}`) }
+    }
+  }
+  check('el BCV con el descuento aplicado vuelve al precio exacto (8 brechas × 100000 precios)', malos, 0)
+  if (ejemplos.length) console.log('   ' + ejemplos.join(' | '))
+
+  // 2) Un precio fijo manda: no se recompone desde landed y margen.
+  const cfgP: ConfigMap = { inr_usd_rate: '95', bcv_usd_rate: '100', bcv_brecha_pct: '9', default_margin_pct: '33' }
+  const base = { priceInr: 260, weightGrams: 120, dimL: 10, dimA: 8, dimH: 6, margin: 0.3163 }
+  const sinFijo = calcLanded(base, cfgP, 'aereo')!
+  const conFijo = calcLanded({ ...base, precioFijo: 4 }, cfgP, 'aereo')!
+  check('con precio fijo, priceUsd es exactamente el escrito', conFijo.priceUsd ?? -1, 4)
+  check('con precio fijo, el BCV sale de ese precio (brecha 9 → escalón 10%: 4 / 0.90 = 4.44)', conFijo.priceBcv?.priceUsdBcv ?? -1, 4.44)
+  check('sin precio fijo se sigue derivando del margen', Math.abs((sinFijo.priceUsd ?? 0) - sinFijo.landedCostUsd / (1 - 0.3163)) < 1e-9 ? 1 : 0, 1)
+}
 
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)
 process.exit(fallos === 0 ? 0 : 1)

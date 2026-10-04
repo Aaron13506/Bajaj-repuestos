@@ -6,8 +6,9 @@ import { shortModel, type MotoModelInfo } from '@/lib/modelo'
 interface Props {
   basePath: string          // '/groups' o '/products'
   models: readonly MotoModelInfo[]  // las 15 motos (el valor del filtro es el id del enum)
-  categories: string[]      // categorías ya scopeadas al modelo actual
-  current: { model: string; category: string; search: string; lowStock?: boolean }
+  /** Categorías ya scopeadas al modelo actual. Sin esto no hay campo de categoría. */
+  categories?: string[]
+  current: { model: string; category?: string; search: string; lowStock?: boolean }
   showLowStock?: boolean
   searchPlaceholder?: string
   /** Proveedores para comparar la columna 🚢. Solo lo pasa /products. */
@@ -86,18 +87,22 @@ export default function CatalogFilters({
       </select>
 
       {/* Categoría — scopeada al modelo actual */}
-      <input
-        name="category"
-        defaultValue={current.category}
-        list="catalog-categories"
-        placeholder={current.model ? 'Categoría de este modelo...' : 'Categoría (Swing Arm...)'}
-        className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-56"
-      />
-      <datalist id="catalog-categories">
-        {categories.map((c) => (
-          <option key={c} value={c} />
-        ))}
-      </datalist>
+      {categories && (
+        <>
+          <input
+            name="category"
+            defaultValue={current.category}
+            list="catalog-categories"
+            placeholder={current.model ? 'Categoría de este modelo...' : 'Categoría (Swing Arm...)'}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-56"
+          />
+          <datalist id="catalog-categories">
+            {categories.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
+        </>
+      )}
 
       <input
         name="search"

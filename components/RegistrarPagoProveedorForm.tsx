@@ -1,9 +1,12 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState } from 'react'
+import CampoFecha from '@/components/CampoFecha'
+import { useEnviarAccion } from '@/components/useEnviarAccion'
+import type { ActionResult } from '@/lib/action-result'
 
 interface Props {
-  action: (formData: FormData) => Promise<void>
+  action: (formData: FormData) => Promise<ActionResult>
   methods: readonly string[]
 }
 
@@ -19,22 +22,12 @@ const CATEGORIAS = [
 // lo FACTURADO (tramoUsd, comisiones) — esos siguen siendo el form de al lado.
 export default function RegistrarPagoProveedorForm({ action, methods }: Props) {
   const [open, setOpen] = useState(false)
-  const [isPending, startTransition] = useTransition()
-  const today = new Date().toISOString().slice(0, 10)
-
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    const fd = new FormData(e.currentTarget)
-    startTransition(async () => {
-      await action(fd)
-      setOpen(false)
-    })
-  }
+  const { enviar, isPending, error, limpiarError } = useEnviarAccion(action, () => setOpen(false))
 
   if (!open) {
     return (
       <button
-        onClick={() => setOpen(true)}
+        onClick={() => { limpiarError(); setOpen(true) }}
         className="px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
       >
         + Registrar pago a proveedor
@@ -45,7 +38,7 @@ export default function RegistrarPagoProveedorForm({ action, methods }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 overflow-y-auto" onClick={() => setOpen(false)}>
       <form
-        onSubmit={handleSubmit}
+        onSubmit={enviar}
         onClick={e => e.stopPropagation()}
         className="mt-24 w-80 bg-white rounded-xl shadow-xl border border-gray-200 p-4 space-y-3 text-left"
       >
@@ -78,13 +71,17 @@ export default function RegistrarPagoProveedorForm({ action, methods }: Props) {
 
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Fecha</label>
-          <input type="date" name="fecha" defaultValue={today} className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+          <CampoFecha name="fecha" className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
         </div>
 
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Nota (opcional)</label>
           <input type="text" name="descripcion" className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
         </div>
+
+        {error && (
+          <p role="alert" className="text-xs text-red-600">{error}</p>
+        )}
 
         <div className="flex items-center gap-2 pt-1">
           <button type="submit" disabled={isPending} className="flex-1 bg-red-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-40 transition-colors">

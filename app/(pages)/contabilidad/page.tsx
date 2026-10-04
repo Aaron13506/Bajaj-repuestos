@@ -36,7 +36,7 @@ interface Props {
 }
 
 export default async function ContabilidadPage({ searchParams }: Props) {
-  const [cfgRows, inventario, enCamino, porPagar, pendientesCosto, pedidosConfirmados, envios, suppliers] =
+  const [cfgRows, inventario, enCamino, cuentas, pendientesCosto, pedidosConfirmados, envios, suppliers] =
     await Promise.all([
       db.config.findMany(),
       valorInventario(),
@@ -101,6 +101,8 @@ export default async function ContabilidadPage({ searchParams }: Props) {
     .sort((a, b) => b.falta - a.falta)
 
   const totalPorCobrar = porCobrar.reduce((s, p) => s + p.falta, 0)
+  const porPagar = cuentas.pendientes
+  const sobrepagadas = cuentas.sobrepagadas
   const totalPorPagar = porPagar.reduce((s, e) => s + Math.max(0, e.pendiente), 0)
 
   return (
@@ -177,7 +179,12 @@ export default async function ContabilidadPage({ searchParams }: Props) {
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
           <p className="text-xs text-gray-400 mb-1">Por pagar</p>
           <p className="text-2xl font-bold font-mono text-amber-700">{usd(totalPorPagar)}</p>
-          <p className="text-[11px] text-gray-400 mt-1">{porPagar.length} cajas con pendiente</p>
+          <p className="text-[11px] text-gray-400 mt-1">
+            {porPagar.length} cajas con pendiente
+            {sobrepagadas.length > 0 && (
+              <span className="text-red-600"> · {sobrepagadas.length} sobrepagada{sobrepagadas.length === 1 ? '' : 's'}</span>
+            )}
+          </p>
         </div>
       </div>
 
@@ -234,6 +241,32 @@ export default async function ContabilidadPage({ searchParams }: Props) {
                 ))}
               </tbody>
             </table>
+          )}
+          {/* Pagado de más: no es "cero por pagar", es plata que salió y no figura debida.
+              Puede ser un pago repetido, un costo real mal cargado o un flete anotado como
+              pago al proveedor. Se muestra aparte para que no desaparezca del listado. */}
+          {sobrepagadas.length > 0 && (
+            <div className="border-t border-red-100 bg-red-50/40">
+              <p className="text-xs font-semibold text-red-700 px-5 pt-3">Pagado de más</p>
+              <table className="w-full text-sm">
+                <tbody className="divide-y divide-red-50">
+                  {sobrepagadas.map(e => (
+                    <tr key={e.envioId}>
+                      <td className="px-5 py-2.5">
+                        <Link href={`/envios/${e.envioId}`} className="text-blue-600 hover:underline">
+                          {e.nombre ?? `Envío #${e.envioId}`}
+                        </Link>
+                        <span className="text-xs text-gray-400 ml-1">· {e.supplierName}</span>
+                      </td>
+                      <td className="px-5 py-2.5 text-right font-mono text-red-700">+{usd(-e.pendiente)}</td>
+                      <td className="px-5 py-2.5 text-right text-xs text-gray-400">
+                        {usd(e.pagado)} pagado de {usd(e.debido)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       </div>

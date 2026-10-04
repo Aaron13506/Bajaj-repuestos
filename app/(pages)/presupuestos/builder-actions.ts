@@ -49,10 +49,9 @@ export async function getAssemblyComponents(assemblyId: number) {
 // (Shoppre + seguro + tramo Miami→CCS) y no con la marítima — el m³ y el FOB son del otro
 // carril, el de la mercancía propia, que vive en el embarque.
 //
-// El precio de origen es SIEMPRE el de 99rpm (`priceInr`): es el único distribuidor que
-// llega al mínimo de Shoppre, así que ningún proveedor alternativo puede surtir un pedido
-// por avión. El selector de proveedor del sidebar no aplica acá — es para los embarques
-// marítimos, donde sí se le compra a quien convenga.
+// El precio de origen es SIEMPRE el de 99rpm (`priceInr`): es la base con la que se fija el
+// precio de venta. Con qué proveedor se compra de verdad cada línea se decide después, al
+// armar la caja (ver /envios y /simular).
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface CarritoLineaInput {

@@ -1,6 +1,7 @@
 'use client'
 
-import { Fragment, useState, useTransition } from 'react'
+import { Fragment, useState } from 'react'
+import { useAccionDirecta } from '@/components/useEnviarAccion'
 import CopiarJson from '@/components/CopiarJson'
 import { embarqueAJson, type LineaFuente } from '@/lib/export-embarque'
 import type { OpcionProveedor } from '@/lib/comparar-proveedores'
@@ -38,7 +39,7 @@ export default function CompararProveedores({
   /** Nombre del embarque, para el JSON que se copia. */
   embarque: string
 }) {
-  const [pending, startTransition] = useTransition()
+  const { pending, error, ejecutar } = useAccionDirecta()
   // Una fila abierta a la vez: dos listas de faltantes abiertas no se comparan entre sí
   // (son de proveedores distintos), solo empujan la tabla hacia abajo.
   const [abierta, setAbierta] = useState<string | null>(null)
@@ -169,7 +170,7 @@ export default function CompararProveedores({
                         <button
                           type="button"
                           disabled={pending}
-                          onClick={() => startTransition(() => { cambiarProveedor(envioId, o.supplierId) })}
+                          onClick={() => ejecutar(() => cambiarProveedor(envioId, o.supplierId))}
                           className="text-xs text-blue-600 hover:text-blue-800 font-medium disabled:opacity-40"
                         >
                           Usar este
@@ -230,6 +231,10 @@ export default function CompararProveedores({
           </tbody>
         </table>
       </div>
+
+      {error && (
+        <p role="alert" className="text-xs text-red-600">{error}</p>
+      )}
 
       <p className="text-xs text-gray-400">
         El flete puede diferir entre proveedores: el que cotiza puesto en Venezuela no manda esa pieza en el

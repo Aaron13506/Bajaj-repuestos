@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Fragment, useOptimistic, useState, useTransition } from 'react'
+import { Fragment, useOptimistic, useRef, useState, useTransition } from 'react'
 import {
   SHIPPING_STATUSES,
   routeFor,
@@ -124,6 +124,10 @@ export default function EnvioItemsTable({
   const [guardando, startGuardar] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [guardadoOk, setGuardadoOk] = useState(false)
+  // `guardando` recién se ve en el render siguiente: dos cambios seguidos antes de eso pasarían
+  // los dos. Con el candado en un ref el segundo se descarta en el momento. (El servidor igual
+  // no suma el stock dos veces: ver saveItemChanges.)
+  const enVuelo = useRef(false)
 
   // Valores efectivos: lo editado localmente gana sobre lo que vino del servidor.
   const valorDe = (it: EnvioItemRow) => editado[it.id] ?? { shippingStatus: it.shippingStatus }
@@ -136,6 +140,7 @@ export default function EnvioItemsTable({
 
   function aplicar(cambios: CambioItem[]) {
     if (cambios.length === 0) return
+    enVuelo.current = true
     setError(null)
     setGuardadoOk(false)
     startGuardar(async () => {
@@ -151,6 +156,8 @@ export default function EnvioItemsTable({
           return copia
         })
         setError('No se pudo guardar. Revisá la conexión y probá de nuevo.')
+      } finally {
+        enVuelo.current = false
       }
     })
   }
@@ -158,6 +165,9 @@ export default function EnvioItemsTable({
   // Aplica un patch a un conjunto de filas: pinta primero, guarda después. Sirve igual
   // para un select suelto (una fila) que para la cabecera (todas las del presupuesto).
   function aplicarA(filas: EnvioItemRow[], patch: { shippingStatus: string }) {
+    // Con un guardado en vuelo no se pinta ni se manda nada: pintar sin guardar dejaría la
+    // fila mostrando un estado que el servidor nunca recibió.
+    if (enVuelo.current) return
     const cambios: CambioItem[] = []
     const parche: Record<number, { shippingStatus: string }> = {}
 
@@ -344,6 +354,7 @@ export default function EnvioItemsTable({
                   <td className="px-3 py-2 text-right font-mono text-xs text-gray-500">{usd(ventaGrupo)}</td>
                   <td className="px-3 py-2">
                     <select
+                      disabled={guardando}
                       value={statusComun === undefined ? MIXTO : statusComun}
                       onChange={e => {
                         if (e.target.value === MIXTO) return
@@ -424,6 +435,7 @@ export default function EnvioItemsTable({
                       <td className="px-3 py-3 text-right font-mono text-gray-700">{usd(it.venta)}</td>
                       <td className="px-3 py-3">
                         <select
+                          disabled={guardando}
                           value={v.shippingStatus}
                           onChange={e => aplicarA([it], { shippingStatus: e.target.value })}
                           className={`w-full text-xs font-semibold rounded-full pl-2.5 pr-6 py-1 border-0 cursor-pointer focus:ring-2 focus:ring-blue-500 ${shippingStatusMeta(v.shippingStatus).badge}`}

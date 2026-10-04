@@ -2,6 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import { searchProductsForPicker } from '@/app/(pages)/products/[id]/component-actions'
+import PendingButton from '@/components/PendingButton'
+import FormConResultado from '@/components/FormConResultado'
+import type { ActionResult } from '@/lib/action-result'
 
 interface Product {
   id: number
@@ -12,29 +15,32 @@ interface Product {
 interface Props {
   parentId: number
   existingGroups: string[]
-  action: (parentId: number, formData: FormData) => Promise<void>
+  action: (parentId: number, formData: FormData) => Promise<ActionResult>
 }
 
 export default function AddComponentForm({ parentId, existingGroups, action }: Props) {
   const [search, setSearch] = useState('')
-  const [filtered, setFiltered] = useState<Product[]>([])
+  const [found, setFound] = useState<Product[]>([])
+  const q = search.trim()
+  // Con el término corto no hay resultados: se deriva al renderizar en vez de vaciar el
+  // estado desde el efecto.
+  const filtered = q.length < 2 ? [] : found
 
   // Búsqueda contra la DB (debounce 250ms); no se cargan todos los productos.
   useEffect(() => {
-    const q = search.trim()
-    if (q.length < 2) { setFiltered([]); return }
+    if (q.length < 2) return
     let cancelled = false
     const t = setTimeout(async () => {
       const rows = await searchProductsForPicker(q, parentId)
-      if (!cancelled) setFiltered(rows)
+      if (!cancelled) setFound(rows)
     }, 250)
     return () => { cancelled = true; clearTimeout(t) }
-  }, [search, parentId])
+  }, [q, parentId])
 
   const bound = action.bind(null, parentId)
 
   return (
-    <form action={bound} className="bg-gray-50 rounded-lg border border-gray-200 p-4 space-y-3">
+    <FormConResultado action={bound} className="bg-gray-50 rounded-lg border border-gray-200 p-4 space-y-3">
       <p className="text-sm font-medium text-gray-700">Agregar componente</p>
 
       <div>
@@ -83,12 +89,11 @@ export default function AddComponentForm({ parentId, existingGroups, action }: P
         </div>
       </div>
 
-      <button
-        type="submit"
+      <PendingButton
         className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
       >
         + Agregar
-      </button>
-    </form>
+      </PendingButton>
+    </FormConResultado>
   )
 }

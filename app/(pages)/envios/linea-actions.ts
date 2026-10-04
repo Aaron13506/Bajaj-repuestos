@@ -6,6 +6,8 @@ import { getSupplierPriceMap } from '@/lib/suppliers'
 import { alternosDe, buscarPorAlterno } from '@/lib/alt-sku'
 import { CM3_PER_M3, type ConfigMap } from '@/lib/calc'
 import { toConfigMap } from '@/lib/config'
+import { fallo, ok, type ActionResult } from '@/lib/action-result'
+import { isForeignKeyViolation } from '@/lib/prisma-errors'
 
 // Costo de compra y MOQ de una pieza para ESTE embarque. El costo sale del proveedor de la
 // caja si tiene precio cargado para ese SKU; si no, del precio base de 99rpm en ₹
@@ -150,6 +152,7 @@ export async function sincronizarLineas(
   }
 
   revalidatePath(`/envios/${envioId}`)
+  revalidatePath('/envios')   // la lista muestra flete y landed en vivo, y esto los mueve
   return { ok: true, altas, cambios, bajas }
 }
 
@@ -213,21 +216,36 @@ export async function componentesDeEnsamble(assemblyId: number, envioId: number)
 
 // Cambia el proveedor del embarque. Solo en borrador: una vez cerrado, el proveedor es un
 // hecho de lo que ya se compró, y moverlo reescribiría el costo de una caja que ya viajó.
-export async function cambiarProveedor(envioId: number, supplierId: number | null) {
-  if (!(await esBorradorMaritimo(envioId))) return
-  await db.envio.update({ where: { id: envioId }, data: { supplierId } })
+export async function cambiarProveedor(envioId: number, supplierId: number | null): Promise<ActionResult> {
+  if (!(await esBorradorMaritimo(envioId))) return fallo('El embarque ya no está en borrador: el proveedor quedó fijo.')
+  try {
+    await db.envio.update({ where: { id: envioId }, data: { supplierId } })
+  } catch (e) {
+    // El proveedor se borró desde otra pestaña después de armar el selector.
+    if (isForeignKeyViolation(e)) return fallo('Ese proveedor ya no existe. Recargá la página.')
+    throw e
+  }
   revalidatePath(`/envios/${envioId}`)
   revalidatePath('/envios')
+  return ok()
 }
 
-// Cierra el borrador. A partir de acá el contenido queda fijo y el embarque es lo que
-// efectivamente se mandó.
-export async function cerrarEmbarque(envioId: number) {
-  if (!(await esBorradorMaritimo(envioId))) return
-  const n = await db.envioLinea.count({ where: { envioId } })
-  if (n === 0) return   // una caja vacía no se cierra: no hay embarque
+// Las transiciones de estado de un embarque (cerrar, reabrir, recibir, deshacer) NO leen el
+// estado para después escribirlo: el cambio de estado es la condición de la escritura
+// (`updateMany where estado = <el que esperaba>`). Postgres serializa dos escrituras sobre la
+// misma fila, así que si dos requests llegan a la vez (doble click, dos pestañas) la segunda
+// espera a la primera, vuelve a evaluar el `where`, ya no encuentra la fila y devuelve
+// `count: 0` — no hace nada. Con "leer y después escribir", las dos leían el estado viejo y
+// las dos corrían el efecto lateral (sumar o restar el stock).
 
-  await db.envio.update({ where: { id: envioId }, data: { estado: 'confirmado' } })
+// Cierra el borrador. A partir de acá el contenido queda fijo y el embarque es lo que
+// efectivamente se mandó. Una caja vacía no se cierra: no hay embarque.
+export async function cerrarEmbarque(envioId: number) {
+  const r = await db.envio.updateMany({
+    where: { id: envioId, modo: 'maritimo_cbm', estado: 'borrador', lineas: { some: {} } },
+    data: { estado: 'confirmado' },
+  })
+  if (r.count === 0) return
   revalidatePath(`/envios/${envioId}`)
   revalidatePath('/envios')
 }
@@ -237,31 +255,44 @@ export async function cerrarEmbarque(envioId: number) {
 // dejaría ese stock describiendo una caja que ya cambió — primero hay que deshacer la
 // recepción, que resta lo que se sumó.
 export async function reabrirEmbarque(envioId: number) {
-  const e = await db.envio.findUnique({ where: { id: envioId }, select: { modo: true, estado: true } })
-  if (e?.modo !== 'maritimo_cbm' || e.estado !== 'confirmado') return
-  await db.envio.update({ where: { id: envioId }, data: { estado: 'borrador' } })
+  const r = await db.envio.updateMany({
+    where: { id: envioId, modo: 'maritimo_cbm', estado: 'confirmado' },
+    data: { estado: 'borrador' },
+  })
+  if (r.count === 0) return
   revalidatePath(`/envios/${envioId}`)
   revalidatePath('/envios')
 }
+
+// Una transacción interactiva con la base remota paga un viaje por sentencia, y el tiempo
+// por defecto (5 s) es justo. Con tres sentencias sobra, pero se explicita por si la
+// latencia sube: que una recepción expire a medias no deja nada inconsistente (es todo una
+// transacción), solo obliga a reintentar.
+const TX_OPTS = { maxWait: 10_000, timeout: 20_000 } as const
 
 // Marca la caja como recibida: a partir de acá deja de estar "en camino" (ver
 // mercanciaEnCamino) y cada EnvioLinea se suma a Product.stock, en la misma transacción —
 // un solo dato, sin transcribirlo pieza por pieza a mano en cada producto. Sin cliente
 // detrás (es mercancía propia), "recibido" es directamente "ya está en el depósito".
+//
+// El stock se suma con UNA sentencia (UPDATE … FROM EnvioLinea) en vez de un update por
+// línea: una caja tiene decenas de piezas y cada update era un viaje a us-west-2. Es seguro
+// porque (envioId, productId) es único en EnvioLinea: cada producto recibe una sola suma.
 export async function recibirEmbarque(envioId: number) {
-  const envio = await db.envio.findUnique({
-    where: { id: envioId },
-    select: { modo: true, estado: true, lineas: { select: { productId: true, quantity: true } } },
-  })
-  if (envio?.modo !== 'maritimo_cbm' || envio.estado !== 'confirmado') return
-  if (envio.lineas.length === 0) return
+  await db.$transaction(async tx => {
+    const r = await tx.envio.updateMany({
+      where: { id: envioId, modo: 'maritimo_cbm', estado: 'confirmado', lineas: { some: {} } },
+      data: { estado: 'entregado', entregadoAt: new Date() },
+    })
+    // Otra request ya la recibió (o no está en condiciones de recibirse): no se suma nada.
+    if (r.count === 0) return
 
-  await db.$transaction([
-    ...envio.lineas.map(l =>
-      db.product.update({ where: { id: l.productId }, data: { stock: { increment: l.quantity } } })
-    ),
-    db.envio.update({ where: { id: envioId }, data: { estado: 'entregado', entregadoAt: new Date() } }),
-  ])
+    await tx.$executeRaw`
+      UPDATE "Product" AS p
+      SET "stock" = p."stock" + l."quantity", "updatedAt" = NOW()
+      FROM "EnvioLinea" AS l
+      WHERE l."envioId" = ${envioId} AND l."productId" = p."id"`
+  }, TX_OPTS)
 
   revalidatePath(`/envios/${envioId}`)
   revalidatePath('/envios')
@@ -273,19 +304,39 @@ export async function recibirEmbarque(envioId: number) {
 // El contrapeso: por si se marcó por error. Resta de stock lo que recibirEmbarque sumó y
 // vuelve la caja a 'confirmado' (no a 'borrador' — su contenido sigue siendo el que
 // efectivamente se compró; para editarlo hace falta reabrirEmbarque aparte).
+//
+// Se niega si alguna pieza ya no tiene en stock lo que esta caja le sumó: deshacer dejaría
+// el stock en negativo, o sea, afirmaría que se vendió algo que no existía. Para deshacer
+// hay que primero ajustar ese stock a mano. Tira (y la transacción entera se revierte, la
+// caja sigue 'entregado') en vez de devolver un error porque es un `action` de form.
 export async function deshacerRecepcion(envioId: number) {
-  const envio = await db.envio.findUnique({
-    where: { id: envioId },
-    select: { modo: true, estado: true, lineas: { select: { productId: true, quantity: true } } },
-  })
-  if (envio?.modo !== 'maritimo_cbm' || envio.estado !== 'entregado') return
+  await db.$transaction(async tx => {
+    const r = await tx.envio.updateMany({
+      where: { id: envioId, modo: 'maritimo_cbm', estado: 'entregado' },
+      data: { estado: 'confirmado', entregadoAt: null },
+    })
+    if (r.count === 0) return
 
-  await db.$transaction([
-    ...envio.lineas.map(l =>
-      db.product.update({ where: { id: l.productId }, data: { stock: { decrement: l.quantity } } })
-    ),
-    db.envio.update({ where: { id: envioId }, data: { estado: 'confirmado', entregadoAt: null } }),
-  ])
+    const faltantes = await tx.$queryRaw<{ nameEs: string; bajajCode: string | null }[]>`
+      SELECT p."nameEs", p."bajajCode"
+      FROM "Product" AS p
+      JOIN "EnvioLinea" AS l ON l."productId" = p."id"
+      WHERE l."envioId" = ${envioId} AND p."stock" < l."quantity"
+      LIMIT 3`
+    if (faltantes.length > 0) {
+      const lista = faltantes.map(f => f.bajajCode ?? f.nameEs).join(', ')
+      throw new Error(
+        `No se puede deshacer la recepción: ya no hay en stock lo que esta caja sumó (${lista}). ` +
+        `Se vendió o se ajustó a mano; corregí ese stock primero.`,
+      )
+    }
+
+    await tx.$executeRaw`
+      UPDATE "Product" AS p
+      SET "stock" = p."stock" - l."quantity", "updatedAt" = NOW()
+      FROM "EnvioLinea" AS l
+      WHERE l."envioId" = ${envioId} AND l."productId" = p."id"`
+  }, TX_OPTS)
 
   revalidatePath(`/envios/${envioId}`)
   revalidatePath('/envios')

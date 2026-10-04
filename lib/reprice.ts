@@ -59,7 +59,7 @@ export function reprice(p: RepriceInput, cfg: ConfigMap, defaultMargin: number):
     if (breakdown) {
       data.landedCostUsd = round2(breakdown.landedCostUsd)
       const price = Number(p.price)
-      if (price > 0) data.margin = +(1 - breakdown.landedCostUsd / price).toFixed(4)
+      if (price > 0) data.margin = +(1 - breakdown.landedCostUsd / price).toFixed(8)
     }
   } else {
     // Se persiste el margen efectivo aunque todavía no haya precio calculable, para que

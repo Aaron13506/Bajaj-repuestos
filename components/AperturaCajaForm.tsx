@@ -1,9 +1,12 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState } from 'react'
+import CampoFecha from '@/components/CampoFecha'
+import { useEnviarAccion } from '@/components/useEnviarAccion'
+import type { ActionResult } from '@/lib/action-result'
 
 interface Props {
-  action: (formData: FormData) => Promise<void>
+  action: (formData: FormData) => Promise<ActionResult>
   actual: { desde: string; saldoInicial: number } | null
 }
 
@@ -12,22 +15,12 @@ interface Props {
 // que pasa desde esa fecha.
 export default function AperturaCajaForm({ action, actual }: Props) {
   const [open, setOpen] = useState(false)
-  const [isPending, startTransition] = useTransition()
-  const today = new Date().toISOString().slice(0, 10)
-
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    const fd = new FormData(e.currentTarget)
-    startTransition(async () => {
-      await action(fd)
-      setOpen(false)
-    })
-  }
+  const { enviar, isPending, error, limpiarError } = useEnviarAccion(action, () => setOpen(false))
 
   if (!open) {
     return (
       <button
-        onClick={() => setOpen(true)}
+        onClick={() => { limpiarError(); setOpen(true) }}
         className="text-xs text-blue-600 hover:underline"
       >
         {actual ? 'Editar apertura' : '+ Declarar saldo de apertura'}
@@ -38,7 +31,7 @@ export default function AperturaCajaForm({ action, actual }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 overflow-y-auto" onClick={() => setOpen(false)}>
       <form
-        onSubmit={handleSubmit}
+        onSubmit={enviar}
         onClick={e => e.stopPropagation()}
         className="mt-24 w-96 bg-white rounded-xl shadow-xl border border-gray-200 p-4 space-y-3 text-left"
       >
@@ -50,8 +43,8 @@ export default function AperturaCajaForm({ action, actual }: Props) {
 
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Desde</label>
-          <input
-            type="date" name="desde" defaultValue={actual?.desde ?? today} required
+          <CampoFecha
+            name="desde" defaultValue={actual?.desde} required
             className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
@@ -66,6 +59,10 @@ export default function AperturaCajaForm({ action, actual }: Props) {
             />
           </div>
         </div>
+
+        {error && (
+          <p role="alert" className="text-xs text-red-600">{error}</p>
+        )}
 
         <div className="flex items-center gap-2 pt-1">
           <button type="submit" disabled={isPending} className="flex-1 bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors">

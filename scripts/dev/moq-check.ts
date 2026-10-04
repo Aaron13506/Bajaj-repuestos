@@ -1,4 +1,4 @@
-import { db } from '../lib/db'
+import { db } from '../../lib/db'
 try { process.loadEnvFile() } catch {}
 
 async function main() {

@@ -1,27 +1,31 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import DeleteButton from '@/components/DeleteButton'
 import QuickEditProduct, { type QuickEditValues } from '@/components/QuickEditProduct'
 import ChipDescontinuada from '@/components/ChipDescontinuada'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
 import { formatModels } from '@/lib/modelo'
+import { costHeaders } from '@/lib/cost-columns'
 import { deleteProduct } from '@/app/(pages)/products/actions'
 
 // Los encabezados de las columnas de costo viven en lib/cost-columns: este módulo es
 // 'use client' y las tablas que los usan se arman en el server, que no puede llamar a una
 // función exportada desde un módulo cliente. Las CELDAS que los llenan sí viven acá.
 
-export interface ComponentData extends QuickEditValues {
+/** Un ensamble al que pertenece la pieza (uno por ensamble, aunque esté en varios grupos). */
+export interface EnsambleDePieza {
+  id: number
+  nameEs: string
+  bajajCode: string | null
+  models: string[]
+  grupos: string[]
   quantity: number
-  groupName: string
 }
 
 export interface ProductRowData extends QuickEditValues {
-  isAssembly: boolean
-  componentsCount: number
-  components?: ComponentData[]
+  assemblies: EnsambleDePieza[]
 }
 
 function fmt(n: number | null | undefined, decimals = 2) {
@@ -45,7 +49,9 @@ export function CostCells({ d, cfg, quantity }: { d: QuickEditValues; cfg: Confi
   }
   // El AÉREO se cotiza siempre contra 99rpm: es el único distribuidor que llega al mínimo
   // de Shoppre, así que el precio de un proveedor alternativo no describe nada por avión.
-  const forAereo = { ...fisico, priceInr: d.priceInr, priceUsd: null, priceIsLanded: false }
+  // Con precio fijo, el precio ES el escrito: no se recompone desde el margen.
+  const precioFijo = d.priceLocked ? Number(d.price) : null
+  const forAereo = { ...fisico, priceInr: d.priceInr, priceUsd: null, priceIsLanded: false, precioFijo }
   // El MARÍTIMO sí usa el proveedor elegido: por barco se le compra a quien convenga, y
   // ahí su precio en USD es el costo real de la pieza.
   const forMar = { ...fisico, priceInr: d.priceInr, priceUsd: d.priceUsd, priceIsLanded: d.priceIsLanded }
@@ -154,21 +160,34 @@ export function CostCells({ d, cfg, quantity }: { d: QuickEditValues; cfg: Confi
   )
 }
 
+// Columnas de la tabla de /products: 4 fijas + las de costo + stock y acciones. Para que la
+// fila desplegada ocupe el ancho entero.
+const COLUMNAS = 4 + costHeaders().length + 2
+
 export default function ProductRow({ product, cfg, activeSupplierId }: { product: ProductRowData; cfg: ConfigMap; activeSupplierId: number | null }) {
   // Override optimista: al guardar mostramos los valores nuevos al instante,
   // sin esperar el round-trip a la DB remota. Se limpia cuando llegan props
   // frescas del server (router.refresh), que son la fuente autoritativa.
   const [optimistic, setOptimistic] = useState<QuickEditValues | null>(null)
+  // Por qué no se guardó la última edición. El modal ya se cerró (el guardado es optimista),
+  // así que el aviso vive en la fila hasta que se descarte o se vuelva a guardar.
+  const [errorGuardado, setErrorGuardado] = useState<string | null>(null)
 
   // Cada refresh del server crea un product nuevo → descartamos el optimista
-  // y volvemos a confiar en los datos reales.
-  useEffect(() => { setOptimistic(null) }, [product])
+  // y volvemos a confiar en los datos reales. Se compara al renderizar contra el último
+  // `product` visto (el patrón de React para derivar estado de una prop) en vez de un
+  // efecto, que pintaba un render más con el valor optimista ya vencido.
+  const [productVisto, setProductVisto] = useState(product)
+  if (product !== productVisto) {
+    setProductVisto(product)
+    setOptimistic(null)
+  }
 
   const [expanded, setExpanded] = useState(false)
 
   const d = optimistic ? { ...product, ...optimistic } : product
-  const components = product.components ?? []
-  const canExpand = product.isAssembly && components.length > 0
+  const ensambles = product.assemblies
+  const canExpand = ensambles.length > 0
 
   return (
     <>
@@ -181,7 +200,7 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
                 type="button"
                 onClick={() => setExpanded((v) => !v)}
                 aria-expanded={expanded}
-                title={expanded ? 'Ocultar piezas' : 'Ver piezas'}
+                title={expanded ? 'Ocultar ensambles' : 'Ver ensambles'}
                 className="shrink-0 text-gray-400 hover:text-gray-700 transition-transform w-4"
               >
                 <span className={`inline-block transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
@@ -194,14 +213,25 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
               {d.nameEs}
             </Link>
             <ChipDescontinuada activo={d.descontinuada} />
-            {product.isAssembly && (
-              <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
-                Ensamble{product.componentsCount > 0 ? ` · ${product.componentsCount}` : ''}
-              </span>
+            {canExpand && (
+              <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                title={ensambles.map((e) => e.nameEs).join(' · ')}
+                className="shrink-0 text-[10px] font-semibold tracking-wide text-blue-600 bg-blue-50 hover:bg-blue-100 px-1.5 py-0.5 rounded"
+              >
+                {ensambles.length === 1 ? '1 ensamble' : `${ensambles.length} ensambles`}
+              </button>
             )}
           </span>
           {d.nameEn && (
             <span className="block text-xs font-normal text-gray-400 truncate">{d.nameEn}</span>
+          )}
+          {errorGuardado && (
+            <span role="alert" className="block text-xs font-normal text-red-600 whitespace-normal">
+              No se guardó: {errorGuardado}{' '}
+              <button type="button" onClick={() => setErrorGuardado(null)} className="underline">cerrar</button>
+            </span>
           )}
         </td>
         <td className="px-4 py-3 text-xs text-gray-500 max-w-[140px] truncate" title={d.models.length ? formatModels(d.models) : undefined}>
@@ -244,58 +274,34 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
                 priceLocked: product.priceLocked,
                 stock: product.stock,
               }}
-              onOptimistic={setOptimistic}
+              onOptimistic={v => { setOptimistic(v); if (v) setErrorGuardado(null) }}
+              onError={setErrorGuardado}
             />
             <DeleteButton action={deleteProduct.bind(null, product.id)} confirmMessage={`¿Eliminar "${product.nameEs}"?`} />
           </div>
         </td>
       </tr>
 
-      {canExpand && expanded && components.map((c) => (
-        <tr key={c.id} className="bg-gray-50/60 text-xs">
-          <td className="pl-6 pr-4 py-2 font-mono text-[11px] text-gray-400">{c.bajajCode ?? '—'}</td>
-          <td className="px-4 py-2 text-gray-700 max-w-[180px] truncate">
-            <span className="flex items-center gap-1.5">
-              <span className="text-gray-300">└</span>
-              <Link
-                href={`/products/${c.id}`}
-                className={`hover:text-blue-600 transition-colors truncate ${c.descontinuada ? 'text-gray-500 line-through' : ''}`}
-              >
-                {c.nameEs}
-              </Link>
-              <ChipDescontinuada activo={c.descontinuada} />
-              {c.quantity > 1 && <span className="shrink-0 text-gray-400">×{c.quantity}</span>}
-              {c.groupName && (
-                <span className="shrink-0 text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{c.groupName}</span>
-              )}
-            </span>
-          </td>
-          <td className="px-4 py-2 text-gray-400 max-w-[140px] truncate" title={c.models.length ? formatModels(c.models) : undefined}>
-            {c.models.length ? formatModels(c.models) : '—'}
-          </td>
-          <td className="px-4 py-2 text-right text-gray-400">
-            {c.weightGrams ?? '—'}
-            {c.quantity > 1 && c.weightGrams != null && (
-              <span className="block text-gray-300">total: {c.weightGrams * c.quantity} g</span>
-            )}
-          </td>
-
-          <CostCells d={c} cfg={cfg} quantity={c.quantity}  />
-
-          <td className="px-4 py-2 text-right border-l border-gray-100">
-            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
-              c.stock === 0 ? 'bg-red-100 text-red-700'
-                : c.stock < 5 ? 'bg-yellow-100 text-yellow-700'
-                : 'bg-green-100 text-green-700'
-            }`}>
-              {c.stock}
-            </span>
-          </td>
-          <td className="px-4 py-2 text-right">
-            <Link href={`/products/${c.id}`} className="text-blue-600 hover:underline text-xs">Ver</Link>
+      {expanded && (
+        <tr className="bg-gray-50/60 text-xs">
+          <td colSpan={COLUMNAS} className="pl-10 pr-4 py-2 whitespace-normal">
+            <ul className="space-y-1">
+              {ensambles.map((e) => (
+                <li key={e.id} className="flex flex-wrap items-center gap-x-2 text-gray-700">
+                  <span className="text-gray-300">└</span>
+                  <Link href={`/products/${e.id}`} className="hover:text-blue-600 transition-colors">{e.nameEs}</Link>
+                  {e.models.length > 0 && <span className="text-gray-400">{formatModels(e.models)}</span>}
+                  {e.bajajCode && <span className="font-mono text-[11px] text-gray-400">{e.bajajCode}</span>}
+                  {e.quantity > 1 && <span className="text-gray-400">×{e.quantity}</span>}
+                  {e.grupos.map((g) => (
+                    <span key={g} className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{g}</span>
+                  ))}
+                </li>
+              ))}
+            </ul>
           </td>
         </tr>
-      ))}
+      )}
     </>
   )
 }

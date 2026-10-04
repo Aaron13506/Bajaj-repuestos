@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { setBundlePrice } from '@/app/(pages)/products/[id]/measure-actions'
+import { ERROR_GENERICO } from '@/components/useEnviarAccion'
 
 export default function BundlePriceEditor({
   assemblyId,
@@ -19,15 +20,25 @@ export default function BundlePriceEditor({
   const [price, setPrice] = useState(currentPrice > 0 ? String(currentPrice) : '')
   const [locked, setLocked] = useState(priceLocked)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (saving) return
     setSaving(true)
+    setError(null)
     const fd = new FormData(e.currentTarget)
-    await setBundlePrice(assemblyId, fd)
-    setSaving(false)
-    router.refresh()
+    // El `finally` es lo que libera el botón: sin él, una acción que tira o una red caída lo
+    // dejaban en "Guardando..." hasta recargar la página.
+    try {
+      const r = await setBundlePrice(assemblyId, fd)
+      if (r.ok) router.refresh()
+      else setError(r.error)
+    } catch {
+      setError(ERROR_GENERICO)
+    } finally {
+      setSaving(false)
+    }
   }
 
   const num = parseFloat(price)
@@ -79,6 +90,10 @@ export default function BundlePriceEditor({
           {saving ? 'Guardando...' : 'Guardar'}
         </button>
       </form>
+
+      {error && (
+        <p role="alert" className="mt-2 text-xs text-red-600">{error}</p>
+      )}
 
       <p className="mt-3 text-sm text-gray-600">
         Precio del conjunto hoy:{' '}

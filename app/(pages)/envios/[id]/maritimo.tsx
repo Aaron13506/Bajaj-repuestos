@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import { db } from '@/lib/db'
 import DeleteButton from '@/components/DeleteButton'
+import PendingButton from '@/components/PendingButton'
+import FormConResultado from '@/components/FormConResultado'
 import EmbarqueMaritimo, { type LineaEmbarque, type AssemblyOption } from '@/components/EmbarqueMaritimo'
 import MedidasIA, { type GrupoMedidas, type PiezaMedible } from '@/components/MedidasIA'
 import CompararProveedores from '@/components/CompararProveedores'
@@ -319,38 +321,44 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
         <div className="flex items-center gap-2 shrink-0">
           {esBorrador ? (
             <form action={cerrarEmbarque.bind(null, envio.id)}>
-              <button
-                type="submit"
+              <PendingButton
                 disabled={lineas.length === 0}
+                pendingLabel="Cerrando…"
                 className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors font-medium"
               >
                 Cerrar embarque
-              </button>
+              </PendingButton>
             </form>
           ) : esEntregado ? (
             <form action={deshacerRecepcion.bind(null, envio.id)}>
-              <button
-                type="submit"
+              <PendingButton
                 title="Resta de stock lo que se sumó al marcar recibido y vuelve la caja a 'Cerrado'"
+                confirmMessage="¿Deshacer la recepción? Se resta del stock todo lo que se sumó al marcarla recibida."
+                pendingLabel="Deshaciendo…"
                 className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 Deshacer recepción
-              </button>
+              </PendingButton>
             </form>
           ) : (
             <>
               <form action={recibirEmbarque.bind(null, envio.id)}>
-                <button
-                  type="submit"
+                <PendingButton
+                  confirmMessage="¿Marcar el embarque como recibido? Se suman sus piezas al stock."
+                  pendingLabel="Recibiendo…"
                   className="px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-medium"
                 >
                   Marcar recibido
-                </button>
+                </PendingButton>
               </form>
               <form action={reabrirEmbarque.bind(null, envio.id)}>
-                <button type="submit" className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+                <PendingButton
+                  confirmMessage="¿Reabrir el embarque? Vuelve a borrador y se puede editar su contenido."
+                  pendingLabel="Reabriendo…"
+                  className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                >
                   Reabrir
-                </button>
+                </PendingButton>
               </form>
             </>
           )}
@@ -482,7 +490,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
               existía y no había pantalla donde meterlo. Es la misma acción y las mismas dos
               columnas — una comisión es un concepto solo, no uno por ruta. */}
           {envio.supplierId != null && (
-            <form
+            <FormConResultado
               action={saveCostosProveedor.bind(null, envio.id)}
               className="pt-4 border-t border-gray-100 flex flex-wrap items-end gap-3"
             >
@@ -526,18 +534,17 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
                   lo que le descontaron al recibir y le completaste
                 </p>
               </div>
-              <button
-                type="submit"
+              <PendingButton
                 className="px-4 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 Guardar
-              </button>
+              </PendingButton>
               {!embarque.cargada && (
                 <p className="text-[11px] text-gray-400 basis-full">
                   Vacío no es cero: mientras falte una punta, esa parte cuenta $0 y el landed sale corto.
                 </p>
               )}
-            </form>
+            </FormConResultado>
           )}
 
           {/* Curva de dilución del FOB: es la decisión de CUÁNDO mandar. El flete escala

@@ -1,4 +1,4 @@
-import { db } from '../lib/db'
+import { db } from '../../lib/db'
 async function main() {
   const cfg = Object.fromEntries((await db.config.findMany()).map(c => [c.key, c.value]))
   console.log(cfg)

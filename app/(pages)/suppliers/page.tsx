@@ -1,13 +1,16 @@
 import { db } from '@/lib/db'
 import Link from 'next/link'
 import DeleteButton from '@/components/DeleteButton'
+import PendingButton from '@/components/PendingButton'
+import FormConResultado from '@/components/FormConResultado'
 import { INBOUNDS, inboundDe, inboundMeta } from '@/lib/inbound'
 import { createSupplier, renameSupplier, deleteSupplier } from './actions'
+import { motivoProveedorEnUso } from '@/lib/proveedor-en-uso'
 
 export default async function SuppliersPage() {
   const suppliers = await db.supplier.findMany({
     orderBy: { name: 'asc' },
-    include: { _count: { select: { prices: true } } },
+    include: { _count: { select: { prices: true, envios: true, pedidoItems: true, movimientos: true } } },
   })
 
   return (
@@ -57,7 +60,7 @@ export default async function SuppliersPage() {
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Nuevo proveedor</h2>
-        <form action={createSupplier} className="flex flex-wrap items-end gap-3">
+        <FormConResultado action={createSupplier} className="flex flex-wrap items-end gap-3">
           <label className="flex-1 min-w-[10rem]">
             <span className="block text-xs text-gray-500 mb-1">Nombre</span>
             <input
@@ -101,13 +104,12 @@ export default async function SuppliersPage() {
               className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </label>
-          <button
-            type="submit"
+          <PendingButton
             className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
           >
             Agregar
-          </button>
-        </form>
+          </PendingButton>
+        </FormConResultado>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 divide-y divide-gray-100">
@@ -122,9 +124,11 @@ export default async function SuppliersPage() {
             // el select muestra lo que el cálculo va a usar, no lo que dice la fila.
             const inbound = inboundDe(s.origen, s.inbound)
             const meta = inboundMeta(inbound)
+            // Con cajas, líneas o pagos a su nombre no se borra: ver motivoProveedorEnUso.
+            const enUso = motivoProveedorEnUso(s._count)
             return (
               <div key={s.id} className="px-6 py-4">
-                <form action={renameSupplier.bind(null, s.id)} className="flex flex-wrap items-end gap-3">
+                <FormConResultado action={renameSupplier.bind(null, s.id)} className="flex flex-wrap items-end gap-3">
                   <label className="flex-1 min-w-[10rem]">
                     <span className="block text-xs text-gray-400 mb-1">Nombre</span>
                     <input
@@ -169,13 +173,12 @@ export default async function SuppliersPage() {
                       className="w-24 border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                   </label>
-                  <button
-                    type="submit"
+                  <PendingButton
                     className="text-sm text-blue-600 hover:text-blue-800 font-medium px-2 py-1.5 shrink-0"
                   >
                     Guardar
-                  </button>
-                </form>
+                  </PendingButton>
+                </FormConResultado>
                 <div className="flex items-center gap-4 mt-2">
                   <span className="text-xs text-gray-400">
                     {s._count.prices} {s._count.prices === 1 ? 'precio' : 'precios'} cargados
@@ -191,10 +194,16 @@ export default async function SuppliersPage() {
                   >
                     Importar JSON
                   </Link>
-                  <DeleteButton
-                    action={deleteSupplier.bind(null, s.id)}
-                    confirmMessage={`¿Eliminar "${s.name}"? Se borran también todos sus precios cargados.`}
-                  />
+                  {enUso ? (
+                    <span className="text-xs text-gray-400 max-w-xs text-right" title={enUso}>
+                      🔒 {enUso}
+                    </span>
+                  ) : (
+                    <DeleteButton
+                      action={deleteSupplier.bind(null, s.id)}
+                      confirmMessage={`¿Eliminar "${s.name}"? Se borran también todos sus precios cargados.`}
+                    />
+                  )}
                 </div>
               </div>
             )

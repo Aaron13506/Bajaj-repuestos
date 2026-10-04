@@ -1,19 +1,22 @@
 'use server'
 
 import { db } from '@/lib/db'
-import type { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { isDelivered, isValidStatus, normalizeToRoute, routeFor } from '@/lib/shipping-status'
 import { inboundDe } from '@/lib/inbound'
 import { isModoApp } from '@/lib/modo'
+import { fallo, ok, type ActionResult } from '@/lib/action-result'
+import { isForeignKeyViolation } from '@/lib/prisma-errors'
+import { CATEGORIAS_EGRESO } from '@/lib/movimientos'
 
 // Crea una caja. La RUTA se elige acá y no se vuelve a tocar: es lo que decide con qué
 // cadena logística se costea y, sobre todo, qué se puede meter adentro.
 //
 //   aéreo    → nace confirmado y se llena asignándole PEDIDOS (carga comercial).
 //   marítimo → nace en BORRADOR y se llena pieza por pieza con mercancía propia.
-export async function createEnvio(formData: FormData) {
+export async function createEnvio(formData: FormData): Promise<ActionResult> {
   const nombre = (formData.get('nombre') as string)?.trim() || null
   const notas = (formData.get('notas') as string)?.trim() || null
   const raw = formData.get('modo') as string
@@ -30,7 +33,14 @@ export async function createEnvio(formData: FormData) {
   const supplierRaw = parseInt((formData.get('supplierId') as string) ?? '')
   const supplierId = Number.isFinite(supplierRaw) ? supplierRaw : null
 
-  const envio = await db.envio.create({ data: { nombre, notas, modo, estado, supplierId } })
+  let envio
+  try {
+    envio = await db.envio.create({ data: { nombre, notas, modo, estado, supplierId } })
+  } catch (e) {
+    // El proveedor se borró desde otra pestaña después de armar el selector.
+    if (isForeignKeyViolation(e)) return fallo('Ese proveedor ya no existe. Recargá la página.')
+    throw e
+  }
 
   revalidatePath('/envios')
   redirect(`/envios/${envio.id}`)
@@ -48,15 +58,16 @@ export async function createEnvio(formData: FormData) {
 // Mete solo lo que está LIBRE (`envioId: null`). Un presupuesto ya repartido entre cajas
 // no se muda entero al agregarlo a una nueva: se le suma únicamente lo que todavía no
 // viaja en ninguna, que es lo que falta por traer.
-export async function assignPedido(envioId: number, pedidoId: number) {
+export async function assignPedido(envioId: number, pedidoId: number): Promise<ActionResult> {
   const ids = await db.pedidoItem.findMany({
     where: { pedidoId, envioId: null },
     select: { id: true },
   })
-  await asignarAEnvio(envioId, ids.map(i => i.id))
+  const r = await asignarAEnvio(envioId, ids.map(i => i.id))
   revalidatePath(`/envios/${envioId}`)
   revalidatePath('/envios')
   revalidatePath('/presupuestos')
+  return r
 }
 
 // Mete en la caja SOLO las líneas elegidas: la alternativa a traer el presupuesto entero,
@@ -66,17 +77,18 @@ export async function assignPedido(envioId: number, pedidoId: number) {
 // desde la que se eligió pudo quedar vieja —otra caja se llevó esa línea mientras tanto— y
 // sin el filtro este asigna igual, robándosela a un envío que quizá ya viajó. Es la misma
 // razón por la que `assignPedido` filtra: lo asignable es lo que está libre AHORA.
-export async function assignItems(envioId: number, itemIds: number[]) {
+export async function assignItems(envioId: number, itemIds: number[]): Promise<ActionResult> {
   const ids = itemIds.filter(Number.isInteger)
-  if (ids.length === 0) return
+  if (ids.length === 0) return ok()
   const libres = await db.pedidoItem.findMany({
     where: { id: { in: ids }, envioId: null },
     select: { id: true },
   })
-  await asignarAEnvio(envioId, libres.map(i => i.id))
+  const r = await asignarAEnvio(envioId, libres.map(i => i.id))
   revalidatePath(`/envios/${envioId}`)
   revalidatePath('/envios')
   revalidatePath('/presupuestos')
+  return r
 }
 
 // Saca líneas sueltas de la caja. El contrapeso de `assignItems`: si el reparto entre dos
@@ -105,13 +117,19 @@ export async function removeItems(envioId: number, itemIds: number[]) {
 //
 // De paso se recalcula la ruta: un ítem que estaba "en Shoppre" y pasa a una caja que
 // despacha directo se normaliza a la etapa equivalente de su nueva ruta, nunca hacia atrás.
-async function asignarAEnvio(envioId: number, itemIds: number[]) {
-  if (itemIds.length === 0) return
+//
+// Antes de asignar se valida la caja: ninguna de las tres puertas lo hacía, y con un id viejo
+// (una pestaña que quedó abierta) se podía colgar un PedidoItem de una caja marítima —que no
+// muestra `items`, así que la línea desaparecía de la vista— o de una ya entregada, y con un
+// id que ya no existe saltaba un error de FK sin explicación. Devuelve el motivo en vez de
+// tirarlo, porque en producción un throw llega sin texto.
+async function asignarAEnvio(envioId: number, itemIds: number[]): Promise<ActionResult> {
+  if (itemIds.length === 0) return ok()
 
   const [envio, items] = await Promise.all([
     db.envio.findUnique({
       where: { id: envioId },
-      select: { supplier: { select: { id: true, origen: true, inbound: true } } },
+      select: { modo: true, estado: true, supplier: { select: { id: true, origen: true, inbound: true } } },
     }),
     db.pedidoItem.findMany({
       where: { id: { in: itemIds } },
@@ -119,7 +137,15 @@ async function asignarAEnvio(envioId: number, itemIds: number[]) {
     }),
   ])
 
-  const sup = envio?.supplier ?? null
+  if (!envio) return fallo(`La caja #${envioId} ya no existe.`)
+  if (envio.modo !== 'aereo') {
+    return fallo('Esa caja es marítima: lleva mercancía propia pieza por pieza, no pedidos.')
+  }
+  if (envio.estado === 'entregado') {
+    return fallo('Esa caja ya se entregó: no se le pueden agregar pedidos.')
+  }
+
+  const sup = envio.supplier
   const origen = sup?.origen ?? 'india'
   const inbound = inboundDe(origen, sup?.inbound)
 
@@ -148,18 +174,21 @@ async function asignarAEnvio(envioId: number, itemIds: number[]) {
       },
     })
   }))
+  return ok()
 }
 
 export async function removePedido(envioId: number, pedidoId: number) {
   await db.pedidoItem.updateMany({ where: { pedidoId, envioId }, data: { envioId: null } })
   revalidatePath(`/envios/${envioId}`)
+  revalidatePath('/envios')
+  revalidatePath('/presupuestos')
 }
 
 // Asigna de un tirón los ítems sin envío de todos los pedidos CONFIRMADOS
 // (status='pedido'). Nunca toca presupuestos sin aprobar. El stock propio
 // (tipo='propio') también tiene status='pedido' desde que se crea, así que se filtra
 // aparte según el checkbox del formulario.
-export async function assignAllConfirmados(envioId: number, formData: FormData) {
+export async function assignAllConfirmados(envioId: number, formData: FormData): Promise<ActionResult> {
   const incluirPropio = formData.get('incluirPropio') === 'on'
 
   const ids = await db.pedidoItem.findMany({
@@ -172,19 +201,12 @@ export async function assignAllConfirmados(envioId: number, formData: FormData) 
     },
     select: { id: true },
   })
-  await asignarAEnvio(envioId, ids.map(i => i.id))
+  const r = await asignarAEnvio(envioId, ids.map(i => i.id))
 
   revalidatePath(`/envios/${envioId}`)
-}
-
-// Persiste el costo de flete estimado (tramos a USA + marítimo) calculado en la ficha.
-export async function saveEstimate(envioId: number, shippingCostEst: number) {
-  await db.envio.update({
-    where: { id: envioId },
-    data: { shippingCostEst },
-  })
   revalidatePath('/envios')
-  revalidatePath(`/envios/${envioId}`)
+  revalidatePath('/presupuestos')
+  return r
 }
 
 // La caja como la pesó y midió el transportista, más lo que terminó facturando.
@@ -195,27 +217,36 @@ export async function saveEstimate(envioId: number, shippingCostEst: number) {
 //
 // Cada campo se guarda por separado y vacío significa "todavía no lo sé", no cero: cargar
 // el peso no inventa las medidas, y un 0 haría desaparecer la caja del cálculo.
-export async function saveMedidasCaja(envioId: number, formData: FormData) {
-  const num = (name: string) => {
+//
+// Un número ilegible o negativo se RECHAZA en vez de guardarse como vacío: vacío es "no lo
+// sé" y reemplaza lo que hubiera, así que tipear mal "18,6x" borraba en silencio el peso ya
+// cargado y la pantalla volvía a la estimación como si nada. Vacío y 0 siguen siendo "sin dato".
+export async function saveMedidasCaja(envioId: number, formData: FormData): Promise<ActionResult> {
+  const campos = {
+    pesoRealKg: 'el peso real',
+    cajaL: 'el largo de la caja',
+    cajaA: 'el ancho de la caja',
+    cajaH: 'el alto de la caja',
+    shippingCostRealAereo: 'el flete aéreo',
+    shippingCostRealMaritimo: 'el flete marítimo',
+  } as const
+  const data: Record<keyof typeof campos, number | null> = {
+    pesoRealKg: null, cajaL: null, cajaA: null, cajaH: null,
+    shippingCostRealAereo: null, shippingCostRealMaritimo: null,
+  }
+  for (const [name, nombre] of Object.entries(campos) as [keyof typeof campos, string][]) {
     const raw = (formData.get(name) as string)?.trim()
-    if (!raw) return null
+    if (!raw) continue
     const v = parseFloat(raw.replace(',', '.'))
-    return Number.isFinite(v) && v > 0 ? v : null
+    if (!Number.isFinite(v) || v < 0) return fallo(`Revisá ${nombre}: no es un número válido.`)
+    data[name] = v > 0 ? v : null
   }
 
-  await db.envio.update({
-    where: { id: envioId },
-    data: {
-      pesoRealKg: num('pesoRealKg'),
-      cajaL: num('cajaL'),
-      cajaA: num('cajaA'),
-      cajaH: num('cajaH'),
-      shippingCostRealAereo: num('shippingCostRealAereo'),
-      shippingCostRealMaritimo: num('shippingCostRealMaritimo'),
-    },
-  })
+  const r = await db.envio.updateMany({ where: { id: envioId }, data })
+  if (r.count === 0) return fallo('Ese envío ya no existe.')
   revalidatePath('/envios')
   revalidatePath(`/envios/${envioId}`)
+  return ok()
 }
 
 // Lo que se le pagó al proveedor de esta caja, aparte de la mercancía: el total que
@@ -230,31 +261,36 @@ export async function saveMedidasCaja(envioId: number, formData: FormData) {
 //
 // Vacío es "no lo sé todavía" y se guarda como null; un 0 escrito a mano SÍ es un dato
 // ("ese giro no costó nada") y se respeta. Las pantallas distinguen los dos casos.
-export async function saveCostosProveedor(envioId: number, formData: FormData) {
+export async function saveCostosProveedor(envioId: number, formData: FormData): Promise<ActionResult> {
   // Un campo AUSENTE del formulario devuelve undefined y Prisma no lo toca; uno presente
   // pero vacío devuelve null y borra lo que hubiera. La diferencia importa porque las dos
   // rutas usan esta misma acción con formularios distintos: el marítimo no pregunta por el
   // tramo a USA (no existe), y sin esta distinción guardarlo desde ahí lo borraría.
-  const num = (name: string) => {
-    if (!formData.has(name)) return undefined
+  //
+  // Un número ilegible o negativo se rechaza: guardarlo como vacío (lo que se hacía) borraba
+  // en silencio un monto ya cargado, y en este modelo vacío es "no lo sé", no un error de tipeo.
+  const campos = [
+    ['tramoUsd', 'el envío + impuestos'],
+    ['comisionSalienteUsd', 'la comisión saliente'],
+    ['comisionEntranteUsd', 'la comisión entrante'],
+  ] as const
+  const data: Partial<Record<(typeof campos)[number][0], number | null>> = {}
+  for (const [name, nombre] of campos) {
+    if (!formData.has(name)) continue
     const raw = (formData.get(name) as string)?.trim()
-    if (!raw) return null
+    if (!raw) { data[name] = null; continue }
     const v = parseFloat(raw.replace(',', '.'))
-    return Number.isFinite(v) && v >= 0 ? v : null
+    if (!Number.isFinite(v) || v < 0) return fallo(`Revisá ${nombre}: no es un número válido.`)
+    data[name] = v
   }
 
-  await db.envio.update({
-    where: { id: envioId },
-    data: {
-      tramoUsd: num('tramoUsd'),
-      // Cada punta del giro se guarda aparte: se conocen en momentos distintos y un vacío
-      // sigue significando "no lo sé", no cero.
-      comisionSalienteUsd: num('comisionSalienteUsd'),
-      comisionEntranteUsd: num('comisionEntranteUsd'),
-    },
-  })
+  // Cada punta del giro se guarda aparte: se conocen en momentos distintos y un vacío sigue
+  // significando "no lo sé", no cero.
+  const r = await db.envio.updateMany({ where: { id: envioId }, data })
+  if (r.count === 0) return fallo('Ese envío ya no existe.')
   revalidatePath('/envios')
   revalidatePath(`/envios/${envioId}`)
+  return ok()
 }
 
 // Anota un egreso real (plata que salió de la cuenta) contra esta caja: pago de
@@ -262,16 +298,20 @@ export async function saveCostosProveedor(envioId: number, formData: FormData) {
 // comisionEntranteUsd (esos son lo FACTURADO, se siguen cargando aparte con
 // saveCostosProveedor). "Pagado"/"pendiente" de este envío se calculan en vivo sumando
 // estos movimientos (ver lib/movimientos.ts: cuentasPorPagar).
-export async function registrarPagoProveedor(envioId: number, formData: FormData) {
+export async function registrarPagoProveedor(envioId: number, formData: FormData): Promise<ActionResult> {
   const monto = parseFloat((formData.get('monto') as string)?.trim() ?? '')
-  if (!Number.isFinite(monto) || monto <= 0) return
+  if (!Number.isFinite(monto) || monto <= 0) return fallo('El monto tiene que ser mayor que 0.')
   const categoria = (formData.get('categoria') as string)?.trim() || 'pago_proveedor'
+  // Esto siempre es un egreso: una categoría de ingreso (o inventada) desde un POST armado
+  // quedaría anotada como egreso con un nombre que no le corresponde.
+  if (!(CATEGORIAS_EGRESO as readonly string[]).includes(categoria)) return fallo('Esa categoría no es un egreso.')
   const metodoPago = (formData.get('metodoPago') as string)?.trim() || null
   const descripcion = (formData.get('descripcion') as string)?.trim() || null
   const rawDate = (formData.get('fecha') as string)?.trim()
   const fecha = rawDate ? new Date(`${rawDate}T12:00:00`) : new Date()
 
-  const envio = await db.envio.findUniqueOrThrow({ where: { id: envioId }, select: { supplierId: true } })
+  const envio = await db.envio.findUnique({ where: { id: envioId }, select: { supplierId: true } })
+  if (!envio) return fallo('Ese envío ya no existe.')
 
   await db.movimiento.create({
     data: { fecha, tipo: 'egreso', categoria, monto, metodoPago, descripcion, envioId, supplierId: envio.supplierId },
@@ -280,6 +320,7 @@ export async function registrarPagoProveedor(envioId: number, formData: FormData
   revalidatePath('/envios')
   revalidatePath(`/envios/${envioId}`)
   revalidatePath('/contabilidad')
+  return ok()
 }
 
 export interface CambioItem {
@@ -313,51 +354,69 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]) {
   if (items.length === 0) return
 
   const pedido = new Map(cambios.map(c => [c.id, c]))
-  const now = new Date()
   let tocaStock = false
 
-  const updates = items.flatMap(it => {
+  // Cada fila lleva el estado que LEYÓ (`desde`) y el que quiere (`hacia`). El UPDATE solo
+  // toca la fila si sigue en `desde`: si dos requests llevan la misma línea a 'entregado'
+  // (doble tanda, dos pestañas), la segunda espera el candado de la fila, la encuentra ya
+  // movida y no actualiza nada — y con ella no se acredita el stock por segunda vez.
+  const filas: { id: number; desde: string; hacia: string; delta: number }[] = []
+  for (const it of items) {
     const c = pedido.get(it.id)
-    if (!c) return []
+    if (!c) continue
 
     const destino = isValidStatus(c.shippingStatus) ? c.shippingStatus : it.shippingStatus
     const ruta = routeFor(inboundDe(it.origen, it.inbound), it.isLanded)
     const status = normalizeToRoute(destino, ruta)
-    if (status === it.shippingStatus) return []
-
-    const ops: Prisma.PrismaPromise<unknown>[] = [
-      db.pedidoItem.update({
-        where: { id: it.id },
-        data: {
-          shippingStatus: status,
-          shippingStatusAt: now,
-          // La fecha de compra se sella la primera vez que el ítem deja de estar pendiente,
-          // y se borra si vuelve a pendiente.
-          ...(status !== 'pendiente' && it.shippingStatus === 'pendiente' ? { compradoAt: now } : {}),
-          ...(status === 'pendiente' ? { compradoAt: null } : {}),
-        },
-      }),
-    ]
+    if (status === it.shippingStatus) continue
 
     // Stock propio: lo comercial (tipo='cliente') se entrega a un cliente, nunca pasa a
     // ser stock. El delta sigue la TRANSICIÓN de "entregado" (no un flag aparte guardado en
     // otro lado), así que ida y vuelta del estado nunca duplica ni pierde el crédito: si el
     // ítem ya estaba entregado antes de este cambio, ya se sumó, y si deja de estarlo hay
     // que restarlo.
+    let delta = 0
     if (it.pedido.tipo === 'propio') {
       const eraEntregado = isDelivered(it.shippingStatus)
       const quedaEntregado = isDelivered(status)
-      if (eraEntregado !== quedaEntregado) {
-        const delta = quedaEntregado ? it.quantity : -it.quantity
-        ops.push(db.product.update({ where: { id: it.productId }, data: { stock: { increment: delta } } }))
-        tocaStock = true
-      }
+      if (eraEntregado !== quedaEntregado) delta = quedaEntregado ? it.quantity : -it.quantity
     }
+    if (delta !== 0) tocaStock = true
+    filas.push({ id: it.id, desde: it.shippingStatus, hacia: status, delta })
+  }
 
-    return ops
-  })
+  if (filas.length > 0) {
+    // UNA sentencia: el cambio de estado y el ajuste de stock salen de las mismas filas
+    // (las que de verdad se movieron, RETURNING), así que no puede haber una sin la otra ni
+    // un stock sumado por una fila que otra request ya movió. La fecha de compra se sella
+    // la primera vez que el ítem deja de estar pendiente, y se borra si vuelve a pendiente.
+    // La hora se toma en la base, en UTC (así guarda Prisma los DateTime).
+    const valores = Prisma.join(
+      filas.map(f => Prisma.sql`(${f.id}::int, ${f.desde}::text, ${f.hacia}::text, ${f.delta}::int)`),
+    )
+    await db.$executeRaw`
+      WITH v(id, desde, hacia, delta) AS (VALUES ${valores}),
+      movidas AS (
+        UPDATE "PedidoItem" AS pi
+        SET "shippingStatus" = v.hacia,
+            "shippingStatusAt" = (NOW() AT TIME ZONE 'UTC'),
+            "compradoAt" = CASE
+              WHEN v.hacia = 'pendiente' THEN NULL
+              WHEN v.desde = 'pendiente' THEN (NOW() AT TIME ZONE 'UTC')
+              ELSE pi."compradoAt"
+            END
+        FROM v
+        WHERE pi."id" = v.id AND pi."envioId" = ${envioId} AND pi."shippingStatus" = v.desde
+        RETURNING pi."productId", v.delta
+      )
+      UPDATE "Product" AS p
+      SET "stock" = p."stock" + s.delta
+      FROM (
+        SELECT "productId", SUM(delta)::int AS delta FROM movidas WHERE delta <> 0 GROUP BY "productId"
+      ) AS s
+      WHERE p."id" = s."productId"`
+  }
 
-  if (updates.length) await db.$transaction(updates)
   revalidatePath(`/envios/${envioId}`)
   revalidatePath('/envios')
   revalidatePath('/presupuestos')
@@ -368,15 +427,26 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]) {
   }
 }
 
-export async function deleteEnvio(id: number) {
+export async function deleteEnvio(id: number): Promise<ActionResult> {
+  const envio = await db.envio.findUnique({
+    where: { id },
+    select: { estado: true, _count: { select: { movimientos: true } } },
+  })
+  // Ya no existe (otra pestaña, un reintento): lo que se quería ya está logrado.
+  if (!envio) redirect('/envios')
   // Una caja 'entregado' ya sumó su contenido a Product.stock: borrarla sin deshacer esa
   // recepción (ver deshacerRecepcion) dejaría el stock arriba sin ningún registro que lo
   // explique. El botón ya se esconde en esa vista; esto es el mismo corte del lado server.
-  const envio = await db.envio.findUnique({ where: { id }, select: { estado: true } })
-  if (envio?.estado === 'entregado') return
+  if (envio.estado === 'entregado') return fallo('La caja ya se recibió: deshacé la recepción antes de borrarla.')
+  // Con pagos registrados, borrarla dejaría esos movimientos sin caja (onDelete: SetNull) y
+  // la deuda con el proveedor saldría de "cuentas por pagar" sin que nadie la haya saldado.
+  if (envio._count.movimientos > 0) {
+    return fallo(`Tiene ${envio._count.movimientos} movimiento${envio._count.movimientos === 1 ? '' : 's'} de caja registrado${envio._count.movimientos === 1 ? '' : 's'}: borrarla los dejaría sin caja.`)
+  }
 
   // Los ítems quedan liberados (envioId -> null) por onDelete: SetNull.
-  await db.envio.delete({ where: { id } })
+  await db.envio.deleteMany({ where: { id } })
   revalidatePath('/envios')
+  revalidatePath('/presupuestos')
   redirect('/envios')
 }

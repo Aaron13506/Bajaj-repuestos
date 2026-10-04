@@ -12,6 +12,7 @@ import {
   type CostoCarrito,
 } from '@/app/(pages)/presupuestos/builder-actions'
 import { compararNombre } from '@/lib/utils'
+import type { ActionResult } from '@/lib/action-result'
 
 interface Product {
   id: number
@@ -78,7 +79,7 @@ interface ClienteOption {
 
 interface Props {
   assemblies: Assembly[]
-  action: (formData: FormData) => Promise<void>
+  action: (formData: FormData) => Promise<ActionResult | void>
   initialClientName?: string
   initialNotas?: string
   initialItems?: CartItem[]
@@ -87,9 +88,13 @@ interface Props {
   /** Clientes existentes para elegir (solo aplica cuando tipo === 'cliente'). */
   clientes?: ClienteOption[]
   initialClienteId?: number | null
-  /** 'plan' = se armó desde el planificador y hay que volver ahí al guardar. */
-  volver?: string
 }
+
+// Mapa vacío de identidad estable: se usa mientras no hay búsqueda por pieza, para no
+// invalidar los useMemo que dependen de él en cada render.
+type PieceMatches = Map<number, { pieceName: string; pieceCode: string }>
+const sinMatches: PieceMatches = new Map()
+const sinProductos: Product[] = []
 
 export default function PresupuestoBuilder({
   assemblies,
@@ -100,7 +105,6 @@ export default function PresupuestoBuilder({
   tipo = 'cliente',
   clientes = [],
   initialClienteId = null,
-  volver,
 }: Props) {
   const isPropio = tipo === 'propio'
   const [selectedAssemblyId, setSelectedAssemblyId] = useState<number | null>(null)
@@ -110,7 +114,7 @@ export default function PresupuestoBuilder({
   // cotizaron, y recalcularlos solos cambiaría un número que el cliente ya vio.
   const [cart, setCart] = useState<CartItem[]>(() => initialItems.map(i => ({ ...i, touched: true })))
   const [search, setSearch] = useState('')
-  const [searchResults, setSearchResults] = useState<Product[]>([])
+  const [encontrados, setEncontrados] = useState<Product[]>([])
   const [modelFilter, setModelFilter] = useState('')
   const [asmSearch, setAsmSearch] = useState('')
   const [clientName, setClientName] = useState(initialClientName)
@@ -119,6 +123,7 @@ export default function PresupuestoBuilder({
   const [nuevoTelefono, setNuevoTelefono] = useState('')
   const [notas, setNotas] = useState(initialNotas)
   const [submitting, setSubmitting] = useState(false)
+  const [errorGuardado, setErrorGuardado] = useState<string | null>(null)
 
   // Componentes cargados on-demand por ensamble (cache en memoria).
   const [compCache, setCompCache] = useState<Record<number, AssemblyComponent[]>>({})
@@ -129,26 +134,30 @@ export default function PresupuestoBuilder({
 
   // Ensambles que contienen una pieza con el SKU buscado (assemblyId → pieza que matcheó).
   // Se resuelve contra la DB porque acá solo están los headers, sin componentes.
-  const [pieceMatches, setPieceMatches] = useState<Map<number, { pieceName: string; pieceCode: string }>>(new Map())
-  const [searchingPieces, setSearchingPieces] = useState(false)
+  // Se guarda junto con el término al que contesta: "buscando" y "sin término" se derivan
+  // al renderizar comparando contra eso, en vez de prender y apagar banderas desde el efecto.
+  const [piezasHechas, setPiezasHechas] = useState<{ q: string; matches: PieceMatches }>({ q: '', matches: new Map() })
+  const terminoPiezas = asmSearch.trim()
+  const piezasActivo = terminoPiezas.length >= 2
+  const pieceMatches: PieceMatches = piezasActivo ? piezasHechas.matches : sinMatches
+  const searchingPieces = piezasActivo && piezasHechas.q !== terminoPiezas
 
   useEffect(() => {
-    const q = asmSearch.trim()
-    if (q.length < 2) { setPieceMatches(new Map()); setSearchingPieces(false); return }
+    if (terminoPiezas.length < 2) return
     let cancelled = false
-    setSearchingPieces(true)
     const t = setTimeout(async () => {
+      let matches: PieceMatches = new Map()
       try {
-        const rows = await searchAssembliesByPiece(q)
-        if (!cancelled) {
-          setPieceMatches(new Map(rows.map(r => [r.parentId, { pieceName: r.pieceName, pieceCode: r.pieceCode }])))
-        }
-      } finally {
-        if (!cancelled) setSearchingPieces(false)
+        const rows = await searchAssembliesByPiece(terminoPiezas)
+        matches = new Map(rows.map(r => [r.parentId, { pieceName: r.pieceName, pieceCode: r.pieceCode }]))
+      } catch {
+        // Sin resultados para este término: igual se marca como respondido, para que
+        // "Buscando…" no quede prendido para siempre.
       }
+      if (!cancelled) setPiezasHechas({ q: terminoPiezas, matches })
     }, 250)
     return () => { cancelled = true; clearTimeout(t) }
-  }, [asmSearch])
+  }, [terminoPiezas])
 
   // Ensambles filtrados por moto + texto, para que la lista no sea inmanejable.
   // El texto matchea contra el nombre y el código del ensamble, y contra el SKU de
@@ -341,8 +350,10 @@ export default function PresupuestoBuilder({
   // Se recalcula solo cuando cambia la COMPOSICIÓN del carrito (piezas y cantidades),
   // nunca cuando cambia un precio: el landed no depende del precio de venta, y atarlo
   // al precio metería al costeo en un ciclo consigo mismo.
-  const [costo, setCosto] = useState<CostoCarrito | null>(null)
-  const [costeando, setCosteando] = useState(false)
+  // El resultado se guarda junto con la composición a la que contesta: "calculando" y
+  // "carrito vacío" se derivan al renderizar comparando contra eso, en vez de prender y
+  // apagar banderas desde el efecto.
+  const [costoHecho, setCostoHecho] = useState<{ clave: string; costo: CostoCarrito | null } | null>(null)
 
   const composicion = useMemo(
     () => JSON.stringify(
@@ -350,12 +361,14 @@ export default function PresupuestoBuilder({
     ),
     [cart],
   )
+  const carritoVacio = cart.length === 0
+  const costo = carritoVacio ? null : costoHecho?.costo ?? null
+  const costeando = !carritoVacio && costoHecho?.clave !== composicion
 
   useEffect(() => {
     const lineas = JSON.parse(composicion) as [number, number, [string | null, string, number][] | null][]
-    if (lineas.length === 0) { setCosto(null); return }
+    if (lineas.length === 0) return
     let cancelled = false
-    setCosteando(true)
     const t = setTimeout(async () => {
       try {
         const r = await costearCarrito(
@@ -368,9 +381,27 @@ export default function PresupuestoBuilder({
             bundleItems: piezas?.map(([bajajCode, nameEs, qty]) => ({ bajajCode, nameEs, quantity: qty, groupName: '' })) ?? null,
           })),
         )
-        if (!cancelled) setCosto(r)
-      } finally {
-        if (!cancelled) setCosteando(false)
+        if (cancelled) return
+        setCostoHecho({ clave: composicion, costo: r })
+        // Las líneas sin precio fijado siguen al sugerido por el landed: agregar una pieza
+        // deja el precio del modelo de costos puesto, sin tener que aplicarlo a mano. Se
+        // hace acá, cuando llega el costo, y no en un efecto que reaccione a él.
+        const porLinea = new Map(r.lineas.map(l => [l.productId, l]))
+        setCart(prev => {
+          let cambio = false
+          const next = prev.map(c => {
+            if (c.touched) return c
+            const sugerido = porLinea.get(c.productId)?.sugeridoUnitUsd
+            if (sugerido == null || Math.abs(sugerido - c.unitPrice) < 0.005) return c
+            cambio = true
+            return { ...c, unitPrice: +sugerido.toFixed(2) }
+          })
+          return cambio ? next : prev
+        })
+      } catch {
+        // Sin costo para esta composición: se marca como respondida para que "calculando…"
+        // no quede prendido, y el costo previo (si había) sigue a la vista.
+        if (!cancelled) setCostoHecho(prev => ({ clave: composicion, costo: prev?.costo ?? null }))
       }
     }, 250)
     return () => { cancelled = true; clearTimeout(t) }
@@ -380,23 +411,6 @@ export default function PresupuestoBuilder({
     () => new Map((costo?.lineas ?? []).map(l => [l.productId, l])),
     [costo],
   )
-
-  // Las líneas sin precio fijado siguen al sugerido por el landed: agregar una pieza deja
-  // el precio del modelo de costos puesto, sin tener que aplicarlo a mano.
-  useEffect(() => {
-    if (costoPorLinea.size === 0) return
-    setCart(prev => {
-      let cambio = false
-      const next = prev.map(c => {
-        if (c.touched) return c
-        const sugerido = costoPorLinea.get(c.productId)?.sugeridoUnitUsd
-        if (sugerido == null || Math.abs(sugerido - c.unitPrice) < 0.005) return c
-        cambio = true
-        return { ...c, unitPrice: +sugerido.toFixed(2) }
-      })
-      return cambio ? next : prev
-    })
-  }, [costoPorLinea])
 
   // Precios sugeridos que difieren de lo cotizado, para poder alinear de un golpe lo que
   // se fijó a mano cuando cambió la tarifa o el proveedor.
@@ -423,16 +437,19 @@ export default function PresupuestoBuilder({
   const maxCoverage = coverage[0]?.lines ?? 0
 
   // Búsqueda de piezas sueltas contra la DB (debounce 250ms), sin traer todo el catálogo.
+  // Con el término corto no hay resultados: se deriva al renderizar en vez de vaciar el
+  // estado desde el efecto.
+  const terminoPieza = search.trim()
+  const searchResults = terminoPieza.length < 2 ? sinProductos : encontrados
   useEffect(() => {
-    const q = search.trim()
-    if (q.length < 2) { setSearchResults([]); return }
+    if (terminoPieza.length < 2) return
     let cancelled = false
     const t = setTimeout(async () => {
-      const rows = await searchProducts(q)
-      if (!cancelled) setSearchResults(rows)
+      const rows = await searchProducts(terminoPieza)
+      if (!cancelled) setEncontrados(rows)
     }, 250)
     return () => { cancelled = true; clearTimeout(t) }
-  }, [search])
+  }, [terminoPieza])
 
   // Excluir del dropdown lo que ya está en el carrito.
   const filteredProducts = useMemo(
@@ -470,6 +487,7 @@ export default function PresupuestoBuilder({
     e.preventDefault()
     if (!clienteValid || cart.length === 0 || nlsEnCarrito.length > 0 || submitting) return
     setSubmitting(true)
+    setErrorGuardado(null)
     const fd = new FormData()
     if (isPropio) {
       fd.set('clientName', clientName)
@@ -482,7 +500,6 @@ export default function PresupuestoBuilder({
     }
     fd.set('notas', notas)
     fd.set('tipo', tipo)
-    if (volver) fd.set('volver', volver)
     fd.set(
       'items',
       JSON.stringify(sortedCart.map(c => ({
@@ -492,7 +509,19 @@ export default function PresupuestoBuilder({
         bundleItems: c.bundleItems ?? null,
       })))
     )
-    await action(fd)
+    // Guardar bien redirige a la ficha, así que en el éxito el botón se queda bloqueado hasta
+    // que la navegación termina (reabrirlo ahí dejaría guardar dos veces). Solo se libera
+    // cuando hubo un rechazo o una falla, que son los casos en que el usuario sigue acá.
+    try {
+      const r = await action(fd)
+      if (r && !r.ok) {
+        setErrorGuardado(r.error)
+        setSubmitting(false)
+      }
+    } catch {
+      setErrorGuardado('No se pudo guardar. Revisá la conexión y probá de nuevo.')
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -1177,6 +1206,12 @@ export default function PresupuestoBuilder({
                 {nlsEnCarrito.length === 1 ? ' la consigue' : ' las consigue'} ningún proveedor.
                 Sacá{nlsEnCarrito.length === 1 ? 'la' : 'las'} para poder guardar:{' '}
                 <span className="font-medium">{nlsEnCarrito.map(c => c.bajajCode ?? c.nameEs).join(', ')}</span>
+              </p>
+            )}
+
+            {errorGuardado && (
+              <p role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                {errorGuardado}
               </p>
             )}
 

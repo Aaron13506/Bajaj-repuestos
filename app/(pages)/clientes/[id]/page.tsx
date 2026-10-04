@@ -2,6 +2,8 @@ import { db } from '@/lib/db'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import DeleteButton from '@/components/DeleteButton'
+import PendingButton from '@/components/PendingButton'
+import FormConResultado from '@/components/FormConResultado'
 import { updateCliente, deleteCliente } from '../actions'
 import { clienteTotales, pedidoTotal } from '@/lib/clientes'
 
@@ -48,7 +50,7 @@ export default async function ClienteDetailPage({
       {/* Datos del cliente */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
         <div className="flex items-start justify-between gap-4">
-          <form action={updateCliente.bind(null, cliente.id)} className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FormConResultado action={updateCliente.bind(null, cliente.id)} className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Nombre</label>
               <input
@@ -76,11 +78,11 @@ export default async function ClienteDetailPage({
               />
             </div>
             <div className="sm:col-span-2">
-              <button type="submit" className="text-sm text-blue-600 hover:text-blue-800 font-medium">
+              <PendingButton className="text-sm text-blue-600 hover:text-blue-800 font-medium">
                 Guardar
-              </button>
+              </PendingButton>
             </div>
-          </form>
+          </FormConResultado>
           <DeleteButton
             action={deleteCliente.bind(null, cliente.id)}
             confirmMessage={`¿Eliminar "${cliente.nombre}"? Sus pedidos no se borran, quedan sin cliente asignado.`}

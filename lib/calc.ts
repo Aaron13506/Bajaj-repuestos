@@ -42,6 +42,11 @@ export interface ProductForCalc {
   dimA: number | null
   dimH: number | null
   margin: number | null
+  // Precio de venta FIJADO a mano (Product.price con priceLocked). Si viene, ES el precio:
+  // no se re-deriva de landed y margen. Derivarlo era el error — el margen guardado es una
+  // consecuencia del precio escrito, y recomponer el precio desde ella lo movía unos
+  // centavos (4.00 → 4.01) en cuanto el landed o el redondeo del margen no coincidían.
+  precioFijo?: number | null
 }
 
 export interface PrecioBcv {
@@ -72,6 +77,8 @@ function brechaEscalon(brechaPct: number): number {
   return step * 5
 }
 
+const round2 = (n: number) => Math.round(n * 100) / 100
+
 // Precio de venta a tasa BCV: el mismo priceUsd convertido a Bs a la tasa OFICIAL en vez
 // de la paralela, pero inflado por la brecha (en escalones de 5%) para que siga valiendo
 // lo mismo en dólares reales. Sin este ajuste, cobrar al BCV regalaría exactamente la
@@ -82,13 +89,22 @@ export function calcPrecioBcv(priceUsd: number | null, cfg: ConfigMap): PrecioBc
   const bcvUsdRate = num(cfg, 'bcv_usd_rate', 0)
   const brechaPct = num(cfg, 'bcv_brecha_pct', 0)
   if (bcvUsdRate <= 0) return null
+  // Lo que se cotiza al cliente está en centavos: la cuenta parte de ESE precio, no de
+  // los decimales sueltos que dejó el margen.
+  priceUsd = round2(priceUsd)
   const brechaEscalonPct = brechaEscalon(brechaPct)
   // Una brecha ≥100% haría que el ajuste divida por cero o negativo — no pasa con datos
   // reales, pero un dato roto en Config no debe convertirse en un precio absurdo.
   if (brechaEscalonPct >= 100) return null
-  const priceUsdBcv = priceUsd / (1 - brechaEscalonPct / 100)
+  // Se cotiza en centavos y ESTE es el número que se le dice al cliente. Redondeado al
+  // centavo MÁS CERCANO (no hacia arriba) a propósito: el error queda en ≤0.005 y al
+  // aplicarle el descuento de la brecha (×(1−b), con b ≤ 95%) el resultado queda a menos de
+  // medio centavo del precio de venta, o sea que vuelve EXACTO a 4.00, 5.00, 10.00. Hacia
+  // arriba podía errar hasta 0.01 y devolver 4.01. pnpm check:costeo lo verifica.
+  const priceUsdBcv = round2(priceUsd / (1 - brechaEscalonPct / 100))
   return {
     priceUsdBcv,
+    // Los Bs salen del precio ya redondeado, el que ve el cliente, no del exacto.
     priceBcvBs: priceUsdBcv * bcvUsdRate,
     bcvUsdRate,
     brechaPct,
@@ -96,7 +112,7 @@ export function calcPrecioBcv(priceUsd: number | null, cfg: ConfigMap): PrecioBc
   }
 }
 
-function applyMargin(landedCostUsd: number, margin: number | null, cfg: ConfigMap): { priceUsd: number | null; priceBcv: PrecioBcv | null } {
+function applyMargin(landedCostUsd: number, margin: number | null, cfg: ConfigMap, precioFijo?: number | null): { priceUsd: number | null; priceBcv: PrecioBcv | null } {
   // Margen efectivo: el de la pieza si lo tiene, si no el global de Config.
   //
   // Leía `cfg.default_margin`, key que no existe en ningún lado: la app entera —el seed,
@@ -105,6 +121,11 @@ function applyMargin(landedCostUsd: number, margin: number | null, cfg: ConfigMa
   // que parecía un dato faltante en vez de un bug. Y renombrar la key a secas no alcanzaba:
   // habría leído 40, y 40 ≥ 1 corta igual dos líneas más abajo. Falta el /100, que es lo
   // que hace margenPorDefecto().
+  // Precio fijado a mano: manda sobre el margen (que solo es su consecuencia).
+  if (precioFijo != null && precioFijo > 0) {
+    return { priceUsd: precioFijo, priceBcv: calcPrecioBcv(precioFijo, cfg) }
+  }
+
   const effectiveMargin = margin ?? margenPorDefecto(cfg)
 
   if (effectiveMargin == null || effectiveMargin >= 1) return { priceUsd: null, priceBcv: null }
@@ -125,7 +146,7 @@ export function calcLanded(
   // No depende del modo: esa pieza nunca viaja en nuestra caja, venga por aire o por mar.
   if (product.priceIsLanded && product.priceUsd != null) {
     const landedCostUsd = product.priceUsd
-    const { priceUsd, priceBcv } = applyMargin(landedCostUsd, product.margin, cfg)
+    const { priceUsd, priceBcv } = applyMargin(landedCostUsd, product.margin, cfg, product.precioFijo)
     return {
       modo,
       productCostUsd: landedCostUsd,
@@ -165,7 +186,7 @@ export function calcLanded(
 
     // La tarifa plana ya incluye seguro, origen, destino y aduana: no se suma nada encima.
     const landedCostUsd = productCostUsd + maritimeUsd
-    const { priceUsd, priceBcv } = applyMargin(landedCostUsd, product.margin, cfg)
+    const { priceUsd, priceBcv } = applyMargin(landedCostUsd, product.margin, cfg, product.precioFijo)
 
     return {
       modo,
@@ -212,7 +233,7 @@ export function calcLanded(
   // en aéreo, y el mínimo facturable (maritimo_min_ft3) más los gastos de origen/destino
   // (maritimo_fee_usd) en marítimo. Todos se aplican una sola vez, en calcEnvio.
   const landedCostUsd = productCostUsd + shoppreShippingUsd + insuranceUsd + maritimeUsd
-  const { priceUsd, priceBcv } = applyMargin(landedCostUsd, product.margin, cfg)
+  const { priceUsd, priceBcv } = applyMargin(landedCostUsd, product.margin, cfg, product.precioFijo)
 
   return {
     modo,
@@ -257,6 +278,11 @@ export interface EnvioItemInput {
   priceInr: number | null
   // Costo ya en USD (proveedor no-99rpm) — tiene prioridad sobre priceInr, igual que en calcLanded.
   priceUsd?: number | null
+  // Lo que se PAGÓ de verdad por esta pieza (`PedidoItem.costRealUsd`, ya repartido entre
+  // las piezas de la línea): el total de la pieza, no por unidad. Cuando está, REEMPLAZA al
+  // costo de catálogo — mismo principio que las medidas de la caja: manda el dato real, no
+  // se combina con la cuenta. Es lo que mueve el seguro y el landed de la caja.
+  costoRealUsd?: number | null
   quantity: number
   // País de donde sale. Hoy solo informa (India / China): quien decide cómo se cobra el
   // tramo a USA es `inbound`, no el país.
@@ -709,7 +735,9 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
       volKg: viaja && hasDims ? (cm3 / divisor) * qty : 0,
       ft3: volumeFt3,
       volumeM3: viaja && hasDims ? (cm3 / CM3_PER_M3) * qty : 0,
-      productCostUsd: (it.priceUsd != null ? it.priceUsd : (it.priceInr ?? 0) / inrUsd) * qty,
+      productCostUsd: it.costoRealUsd != null
+        ? it.costoRealUsd
+        : (it.priceUsd != null ? it.priceUsd : (it.priceInr ?? 0) / inrUsd) * qty,
       airUsd: 0,
       // El marítimo se reparte en una segunda pasada: con mínimo facturable deja de ser
       // aditivo por pieza (la caja paga un piso aunque nadie lo llene).

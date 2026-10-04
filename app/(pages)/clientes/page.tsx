@@ -1,6 +1,8 @@
 import { db } from '@/lib/db'
 import Link from 'next/link'
 import DeleteButton from '@/components/DeleteButton'
+import PendingButton from '@/components/PendingButton'
+import FormConResultado from '@/components/FormConResultado'
 import { createCliente, deleteCliente } from './actions'
 import { VENTA_STATUS, clienteTotales } from '@/lib/clientes'
 
@@ -47,7 +49,7 @@ export default async function ClientesPage({
       )}
 
       {/* Nuevo cliente */}
-      <form
+      <FormConResultado
         action={createCliente}
         className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8 flex flex-wrap items-end gap-3"
       >
@@ -69,13 +71,12 @@ export default async function ClientesPage({
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
-        <button
-          type="submit"
+        <PendingButton
           className="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
         >
           + Agregar
-        </button>
-      </form>
+        </PendingButton>
+      </FormConResultado>
 
       {clientes.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-400">

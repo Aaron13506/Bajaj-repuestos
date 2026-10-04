@@ -9,7 +9,7 @@ import type { SupplierImportResult } from '@/app/(pages)/suppliers/[id]/import/a
 const emptyResult: SupplierImportResult = { ok: false, updated: 0, skipped: [] }
 
 const ARRAY_EXAMPLE = `[
-  { "sku": "JR161036", "priceUsd": 5.20 },
+  { "sku": "JR161036", "priceUsd": 5.20, "moq": 5 },
   { "sku": "B0101", "priceUsd": 0.15 }
 ]`
 
@@ -22,12 +22,14 @@ const PROMPT_TEMPLATE = `Convertí esta lista de precios de proveedor a JSON, co
 exacta (array de objetos):
 
 [
-  { "sku": "<código Bajaj / SKU>", "priceUsd": <precio en USD, número> },
+  { "sku": "<código Bajaj / SKU>", "priceUsd": <precio en USD, número>, "moq": <mínimo de compra, entero> },
   ...
 ]
 
 Reglas:
-- El precio va en USD (dólares), sin símbolo, como número.
+- El precio va en USD (dólares), sin símbolo, como número, POR PIEZA.
+- "moq" es la cantidad mínima que ese proveedor vende de ese código (opcional: omitilo si
+  no lo declara). Es un entero >= 1.
 - Si un ítem no tiene código o precio, omitilo.
 - Devolvé únicamente el JSON, sin texto alrededor.`
 
