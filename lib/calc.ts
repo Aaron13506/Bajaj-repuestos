@@ -1,6 +1,7 @@
 import { cotizarTramoAereo } from './shipping-rates'
 import { inboundDe, type Inbound } from './inbound'
 import { num, flag, margenPorDefecto, type ConfigMap } from './config'
+import { aDolarBcv } from './cobro-bcv'
 
 // El tipo se re-exporta porque medio repo lo importa desde acá y no hay razón para
 // mover veinte imports; la definición vive en lib/config.ts junto a los lectores.
@@ -101,7 +102,7 @@ export function calcPrecioBcv(priceUsd: number | null, cfg: ConfigMap): PrecioBc
   // aplicarle el descuento de la brecha (×(1−b), con b ≤ 95%) el resultado queda a menos de
   // medio centavo del precio de venta, o sea que vuelve EXACTO a 4.00, 5.00, 10.00. Hacia
   // arriba podía errar hasta 0.01 y devolver 4.01. pnpm check:costeo lo verifica.
-  const priceUsdBcv = round2(priceUsd / (1 - brechaEscalonPct / 100))
+  const priceUsdBcv = aDolarBcv(priceUsd, brechaEscalonPct)
   return {
     priceUsdBcv,
     // Los Bs salen del precio ya redondeado, el que ve el cliente, no del exacto.
@@ -110,6 +111,12 @@ export function calcPrecioBcv(priceUsd: number | null, cfg: ConfigMap): PrecioBc
     brechaPct,
     brechaEscalonPct,
   }
+}
+
+// Escalón de brecha de HOY, el que se cotiza; null si no hay tasa BCV cargada (entonces no
+// se puede afirmar nada "a BCV" y todo sale en dólares reales).
+export function escalonBcvVigente(cfg: ConfigMap): number | null {
+  return calcPrecioBcv(1, cfg)?.brechaEscalonPct ?? null
 }
 
 function applyMargin(landedCostUsd: number, margin: number | null, cfg: ConfigMap, precioFijo?: number | null): { priceUsd: number | null; priceBcv: PrecioBcv | null } {

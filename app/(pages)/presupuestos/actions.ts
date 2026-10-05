@@ -12,6 +12,26 @@ import { ok, fallo, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from 
 import { motivoNoEliminable } from '@/lib/pedido-eliminable'
 import { isForeignKeyViolation } from '@/lib/prisma-errors'
 import { bloquearPedido, descontarIngresosPedido, registrarIngresoPedido } from '@/lib/movimientos'
+import { escalonBcvVigente } from '@/lib/calc'
+import { toConfigMap } from '@/lib/config'
+import { notaCobroBcv, realDeCobro, resumenCobro } from '@/lib/cobro-bcv'
+import { cobraEnBolivares } from '@/lib/pagos'
+
+type Tx = Prisma.TransactionClient
+
+// Lo que hace falta para convertir un cobro escrito en el formulario a dólares reales: las
+// líneas (para el total y el saldo BCV) y el escalón congelado del pedido.
+async function lineasYEscalon(tx: Tx, pedidoId: number) {
+  const p = await tx.pedido.findUniqueOrThrow({
+    where: { id: pedidoId },
+    select: { tipo: true, brechaEscalonPct: true, items: { select: { salePrice: true, quantity: true } } },
+  })
+  return {
+    tipo: p.tipo,
+    escalon: p.brechaEscalonPct != null ? Number(p.brechaEscalonPct) : null,
+    lineas: p.items.map(i => ({ salePrice: Number(i.salePrice), quantity: i.quantity })),
+  }
+}
 
 // Una línea es una pieza (productId) O un conjunto (ensambleId + snapshot de piezas).
 interface ItemInput extends RefLinea {
@@ -364,6 +384,11 @@ async function editarPresupuesto(id: number, formData: FormData) {
 // transacción: la lectura de antes estaba afuera, y un cobro registrado entre medio hacía
 // que el delta se calculara contra un número viejo. De paso, un doble envío de la misma
 // edición ve el resultado del primero y no anota nada de más.
+//
+// Cobro a dólar BCV (lib/cobro-bcv.ts): al confirmar se congela el escalón de brecha del día
+// en Pedido.brechaEscalonPct. El adelanto cobrado en Bs se escribe en dólares BCV y se guarda
+// su valor real; uno en divisas se escribe y se guarda tal cual. Guardar el monto BCV como si
+// fueran dólares reales inflaba la caja y dejaba el saldo del cliente corto en la brecha.
 export async function aprobarPedido(id: number, formData: FormData): Promise<ActionResult> {
   const rawDeposit = (formData.get('depositUsd') as string)?.trim()
   const paymentMethod = (formData.get('paymentMethod') as string)?.trim() || null
@@ -373,16 +398,30 @@ export async function aprobarPedido(id: number, formData: FormData): Promise<Act
 
   // Vacío = "no se cobró nada"; un número ilegible o negativo no es ninguna de las dos cosas
   // y se rechaza en vez de guardarse como null.
-  let nuevoDeposito: number | null = null
+  let montoEscrito: number | null = null
   if (rawDeposit) {
     const v = parseFloat(rawDeposit)
     if (!Number.isFinite(v) || v < 0) return fallo('El adelanto tiene que ser un monto válido (0 o más).')
-    nuevoDeposito = v
+    montoEscrito = v
   }
+  const enBs = cobraEnBolivares(paymentMethod)
+  const cfg = toConfigMap(await db.config.findMany())
 
   const resultado = await db.$transaction(async (tx): Promise<ActionResult> => {
     const actual = await bloquearPedido(tx, id)
     if (!actual) return fallo(`El pedido #${id} no existe.`)
+    const eraPresupuesto = actual.status === 'presupuesto'
+    const ctx = await lineasYEscalon(tx, id)
+
+    // Al confirmar se congela el escalón de hoy: es el total BCV que el cliente acaba de
+    // aceptar. Después ya no se toca, aunque se edite el adelanto.
+    const escalon = eraPresupuesto ? (ctx.tipo === 'cliente' ? escalonBcvVigente(cfg) : null) : ctx.escalon
+    // El monto escrito es BCV si se cobró en Bs y en divisas si no; lo guardado, siempre real.
+    const total = resumenCobro(ctx.lineas, 0, escalon)
+    const nuevoDeposito =
+      montoEscrito == null
+        ? null
+        : realDeCobro(montoEscrito, enBs, total, { bcv: total.totalBcv, real: total.totalReal })
 
     const anterior = actual.depositUsd
     // Dejar el campo vacío en un pedido que ya cobró borraría el depósito sin tocar el libro
@@ -393,11 +432,16 @@ export async function aprobarPedido(id: number, formData: FormData): Promise<Act
     }
 
     const delta = (nuevoDeposito ?? 0) - anterior
-    const eraPresupuesto = actual.status === 'presupuesto'
 
     await tx.pedido.update({
       where: { id },
-      data: { status: 'pedido', depositUsd: nuevoDeposito, paymentMethod, depositAt },
+      data: {
+        status: 'pedido',
+        depositUsd: nuevoDeposito,
+        paymentMethod,
+        depositAt,
+        ...(eraPresupuesto ? { brechaEscalonPct: escalon } : {}),
+      },
     })
     if (delta > 0.01) {
       await tx.movimiento.create({
@@ -407,6 +451,8 @@ export async function aprobarPedido(id: number, formData: FormData): Promise<Act
           categoria: eraPresupuesto ? 'adelanto_cliente' : 'pago_cliente',
           monto: delta,
           metodoPago: paymentMethod,
+          // Solo cuando es todo el cobro: en una corrección el monto escrito no es el delta.
+          descripcion: anterior < 0.01 ? notaCobroBcv(montoEscrito ?? 0, enBs, escalon) : null,
           pedidoId: id,
         },
       })
@@ -430,6 +476,10 @@ export async function aprobarPedido(id: number, formData: FormData): Promise<Act
 // adelanto original. Mismo mecanismo que el delta de aprobarPedido: suma a la caché
 // depositUsd y deja un Movimiento por el monto exacto que entró (ver registrarIngresoPedido,
 // que suma con un UPDATE atómico y no leyendo el depósito para reescribirlo).
+//
+// En un pedido a dólar BCV el monto cobrado en Bs se escribe en dólares BCV y se guarda su
+// valor real; el saldo se lee bajo el cerrojo del pedido, porque un pago que lo cubre se
+// guarda como el saldo real exacto (ver realDeCobro).
 export async function registrarPagoPedido(pedidoId: number, formData: FormData): Promise<ActionResult> {
   const monto = parseFloat((formData.get('monto') as string)?.trim() ?? '')
   if (!Number.isFinite(monto) || monto <= 0) return fallo('El monto tiene que ser mayor que 0.')
@@ -437,16 +487,26 @@ export async function registrarPagoPedido(pedidoId: number, formData: FormData):
   const descripcion = (formData.get('descripcion') as string)?.trim() || null
   const rawDate = (formData.get('fecha') as string)?.trim()
   const fecha = rawDate ? new Date(`${rawDate}T12:00:00`) : new Date()
+  const enBs = cobraEnBolivares(metodoPago)
 
+  let resultado: ActionResult
   try {
-    await db.$transaction(tx =>
-      registrarIngresoPedido(tx, { pedidoId, monto, categoria: 'pago_cliente', fecha, metodoPago, descripcion }),
-    )
+    resultado = await db.$transaction(async (tx): Promise<ActionResult> => {
+      const actual = await bloquearPedido(tx, pedidoId)
+      if (!actual) return fallo('Ese pedido ya no existe. Recargá la página.')
+      const { escalon, lineas } = await lineasYEscalon(tx, pedidoId)
+      const r = resumenCobro(lineas, actual.depositUsd, escalon)
+      const real = realDeCobro(monto, enBs, r, { bcv: r.saldoBcv, real: r.saldoReal })
+      const nota = [descripcion, notaCobroBcv(monto, enBs, escalon)].filter(Boolean).join(' · ') || null
+      await registrarIngresoPedido(tx, { pedidoId, monto: real, categoria: 'pago_cliente', fecha, metodoPago, descripcion: nota })
+      return ok()
+    }, { maxWait: 10_000, timeout: 20_000 })
   } catch (e) {
     // El pedido se borró desde otra pestaña: el movimiento no tiene a quién colgarse.
     if (isForeignKeyViolation(e)) return fallo('Ese pedido ya no existe. Recargá la página.')
     throw e
   }
+  if (!resultado.ok) return resultado
 
   revalidatePath('/presupuestos')
   revalidatePath(`/presupuestos/${pedidoId}`)

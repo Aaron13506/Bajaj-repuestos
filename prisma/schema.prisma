@@ -373,6 +373,11 @@ model Pedido {
   depositUsd    Decimal?     @db.Decimal(10, 2)
   paymentMethod String?
   depositAt     DateTime?
+  // Escalón de brecha BCV congelado al confirmar un pedido de cliente (lib/cobro-bcv.ts): el
+  // total en dólares BCV que aceptó el cliente no se mueve aunque la brecha cambie después.
+  // Lo guardado sigue en dólares reales; esto solo dice cómo presentarlo y cobrarlo.
+  // Null = pedido en dólares reales (anteriores al cobro a BCV, stock propio, sin tasa BCV).
+  brechaEscalonPct Decimal?  @db.Decimal(5, 2)
   // La etapa física ya NO vive acá: bajó a PedidoItem, porque un presupuesto puede
   // estar comprado a medias y repartido entre proveedores y cajas distintas. El estado
   // del pedido se deriva de sus ítems con stageSummary (ver lib/shipping-status.ts).

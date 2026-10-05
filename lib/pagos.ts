@@ -16,5 +16,11 @@ export const METODOS_PAGO_EGRESO = [
   'Efectivo USD',
 ] as const
 
+// El único cobro que pasa por la tasa BCV: en un pedido a dólar BCV su monto se escribe en
+// dólares BCV, y los demás en dólares de divisa (ver lib/cobro-bcv.ts).
+export function cobraEnBolivares(metodo: string | null | undefined): boolean {
+  return metodo === METODOS_PAGO_INGRESO[0]
+}
+
 export type MetodoPagoIngreso = (typeof METODOS_PAGO_INGRESO)[number]
 export type MetodoPagoEgreso = (typeof METODOS_PAGO_EGRESO)[number]

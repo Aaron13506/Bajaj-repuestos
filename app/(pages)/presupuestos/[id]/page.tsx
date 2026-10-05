@@ -9,7 +9,8 @@ import MedidasIA, { type GrupoMedidas, type PiezaMedible } from '@/components/Me
 import { deletePresupuesto, aprobarPedido, registrarPagoPedido } from '../actions'
 import { type BundlePiece, groupBundlePieces } from '@/lib/bundle'
 import { lookupDeConjuntos } from '@/lib/envio-build'
-import type { ConfigMap } from '@/lib/calc'
+import { escalonBcvVigente, type ConfigMap } from '@/lib/calc'
+import { aDolarBcv, resumenCobro } from '@/lib/cobro-bcv'
 import { getTerminos } from '@/lib/terminos'
 import { METODOS_PAGO_INGRESO } from '@/lib/pagos'
 import { compararNombre, toFileName } from '@/lib/utils'
@@ -17,7 +18,7 @@ import type { PresupuestoPdfData } from '@/lib/pdf/presupuesto-pdf'
 import { stageSummary, shippingStatusMeta, SHIPPING_STATUSES } from '@/lib/shipping-status'
 import { modeloLabel, type MotoModelId, toModelIds } from '@/lib/modelo'
 import { pedidoLogistics } from '@/lib/pedido-logistics'
-import { toConfigMap } from '@/lib/config'
+import { num, toConfigMap } from '@/lib/config'
 import { motivoNoEliminable } from '@/lib/pedido-eliminable'
 import { cabeceraDeLinea } from '@/lib/linea-pedido'
 
@@ -134,13 +135,38 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
   }
 
 
-  const bsdRate = bsdRow ? parseFloat(bsdRow.value) : NaN
-  const totalBsd = Number.isNaN(bsdRate) ? null : total * bsdRate
-  const deposit = total * 0.5
+  // Un presupuesto o pedido de cliente se muestra a "dólar BCV" (ver lib/cobro-bcv.ts): cada
+  // precio unitario es el real dividido entre (1 − escalón de brecha), así unitario ×
+  // cantidad = subtotal y la tabla cuadra al centavo. Lo guardado sigue en dólares reales. El
+  // presupuesto usa el escalón de hoy; el pedido, el que se congeló al confirmarlo (null = un
+  // pedido en dólares reales, anterior al cobro a BCV). Sin tasa BCV cargada se cae a dólares
+  // reales y NO se rotula como BCV, en vez de afirmar algo falso.
+  const tasaBcv = num(cfg, 'bcv_usd_rate', 0)
+  const escalon = isPropio
+    ? null
+    : isPresupuesto
+      ? escalonBcvVigente(cfg)
+      : presupuesto.brechaEscalonPct != null ? Number(presupuesto.brechaEscalonPct) : null
+  const modoBcv = escalon != null
+  const aBcv = (usd: number) => (escalon != null ? aDolarBcv(usd, escalon) : usd)
+  // El descuento por divisas ES el escalón: pagar en divisas devuelve exactamente el real.
+  const descuentoDivisasPct = escalon ?? 0
 
-  // Adelanto ya registrado (pedido de cliente confirmado)
+  // Adelanto ya registrado (pedido de cliente confirmado): depositUsd está en reales.
   const depositUsd = presupuesto.depositUsd != null ? parseFloat(presupuesto.depositUsd.toString()) : null
-  const saldoUsd = depositUsd != null ? total - depositUsd : null
+  const cobro = resumenCobro(
+    presupuesto.items.map(it => ({ salePrice: parseFloat(it.salePrice.toString()), quantity: it.quantity })),
+    depositUsd ?? 0,
+    escalon,
+  )
+  const totalMostrado = cobro.totalBcv
+
+  const bsdRate = bsdRow ? parseFloat(bsdRow.value) : NaN
+  // A dólar BCV no se muestra equivalente en Bs: la tasa del día no es la del pago y confunde.
+  const totalBsd = modoBcv || Number.isNaN(bsdRate) ? null : total * bsdRate
+  // Abono sugerido: 50% en las dos monedas en que se puede cobrar (el form elige según el método).
+  const deposit = Math.round(cobro.totalBcv * 50) / 100
+  const depositDivisas = Math.round(cobro.totalReal * 50) / 100
   const depositDateStr = presupuesto.depositAt
     ? new Date(presupuesto.depositAt).toISOString().slice(0, 10)
     : null
@@ -173,17 +199,20 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
       bajajCode: item.cab.bajajCode,
       modelo: m && m.count === 1 ? m.full : null,
       quantity: item.quantity,
-      unitPrice: parseFloat(item.salePrice.toString()),
-      subtotal: parseFloat(item.salePrice.toString()) * item.quantity,
+      unitPrice: aBcv(parseFloat(item.salePrice.toString())),
+      subtotal: aBcv(parseFloat(item.salePrice.toString())) * item.quantity,
       bundlePieces: (item.bundleItems as BundlePiece[] | null) ?? [],
       }
     }),
-    total,
+    total: totalMostrado,
     totalBsd,
+    modoBcv,
+    tasaBcv: modoBcv ? tasaBcv : null,
+    descuentoDivisasPct,
     isPresupuesto,
     deposit,
-    depositUsd,
-    saldoUsd,
+    depositUsd: depositUsd != null ? cobro.abonadoBcv : null,
+    saldoUsd: depositUsd != null ? cobro.saldoBcv : null,
     depositAt: presupuesto.depositAt
       ? new Date(presupuesto.depositAt).toLocaleDateString('es-VE', { day: '2-digit', month: 'long', year: 'numeric' })
       : null,
@@ -228,7 +257,8 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
                 <AprobarPedidoForm
                   action={aprobarPedido.bind(null, id)}
                   methods={METODOS_PAGO_INGRESO}
-                  suggestedDeposit={deposit}
+                  montos={{ bs: deposit, divisas: depositDivisas }}
+                  modoBcv={modoBcv}
                 />
               </div>
               <Link
@@ -244,13 +274,19 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
               <RegistrarPagoClienteForm
                 action={registrarPagoPedido.bind(null, id)}
                 methods={METODOS_PAGO_INGRESO}
+                modoBcv={modoBcv}
+                saldo={{ bs: cobro.saldoBcv, divisas: cobro.saldoReal }}
               />
               <AprobarPedidoForm
                 mode="editar"
                 action={aprobarPedido.bind(null, id)}
                 methods={METODOS_PAGO_INGRESO}
-                suggestedDeposit={deposit}
-                initialDeposit={depositUsd}
+                montos={
+                  depositUsd != null
+                    ? { bs: cobro.abonadoBcv, divisas: depositUsd }
+                    : { bs: deposit, divisas: depositDivisas }
+                }
+                modoBcv={modoBcv}
                 initialMethod={presupuesto.paymentMethod}
                 initialDate={depositDateStr}
               />
@@ -420,7 +456,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
                 Cant.
               </th>
               <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">
-                P. Unit.
+                P. Unit.{modoBcv && ' (BCV)'}
               </th>
               <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">
                 Subtotal
@@ -429,7 +465,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
           </thead>
           <tbody className="divide-y divide-gray-50">
             {items.map(item => {
-              const unitPrice = parseFloat(item.salePrice.toString())
+              const unitPrice = aBcv(parseFloat(item.salePrice.toString()))
               const subtotal = unitPrice * item.quantity
               const bundlePieces = (item.bundleItems as BundlePiece[] | null) ?? []
               const modelo = modeloLabel(toModelIds(item.cab.compatibleModels))
@@ -530,9 +566,16 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
       <div className="flex justify-end mb-4">
         <div className="w-full sm:w-80 space-y-1.5">
           <div className="flex justify-between items-baseline border-t-2 border-gray-200 pt-3">
-            <span className="font-bold text-gray-900">Total USD</span>
-            <span className="font-bold text-2xl font-mono text-blue-700">${total.toFixed(2)}</span>
+            <span className="font-bold text-gray-900">{modoBcv ? 'Total USD (BCV)' : 'Total USD'}</span>
+            <span className="font-bold text-2xl font-mono text-blue-700">${totalMostrado.toFixed(2)}</span>
           </div>
+          {modoBcv && (
+            <div className="text-xs text-gray-500 text-right">
+              <p>Monto expresado en dólares a tasa BCV</p>
+              <p>Se paga a la tasa BCV del día en que se realice el pago</p>
+              {descuentoDivisasPct > 0 && <p>Pagando en divisas se aplica un descuento del {descuentoDivisasPct}%</p>}
+            </div>
+          )}
           {totalBsd != null && (
             <div className="flex justify-between text-sm text-gray-500">
               <span>Referencia en bolívares</span>
@@ -541,24 +584,32 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
           )}
           {isPresupuesto && (
             <div className="flex justify-between items-center bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 mt-2">
-              <span className="text-sm font-semibold text-yellow-800">Abono 50% para confirmar</span>
+              <span className="text-sm font-semibold text-yellow-800">Abono mínimo 50% para confirmar</span>
               <span className="font-bold font-mono text-yellow-900">${deposit.toFixed(2)}</span>
             </div>
           )}
           {!isPropio && !isPresupuesto && depositUsd != null && (
+            // A dólar BCV, lo cobrado y el saldo se muestran en BCV (lo que dice la tabla) y, al
+            // lado, en divisas: lo guardado es real y un pago en divisas cancela el real.
             <div className="mt-2 space-y-1.5">
               <div className="flex justify-between items-center bg-green-50 border border-green-200 rounded-lg px-3 py-2">
                 <span className="text-sm font-semibold text-green-800">
-                  Adelanto recibido
+                  Abonado
                   {presupuesto.paymentMethod && (
                     <span className="font-normal text-green-600"> · {presupuesto.paymentMethod}</span>
                   )}
                 </span>
-                <span className="font-bold font-mono text-green-900">${depositUsd.toFixed(2)}</span>
+                <span className="text-right">
+                  <span className="block font-bold font-mono text-green-900">${cobro.abonadoBcv.toFixed(2)}</span>
+                  {modoBcv && <span className="block text-[11px] text-green-700 font-mono">${depositUsd.toFixed(2)} en divisas</span>}
+                </span>
               </div>
               <div className="flex justify-between items-center px-3">
                 <span className="text-sm font-semibold text-gray-700">Saldo pendiente</span>
-                <span className="font-bold font-mono text-gray-900">${(saldoUsd ?? 0).toFixed(2)}</span>
+                <span className="text-right">
+                  <span className="block font-bold font-mono text-gray-900">${cobro.saldoBcv.toFixed(2)}</span>
+                  {modoBcv && <span className="block text-[11px] text-gray-500 font-mono">${cobro.saldoReal.toFixed(2)} en divisas</span>}
+                </span>
               </div>
               {presupuesto.depositAt && (
                 <p className="text-xs text-gray-400 px-3">

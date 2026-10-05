@@ -5,12 +5,19 @@ import { deletePresupuesto } from './actions'
 import { stageSummary } from '@/lib/shipping-status'
 import { pedidoLogistics } from '@/lib/pedido-logistics'
 import { motivoNoEliminable } from '@/lib/pedido-eliminable'
+import { escalonBcvVigente } from '@/lib/calc'
+import { toConfigMap } from '@/lib/config'
+import { resumenCobro } from '@/lib/cobro-bcv'
 
 export default async function PresupuestosPage() {
-  const todos = await db.pedido.findMany({
-    include: { items: true, _count: { select: { movimientos: true } } },
-    orderBy: { createdAt: 'desc' },
-  })
+  const [todos, configRows] = await Promise.all([
+    db.pedido.findMany({
+      include: { items: true, _count: { select: { movimientos: true } } },
+      orderBy: { createdAt: 'desc' },
+    }),
+    db.config.findMany(),
+  ])
+  const escalonHoy = escalonBcvVigente(toConfigMap(configRows))
 
   const presupuestos = todos.filter(p => p.tipo !== 'propio' && p.status === 'presupuesto')
   const pedidos = todos.filter(p => p.tipo !== 'propio' && p.status === 'pedido')
@@ -23,14 +30,23 @@ export default async function PresupuestosPage() {
   )
 
   function Row({ p }: { p: (typeof todos)[0] }) {
-    const total = p.items.reduce(
-      (sum, item) => sum + parseFloat(item.salePrice.toString()) * item.quantity,
-      0
-    )
     const isPropio = p.tipo === 'propio'
     const isPresupuesto = p.status === 'presupuesto'
     const depositUsd = p.depositUsd != null ? parseFloat(p.depositUsd.toString()) : null
-    const saldo = depositUsd != null ? total - depositUsd : null
+    // Los mismos montos que el detalle y el PDF: a dólar BCV con el escalón de hoy (presupuesto)
+    // o el congelado al confirmar (pedido). Ver lib/cobro-bcv.ts.
+    const escalon = isPropio
+      ? null
+      : isPresupuesto
+        ? escalonHoy
+        : p.brechaEscalonPct != null ? Number(p.brechaEscalonPct) : null
+    const cobro = resumenCobro(
+      p.items.map(it => ({ salePrice: parseFloat(it.salePrice.toString()), quantity: it.quantity })),
+      depositUsd ?? 0,
+      escalon,
+    )
+    const total = cobro.totalBcv
+    const saldo = depositUsd != null ? cobro.saldoBcv : null
     const compra = stageSummary(p.items)
     const log = isPropio ? logPropios.get(p.id) : undefined
     // Un pedido con cobros, compras o piezas en una caja no se borra (ver motivoNoEliminable).
@@ -87,6 +103,7 @@ export default async function PresupuestosPage() {
         <div className="flex items-center gap-4">
           <div className="text-right">
             <span className="font-semibold text-gray-900">${total.toFixed(2)}</span>
+            {escalon != null && <span className="ml-1 text-[10px] font-semibold text-gray-400">BCV</span>}
             {saldo != null && saldo > 0.005 && (
               <p className="text-xs text-amber-600">Saldo ${saldo.toFixed(2)}</p>
             )}

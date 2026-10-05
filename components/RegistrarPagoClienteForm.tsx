@@ -4,17 +4,26 @@ import { useState } from 'react'
 import CampoFecha from '@/components/CampoFecha'
 import { useEnviarAccion } from '@/components/useEnviarAccion'
 import type { ActionResult } from '@/lib/action-result'
+import { cobraEnBolivares } from '@/lib/pagos'
 
 interface Props {
   action: (formData: FormData) => Promise<ActionResult>
   methods: readonly string[]
+  /** Pedido a dólar BCV: lo cobrado en Bs se escribe en dólares BCV, lo demás en divisas. */
+  modoBcv: boolean
+  /** Lo que falta, en las dos monedas (iguales si el pedido no es a BCV). */
+  saldo: { bs: number; divisas: number }
 }
 
 // Botón + panel para anotar un pago de cliente SIN reabrir el form de aprobación (que
 // pisa el adelanto entero). Este siempre suma un Movimiento nuevo por el monto exacto
 // que entró — ver registrarPagoPedido.
-export default function RegistrarPagoClienteForm({ action, methods }: Props) {
+export default function RegistrarPagoClienteForm({ action, methods, modoBcv, saldo }: Props) {
   const [open, setOpen] = useState(false)
+  const [metodo, setMetodo] = useState<string>(methods[0])
+  const enBs = cobraEnBolivares(metodo)
+  const unidad = !modoBcv ? 'USD' : enBs ? 'USD a tasa BCV' : 'USD en divisas'
+  const saldoMetodo = enBs ? saldo.bs : saldo.divisas
   const { enviar, isPending, error, limpiarError } = useEnviarAccion(action, () => setOpen(false))
 
   if (!open) {
@@ -38,7 +47,7 @@ export default function RegistrarPagoClienteForm({ action, methods }: Props) {
         <p className="text-sm font-semibold text-gray-900">Registrar pago recibido</p>
 
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Monto (USD)</label>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Monto ({unidad})</label>
           <div className="flex items-center">
             <span className="text-sm text-gray-400 mr-1">$</span>
             <input
@@ -46,11 +55,16 @@ export default function RegistrarPagoClienteForm({ action, methods }: Props) {
               className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
+          {saldoMetodo > 0.005 && (
+            <p className="text-[11px] text-gray-400 mt-1">
+              Saldo: ${saldoMetodo.toFixed(2)}{modoBcv && (enBs ? ' a tasa BCV (lo pagado en Bs ÷ la tasa BCV de ese día)' : ' en divisas')}
+            </p>
+          )}
         </div>
 
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Método de pago</label>
-          <select name="metodoPago" defaultValue={methods[0]} className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+          <select name="metodoPago" value={metodo} onChange={e => setMetodo(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
             {methods.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
         </div>

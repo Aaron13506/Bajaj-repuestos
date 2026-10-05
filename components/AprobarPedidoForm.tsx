@@ -3,14 +3,18 @@
 import { useState, useRef, useTransition } from 'react'
 import type { ActionResult } from '@/lib/action-result'
 import CampoFecha from '@/components/CampoFecha'
+import { cobraEnBolivares } from '@/lib/pagos'
 
 interface Props {
   action: (formData: FormData) => Promise<ActionResult>
   methods: readonly string[]
-  /** Monto sugerido (50% del total) al aprobar por primera vez. */
-  suggestedDeposit: number
-  /** Modo edición: ya es pedido, se editan los valores actuales del adelanto. */
-  initialDeposit?: number | null
+  /**
+   * Monto a proponer según el método: al aprobar, el 50% del total; al editar, lo cobrado.
+   * En un pedido a dólar BCV lo cobrado en Bs se escribe en dólares BCV (`bs`) y lo cobrado
+   * en divisas en dólares reales (`divisas`); en uno en dólares reales son iguales.
+   */
+  montos: { bs: number; divisas: number }
+  modoBcv: boolean
   initialMethod?: string | null
   initialDate?: string | null
   mode?: 'aprobar' | 'editar'
@@ -21,8 +25,8 @@ const money = (n: number) => n.toFixed(2)
 export default function AprobarPedidoForm({
   action,
   methods,
-  suggestedDeposit,
-  initialDeposit = null,
+  montos,
+  modoBcv,
   initialMethod = null,
   initialDate = null,
   mode = 'aprobar',
@@ -33,7 +37,13 @@ export default function AprobarPedidoForm({
   const enVuelo = useRef(false)
   const formRef = useRef<HTMLFormElement>(null)
 
-  const defaultDeposit = initialDeposit ?? suggestedDeposit
+  const [metodo, setMetodo] = useState(initialMethod ?? methods[0])
+  const enBs = cobraEnBolivares(metodo)
+  const propuesto = enBs ? montos.bs : montos.divisas
+  // Mientras no se toque, el monto sigue al método: si no, el 50% en dólares BCV quedaba
+  // escrito al pasar a "Efectivo USD" y se guardaba como divisas.
+  const [monto, setMonto] = useState<string | null>(null)
+  const unidad = !modoBcv ? 'USD' : enBs ? 'USD a tasa BCV' : 'USD en divisas'
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -89,7 +99,7 @@ export default function AprobarPedidoForm({
         </p>
 
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Adelanto recibido (USD)</label>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Adelanto recibido ({unidad})</label>
           <div className="flex items-center">
             <span className="text-sm text-gray-400 mr-1">$</span>
             <input
@@ -97,12 +107,22 @@ export default function AprobarPedidoForm({
               name="depositUsd"
               min={0}
               step="0.01"
-              defaultValue={money(defaultDeposit)}
+              value={monto ?? money(propuesto)}
+              onChange={e => setMonto(e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
           {mode === 'aprobar' && (
-            <p className="text-[11px] text-gray-400 mt-1">Sugerido: 50% del total (${money(suggestedDeposit)}). Editable.</p>
+            <p className="text-[11px] text-gray-400 mt-1">
+              Sugerido: 50% del total (${money(propuesto)}{modoBcv && (enBs ? ' a tasa BCV' : ' en divisas')}). Editable.
+            </p>
+          )}
+          {modoBcv && (
+            <p className="text-[11px] text-gray-400 mt-1">
+              {enBs
+                ? 'Lo pagado en Bs ÷ la tasa BCV de ese día. Se guarda su valor en divisas.'
+                : 'Los dólares que entraron: el descuento por divisas ya está aplicado.'}
+            </p>
           )}
         </div>
 
@@ -110,7 +130,8 @@ export default function AprobarPedidoForm({
           <label className="block text-xs font-medium text-gray-600 mb-1">Método de pago</label>
           <select
             name="paymentMethod"
-            defaultValue={initialMethod ?? methods[0]}
+            value={metodo}
+            onChange={e => setMetodo(e.target.value)}
             className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           >
             {methods.map(m => (

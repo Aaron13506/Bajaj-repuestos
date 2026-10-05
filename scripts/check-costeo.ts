@@ -30,6 +30,7 @@ import { motivoNoEliminable, type PedidoBorrable } from '../lib/pedido-eliminabl
 import { motivoProveedorEnUso } from '../lib/proveedor-en-uso'
 import { motivoProductoEnUso } from '../lib/producto-en-uso'
 import { compatibleModelsFrom } from '../lib/modelo'
+import { realDeCobro, resumenCobro } from '../lib/cobro-bcv'
 
 const cfg: ConfigMap = {
   inr_usd_rate: '94.95',
@@ -516,6 +517,59 @@ console.log('\nFLETE REAL (estado derivado del libro)')
   check('resumen: todo pagado', uno(resumenFletes([
     { facturadoUsd: 316, pagadoUsd: 316 }, { facturadoUsd: 48, pagadoUsd: 48 },
   ]) === 'pagado'), 1)
+}
+
+// ── Cobro a dólar BCV: lo guardado es real, lo cobrado en Bs se escribe en BCV ──────────
+console.log('\nCOBRO A DÓLAR BCV (pedido confirmado)')
+{
+  const r2 = (n: number) => Math.round(n * 100) / 100
+  // El caso que lo destapó: Chain Kit a $80 reales, escalón 15% → $94.12 BCV, y un adelanto
+  // de $47.06 pagado en Bs. Se guardaba 47.06 como si fueran dólares reales: saldo $32.94.
+  const lineas = [{ salePrice: 80, quantity: 1 }]
+  const r0 = resumenCobro(lineas, 0, 15)
+  check('total BCV = 80 / 0.85', r0.totalBcv, 94.12)
+  const adelanto = realDeCobro(47.06, true, r0, { bcv: r0.totalBcv, real: r0.totalReal })
+  check('adelanto de $47.06 BCV en Bs se guarda como $40 reales', adelanto, 40)
+  const r1 = resumenCobro(lineas, adelanto, 15)
+  check('saldo BCV tras el adelanto', r1.saldoBcv, 47.06)
+  check('saldo en divisas tras el adelanto', r1.saldoReal, 40)
+  check('lo abonado se muestra en BCV', r1.abonadoBcv, 47.06)
+  check('pagar el saldo BCV en Bs lo deja en cero', resumenCobro(lineas, adelanto + realDeCobro(47.06, true, r1, { bcv: r1.saldoBcv, real: r1.saldoReal }), 15).saldoBcv, 0)
+  check('pagar el saldo en divisas lo deja en cero', resumenCobro(lineas, adelanto + realDeCobro(40, false, r1), 15).saldoBcv, 0)
+  check('pedido en dólares reales (sin escalón): el monto se guarda tal cual', realDeCobro(47.06, true, resumenCobro(lineas, 0, null)), 47.06)
+  check('adelanto del total entero en BCV = total real exacto', realDeCobro(94.12, true, r0, { bcv: 94.12, real: 80 }), 80)
+
+  // Al azar: 50% en Bs (o en divisas) y después el saldo que muestra la pantalla, en Bs.
+  // Tiene que quedar en cero exacto en las dos monedas, sin centavos sueltos del redondeo.
+  let semilla = 7
+  const azar = () => ((semilla = (semilla * 16807) % 2147483647) / 2147483647)
+  let malos = 0
+  for (let i = 0; i < 20000; i++) {
+    const esc = 5 * (1 + Math.floor(azar() * 9))
+    const ls = Array.from({ length: 1 + Math.floor(azar() * 6) }, () => ({
+      salePrice: r2(1 + azar() * 300), quantity: 1 + Math.floor(azar() * 12),
+    }))
+    const t = resumenCobro(ls, 0, esc)
+    const primero = azar() < 0.5
+      ? realDeCobro(r2(t.totalBcv / 2), true, t, { bcv: t.totalBcv, real: t.totalReal })
+      : realDeCobro(r2(t.totalReal / 2), false, t)
+    const m = resumenCobro(ls, primero, esc)
+    const fin = resumenCobro(ls, primero + realDeCobro(m.saldoBcv, true, m, { bcv: m.saldoBcv, real: m.saldoReal }), esc)
+    if (Math.abs(fin.saldoBcv) > 0.001 || Math.abs(fin.saldoReal) > 0.001) malos++
+  }
+  check('adelanto + saldo en Bs dejan el pedido en cero (20000 pedidos al azar)', malos, 0)
+
+  // Y sin cobrar nada, el saldo BCV es exactamente el total de la tabla (no unos centavos de más).
+  let corridos = 0
+  for (let i = 0; i < 20000; i++) {
+    const esc = 5 * (1 + Math.floor(azar() * 9))
+    const ls = Array.from({ length: 1 + Math.floor(azar() * 6) }, () => ({
+      salePrice: r2(1 + azar() * 300), quantity: 1 + Math.floor(azar() * 12),
+    }))
+    const t = resumenCobro(ls, 0, esc)
+    if (Math.abs(t.saldoBcv - t.totalBcv) > 0.001) corridos++
+  }
+  check('sin cobros, saldo BCV = total BCV de la tabla (20000 pedidos al azar)', corridos, 0)
 }
 
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)
