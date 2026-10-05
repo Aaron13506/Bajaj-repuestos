@@ -9,7 +9,7 @@ export const MARGIN = 14
 export const GRAY = 130
 export const DARK = 30
 
-export const BRAND = 'Bajaj Repuestos'
+export const BRAND = 'Motokira'
 // El PDF usa las fuentes estándar de jsPDF (WinAnsi), que no tienen "→": va "->".
 export const TAGLINE = 'Repuestos Pulsar por encargo · India -> Venezuela'
 

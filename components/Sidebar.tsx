@@ -111,7 +111,7 @@ export default function Sidebar() {
   return (
     <aside className="w-64 bg-gray-900 text-white flex flex-col shrink-0 print:hidden">
       <div className="p-6 border-b border-gray-700">
-        <h1 className="text-xl font-bold text-white">Bajaj Repuestos</h1>
+        <h1 className="text-xl font-bold text-white">Motokira</h1>
         <p className="text-gray-400 text-sm mt-1">Panel de Administracion</p>
       </div>
       <nav className="flex-1 p-4 space-y-1">

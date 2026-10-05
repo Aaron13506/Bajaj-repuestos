@@ -176,7 +176,7 @@ function pedirCredenciales(mensaje: string): NextResponse {
   return new NextResponse(mensaje, {
     status: 401,
     headers: {
-      'WWW-Authenticate': 'Basic realm="Bajaj Repuestos Admin"',
+      'WWW-Authenticate': 'Basic realm="Motokira Admin"',
       'Cache-Control': 'no-store',
     },
   })

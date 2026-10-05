@@ -11,8 +11,8 @@ const inter = Inter({ subsets: ['latin'] })
 export const dynamic = 'force-dynamic'
 
 export const metadata: Metadata = {
-  title: 'Bajaj Repuestos',
-  description: 'Sistema de gestion de repuestos Bajaj',
+  title: 'Motokira',
+  description: 'Sistema de gestión de repuestos Motokira',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
