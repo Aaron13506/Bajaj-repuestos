@@ -45,6 +45,10 @@ export interface FinanciamientoEnvio {
   bolsilloUsd: number
   /** Margen SOLO sobre las líneas de cliente: la venta del stock propio todavía no existe. */
   margenClientesUsd: number
+  /** Venta de TODAS las líneas (clientes + stock propio estimado + sin aprobar): la contraparte del landed total. */
+  ventaTotalUsd: number
+  /** Margen contra el costo total de la caja, stock propio incluido (su venta es la estimada del catálogo). */
+  margenTotalUsd: number
   /** Pedidos de cliente con parte de su venta en otra caja. */
   pedidosPartidos: number
 }
@@ -69,6 +73,8 @@ export function financiamientoEnvio(
     adelantosUsd: 0,
     bolsilloUsd: 0,
     margenClientesUsd: 0,
+    ventaTotalUsd: 0,
+    margenTotalUsd: 0,
     pedidosPartidos: 0,
   }
 
@@ -103,5 +109,7 @@ export function financiamientoEnvio(
   out.clientes.porCobrarUsd = out.clientes.costoUsd - out.clientes.adelantoUsd
   out.bolsilloUsd = out.costoUsd - out.adelantosUsd
   out.margenClientesUsd = out.clientes.ventaUsd - out.clientes.costoUsd
+  out.ventaTotalUsd = out.clientes.ventaUsd + out.propio.ventaEstimadaUsd + out.sinAprobar.ventaUsd
+  out.margenTotalUsd = out.ventaTotalUsd - out.costoUsd
   return out
 }

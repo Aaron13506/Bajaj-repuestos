@@ -998,26 +998,33 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                 <dt className="font-bold text-gray-900">Costo total landed</dt>
                 <dd className="font-bold text-xl font-mono text-blue-700">{usd(calc.landedUsd)}</dd>
               </div>
-              {/* El margen es SOLO de las líneas de cliente: la venta del stock propio es una
-                  estimación de cuando se armó el pedido, no una venta, e inflaba el margen con
-                  plata que todavía no existe. El stock propio se muestra a costo. */}
-              {financiamiento.clientes.ventaUsd > 0 && (
+              {/* El landed incluye TODO lo que viaja, stock propio también, así que la venta y el
+                  margen se miden contra ese mismo total. La venta del stock propio es la estimada
+                  del catálogo (todavía no es plata cobrada) y se rotula como tal. */}
+              {financiamiento.ventaTotalUsd > 0 && (
                 <>
                   <Row label="Venta a clientes" value={usd(financiamiento.clientes.ventaUsd)} />
+                  {financiamiento.propio.ventaEstimadaUsd > 0 && (
+                    <Row
+                      label="Venta estimada de stock propio"
+                      value={usd(financiamiento.propio.ventaEstimadaUsd)}
+                      tag={{ texto: 'estimado', tono: 'est' }}
+                    />
+                  )}
+                  {financiamiento.sinAprobar.ventaUsd > 0 && (
+                    <Row label="Presupuestos sin aprobar" value={usd(financiamiento.sinAprobar.ventaUsd)} tag={{ texto: 'estimado', tono: 'est' }} />
+                  )}
                   <div className="flex justify-between">
-                    <dt className="font-semibold text-gray-700">Margen bruto (clientes)</dt>
-                    <dd className={`font-semibold font-mono ${financiamiento.margenClientesUsd >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                      {usd(financiamiento.margenClientesUsd)}
+                    <dt className="font-semibold text-gray-700">Margen bruto (total)</dt>
+                    <dd className={`font-semibold font-mono ${financiamiento.margenTotalUsd >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                      {usd(financiamiento.margenTotalUsd)}
                       {' '}
                       <span className="text-xs text-gray-400">
-                        ({((financiamiento.margenClientesUsd / financiamiento.clientes.ventaUsd) * 100).toFixed(0)}%)
+                        ({((financiamiento.margenTotalUsd / financiamiento.ventaTotalUsd) * 100).toFixed(0)}%)
                       </span>
                     </dd>
                   </div>
                 </>
-              )}
-              {financiamiento.propio.costoUsd > 0 && (
-                <Row label="Inventario propio (a costo)" value={usd(financiamiento.propio.costoUsd)} />
               )}
             </dl>
           </div>
