@@ -8,6 +8,8 @@ import { type BundlePiece } from '@/lib/bundle'
 import { claveLinea, type RefLinea } from '@/lib/linea-pedido'
 import { findOrCreateCliente, revalidateClientes } from '@/lib/clientes'
 import { isDelivered } from '@/lib/shipping-status'
+import { listarFaltantes, piezasDeLinea, type LineaStock } from '@/lib/stock-piezas'
+import { resolverDePiezas } from '@/lib/inventario'
 import { ok, fallo, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
 import { motivoNoEliminable } from '@/lib/pedido-eliminable'
 import { isForeignKeyViolation } from '@/lib/prisma-errors'
@@ -243,7 +245,10 @@ async function editarPresupuesto(id: number, formData: FormData) {
   const notas = (formData.get('notas') as string)?.trim() || null
   const existing = await db.pedido.findUnique({
     where: { id },
-    select: { tipo: true, status: true, items: { select: { productId: true, ensambleId: true, quantity: true, shippingStatus: true } } },
+    select: {
+      tipo: true, status: true,
+      items: { select: { productId: true, ensambleId: true, quantity: true, shippingStatus: true, bundleItems: true } },
+    },
   })
   if (!existing) throw new ErrorDeNegocio(`El presupuesto #${id} ya no existe.`)
 
@@ -305,15 +310,38 @@ async function editarPresupuesto(id: number, formData: FormData) {
   // cantidad de 10 a 6 y el depósito sigue diciendo que entraron 10. El ajuste va en la misma
   // transacción que la edición. Las líneas que todavía no llegaron no tocan stock.
   //
-  // Solo las piezas sueltas: un conjunto no mueve stock (ver saveItemChanges en envios/actions).
+  // Un conjunto entregado sumó sus PIEZAS (ver lib/stock-piezas), así que se compara pieza por
+  // pieza lo que sumó (cantidad y snapshot viejos) contra lo que sumaría ahora (los nuevos):
+  // cambiar la cantidad, destildar una pieza o sacar el conjunto mueven lo que corresponde.
   const ajusteStock = new Map<number, number>()
   if (existing.tipo === 'propio') {
-    const cantidadAhora = new Map(items.map(i => [claveLinea(i), i.quantity]))
+    const ahoraPorClave = new Map(items.map(i => [claveLinea(i), i]))
+    const antesLineas: LineaStock[] = []
+    const ahoraLineas: LineaStock[] = []
     for (const it of existing.items) {
-      if (it.productId == null || !isDelivered(it.shippingStatus)) continue
-      const delta = (cantidadAhora.get(claveLinea(it)) ?? 0) - it.quantity
-      if (delta !== 0) ajusteStock.set(it.productId, delta)
+      if (!isDelivered(it.shippingStatus)) continue
+      antesLineas.push({ productId: it.productId, quantity: it.quantity, bundleItems: it.bundleItems as BundlePiece[] | null })
+      const nueva = ahoraPorClave.get(claveLinea(it))
+      if (nueva) ahoraLineas.push({ productId: nueva.productId, quantity: nueva.quantity, bundleItems: nueva.bundleItems ?? null })
     }
+    const resolver = await resolverDePiezas([...antesLineas, ...ahoraLineas])
+    const faltan: BundlePiece[] = []
+    const acumular = (lineas: LineaStock[], signo: number) => {
+      for (const l of lineas) {
+        const r = piezasDeLinea(l, resolver)
+        faltan.push(...r.faltan)
+        for (const p of r.piezas) ajusteStock.set(p.productId, (ajusteStock.get(p.productId) ?? 0) + signo * p.unidades)
+      }
+    }
+    acumular(antesLineas, -1)
+    acumular(ahoraLineas, 1)
+    if (faltan.length > 0) {
+      throw new ErrorDeNegocio(
+        `Hay piezas de un conjunto ya entregado que no se pueden identificar en el catálogo (${listarFaltantes(faltan)}): ` +
+        `no se puede ajustar su stock. Cargalas como producto primero.`,
+      )
+    }
+    for (const [pid, d] of ajusteStock) if (d === 0) ajusteStock.delete(pid)
   }
   if (ajusteStock.size > 0) {
     // Bajar la cantidad entregada resta del depósito: si eso ya se vendió, el stock quedaría

@@ -271,7 +271,7 @@ export async function reabrirEmbarque(envioId: number) {
 const TX_OPTS = { maxWait: 10_000, timeout: 20_000 } as const
 
 // Marca la caja como recibida: a partir de acá deja de estar "en camino" (ver
-// mercanciaEnCamino) y cada EnvioLinea se suma a Product.stock, en la misma transacción —
+// lib/inventario.ts) y cada EnvioLinea se suma a Product.stock, en la misma transacción —
 // un solo dato, sin transcribirlo pieza por pieza a mano en cada producto. Sin cliente
 // detrás (es mercancía propia), "recibido" es directamente "ya está en el depósito".
 //

@@ -215,7 +215,7 @@ export default async function EnviosPage() {
                       ? `${inboundMeta(inboundDe(e.supplier.origen, e.supplier.inbound)).icon} ${e.supplier.name}`
                       : '📦 99rpm'}
                   </span>
-                  {esMar && esBorrador && (
+                  {esBorrador && (
                     <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
                       Borrador
                     </span>

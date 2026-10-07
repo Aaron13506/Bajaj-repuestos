@@ -8,6 +8,8 @@ import CopiarJson from '@/components/CopiarJson'
 // porque la necesitás, y enterarte de que ya no se fabrica es la respuesta — que desaparezca
 // del despiece parecería un error del catálogo y te mandaría a buscarla de nuevo.
 import ChipDescontinuada from '@/components/ChipDescontinuada'
+import StockBadge from '@/components/StockBadge'
+import type { PosicionesStock } from '@/lib/inventario'
 import { parseModelos, sirveParaModelo } from '@/lib/modelos'
 import { cumpleMoq, cantidadMinima } from '@/lib/moq'
 import { ensambleAJson } from '@/lib/export-ensamble'
@@ -114,6 +116,8 @@ interface Props {
   fobUsd: number
   assemblies: AssemblyOption[]
   models: string[]
+  /** Lo que ya tengo o ya viene de cada pieza, SIN contar esta caja (eso es "ya llevás"). */
+  posiciones?: PosicionesStock
 }
 
 const usd = (n: number) => `$${n.toFixed(2)}`
@@ -167,7 +171,7 @@ function ChipMoq({ moq, cantidad, costoUsd }: { moq: number | null; cantidad?: n
 }
 
 export default function EmbarqueMaritimo({
-  envioId, nombre, proveedor, lineas, volumeM3, minM3, ratePerM3, fobUsd, assemblies, models,
+  envioId, nombre, proveedor, lineas, volumeM3, minM3, ratePerM3, fobUsd, assemblies, models, posiciones,
 }: Props) {
   const [search, setSearch] = useState('')
   const [encontrados, setEncontrados] = useState<Resultado[]>([])
@@ -621,6 +625,7 @@ export default function EmbarqueMaritimo({
                                     {sumando > 0 && ` → ${yaLlevas + sumando}`}
                                   </span>
                                 )}
+                                <StockBadge productId={c.child.id} posiciones={posiciones} className="ml-2" />
                               </span>
                               <span className="text-[11px] font-mono text-gray-500 w-16 text-right shrink-0" title="Costo de compra unitario">
                                 {c.child.costoUsd != null ? usd(c.child.costoUsd) : '—'}
@@ -778,6 +783,7 @@ export default function EmbarqueMaritimo({
                         {yaLlevas > 0 && (
                           <span className="ml-2 font-medium text-cyan-700">ya llevás {yaLlevas} → {yaLlevas + paso}</span>
                         )}
+                        <StockBadge productId={r.id} posiciones={posiciones} className="ml-2" />
                       </p>
                     </div>
                     <button
@@ -877,6 +883,7 @@ export default function EmbarqueMaritimo({
                     {l.bajajCode && <span className="ml-2 font-mono text-xs text-gray-400">{l.bajajCode}</span>}
                     <CodigoAlterno code={l.altCode} />
                     <ChipMoq moq={l.moq} cantidad={l.quantity} />
+                    <StockBadge productId={l.productId} posiciones={posiciones} className="ml-2" />
                     {(() => {
                       const motos = chipMotos(l.compatibleModels)
                       return motos && (

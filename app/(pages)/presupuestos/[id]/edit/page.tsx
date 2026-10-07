@@ -6,12 +6,13 @@ import PresupuestoBuilder from '@/components/PresupuestoBuilder'
 import { updatePresupuesto } from '../../actions'
 import { type BundlePiece } from '@/lib/bundle'
 import { cabeceraDeLinea, nombreEnsamble } from '@/lib/linea-pedido'
+import { posicionesParaArmador } from '@/lib/inventario'
 
 export default async function EditPresupuestoPage({ params }: { params: Promise<{ id: string }> }) {
   const id = parseInt((await params).id)
   if (isNaN(id)) notFound()
 
-  const [presupuesto, assemblies, clientes] = await Promise.all([
+  const [presupuesto, assemblies, clientes, posiciones] = await Promise.all([
     db.pedido.findUnique({
       where: { id },
       include: {
@@ -38,6 +39,9 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
       orderBy: { nombre: 'asc' },
       select: { id: true, nombre: true, telefono: true },
     }),
+    // Lo que ya tengo o ya viene de cada pieza. Si este mismo pedido propio está en una caja,
+    // sus piezas cuentan ahí: es lo que ya viene.
+    posicionesParaArmador(),
   ])
 
   // Editable si sigue siendo presupuesto, o si es stock propio (nace como pedido
@@ -95,6 +99,7 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
         initialNotas={presupuesto.notas ?? ''}
         initialItems={initialItems}
         clientes={clientes}
+        posiciones={posiciones}
       />
     </div>
   )

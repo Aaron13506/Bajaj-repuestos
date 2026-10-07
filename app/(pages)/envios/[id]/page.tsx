@@ -41,6 +41,8 @@ import {
   deshacerPagoFlete,
   saveItemChanges,
   registrarPagoProveedor,
+  confirmarCajaAerea,
+  volverCajaABorrador,
 } from '../actions'
 
 const usd = (n: number) => `$${n.toFixed(2)}`
@@ -526,8 +528,13 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     shippingStatus: it.shippingStatus,
     isLanded: it.isLanded,
     shippingStatusAt: it.shippingStatusAt?.toISOString() ?? null,
-    // Solo las piezas sueltas de un pedido propio mueven Product.stock (ver saveItemChanges).
-    stockUnidades: it.pedido.tipo === 'propio' && it.productId != null ? it.quantity : 0,
+    // Las líneas de un pedido propio mueven Product.stock al entregarse: la pieza suelta su
+    // cantidad, el conjunto sus piezas (ver saveItemChanges y lib/stock-piezas).
+    stockUnidades: it.pedido.tipo !== 'propio'
+      ? 0
+      : it.productId != null
+        ? it.quantity
+        : ((it.bundleItems as BundlePiece[] | null) ?? []).reduce((s, p) => s + p.quantity, 0) * it.quantity,
     sinPeso: faltantesByItem.get(it.id)?.sinPeso ?? 0,
     sinMedidas: faltantesByItem.get(it.id)?.sinMedidas ?? 0,
   }))
@@ -636,8 +643,13 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     pagosFlete.filter(m => m.categoria === cat).reduce((acc, m) => acc + parseFloat(m.monto.toString()), 0)
   const compradas = envio.items.filter(it => it.shippingStatus !== 'pendiente').length
   const entregadas = envio.items.filter(it => it.shippingStatus === 'entregado').length
+  // Borrador = todavía se está pensando: no cuenta como inventario en camino y no se compra,
+  // paga ni avanza (ver confirmarCajaAerea). Vuelve a borrador solo si no pasó nada todavía.
+  const esBorrador = envio.estado === 'borrador'
+  const puedeVolverABorrador = !esBorrador && compradas === 0 && lineasConCostoReal === 0
   const pasos: { texto: string; hecho: boolean }[] = [
     { texto: 'Asignada', hecho: envio.items.length > 0 },
+    { texto: 'Confirmada', hecho: !esBorrador },
     { texto: `Comprada ${compradas}/${envio.items.length}`, hecho: envio.items.length > 0 && compradas === envio.items.length },
     { texto: 'Pesada', hecho: calc.caja.medido },
   ]
@@ -680,6 +692,28 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
             </span>
           </div>
           {envio.notas && <p className="text-sm text-gray-500 mt-1">{envio.notas}</p>}
+          {esBorrador && (
+            <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5">
+              <p className="text-sm text-amber-900">
+                <span className="font-semibold">Borrador.</span>{' '}
+                Todavía no es una compra: no cuenta como inventario en camino, y no se compra, paga ni avanza.
+              </p>
+              {items.length > 0 && (
+                <FormConResultado action={confirmarCajaAerea.bind(null, envio.id)} className="flex flex-wrap items-center gap-2">
+                  <PendingButton className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-sm font-semibold hover:bg-amber-700 disabled:opacity-50">
+                    Confirmar compra
+                  </PendingButton>
+                </FormConResultado>
+              )}
+            </div>
+          )}
+          {puedeVolverABorrador && (
+            <FormConResultado action={volverCajaABorrador.bind(null, envio.id)} className="mt-2 flex flex-wrap items-center gap-2">
+              <PendingButton className="text-xs text-gray-500 hover:text-gray-800 underline disabled:opacity-50">
+                Volver a borrador
+              </PendingButton>
+            </FormConResultado>
+          )}
           {/* Qué le falta a la caja, derivado de lo que ya hay cargado. */}
           {items.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 mt-2">
@@ -1134,7 +1168,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               este envío — colapsado por default, y adentro cada cliente también (el precio por pieza o por
               cliente es opcional: casi siempre se paga todo junto). Va junto a los fletes: son los
               tres lugares donde se carga lo que de verdad se pagó. */}
-          {itemsPendientesCosto.length > 0 && (
+          {!esBorrador && itemsPendientesCosto.length > 0 && (
             <RegistrarCompraPicker
               items={itemsPendientesCosto}
               action={registrarCompra}
@@ -1278,7 +1312,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                     <> — faltan <span className="font-mono font-semibold text-amber-700">{usd(calc.giro.costoTotalUsd - pagadoProveedor)}</span></>
                   )}
                 </p>
-                <RegistrarPagoProveedorForm action={registrarPagoProveedor.bind(null, envio.id)} methods={METODOS_PAGO_EGRESO} />
+                {!esBorrador && <RegistrarPagoProveedorForm action={registrarPagoProveedor.bind(null, envio.id)} methods={METODOS_PAGO_EGRESO} />}
               </div>
             </div>
           )}
@@ -1294,6 +1328,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
             inbound={inboundCaja}
             guardar={saveItemChanges}
             quitar={removePedido}
+            bloqueada={esBorrador}
           />
 
           {/* Lo pendiente de comprar, listo para copiar o bajar en CSV */}

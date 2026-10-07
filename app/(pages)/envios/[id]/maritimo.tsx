@@ -22,6 +22,7 @@ import { modelosDistintos, parseModelos } from '@/lib/modelos'
 import { deleteEnvio, saveCostosProveedor } from '../actions'
 import { cerrarEmbarque, reabrirEmbarque, recibirEmbarque, deshacerRecepcion } from '../linea-actions'
 import { toConfigMap } from '@/lib/config'
+import { posicionesParaArmador, type PosicionesStock } from '@/lib/inventario'
 
 const usd = (n: number) => `$${n.toFixed(2)}`
 // Con 3 decimales una caja recién empezada se ve como "0.000 m³", que se lee como vacía
@@ -86,12 +87,21 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
 
   // Solo headers de ensamble, y solo mientras se arma: sus piezas se cargan on-demand al
   // seleccionar uno (el catálogo tiene ~14k componentes).
-  const assemblies: AssemblyOption[] = esBorrador
-    ? (await db.ensamble.findMany({
-        select: { id: true, nameEs: true, nameEn: true, imageUrl: true, compatibleModels: true },
-        orderBy: [{ nameEs: 'asc' }, { compatibleModels: 'asc' }],
-      })).map(a => ({ id: a.id, nameEs: nombreEnsamble(a), imageUrl: a.imageUrl, compatibleModels: a.compatibleModels }))
-    : []
+  //
+  // Junto con eso, lo que ya tengo o ya viene de cada pieza (cajas confirmadas), para no
+  // comprarla dos veces. Esta caja está en borrador, así que no figura ahí: lo suyo es "ya llevás".
+  const [headersEnsamble, posiciones] = esBorrador
+    ? await Promise.all([
+        db.ensamble.findMany({
+          select: { id: true, nameEs: true, nameEn: true, imageUrl: true, compatibleModels: true },
+          orderBy: [{ nameEs: 'asc' }, { compatibleModels: 'asc' }],
+        }),
+        posicionesParaArmador(),
+      ])
+    : [[], {} as PosicionesStock]
+  const assemblies: AssemblyOption[] = headersEnsamble.map(a => ({
+    id: a.id, nameEs: nombreEnsamble(a), imageUrl: a.imageUrl, compatibleModels: a.compatibleModels,
+  }))
   const models = sortModels(modelosDistintos(assemblies.map(a => a.compatibleModels)))
 
   // Las líneas propias no tienen conjuntos ni precio de venta: son producto y cantidad.
@@ -581,6 +591,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
           fobUsd={p.fobUsd}
           assemblies={assemblies}
           models={models}
+          posiciones={posiciones}
         />
       ) : (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">

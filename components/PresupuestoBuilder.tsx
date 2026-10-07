@@ -2,6 +2,8 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import ChipDescontinuada from '@/components/ChipDescontinuada'
+import StockBadge from '@/components/StockBadge'
+import type { PosicionesStock } from '@/lib/inventario'
 import { type BundlePiece, groupBundlePieces } from '@/lib/bundle'
 import { ALL_MODELS, compatBadge, coverageByModel, formatModels, modeloLabel, shortModel, type MotoModelId } from '@/lib/modelo'
 import {
@@ -93,6 +95,8 @@ interface Props {
   /** Clientes existentes para elegir (solo aplica cuando tipo === 'cliente'). */
   clientes?: ClienteOption[]
   initialClienteId?: number | null
+  /** Lo que ya tengo de cada pieza (aquí / en camino / en borrador). Solo informativo. */
+  posiciones?: PosicionesStock
 }
 
 // Mapa vacío de identidad estable: se usa mientras no hay búsqueda por pieza, para no
@@ -110,6 +114,7 @@ export default function PresupuestoBuilder({
   tipo = 'cliente',
   clientes = [],
   initialClienteId = null,
+  posiciones,
 }: Props) {
   const isPropio = tipo === 'propio'
   const [selectedAssemblyId, setSelectedAssemblyId] = useState<number | null>(null)
@@ -685,6 +690,7 @@ export default function PresupuestoBuilder({
                                 {alreadyInCart && !nls && (
                                   <span className="ml-2 text-xs text-blue-500">ya agregado</span>
                                 )}
+                                <StockBadge productId={comp.product.id} posiciones={posiciones} className="ml-2" />
                                 {/* Compatibilidad cruzada: la misma pieza que le sirve a otra moto.
                                     Es la decisión de cantidad al armar stock — una pastilla que
                                     cubre 4 motos se compra distinto que una exclusiva de esta. */}
@@ -807,6 +813,7 @@ export default function PresupuestoBuilder({
                           {p.bajajCode && (p.models?.length ?? 0) > 0 && ' · '}
                           {formatModels(p.models ?? [])}
                         </p>
+                        <StockBadge productId={p.id} posiciones={posiciones} />
                       </div>
                       <span className="text-sm font-mono text-gray-600 shrink-0">${p.price.toFixed(2)}</span>
                     </button>
@@ -858,6 +865,7 @@ export default function PresupuestoBuilder({
                           <p className={`text-sm font-medium truncate ${item.descontinuada ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
                             {item.nameEs}
                             <ChipDescontinuada activo={item.descontinuada} />
+                            <StockBadge productId={item.productId} posiciones={posiciones} className="ml-2" />
                             {item.bundleItems && (
                               <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
                                 Conjunto

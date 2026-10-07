@@ -10,6 +10,9 @@ import { isModoApp } from '@/lib/modo'
 import { fallo, ok, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
 import { isForeignKeyViolation } from '@/lib/prisma-errors'
 import { CATEGORIAS_EGRESO } from '@/lib/movimientos'
+import { listarFaltantes, piezasDeLinea } from '@/lib/stock-piezas'
+import { resolverDePiezas } from '@/lib/inventario'
+import type { BundlePiece } from '@/lib/bundle'
 import {
   TRAMOS_FLETE, CATEGORIAS_FLETE, esTramoFlete, excedeFacturado, type TramoFlete,
 } from '@/lib/flete-real'
@@ -17,14 +20,20 @@ import {
 // Crea una caja. La RUTA se elige acá y no se vuelve a tocar: es lo que decide con qué
 // cadena logística se costea y, sobre todo, qué se puede meter adentro.
 //
-//   aéreo    → nace confirmado y se llena asignándole PEDIDOS (carga comercial).
-//   marítimo → nace en BORRADOR y se llena pieza por pieza con mercancía propia.
+//   aéreo    → se llena asignándole PEDIDOS (carga comercial).
+//   marítimo → se llena pieza por pieza con mercancía propia.
+//
+// Las dos nacen en BORRADOR. El aéreo nacía confirmado ("sus líneas ya existen"), pero que
+// existan las líneas no dice que se vayan a comprar: se arman muchos pedidos propios para
+// pensar una compra, y meterlos en una caja es parte de pensarla. Mientras la caja no se
+// confirma (confirmarCajaAerea) nada de lo que lleva cuenta como inventario en camino, ni
+// se puede comprar, pagar ni mover de etapa.
 export async function createEnvio(formData: FormData): Promise<ActionResult> {
   const nombre = (formData.get('nombre') as string)?.trim() || null
   const notas = (formData.get('notas') as string)?.trim() || null
   const raw = formData.get('modo') as string
   const modo = isModoApp(raw) ? raw : 'aereo'
-  const estado = modo === 'maritimo_cbm' ? 'borrador' : 'confirmado'
+  const estado = 'borrador'
 
   // El proveedor se elige acá, en las DOS rutas, y ya no se toca. Antes solo se preguntaba
   // en el marítimo porque por aire se le compraba siempre a 99rpm; dejó de ser cierto
@@ -47,6 +56,68 @@ export async function createEnvio(formData: FormData): Promise<ActionResult> {
 
   revalidatePath('/envios')
   redirect(`/envios/${envio.id}`)
+}
+
+// Confirma una caja aérea: lo que lleva pasa a ser una compra en firme. Desde acá cuenta
+// como inventario en camino (las líneas propias, ver lib/inventario.ts) y se puede comprar,
+// pagar y avanzar. Una caja vacía no se confirma: no hay compra.
+//
+// Transición guardada (`updateMany where estado = 'borrador'`), como las del marítimo: un
+// doble click o una segunda pestaña no hacen nada la segunda vez.
+export async function confirmarCajaAerea(envioId: number): Promise<ActionResult> {
+  const r = await db.envio.updateMany({
+    where: { id: envioId, modo: 'aereo', estado: 'borrador', items: { some: {} } },
+    data: { estado: 'confirmado' },
+  })
+  if (r.count === 0) {
+    const e = await db.envio.findUnique({ where: { id: envioId }, select: { estado: true } })
+    if (!e) return fallo('Ese envío ya no existe.')
+    if (e.estado !== 'borrador') return ok()
+    return fallo('La caja está vacía: agregale pedidos antes de confirmarla.')
+  }
+  revalidarCaja(envioId)
+  return ok()
+}
+
+// Vuelve una caja aérea a borrador, para corregir una confirmación apurada. Solo mientras
+// no pasó nada que dependa de la confirmación: ninguna línea comprada ni con costo real, y
+// ningún pago anotado contra la caja. Con algo de eso ya hay plata o mercancía de por medio
+// y "en borrador" sería mentira.
+export async function volverCajaABorrador(envioId: number): Promise<ActionResult> {
+  const r = await db.envio.updateMany({
+    where: {
+      id: envioId,
+      modo: 'aereo',
+      estado: 'confirmado',
+      items: { none: { OR: [{ shippingStatus: { not: 'pendiente' } }, { costRealUsd: { not: null } }] } },
+      movimientos: { none: {} },
+    },
+    data: { estado: 'borrador' },
+  })
+  if (r.count === 0) {
+    const e = await db.envio.findUnique({ where: { id: envioId }, select: { estado: true } })
+    if (!e) return fallo('Ese envío ya no existe.')
+    if (e.estado === 'borrador') return ok()
+    return fallo('Ya hay piezas compradas o pagos anotados en esta caja: no puede volver a borrador.')
+  }
+  revalidarCaja(envioId)
+  return ok()
+}
+
+function revalidarCaja(envioId: number) {
+  revalidatePath(`/envios/${envioId}`)
+  revalidatePath('/envios')
+  revalidatePath('/inventario')
+  revalidatePath('/contabilidad')
+  revalidatePath('/')
+}
+
+// Mientras la caja está en borrador no es una compra: no se le anota plata ni se mueven sus
+// líneas. Devuelve el motivo, o null si se puede.
+async function motivoCajaEnBorrador(envioId: number): Promise<string | null> {
+  const e = await db.envio.findUnique({ where: { id: envioId }, select: { estado: true } })
+  if (!e) return 'Ese envío ya no existe.'
+  return e.estado === 'borrador' ? 'La caja está en borrador: confirmala antes de anotar pagos o avanzarla.' : null
 }
 
 // El PRESUPUESTO es la unidad NORMAL que entra a un envío: es lo que se le vendió al
@@ -314,6 +385,8 @@ export async function pagarFlete(envioId: number, tramo: string, formData: FormD
 
   const ap = await tramoAplica(envioId, tramo)
   if (ap.error) return fallo(ap.error)
+  const borrador = await motivoCajaEnBorrador(envioId)
+  if (borrador) return fallo(borrador)
 
   return conErrorDeNegocio(async () => {
     await db.$transaction(async tx => {
@@ -424,8 +497,9 @@ export async function registrarPagoProveedor(envioId: number, formData: FormData
   const rawDate = (formData.get('fecha') as string)?.trim()
   const fecha = rawDate ? new Date(`${rawDate}T12:00:00`) : new Date()
 
-  const envio = await db.envio.findUnique({ where: { id: envioId }, select: { supplierId: true } })
+  const envio = await db.envio.findUnique({ where: { id: envioId }, select: { supplierId: true, estado: true } })
   if (!envio) return fallo('Ese envío ya no existe.')
+  if (envio.estado === 'borrador') return fallo('La caja está en borrador: confirmala antes de anotar pagos.')
 
   await db.movimiento.create({
     data: { fecha, tipo: 'egreso', categoria, monto, metodoPago, descripcion, envioId, supplierId: envio.supplierId },
@@ -455,26 +529,35 @@ export interface CambioItem {
 // Se parte de los ítems que REALMENTE están en este envío, así un id ajeno no puede tocar
 // nada, y el estado se normaliza a la ruta de cada uno: un ítem que despacha el proveedor
 // no puede quedar "en Shoppre".
-export async function saveItemChanges(envioId: number, cambios: CambioItem[]) {
-  if (cambios.length === 0) return
+export async function saveItemChanges(envioId: number, cambios: CambioItem[]): Promise<ActionResult> {
+  if (cambios.length === 0) return ok()
+
+  // Una caja en borrador no es una compra todavía: sus líneas no se compran ni viajan.
+  const borrador = await motivoCajaEnBorrador(envioId)
+  if (borrador) return fallo(borrador)
 
   const items = await db.pedidoItem.findMany({
     where: { envioId, id: { in: cambios.map(c => c.id) } },
     select: {
       id: true, shippingStatus: true, origen: true, inbound: true, isLanded: true,
-      productId: true, quantity: true, pedido: { select: { tipo: true } },
+      productId: true, quantity: true, bundleItems: true, pedido: { select: { tipo: true } },
     },
   })
-  if (items.length === 0) return
+  if (items.length === 0) return ok()
 
   const pedido = new Map(cambios.map(c => [c.id, c]))
-  let tocaStock = false
 
   // Cada fila lleva el estado que LEYÓ (`desde`) y el que quiere (`hacia`). El UPDATE solo
   // toca la fila si sigue en `desde`: si dos requests llevan la misma línea a 'entregado'
   // (doble tanda, dos pestañas), la segunda espera el candado de la fila, la encuentra ya
   // movida y no actualiza nada — y con ella no se acredita el stock por segunda vez.
-  const filas: { id: number; desde: string; hacia: string; delta: number }[] = []
+  //
+  // Stock propio: lo comercial (tipo='cliente') se entrega a un cliente, nunca pasa a ser
+  // stock. El signo sigue la TRANSICIÓN de "entregado" (no un flag aparte guardado en otro
+  // lado), así que ida y vuelta del estado nunca duplica ni pierde el crédito: si el ítem ya
+  // estaba entregado antes de este cambio, ya se sumó, y si deja de estarlo hay que restarlo.
+  const filas: { id: number; desde: string; hacia: string; signo: number }[] = []
+  const conStock: (typeof items)[number][] = []
   for (const it of items) {
     const c = pedido.get(it.id)
     if (!c) continue
@@ -484,65 +567,104 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]) {
     const status = normalizeToRoute(destino, ruta)
     if (status === it.shippingStatus) continue
 
-    // Stock propio: lo comercial (tipo='cliente') se entrega a un cliente, nunca pasa a
-    // ser stock. El delta sigue la TRANSICIÓN de "entregado" (no un flag aparte guardado en
-    // otro lado), así que ida y vuelta del estado nunca duplica ni pierde el crédito: si el
-    // ítem ya estaba entregado antes de este cambio, ya se sumó, y si deja de estarlo hay
-    // que restarlo.
-    //
-    // Solo las piezas sueltas mueven stock. Un conjunto no tiene stock propio (el ensamble no
-    // es un producto) y su snapshot de piezas no alcanza para acreditarlas sin adivinar a qué
-    // fila del catálogo corresponde cada una: no suma nada, ni a la ida ni a la vuelta.
-    let delta = 0
-    if (it.pedido.tipo === 'propio' && it.productId != null) {
+    let signo = 0
+    if (it.pedido.tipo === 'propio') {
       const eraEntregado = isDelivered(it.shippingStatus)
       const quedaEntregado = isDelivered(status)
-      if (eraEntregado !== quedaEntregado) delta = quedaEntregado ? it.quantity : -it.quantity
+      if (eraEntregado !== quedaEntregado) signo = quedaEntregado ? 1 : -1
     }
-    if (delta !== 0) tocaStock = true
-    filas.push({ id: it.id, desde: it.shippingStatus, hacia: status, delta })
+    if (signo !== 0) conStock.push(it)
+    filas.push({ id: it.id, desde: it.shippingStatus, hacia: status, signo })
+  }
+  if (filas.length === 0) return ok()
+
+  // Qué piezas del catálogo mueve cada línea: la pieza suelta, o las piezas del conjunto (ver
+  // lib/stock-piezas). Si alguna pieza de un conjunto no se puede identificar no se entrega
+  // nada: sumar el conjunto a medias dejaría el stock mal sin que nadie lo note.
+  const lineas = conStock.map(it => ({ ...it, bundleItems: it.bundleItems as BundlePiece[] | null }))
+  const resolver = await resolverDePiezas(lineas)
+  const piezas: { itemId: number; productId: number; unidades: number }[] = []
+  const faltan: BundlePiece[] = []
+  for (const l of lineas) {
+    const r = piezasDeLinea(l, resolver)
+    faltan.push(...r.faltan)
+    for (const p of r.piezas) piezas.push({ itemId: l.id, ...p })
+  }
+  if (faltan.length > 0) {
+    return fallo(
+      `No se puede mover al stock: ${faltan.length === 1 ? 'una pieza del conjunto no está' : `${faltan.length} piezas del conjunto no están`} ` +
+      `en el catálogo con un código único (${listarFaltantes(faltan)}). Cargala como producto y probá de nuevo.`,
+    )
   }
 
-  if (filas.length > 0) {
-    // UNA sentencia: el cambio de estado y el ajuste de stock salen de las mismas filas
-    // (las que de verdad se movieron, RETURNING), así que no puede haber una sin la otra ni
-    // un stock sumado por una fila que otra request ya movió. La fecha de compra se sella
-    // la primera vez que el ítem deja de estar pendiente, y se borra si vuelve a pendiente.
-    // La hora se toma en la base, en UTC (así guarda Prisma los DateTime).
-    const valores = Prisma.join(
-      filas.map(f => Prisma.sql`(${f.id}::int, ${f.desde}::text, ${f.hacia}::text, ${f.delta}::int)`),
+  // UNA sentencia: el cambio de estado y el ajuste de stock salen de las mismas filas (las
+  // que de verdad se movieron, RETURNING), así que no puede haber una sin la otra ni un stock
+  // sumado por una fila que otra request ya movió. La fecha de compra se sella la primera vez
+  // que el ítem deja de estar pendiente, y se borra si vuelve a pendiente. La hora se toma en
+  // la base, en UTC (así guarda Prisma los DateTime).
+  const valores = Prisma.join(
+    filas.map(f => Prisma.sql`(${f.id}::int, ${f.desde}::text, ${f.hacia}::text, ${f.signo}::int)`),
+  )
+  const mover = Prisma.sql`
+    UPDATE "PedidoItem" AS pi
+    SET "shippingStatus" = v.hacia,
+        "shippingStatusAt" = (NOW() AT TIME ZONE 'UTC'),
+        "compradoAt" = CASE
+          WHEN v.hacia = 'pendiente' THEN NULL
+          WHEN v.desde = 'pendiente' THEN (NOW() AT TIME ZONE 'UTC')
+          ELSE pi."compradoAt"
+        END
+    FROM v
+    WHERE pi."id" = v.id AND pi."envioId" = ${envioId} AND pi."shippingStatus" = v.desde
+    RETURNING pi."id", v.signo`
+
+  if (piezas.length === 0) {
+    await db.$executeRaw`WITH v(id, desde, hacia, signo) AS (VALUES ${valores}) ${mover}`
+  } else {
+    const valoresPiezas = Prisma.join(
+      piezas.map(p => Prisma.sql`(${p.itemId}::int, ${p.productId}::int, ${p.unidades}::int)`),
     )
-    await db.$executeRaw`
-      WITH v(id, desde, hacia, delta) AS (VALUES ${valores}),
-      movidas AS (
-        UPDATE "PedidoItem" AS pi
-        SET "shippingStatus" = v.hacia,
-            "shippingStatusAt" = (NOW() AT TIME ZONE 'UTC'),
-            "compradoAt" = CASE
-              WHEN v.hacia = 'pendiente' THEN NULL
-              WHEN v.desde = 'pendiente' THEN (NOW() AT TIME ZONE 'UTC')
-              ELSE pi."compradoAt"
-            END
-        FROM v
-        WHERE pi."id" = v.id AND pi."envioId" = ${envioId} AND pi."shippingStatus" = v.desde
-        RETURNING pi."productId", v.delta
-      )
-      UPDATE "Product" AS p
-      SET "stock" = p."stock" + s.delta
-      FROM (
-        SELECT "productId", SUM(delta)::int AS delta FROM movidas WHERE delta <> 0 AND "productId" IS NOT NULL GROUP BY "productId"
-      ) AS s
-      WHERE p."id" = s."productId"`
+    const r = await conErrorDeNegocio(() => db.$transaction(async tx => {
+      await tx.$executeRaw`
+        WITH v(id, desde, hacia, signo) AS (VALUES ${valores}),
+        piezas(item_id, product_id, unidades) AS (VALUES ${valoresPiezas}),
+        movidas AS (${mover})
+        UPDATE "Product" AS p
+        SET "stock" = p."stock" + s.delta, "updatedAt" = NOW()
+        FROM (
+          SELECT pz.product_id, SUM(m.signo * pz.unidades)::int AS delta
+          FROM movidas m JOIN piezas pz ON pz.item_id = m."id"
+          WHERE m.signo <> 0
+          GROUP BY pz.product_id
+        ) AS s
+        WHERE p."id" = s.product_id`
+      // Sacar de 'entregado' resta del depósito: si eso ya se vendió, el stock quedaría en
+      // negativo, o sea, afirmaría que se vendió lo que no existía. Se revierte todo.
+      const negativos = await tx.product.findMany({
+        where: { id: { in: [...new Set(piezas.map(p => p.productId))] }, stock: { lt: 0 } },
+        select: { nameEs: true, bajajCode: true },
+        take: 3,
+      })
+      if (negativos.length > 0) {
+        throw new ErrorDeNegocio(
+          `No se puede sacar de entregado: ya no hay en stock lo que esta línea sumó ` +
+          `(${negativos.map(n => n.bajajCode ?? n.nameEs).join(', ')}). Se vendió o se ajustó a mano; corregí ese stock primero.`,
+        )
+      }
+    }, { maxWait: 10_000, timeout: 20_000 }))
+    if (!r.ok) return r
   }
 
   revalidatePath(`/envios/${envioId}`)
   revalidatePath('/envios')
   revalidatePath('/presupuestos')
-  if (tocaStock) {
+  revalidatePath('/inventario')
+  if (piezas.length > 0) {
     revalidatePath('/contabilidad')
     revalidatePath('/products')
     revalidatePath('/')
   }
+  return ok()
 }
 
 export async function deleteEnvio(id: number): Promise<ActionResult> {

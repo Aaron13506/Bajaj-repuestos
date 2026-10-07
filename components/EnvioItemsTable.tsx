@@ -18,6 +18,7 @@ import type { Inbound } from '@/lib/inbound'
 import { groupBundlePieces, type BundlePiece } from '@/lib/bundle'
 import { limpiarNombre } from '@/lib/utils'
 import type { CambioItem } from '@/app/(pages)/envios/actions'
+import type { ActionResult } from '@/lib/action-result'
 
 export interface EnvioItemRow {
   id: number
@@ -34,8 +35,8 @@ export interface EnvioItemRow {
   // salta el pipeline entero. Es lo único que puede diferir entre líneas de una misma caja.
   isLanded: boolean
   shippingStatusAt: string | null
-  // Unidades de stock propio que esta línea mueve al entregarse (0 si es de un cliente, o un
-  // conjunto, que no acredita stock). Sirve para avisar antes de un movimiento masivo.
+  // Unidades de stock propio que esta línea mueve al entregarse (0 si es de un cliente; un
+  // conjunto cuenta sus piezas). Sirve para avisar antes de un movimiento masivo.
   stockUnidades: number
   // Piezas de la línea sin peso / sin medidas cargados: el cálculo del flete las subestima.
   sinPeso: number
@@ -49,7 +50,10 @@ interface Props {
   // define las etapas que ofrece el select de estado: una caja que despacha directo no
   // pasa por Shoppre, y ofrecer esas etapas sería prometer un estado que no va a llegar.
   inbound: Inbound
-  guardar: (envioId: number, cambios: CambioItem[]) => Promise<void>
+  guardar: (envioId: number, cambios: CambioItem[]) => Promise<ActionResult>
+  // La caja está en borrador: todavía no es una compra, así que sus líneas no se mueven de
+  // etapa (el server lo rechaza igual; esto evita ofrecerlo).
+  bloqueada?: boolean
   // Se quita el presupuesto COMPLETO, no piezas sueltas: el presupuesto es lo que se le
   // vendió al cliente y no se parte. O viaja entero en esta caja, o no viaja.
   quitar: (envioId: number, pedidoId: number) => Promise<void>
@@ -138,6 +142,7 @@ export default function EnvioItemsTable({
   inbound,
   guardar,
   quitar,
+  bloqueada = false,
 }: Props) {
   // Estado local de los selects. La base vive en Supabase remoto, así que cada guardado
   // son cientos de ms: la UI no los espera. Se pinta el cambio al instante y el guardado
@@ -175,18 +180,22 @@ export default function EnvioItemsTable({
     setError(null)
     setGuardadoOk(false)
     startGuardar(async () => {
-      try {
-        await guardar(envioId, cambios)
-        setGuardadoOk(true)
-      } catch {
-        // Se devuelve la UI a lo que dice el servidor: mejor un salto visual que dejarte
-        // creyendo que guardaste algo que no se guardó.
+      // Se devuelve la UI a lo que dice el servidor: mejor un salto visual que dejarte
+      // creyendo que guardaste algo que no se guardó.
+      const revertir = (msg: string) => {
         setEditado(prev => {
           const copia = { ...prev }
           for (const c of cambios) delete copia[c.id]
           return copia
         })
-        setError('No se pudo guardar. Revisá la conexión y probá de nuevo.')
+        setError(msg)
+      }
+      try {
+        const r = await guardar(envioId, cambios)
+        if (r.ok) setGuardadoOk(true)
+        else revertir(r.error)
+      } catch {
+        revertir('No se pudo guardar. Revisá la conexión y probá de nuevo.')
       } finally {
         enVuelo.current = false
       }
@@ -363,7 +372,7 @@ export default function EnvioItemsTable({
           {visibles.length > 0 && (
             <div className="flex items-center gap-2">
               <select
-                disabled={guardando}
+                disabled={guardando || bloqueada}
                 value=""
                 onChange={e => { if (e.target.value) moverTodo(e.target.value) }}
                 title="Lleva todas las líneas de la caja a la misma etapa"
@@ -376,7 +385,7 @@ export default function EnvioItemsTable({
               </select>
               <button
                 type="button"
-                disabled={guardando}
+                disabled={guardando || bloqueada}
                 onClick={() => moverTodo(null)}
                 title="Cada línea pasa a la etapa siguiente de su ruta"
                 className="px-2.5 py-1 rounded-lg border border-gray-300 text-gray-700 hover:bg-white disabled:opacity-50"
@@ -482,7 +491,7 @@ export default function EnvioItemsTable({
                   <td className="px-3 py-2 text-right font-mono text-xs text-gray-500">{usd(ventaGrupo)}</td>
                   <td className="px-3 py-2">
                     <select
-                      disabled={guardando}
+                      disabled={guardando || bloqueada}
                       value={statusComun === undefined ? MIXTO : statusComun}
                       onChange={e => {
                         if (e.target.value === MIXTO) return
@@ -569,7 +578,7 @@ export default function EnvioItemsTable({
                       <td className="px-3 py-3 text-right font-mono text-gray-700">{usd(it.venta)}</td>
                       <td className="px-3 py-3">
                         <select
-                          disabled={guardando}
+                          disabled={guardando || bloqueada}
                           value={v.shippingStatus}
                           onChange={e => aplicarA([it], { shippingStatus: e.target.value })}
                           className={`w-full text-xs font-semibold rounded-full pl-2.5 pr-6 py-1 border-0 cursor-pointer focus:ring-2 focus:ring-blue-500 ${shippingStatusMeta(v.shippingStatus).badge}`}

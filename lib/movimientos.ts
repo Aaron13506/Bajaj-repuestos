@@ -2,8 +2,6 @@ import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { nombreEnsamble } from '@/lib/linea-pedido'
 import { toConfigMap, num as cfgNum, type ConfigMap } from '@/lib/config'
-import { isBought, isDelivered } from '@/lib/shipping-status'
-import { calcLanded } from '@/lib/calc'
 import { resumirCbm, costoEmbarque } from '@/lib/cbm'
 import { lookupDeConjuntos, expandCostPieces, type ProductCost } from '@/lib/envio-build'
 import type { BundlePiece } from '@/lib/bundle'
@@ -221,158 +219,6 @@ export async function saldoCaja(rango?: RangoFechas): Promise<SaldoCaja> {
   const ingresos = num(rows.find(r => r.tipo === 'ingreso')?._sum.monto)
   const egresos = num(rows.find(r => r.tipo === 'egreso')?._sum.monto)
   return { ingresos, egresos, saldo: ingresos - egresos }
-}
-
-export interface ValorInventario {
-  valorUsd: number
-  productos: number
-  // Con stock pero sin landedCostUsd: no entran a la suma (no son $0, es un dato que falta).
-  sinCosto: number
-}
-
-// Costo de REPOSICIÓN actual (landedCostUsd, el mismo que fija los precios de venta), no
-// el costo histórico real de lo que ya está en el depósito — eso requeriría costeo por
-// lote/FIFO. Ver plan: decisión explícita del usuario.
-export async function valorInventario(): Promise<ValorInventario> {
-  const productos = await db.product.findMany({
-    where: { stock: { gt: 0 } },
-    select: { stock: true, landedCostUsd: true },
-  })
-  let valorUsd = 0
-  let sinCosto = 0
-  for (const p of productos) {
-    if (p.landedCostUsd == null) {
-      sinCosto++
-      continue
-    }
-    valorUsd += p.stock * num(p.landedCostUsd)
-  }
-  return { valorUsd, productos: productos.length, sinCosto }
-}
-
-export interface MercanciaEnCamino {
-  valorUsd: number
-  unidades: number
-  aereo: { valorUsd: number; unidades: number; items: number }
-  maritimo: { valorUsd: number; unidades: number; cajas: number }
-  // Con cantidad pero sin costo (ni real ni de reposición) que valorarla: no entran a la
-  // suma, igual que en valorInventario — no son $0, es un dato que falta.
-  sinCosto: number
-}
-
-// Mercancía PROPIA que ya se compró (o directamente ya viaja) pero todavía no está en el
-// depósito. Lo comercial (Pedido.tipo='cliente') queda afuera a propósito: ya tiene dueño
-// y nunca pasa a ser stock, así que contarlo acá inflaría "lo que va a entrar al depósito"
-// con piezas que van derecho a un cliente.
-//
-//   aéreo:     PedidoItem de un pedido 'propio' que YA se compró (isBought) y todavía no llegó
-//              a 'entregado'. Ese es el punto en el que saveItemChanges ya sumó la cantidad a
-//              Product.stock, así que a partir de ahí dejó de estar "en camino" — está en el
-//              depósito. Una línea en 'pendiente' es una intención: un pedido propio recién
-//              creado nace con todas sus líneas ahí y sumaba como mercancía viajando.
-//   marítimo:  EnvioLinea de una caja 'confirmado' (ya despachada). Una caja en 'borrador'
-//              todavía se está armando —no es una compra en firme— y una 'entregado' ya
-//              se sumó a stock en recibirEmbarque, así que ninguna de las dos cuenta acá.
-//
-// Costo del aéreo: costRealUsd si ya se cargó (el total pagado por TODA la línea, ver
-// registrarCompra — no se multiplica por cantidad, ya lo incluye). Si no, se recalcula el
-// landed de la línea igual que costearCarrito: expandiendo bundleItems a las piezas reales
-// que lleva. Un conjunto vendido a precio único (ej. "Chain Kit") es un Product sin
-// priceInr propio —es el contenedor, no algo que se compre— así que costearlo por el padre
-// daba siempre $0 aunque la línea sí tuviera piezas costables adentro; esto fue justamente
-// lo que dejaba "en camino" mostrando casi nada aunque hubiera cientos de dólares viajando.
-//
-// Costo del marítimo: landedCostUsd del producto (no hay costo real por línea — la caja se
-// factura entera, ver lib/cbm.ts — y EnvioLinea no lleva bundleItems: es mercancía propia
-// pieza por pieza, nunca un conjunto a precio único).
-export async function mercanciaEnCamino(): Promise<MercanciaEnCamino> {
-  const [itemsPropios, lineasMaritimo, configRows] = await Promise.all([
-    db.pedidoItem.findMany({
-      where: { pedido: { tipo: 'propio' } },
-      select: {
-        quantity: true,
-        shippingStatus: true,
-        costRealUsd: true,
-        bundleItems: true,
-        product: {
-          select: {
-            id: true, nameEs: true, bajajCode: true,
-            weightGrams: true, dimL: true, dimA: true, dimH: true, priceInr: true,
-          },
-        },
-      },
-    }),
-    db.envioLinea.findMany({
-      where: { envio: { modo: 'maritimo_cbm', estado: 'confirmado' } },
-      select: {
-        envioId: true,
-        quantity: true,
-        product: { select: { landedCostUsd: true } },
-      },
-    }),
-    db.config.findMany(),
-  ])
-
-  const pendientes = itemsPropios.filter(it => isBought(it.shippingStatus) && !isDelivered(it.shippingStatus))
-  const cfg = toConfigMap(configRows)
-  // Lookup acotado a las piezas que aparecen en estos conjuntos (igual que costearCarrito).
-  const lookup = await lookupDeConjuntos(pendientes.map(it => it.bundleItems as BundlePiece[] | null))
-
-  let sinCosto = 0
-  let aereoValor = 0
-  let aereoUnidades = 0
-  let aereoItems = 0
-  for (const it of pendientes) {
-    let costoLinea = 0
-    if (it.costRealUsd != null) {
-      costoLinea = num(it.costRealUsd)
-    } else {
-      const piezas = expandCostPieces(it.product, it.quantity, it.bundleItems as BundlePiece[] | null, lookup)
-      for (const pieza of piezas) {
-        const b = calcLanded({
-          priceInr: pieza.priceInr,
-          weightGrams: pieza.weightGrams,
-          dimL: pieza.dimL,
-          dimA: pieza.dimA,
-          dimH: pieza.dimH,
-          margin: null,
-        }, cfg, 'aereo')
-        if (b == null) continue
-        costoLinea += b.landedCostUsd * pieza.quantity
-      }
-    }
-    if (costoLinea <= 0) {
-      sinCosto++
-      continue
-    }
-    // Las unidades se cuentan solo si la línea entra a la suma, igual que en el marítimo:
-    // una línea sin costo ya figura en `sinCosto`, y contarla acá hacía que "unidades" y
-    // "valor" hablaran de conjuntos distintos.
-    aereoUnidades += it.quantity
-    aereoValor += costoLinea
-    aereoItems++
-  }
-
-  let marValor = 0
-  let marUnidades = 0
-  const cajas = new Set<number>()
-  for (const l of lineasMaritimo) {
-    cajas.add(l.envioId)
-    if (l.product.landedCostUsd == null) {
-      sinCosto++
-      continue
-    }
-    marValor += num(l.product.landedCostUsd) * l.quantity
-    marUnidades += l.quantity
-  }
-
-  return {
-    valorUsd: aereoValor + marValor,
-    unidades: aereoUnidades + marUnidades,
-    aereo: { valorUsd: aereoValor, unidades: aereoUnidades, items: aereoItems },
-    maritimo: { valorUsd: marValor, unidades: marUnidades, cajas: cajas.size },
-    sinCosto,
-  }
 }
 
 export interface EnvioPendiente {
@@ -627,7 +473,7 @@ async function itemsConEstimado(where: Prisma.PedidoItemWhereInput): Promise<Ite
   const inrUsd = cfgNum(cfg, 'inr_usd_rate', 95)
 
   // Un ítem "conjunto" (bundleItems) se expande a las piezas reales que lleva, igual que en
-  // mercanciaEnCamino y costearCarrito: el producto de la línea es el ensamble (el
+  // lib/costo-envios y costearCarrito: el producto de la línea es el ensamble (el
   // contenedor, sin priceInr propio), así que estimarlo por él daba siempre $0 aunque la
   // línea sí tuviera piezas costables adentro — y ese estimado en $0 es justo lo que
   // decide cuánto del pago real le toca a cada ítem al repartir una compra.
@@ -675,17 +521,24 @@ async function itemsConEstimado(where: Prisma.PedidoItemWhereInput): Promise<Ite
   })
 }
 
+
+// Lo que está en una caja en BORRADOR no se compra: la caja todavía no es una compra (ver
+// confirmarCajaAerea). Lo que no está en ninguna caja sí, como siempre.
+const FUERA_DE_BORRADOR: Prisma.PedidoItemWhereInput = {
+  OR: [{ envioId: null }, { envio: { estado: { not: 'borrador' } } }],
+}
+
 // La lista para el picker: todo lo que todavía no tiene costo real cargado, de pedidos ya
 // confirmados (un presupuesto sin aprobar no se compró).
 export function itemsSinCostoReal(): Promise<ItemPendienteCosto[]> {
-  return itemsConEstimado({ costRealUsd: null, pedido: { status: 'pedido' } })
+  return itemsConEstimado({ costRealUsd: null, pedido: { status: 'pedido' }, ...FUERA_DE_BORRADOR })
 }
 
 // Lo mismo, pero acotado a UNA caja — para cargar el costo real desde /envios/[id] sin
 // tener que ir a buscar las piezas entre todo lo pendiente. Si ya está asignado a una
 // caja, el pedido ya se confirmó, así que no hace falta repetir el filtro de status.
 export function itemsSinCostoRealDeEnvio(envioId: number): Promise<ItemPendienteCosto[]> {
-  return itemsConEstimado({ costRealUsd: null, envioId })
+  return itemsConEstimado({ costRealUsd: null, envioId, ...FUERA_DE_BORRADOR })
 }
 
 // Los mismos ítems que eligió el picker, para repartir el monto real que se cargó — se
@@ -696,7 +549,7 @@ export function itemsSinCostoRealDeEnvio(envioId: number): Promise<ItemPendiente
 // aceptaba cualquier id: una pestaña vieja o un reenvío re-registraba como "pendiente" algo
 // que ya tenía su costo real, y lo pisaba.
 function estimarCostos(ids: number[]): Promise<ItemPendienteCosto[]> {
-  return itemsConEstimado({ id: { in: ids }, costRealUsd: null })
+  return itemsConEstimado({ id: { in: ids }, costRealUsd: null, ...FUERA_DE_BORRADOR })
 }
 
 export type ResultadoCompra =
@@ -726,6 +579,9 @@ export async function registrarCompra(formData: FormData): Promise<ResultadoComp
   const descripcion = (formData.get('descripcion') as string)?.trim() || null
   const rawDate = (formData.get('fecha') as string)?.trim()
   const fecha = rawDate ? new Date(`${rawDate}T12:00:00`) : new Date()
+
+  const enBorrador = await db.pedidoItem.count({ where: { id: { in: ids }, envio: { estado: 'borrador' } } })
+  if (enBorrador > 0) return fallo('Hay piezas en una caja en borrador: confirmá la caja antes de registrar la compra.')
 
   const items = await estimarCostos(ids)
   // Menos piezas de las pedidas = alguna ya tenía costo real (o no existe). Seguir con las

@@ -31,6 +31,7 @@ import { motivoProveedorEnUso } from '../lib/proveedor-en-uso'
 import { motivoProductoEnUso } from '../lib/producto-en-uso'
 import { compatibleModelsFrom } from '../lib/modelo'
 import { realDeCobro, resumenCobro } from '../lib/cobro-bcv'
+import { construirResolver, piezasDeLinea } from '../lib/stock-piezas'
 
 const cfg: ConfigMap = {
   inr_usd_rate: '94.95',
@@ -570,6 +571,39 @@ console.log('\nCOBRO A DÓLAR BCV (pedido confirmado)')
     if (Math.abs(t.saldoBcv - t.totalBcv) > 0.001) corridos++
   }
   check('sin cobros, saldo BCV = total BCV de la tabla (20000 pedidos al azar)', corridos, 0)
+}
+
+// ── Stock de un conjunto: entra como sus piezas ─────────────────────────────────────────
+console.log('\nSTOCK DE UN CONJUNTO (entrega de stock propio)')
+{
+  const resolver = construirResolver([
+    { id: 1, bajajCode: 'A1', nameEs: 'Rodamiento' },
+    { id: 2, bajajCode: 'B2', nameEs: 'Retén' },
+    { id: 3, bajajCode: null, nameEs: 'Tornillo' },
+    // Código repetido en dos filas: no se elige ninguna.
+    { id: 4, bajajCode: 'DUP', nameEs: 'Pieza X' },
+    { id: 5, bajajCode: 'DUP', nameEs: 'Pieza Y' },
+  ])
+  const pieza = (bajajCode: string | null, nameEs: string, quantity: number) => ({ bajajCode, nameEs, quantity, groupName: 'g' })
+
+  // 2 sets; el rodamiento aparece en dos subgrupos (1 + 2 por set): 6 unidades en una sola fila.
+  const r = piezasDeLinea({
+    productId: null, quantity: 2,
+    bundleItems: [pieza('A1', 'Rodamiento', 1), pieza('A1', 'Rodamiento', 2), pieza('B2', 'Retén', 1), pieza(null, 'Tornillo', 4)],
+  }, resolver)
+  const de = (id: number) => r.piezas.find(p => p.productId === id)?.unidades ?? 0
+  check('rodamiento: (1 + 2) × 2 sets, sumado por producto', de(1), 6)
+  check('retén: 1 × 2', de(2), 2)
+  check('sin código, por nombre único: 4 × 2', de(3), 8)
+  check('una fila por producto', r.piezas.length, 3)
+  check('nada sin resolver', r.faltan.length, 0)
+
+  const dup = piezasDeLinea({ productId: null, quantity: 1, bundleItems: [pieza('DUP', 'Pieza X', 1), pieza('ZZZ', '?', 1)] }, resolver)
+  check('código repetido o inexistente: no se adivina', dup.faltan.length, 2)
+  check('…y no suma nada', dup.piezas.length, 0)
+
+  const suelta = piezasDeLinea({ productId: 9, quantity: 3, bundleItems: null }, resolver)
+  check('pieza suelta: su producto y su cantidad', suelta.piezas[0]?.unidades ?? 0, 3)
 }
 
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)

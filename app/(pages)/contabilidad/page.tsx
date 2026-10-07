@@ -6,8 +6,6 @@ import AperturaCajaForm from '@/components/AperturaCajaForm'
 import { crearMovimiento, eliminarMovimiento, guardarAperturaCaja } from './actions'
 import {
   saldoCaja,
-  valorInventario,
-  mercanciaEnCamino,
   cuentasPorPagar,
   listarMovimientos,
   itemsSinCostoReal,
@@ -18,6 +16,7 @@ import {
   type RangoFechas,
 } from '@/lib/movimientos'
 import { toConfigMap } from '@/lib/config'
+import { resumenInventario } from '@/lib/inventario'
 import { VENTA_STATUS, pedidoTotal } from '@/lib/clientes'
 import { METODOS_PAGO_INGRESO, METODOS_PAGO_EGRESO } from '@/lib/pagos'
 
@@ -36,11 +35,10 @@ interface Props {
 }
 
 export default async function ContabilidadPage({ searchParams }: Props) {
-  const [cfgRows, inventario, enCamino, cuentas, pendientesCosto, pedidosConfirmados, envios, suppliers] =
+  const [cfgRows, inventario, cuentas, pendientesCosto, pedidosConfirmados, envios, suppliers] =
     await Promise.all([
       db.config.findMany(),
-      valorInventario(),
-      mercanciaEnCamino(),
+      resumenInventario(),
       cuentasPorPagar(),
       itemsSinCostoReal(),
       db.pedido.findMany({
@@ -150,24 +148,27 @@ export default async function ContabilidadPage({ searchParams }: Props) {
           </p>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-          <p className="text-xs text-gray-400 mb-1">Valor de inventario</p>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-xs text-gray-400">Valor de inventario</p>
+            <Link href="/inventario" className="text-[11px] text-blue-600 hover:underline">ver piezas</Link>
+          </div>
           <p className="text-2xl font-bold font-mono text-gray-900">
-            {usd(inventario.valorUsd + enCamino.valorUsd)}
+            {usd(inventario.aqui.valorUsd + inventario.camino.valorUsd)}
           </p>
           <p className="text-[11px] text-gray-400 mt-1">
-            {usd(inventario.valorUsd)} disponible ({inventario.productos} productos)
-            {enCamino.valorUsd > 0 && <> + {usd(enCamino.valorUsd)} en camino</>}
+            {usd(inventario.aqui.valorUsd)} aquí ({inventario.aqui.productos} productos)
+            {' + '}{usd(inventario.camino.valorUsd)} en camino
           </p>
-          {enCamino.unidades > 0 && (
+          {inventario.camino.unidades > 0 && (
             <p className="text-[11px] text-gray-400">
-              en camino: {enCamino.aereo.items > 0 && `${enCamino.aereo.items} ítem${enCamino.aereo.items === 1 ? '' : 's'} propio${enCamino.aereo.items === 1 ? '' : 's'} por aire`}
-              {enCamino.aereo.items > 0 && enCamino.maritimo.cajas > 0 && ' + '}
-              {enCamino.maritimo.cajas > 0 && `${enCamino.maritimo.cajas} caja${enCamino.maritimo.cajas === 1 ? '' : 's'} por mar`}
+              en camino: {inventario.camino.unidades} u. en{' '}
+              {inventario.camino.aereo.cajas + inventario.camino.maritimo.cajas} caja{inventario.camino.aereo.cajas + inventario.camino.maritimo.cajas === 1 ? '' : 's'} confirmada{inventario.camino.aereo.cajas + inventario.camino.maritimo.cajas === 1 ? '' : 's'}
+              {inventario.camino.incompleto && ' · estimado, faltan datos de alguna caja'}
             </p>
           )}
-          {(inventario.sinCosto > 0 || enCamino.sinCosto > 0) && (
+          {inventario.aqui.sinCosto > 0 && (
             <p className="text-[11px] text-gray-400">
-              {inventario.sinCosto + enCamino.sinCosto} sin costo cargado, no están en la suma
+              {inventario.aqui.sinCosto} sin costo cargado, no están en la suma
             </p>
           )}
         </div>

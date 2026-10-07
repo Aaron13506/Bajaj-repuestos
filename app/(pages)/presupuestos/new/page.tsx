@@ -4,6 +4,7 @@ import { nombreEnsamble } from '@/lib/linea-pedido'
 import Link from 'next/link'
 import PresupuestoBuilder from '@/components/PresupuestoBuilder'
 import { createPresupuesto } from '../actions'
+import { posicionesParaArmador } from '@/lib/inventario'
 
 export default async function NewPresupuestoPage({
   searchParams,
@@ -14,7 +15,7 @@ export default async function NewPresupuestoPage({
   const tipo = sp.tipo === 'propio' ? 'propio' : 'cliente'
 
   // Solo headers de ensamble; los componentes se cargan on-demand al seleccionar uno.
-  const [assemblies, clientes] = await Promise.all([
+  const [assemblies, clientes, posiciones] = await Promise.all([
     db.ensamble.findMany({
       select: { id: true, nameEs: true, nameEn: true, imageUrl: true, compatibleModels: true },
       orderBy: [{ nameEs: 'asc' }, { compatibleModels: 'asc' }],
@@ -23,6 +24,8 @@ export default async function NewPresupuestoPage({
       orderBy: { nombre: 'asc' },
       select: { id: true, nombre: true, telefono: true },
     }),
+    // Lo que ya tengo o ya viene de cada pieza, para verlo mientras se arma.
+    posicionesParaArmador(),
   ])
 
   const assembliesForClient = assemblies.map(a => ({
@@ -53,6 +56,7 @@ export default async function NewPresupuestoPage({
         tipo={tipo}
         initialClientName={tipo === 'propio' ? 'Stock propio' : ''}
         clientes={clientes}
+        posiciones={posiciones}
       />
     </div>
   )
