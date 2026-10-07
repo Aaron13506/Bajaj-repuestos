@@ -15,7 +15,7 @@ import AssemblyImage from '@/components/AssemblyImage'
 import { addComponent, removeComponent } from '../component-actions'
 import { eliminarEnsamble } from '../actions'
 import { getSupplierPriceMap } from '@/lib/suppliers'
-import { toConfigMap } from '@/lib/config'
+import { toConfigMap, flag } from '@/lib/config'
 
 export default async function EnsambleDetailPage({
   params,
@@ -48,6 +48,9 @@ export default async function EnsambleDetailPage({
 
   const priceMap = await getSupplierPriceMap(compararContra)
   const cfg = toConfigMap(configRows)
+  // Las columnas 🚢 son opcionales (Config): ensanchan la tabla y el carril marítimo
+  // todavía no se usa. Apagadas, tampoco hace falta el aviso de la tarifa.
+  const verMaritimo = flag(cfg, 'ensambles_columnas_maritimas', false)
   // Sin tarifa por m³ el flete marítimo cuenta 0 y esa comparación sale falsamente barata.
   const tarifaMaritimaCargada = parseFloat(cfg.cbm_rate_usd ?? '') > 0
 
@@ -170,7 +173,7 @@ export default async function EnsambleDetailPage({
           <p className="text-sm text-gray-400 mb-4">Sin componentes registrados.</p>
         ) : (
           <>
-          {!tarifaMaritimaCargada && (
+          {verMaritimo && !tarifaMaritimaCargada && (
             <p className="text-xs mb-3 px-3 py-2 rounded-lg bg-amber-50 text-amber-700">
               ⚠️ No hay tarifa por m³ cargada: las columnas 🚢 cuentan flete 0 y el landed marítimo
               de estas piezas sale falsamente barato. Cargá{' '}
@@ -186,7 +189,7 @@ export default async function EnsambleDetailPage({
                   <th className="text-left font-medium px-2 py-2">Código</th>
                   <th className="text-right font-medium px-2 py-2">Peso (g)</th>
                   <th className="text-right font-medium px-2 py-2">L×A×H (cm)</th>
-                  {costHeaders('compact').map(c => (
+                  {costHeaders('compact', { maritimo: verMaritimo }).map(c => (
                     <th key={c.label} className={c.className} title={c.title}>{c.label}</th>
                   ))}
                   <th className="text-right font-medium px-2 py-2">Acciones</th>
@@ -259,7 +262,7 @@ export default async function EnsambleDetailPage({
                               <span className="block text-[10px] text-gray-400 font-normal">alto {c.dimH} c/u × {comp.quantity}</span>
                             )}
                           </td>
-                          <CostCells d={costD} cfg={cfg} quantity={comp.quantity} />
+                          <CostCells d={costD} cfg={cfg} quantity={comp.quantity} maritimo={verMaritimo} />
                           <td className="px-2 py-2">
                             <div className="flex items-center justify-end gap-3">
                               <QuickEditProduct

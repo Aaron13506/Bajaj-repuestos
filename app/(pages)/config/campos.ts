@@ -11,6 +11,8 @@ export type FieldMeta = {
   /** Valor de la bandera cuando la key falta o está vacía. Tiene que ser el mismo que
    *  usa quien la lee (ver `flag` en lib/config.ts), o el check miente sobre lo que cobra. */
   booleanDefault?: boolean
+  /** Texto al lado del check: qué hace tildarlo. */
+  checkLabel?: string
   /** Lista cerrada de opciones: un select en vez de un campo libre. */
   options?: string[]
   /** La escribe el cron horario de fx:update — se muestra hace cuánto se guardó, para
@@ -24,7 +26,7 @@ export const FIELD_META: Record<string, FieldMeta> = {
   bsd_usd_rate:           { label: 'Tasa BsD / USD',               hint: 'Bolívares por 1 USD, paralelo/Binance. Es la tasa a la que se cobra directo, sin recargo', cron: true },
   bcv_usd_rate:           { label: 'Tasa BCV / USD',                hint: 'Bolívares OFICIALES por 1 USD (usdt.com.ve)', cron: true },
   bcv_brecha_pct:         { label: 'Brecha BCV vs. paralelo (%)',   hint: 'Brecha del día entre el BCV y el mejor precio paralelo. El precio a tasa BCV la redondea hacia arriba en escalones de 5% antes de aplicarla', cron: true },
-  shoppre_member:         { label: 'Membresía Shoppre',            hint: 'Tildado = tarifa de socio (el descuento que Shoppre aplica sobre el básico). Entra en el flete de todo lo que pasa por Shoppre: catálogo, presupuestos y envíos', boolean: true, booleanDefault: true },
+  shoppre_member:         { label: 'Membresía Shoppre',            hint: 'Tildado = tarifa de socio (el descuento que Shoppre aplica sobre el básico). Entra en el flete de todo lo que pasa por Shoppre: catálogo, presupuestos y envíos', boolean: true, booleanDefault: true, checkLabel: 'Aplicar la tarifa de socio' },
   shoppre_carrier:        { label: 'Transportista Shoppre',        hint: 'Define la tabla escalón del tramo India → USA. Las opciones salen de la tarifa vigente' },
   reference_weight_kg:    { label: 'Peso de referencia (kg)',      hint: 'Peso total del envío de referencia para prorratear costos Shoppre' },
   air_volumetric_divisor: { label: 'Divisor volumétrico aéreo',     hint: 'vol_kg = L×A×H(cm) / divisor. Shoppre/ShipGlobal: 5000 (IATA clásico: 6000)' },
@@ -44,6 +46,9 @@ export const FIELD_META: Record<string, FieldMeta> = {
   cbm_fob_india_usd:      { label: 'FOB India (USD por embarque)',   hint: 'Monto FIJO por embarque, no escala con el volumen. Llenar más la caja lo diluye entre más piezas y baja el landed de cada una' },
   cbm_min_m3:             { label: 'Mínimo facturable (m³)',         hint: 'Piso de volumen que cobra la naviera por embarque aunque mandes menos. Vacío = 1 m³ (típico LCL)' },
   cbm_referencia_m3:      { label: 'Embarque de referencia (m³)',    hint: 'Volumen supuesto para prorratear el FOB al costear una pieza suelta en el catálogo. Vacío = 1 m³. Subilo si consolidás embarques más grandes: baja el landed de todo el catálogo' },
+  // Solo pantalla: no toca ningún costo. Las columnas marítimas en la tabla de componentes de
+  // un ensamble ensanchan la tabla y todavía no se usan; apagadas por defecto.
+  ensambles_columnas_maritimas: { label: 'Columnas marítimas en ensambles', hint: 'Muestra las columnas 🚢 (m³, flete mar, landed mar, venta mar, Δ) en la tabla de componentes de cada ensamble. Solo cambia qué se ve: el costeo no cambia', boolean: true, booleanDefault: false, checkLabel: 'Mostrar las columnas 🚢 en la ficha del ensamble' },
   default_margin_pct:     { label: 'Margen por defecto (%)',       hint: 'Margen de ganancia al crear un producto; luego se ajusta por producto' },
   terminos_presupuesto:   { label: 'Términos y condiciones — Presupuesto', hint: 'Texto que aparece al pie del presupuesto al imprimir / guardar como PDF', multiline: true },
   terminos_pedido:        { label: 'Términos y condiciones — Pedido oficial', hint: 'Texto que aparece al pie del pedido confirmado al imprimir / guardar como PDF', multiline: true },

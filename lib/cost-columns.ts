@@ -21,7 +21,9 @@ export interface CostColumn { label: string; title?: string; className?: string 
 // ficha de un ensamble, que va más apretada y hereda el color del <tr>.
 export type CostHeaderVariant = 'list' | 'compact'
 
-export function costHeaders(variant: CostHeaderVariant = 'list'): CostColumn[] {
+// `maritimo: false` quita el bloque celeste (lo apaga la ficha del ensamble según
+// `ensambles_columnas_maritimas`). Tiene que ir igual que el `maritimo` de CostCells.
+export function costHeaders(variant: CostHeaderVariant = 'list', { maritimo = true }: { maritimo?: boolean } = {}): CostColumn[] {
   const TH_BASE = variant === 'compact' ? 'text-right px-2 py-2 font-medium' : 'text-right px-4 py-3 font-medium'
   const gris = variant === 'compact' ? TH_BASE : `${TH_BASE} text-gray-500`
   const mar = `${TH_BASE} text-sky-700 bg-sky-50`
@@ -35,11 +37,13 @@ export function costHeaders(variant: CostHeaderVariant = 'list'): CostColumn[] {
     { label: 'Flete hoy',    className: gris },
     { label: '✈️ Landed',    title: 'Costo puesto en Venezuela por la ruta aérea. Es el que define el precio de venta', className: `${TH_BASE} text-gray-500 font-semibold border-l border-gray-200` },
     // ── Ruta marítima (CBM): la de abastecimiento propio ──
+    ...(!maritimo ? [] : [
     { label: 'm³',           title: 'Volumen de la pieza — la unidad que factura la naviera', className: `${mar} border-l-2 border-sky-200` },
     { label: '🚢 Flete mar', title: 'Flete India → Venezuela por mar: su parte del m³ más el prorrateo del FOB fijo', className: mar },
     { label: 'Landed mar',   title: 'Costo puesto en Venezuela si se trae por barco', className: `${TH_BASE} font-semibold text-sky-800 bg-sky-50` },
     { label: 'Venta mar',    title: 'Precio de venta que saldría por mar: mismo margen sobre el landed marítimo', className: mar },
     { label: 'Δ',            title: 'Cuánto cambia el costo por mar frente al aéreo — negativo es más barato por barco', className: `${mar} border-r-2 border-sky-200` },
+    ]),
     // ── Resultado comercial ──
     { label: 'Margen',       className: `${gris} border-l border-gray-100` },
     { label: 'Precio USD',   className: gris },

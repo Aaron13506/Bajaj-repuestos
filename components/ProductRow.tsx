@@ -38,7 +38,13 @@ function fmt(n: number | null | undefined, decimals = 2) {
  * priceInr/price son SIEMPRE por unidad; con `quantity` (solo en sub-filas de un ensamble
  * puntual) se agrega el total de esa línea en chico, para no confundir unidad con total.
  */
-export function CostCells({ d, cfg, quantity }: { d: QuickEditValues; cfg: ConfigMap; quantity?: number }) {
+export function CostCells({ d, cfg, quantity, maritimo = true }: {
+  d: QuickEditValues
+  cfg: ConfigMap
+  quantity?: number
+  /** false = sin el bloque marítimo. Va igual que el `maritimo` de costHeaders. */
+  maritimo?: boolean
+}) {
   const fisico = {
     weightGrams: d.weightGrams,
     dimL:        d.dimL,
@@ -121,6 +127,7 @@ export function CostCells({ d, cfg, quantity }: { d: QuickEditValues; cfg: Confi
       <td className="px-4 py-3 text-right font-semibold text-gray-900 border-l border-gray-200">{b ? fmt(b.landedCostUsd) : '—'}</td>
 
       {/* ── Ruta marítima (CBM): lo que costaría la misma pieza por barco ── */}
+      {maritimo && <>
       <td className="px-4 py-3 text-right text-sky-800 bg-sky-50/50 border-l-2 border-sky-200 text-xs font-mono">
         {m?.volumeM3 != null ? (
           <>
@@ -154,6 +161,7 @@ export function CostCells({ d, cfg, quantity }: { d: QuickEditValues; cfg: Confi
       }`}>
         {deltaPct == null ? '—' : `${deltaPct > 0 ? '+' : ''}${deltaPct.toFixed(0)}%`}
       </td>
+      </>}
       {cola}
     </>
   )

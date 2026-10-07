@@ -120,7 +120,7 @@ export default async function ConfigPage({
                     />
                     {/* Texto fijo: esto es un Server Component, así que no puede seguir
                         al check. Lo que vale es el estado del cuadrito. */}
-                    <span>Aplicar la tarifa de socio</span>
+                    <span>{meta.checkLabel ?? 'Activado'}</span>
                   </label>
                 ) : meta?.multiline ? (
                   <textarea
