@@ -8,6 +8,7 @@ import { useRef, useState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
 import { formatModels, toModelIds } from '@/lib/modelo'
+import { fechaMedido } from '@/lib/medido'
 
 // Un ensamble al que se puede asignar la pieza. La moto va junto al nombre porque es lo único
 // que distingue dos ensambles homónimos.
@@ -35,6 +36,8 @@ interface ProductFormValues {
   price?: number | string
   priceLocked?: boolean
   stock?: number
+  /** Product.medidoAt en ISO: peso y medidas tomados a mano. */
+  medidoAt?: string | null
 }
 
 interface Props {
@@ -298,6 +301,20 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
           </div>
         </div>
+        <label className="flex items-center gap-2 mt-3 cursor-pointer">
+          <input type="checkbox" name="medido" value="true" defaultChecked={d.medidoAt != null}
+            className="w-4 h-4 rounded border-gray-300 accent-green-600" />
+          <span className="text-xs text-gray-600">
+            Pesada y medida a mano
+            {d.medidoAt
+              ? <span className="text-gray-400"> — el {fechaMedido(d.medidoAt)}</span>
+              : <span className="text-gray-400"> — sin tildar, peso y medidas son estimados</span>}
+          </span>
+        </label>
+        <p className="text-xs text-gray-400 mt-1">
+          Tildala cuando la pieza pasó por la balanza y la cinta. La carga de medidas con IA no pisa
+          una pieza medida.
+        </p>
       </section>
 
       <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">

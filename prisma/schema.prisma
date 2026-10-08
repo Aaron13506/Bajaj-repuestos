@@ -61,6 +61,14 @@ model Product {
   // Fecha y no booleano: registra CUÁNDO nos enteramos, que es lo que permite releer un
   // presupuesto viejo ("cuando se lo cotizamos todavía se conseguía"). NULL = vigente.
   discontinuedAt   DateTime?
+  // Peso y medidas TOMADOS A MANO: la pieza pasó por la balanza y la cinta. NULL = estimado
+  // (la IA, el catálogo de 99rpm, una cuenta), que hoy es todo el catálogo. Cubre los
+  // cuatro números juntos, como se cargan siempre (ver lib/medido.ts).
+  //
+  // Fecha y no booleano, por lo mismo que discontinuedAt: dice cuándo, y una pieza
+  // re-pesada se distingue de una que se marcó hace meses. La carga con IA no pisa una
+  // pieza medida: una estimación no reemplaza una medición.
+  medidoAt         DateTime?
   stock            Int       @default(0)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt

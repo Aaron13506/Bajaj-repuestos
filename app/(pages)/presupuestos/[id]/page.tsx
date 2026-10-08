@@ -36,7 +36,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
               select: {
                 id: true, nameEs: true, nameEn: true, bajajCode: true, description: true,
                 imageUrl: true, compatibleModels: true, weightGrams: true,
-                dimL: true, dimA: true, dimH: true, priceInr: true,
+                dimL: true, dimA: true, dimH: true, priceInr: true, medidoAt: true,
               },
             },
             ensamble: { select: { id: true, nameEs: true, nameEn: true, imageUrl: true, compatibleModels: true } },
@@ -93,7 +93,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
   const comoPieza = (p: {
     id: number; bajajCode: string | null; nameEs: string; nameEn?: string | null
     compatibleModels?: string | null; weightGrams: number | null
-    dimL: number | null; dimA: number | null; dimH: number | null
+    dimL: number | null; dimA: number | null; dimH: number | null; medidoAt?: Date | null
   }, quantity: number): PiezaMedible => ({
     id: p.id,
     bajajCode: p.bajajCode,
@@ -105,6 +105,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
     dimL: p.dimL,
     dimA: p.dimA,
     dimH: p.dimH,
+    medido: p.medidoAt != null,
   })
 
   for (const it of presupuesto.items) {

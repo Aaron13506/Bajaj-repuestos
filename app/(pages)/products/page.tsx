@@ -19,6 +19,8 @@ interface SearchParams {
   /** Contra qué proveedor comparar la columna 🚢. Es un filtro de ESTA pantalla, no un
    *  estado global: el proveedor de verdad lo elige cada embarque. */
   proveedor?: string
+  /** 'si' = solo piezas pesadas y medidas a mano, 'no' = solo las estimadas. */
+  medido?: string
 }
 
 /** Los ensambles de una pieza, uno por ensamble aunque la pieza esté en varios de sus grupos. */
@@ -47,6 +49,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
   const search = sp.search ?? ''
   const model = sp.model ?? ''
   const onlyLowStock = sp.lowStock === '1'
+  const medido = sp.medido === 'si' || sp.medido === 'no' ? sp.medido : ''
   // `parseInt('abc')` da NaN y NaN sobrevive a Math.max, así que entraba como
   // `skip: NaN` y Prisma tiraba: un 500 servible desde la barra de direcciones.
   const page = Math.max(1, toInt(sp.page) ?? 1)
@@ -68,6 +71,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
       } : {},
       whereModel(model),
       onlyLowStock ? { stock: { lt: 5 } } : {},
+      medido === 'si' ? { medidoAt: { not: null } } : medido === 'no' ? { medidoAt: null } : {},
     ],
   }
 
@@ -112,6 +116,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
     if (search) params.set('search', search)
     if (model) params.set('model', model)
     if (onlyLowStock) params.set('lowStock', '1')
+    if (medido) params.set('medido', medido)
     if (compararContra != null) params.set('proveedor', String(compararContra))
     params.set('page', String(p))
     return `/products?${params.toString()}`
@@ -148,8 +153,9 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
       <CatalogFilters
         basePath="/products"
         models={filters.models}
-        current={{ model, search, lowStock: onlyLowStock }}
+        current={{ model, search, lowStock: onlyLowStock, medido }}
         showLowStock
+        showMedido
         suppliers={suppliers}
         currentSupplierId={compararContra}
         searchPlaceholder="Buscar por nombre, código o modelo..."
@@ -202,6 +208,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                     price: parseFloat(product.price.toString()),
                     priceLocked: product.priceLocked,
                     descontinuada: product.discontinuedAt != null,
+                    medidoAt: product.medidoAt?.toISOString() ?? null,
                     stock: product.stock,
                     assemblies: ensamblesDe(product.assemblies),
                   }}

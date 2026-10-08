@@ -5,6 +5,7 @@ import Link from 'next/link'
 import DeleteButton from '@/components/DeleteButton'
 import QuickEditProduct, { type QuickEditValues } from '@/components/QuickEditProduct'
 import ChipDescontinuada from '@/components/ChipDescontinuada'
+import IndicadorMedido from '@/components/IndicadorMedido'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
 import { formatModels } from '@/lib/modelo'
 import { costHeaders } from '@/lib/cost-columns'
@@ -244,7 +245,10 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
         <td className="px-4 py-3 text-xs text-gray-500 max-w-[140px] truncate" title={d.models.length ? formatModels(d.models) : undefined}>
           {d.models.length ? formatModels(d.models) : '—'}
         </td>
-        <td className="px-4 py-3 text-right text-gray-500 text-xs">{d.weightGrams ?? '—'}</td>
+        <td className="px-4 py-3 text-right text-gray-500 text-xs">
+          <span className="block">{d.weightGrams ?? '—'}</span>
+          <IndicadorMedido medidoAt={d.medidoAt} className="mt-0.5" />
+        </td>
 
         <CostCells d={d} cfg={cfg}  />
 
@@ -279,6 +283,8 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
                 margin: product.margin,
                 price: product.price,
                 priceLocked: product.priceLocked,
+                descontinuada: product.descontinuada,
+                medidoAt: product.medidoAt,
                 stock: product.stock,
               }}
               onOptimistic={v => { setOptimistic(v); if (v) setErrorGuardado(null) }}

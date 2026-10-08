@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
 import { quickUpdateProduct } from '@/app/(pages)/products/actions'
 import { ERROR_GENERICO } from '@/components/useEnviarAccion'
+import { fechaMedido } from '@/lib/medido'
 
 export interface QuickEditValues {
   id: number
@@ -35,6 +36,8 @@ export interface QuickEditValues {
    * porque el dato llega de a decenas (99rpm rotula el despiece entero), no de a una.
    */
   descontinuada?: boolean
+  /** Product.medidoAt en ISO: peso y medidas tomados a mano. null = estimados. */
+  medidoAt?: string | null
 }
 
 interface Props {
@@ -237,6 +240,10 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, onError, packQty, a
       margin:           isSupplierMode ? d.margin : (fdStr('margin') ? parseFloat(fdStr('margin')) / 100 : null),
       price:            isSupplierMode ? d.price : parseFloat(fdStr('price')),
       priceLocked:      isSupplierMode ? (d.priceLocked ?? false) : locked,
+      // La fecha exacta la decide el server (medidoAtDesde); para pintar alcanza con saber
+      // si quedó tildado.
+      medidoAt:         fd.get('medido') === 'true' ? (d.medidoAt ?? new Date().toISOString()) : null,
+      descontinuada:    d.descontinuada,
       stock:            fdInt('stock') ?? 0,
     })
     if (onOptimistic) onClose()
@@ -429,6 +436,21 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, onError, packQty, a
                 <input name="stock" type="number" min="0" defaultValue={d.stock} className={input} />
               </div>
             </div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                name="medido"
+                value="true"
+                defaultChecked={d.medidoAt != null}
+                className="w-4 h-4 rounded border-gray-300 accent-green-600"
+              />
+              <span className="text-xs text-gray-600">
+                Pesada y medida a mano
+                <span className="text-gray-400">
+                  {d.medidoAt ? ` — el ${fechaMedido(d.medidoAt)}` : ' — sin tildar, peso y medidas son estimados'}
+                </span>
+              </span>
+            </label>
             {hasPack && (
               <p className="text-xs text-gray-500">
                 Unidad: <span className="font-mono text-gray-700">{weightUnit != null ? `${weightUnit} g` : '—'}</span>

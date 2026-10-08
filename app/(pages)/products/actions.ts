@@ -12,6 +12,7 @@ import { getConfig } from '@/lib/config-db'
 import { toNum } from '@/lib/parse'
 import { fallo, ok, type ActionResult } from '@/lib/action-result'
 import { motivoProductoEnUso } from '@/lib/producto-en-uso'
+import { cambioFisico, medidoAtDesde } from '@/lib/medido'
 
 // Costo landed autoritativo: se recalcula en el server desde el costo de origen
 // (₹ INR de 99rpm, o USD directo de un proveedor) + peso + dims y la config vigente,
@@ -86,7 +87,8 @@ export async function createProduct(formData: FormData): Promise<ActionResult> {
   const landed = await computeLanded(data)
   if (landed != null) data.landedCostUsd = landed
 
-  const product = await db.product.create({ data })
+  const medidoAt = medidoAtDesde(formData.get('medido') === 'true', null, true)
+  const product = await db.product.create({ data: { ...data, medidoAt } })
 
   if (ensambleId) {
     const eid = parseInt(ensambleId)
@@ -103,7 +105,10 @@ export async function createProduct(formData: FormData): Promise<ActionResult> {
 }
 
 export async function updateProduct(id: number, formData: FormData): Promise<ActionResult> {
-  const actual = await db.product.findUnique({ where: { id }, select: { compatibleModels: true, stock: true } })
+  const actual = await db.product.findUnique({
+    where: { id },
+    select: { compatibleModels: true, stock: true, medidoAt: true, weightGrams: true, dimL: true, dimA: true, dimH: true },
+  })
   if (!actual) return fallo('Esa pieza ya no existe.')
   // El stock no se pisa con el absoluto del formulario: se aplica la diferencia (deltaDeStock).
   const { stock: _stockAbsoluto, ...data } = parseProductForm(formData, actual.compatibleModels)
@@ -114,9 +119,10 @@ export async function updateProduct(id: number, formData: FormData): Promise<Act
   }
   const landed = await computeLanded(data)
   if (landed != null) data.landedCostUsd = landed
+  const medidoAt = medidoAtDesde(formData.get('medido') === 'true', actual.medidoAt, cambioFisico(data, actual))
   await db.product.update({
     where: { id },
-    data: { ...data, ...(delta !== 0 ? { stock: { increment: delta } } : {}) },
+    data: { ...data, medidoAt, ...(delta !== 0 ? { stock: { increment: delta } } : {}) },
   })
   revalidatePath('/products')
   revalidatePath('/envios')
@@ -157,7 +163,7 @@ export async function quickUpdateProduct(
     where: { id },
     select: {
       compatibleModels: true, priceInr: true, margin: true, price: true, priceLocked: true,
-      weightGrams: true, dimL: true, dimA: true, dimH: true, stock: true,
+      weightGrams: true, dimL: true, dimA: true, dimH: true, stock: true, medidoAt: true,
     },
   })
   if (!actual) return fallo('Esa pieza ya no existe. Recargá la página.')
@@ -179,6 +185,8 @@ export async function quickUpdateProduct(
     dimA:             floatOrNull('dimA'),
     dimH:             floatOrNull('dimH'),
   }
+  const cambioMedidas = cambioFisico(campos, actual)
+  const medidoAt = medidoAtDesde(formData.get('medido') === 'true', actual.medidoAt, cambioMedidas)
 
   if (activeSupplierId) {
     const priceUsd = floatOrNull('priceUsd')
@@ -193,11 +201,8 @@ export async function quickUpdateProduct(
       await db.supplierPrice.deleteMany({ where: { productId: id, supplierId: activeSupplierId } })
     }
 
-    const data: Prisma.ProductUpdateInput = { ...campos, ...ajusteStock }
-    const cambioFisico =
-      campos.weightGrams !== actual.weightGrams || campos.dimL !== actual.dimL ||
-      campos.dimA !== actual.dimA || campos.dimH !== actual.dimH
-    if (cambioFisico) {
+    const data: Prisma.ProductUpdateInput = { ...campos, medidoAt, ...ajusteStock }
+    if (cambioMedidas) {
       const cfg = await getConfig()
       const rp = reprice(
         {
@@ -214,6 +219,7 @@ export async function quickUpdateProduct(
   } else {
     const data = {
       ...campos,
+      medidoAt,
       ...ajusteStock,
       priceInr:      intOrNull('priceInr'),
       margin:        str('margin') ? parseFloat(str('margin')) / 100 : null,

@@ -10,6 +10,8 @@ export interface ProductCost {
   // Opcionales: la ficha del envío no los necesita y no los trae.
   nameEn?: string | null
   compatibleModels?: string | null
+  /** Pesada y medida a mano (Product.medidoAt): el cargador con IA no la ofrece. */
+  medidoAt?: Date | null
   weightGrams: number | null
   dimL: number | null
   dimA: number | null
@@ -51,7 +53,7 @@ export async function lookupDeConjuntos(bundles: (BundlePiece[] | null | undefin
   const products = await db.product.findMany({
     where: { OR: [{ bajajCode: { in: [...codes] } }, { nameEs: { in: [...names] } }] },
     select: {
-      id: true, nameEs: true, bajajCode: true, nameEn: true, compatibleModels: true,
+      id: true, nameEs: true, bajajCode: true, nameEn: true, compatibleModels: true, medidoAt: true,
       weightGrams: true, dimL: true, dimA: true, dimH: true, priceInr: true,
     },
   })

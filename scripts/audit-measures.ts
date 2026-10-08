@@ -23,7 +23,7 @@ const padR = (s: string | number, n: number) => String(s).padEnd(n)
 async function main() {
   const [productos, pedidoItems, envioLineas] = await Promise.all([
     db.product.findMany({
-      select: { id: true, nameEs: true, bajajCode: true, weightGrams: true, dimL: true, dimA: true, dimH: true },
+      select: { id: true, nameEs: true, bajajCode: true, weightGrams: true, dimL: true, dimA: true, dimH: true, medidoAt: true },
     }),
     // Un conjunto no es una pieza (productId null): sus piezas no se miden por esta vía.
     db.pedidoItem.groupBy({ by: ['productId'], where: { productId: { not: null } }, _sum: { quantity: true } }),
@@ -45,6 +45,8 @@ async function main() {
   console.log(`  Con peso y dimensiones ...... ${productos.filter(completa).length}`)
   console.log(`  En algún pedido o embarque .. ${enUso.length}`)
   console.log(`  ...de esas, sin medir ....... ${enUso.filter(p => !completa(p)).length}  ← estas ya cuestan plata`)
+  // Product.medidoAt: balanza y cinta, no estimación. El resto del catálogo es aproximado.
+  console.log(`  Pesadas y medidas a mano .... ${productos.filter(p => p.medidoAt).length}  (en uso: ${enUso.filter(p => p.medidoAt).length})`)
 
   const sinMedir = enUso.filter(p => !completa(p))
   if (sinMedir.length > 0) {

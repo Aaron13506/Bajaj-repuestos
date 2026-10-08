@@ -49,7 +49,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
               select: {
                 id: true, nameEs: true, nameEn: true, bajajCode: true, compatibleModels: true,
                 weightGrams: true, dimL: true, dimA: true, dimH: true, priceInr: true,
-                discontinuedAt: true,
+                discontinuedAt: true, medidoAt: true,
               },
             },
           },
@@ -256,6 +256,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
     dimL: l.product.dimL,
     dimA: l.product.dimA,
     dimH: l.product.dimH,
+    medido: l.product.medidoAt != null,
   })
 
   const grupos: GrupoMedidas[] = []

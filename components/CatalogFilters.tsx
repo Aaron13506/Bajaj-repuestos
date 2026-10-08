@@ -8,8 +8,10 @@ interface Props {
   models: readonly MotoModelInfo[]  // las 15 motos (el valor del filtro es el id del enum)
   /** Categorías ya scopeadas al modelo actual. Sin esto no hay campo de categoría. */
   categories?: string[]
-  current: { model: string; category?: string; search: string; lowStock?: boolean }
+  current: { model: string; category?: string; search: string; lowStock?: boolean; medido?: string }
   showLowStock?: boolean
+  /** Filtro de peso y medidas tomados a mano (Product.medidoAt). Solo lo pasa /products. */
+  showMedido?: boolean
   searchPlaceholder?: string
   /** Proveedores para comparar la columna 🚢. Solo lo pasa /products. */
   suppliers?: { id: number; name: string }[]
@@ -22,6 +24,7 @@ export default function CatalogFilters({
   categories,
   current,
   showLowStock = false,
+  showMedido = false,
   searchPlaceholder = 'Buscar por nombre o código...',
   suppliers,
   currentSupplierId = null,
@@ -60,7 +63,7 @@ export default function CatalogFilters({
     window.location.assign(qs ? `${basePath}?${qs}` : basePath)
   }
 
-  const hasFilters = !!(current.model || current.category || current.search || current.lowStock)
+  const hasFilters = !!(current.model || current.category || current.search || current.lowStock || current.medido)
 
   return (
     // `method`/`action` son el camino sin JS: si el handler no corre, el navegador manda
@@ -122,6 +125,19 @@ export default function CatalogFilters({
           />
           Solo stock bajo
         </label>
+      )}
+
+      {showMedido && (
+        <select
+          name="medido"
+          defaultValue={current.medido ?? ''}
+          onChange={(e) => enviar(e.currentTarget.form!)}
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+        >
+          <option value="">Peso: todas</option>
+          <option value="si">Pesadas a mano ✓</option>
+          <option value="no">Peso estimado</option>
+        </select>
       )}
 
       {/* Contra quién comparar la columna 🚢. Es un filtro de la vista y nada más: el

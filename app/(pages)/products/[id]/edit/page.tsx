@@ -56,6 +56,7 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
           price:            parseFloat(product.price.toString()),
           priceLocked:      product.priceLocked,
           stock:            product.stock,
+          medidoAt:         product.medidoAt?.toISOString() ?? null,
         }}
       />
     </div>

@@ -30,6 +30,8 @@ export interface PiezaMedible {
   dimL: number | null
   dimA: number | null
   dimH: number | null
+  /** Pesada y medida a mano (Product.medidoAt). No se le pasa a la IA: el server no la pisaría. */
+  medido?: boolean
 }
 
 export interface GrupoMedidas {
@@ -52,7 +54,7 @@ interface Props {
 }
 
 const emptyResult: MeasuresResult = {
-  ok: false, updated: 0, priced: 0, rejected: 0, notFound: [], errors: [], warnings: [],
+  ok: false, updated: 0, priced: 0, rejected: 0, protegidas: 0, notFound: [], errors: [], warnings: [],
 }
 
 // Qué le falta a la pieza. El volumen es lo que se factura por mar, así que "dims" es
@@ -129,7 +131,10 @@ export default function MedidasIA({
   // Lo que se le pasa a la IA: identificador + nombre + modelos + cantidad + qué le falta.
   // quantity es solo contexto de búsqueda — la IA siempre estima UNA unidad (ver el prompt),
   // y eso es exactamente lo que se guarda, sin dividir ni multiplicar nada en el server.
-  const piezasVisibles = (activo?.piezas ?? []).filter(p => !onlyMissing || faltante(p) != null)
+  // Las pesadas a mano quedan afuera aun con "solo faltantes" destildado: applyMeasures no las
+  // pisa, así que mandarlas a investigar sería trabajo de la IA que se descarta.
+  const piezasVisibles = (activo?.piezas ?? []).filter(p => !p.medido && (!onlyMissing || faltante(p) != null))
+  const medidasAMano = (activo?.piezas ?? []).filter(p => p.medido).length
   const listJson = JSON.stringify(
     piezasVisibles.map(p => ({
       bajajCode: p.bajajCode,
@@ -265,9 +270,17 @@ export default function MedidasIA({
                   </button>
                 </div>
               </div>
+              {medidasAMano > 0 && (
+                <p className="text-xs text-green-700 mb-2">
+                  ✓ {medidasAMano} {medidasAMano === 1 ? 'pieza pesada y medida' : 'piezas pesadas y medidas'} a mano: no se
+                  le{medidasAMano === 1 ? '' : 's'} pasa a la IA.
+                </p>
+              )}
               {piezasVisibles.length === 0 ? (
                 <p className="text-xs text-gray-400 py-2">
-                  Este grupo ya está completo. Destildá &quot;solo faltantes&quot; para recargar medidas igual.
+                  {medidasAMano === (activo?.piezas.length ?? 0)
+                    ? 'Todo este grupo está pesado y medido a mano.'
+                    : <>Este grupo ya está completo. Destildá &quot;solo faltantes&quot; para recargar medidas igual.</>}
                 </p>
               ) : (
                 <pre className="text-xs text-gray-600 whitespace-pre-wrap bg-white rounded-lg p-3 max-h-64 overflow-auto font-mono">{listJson}</pre>

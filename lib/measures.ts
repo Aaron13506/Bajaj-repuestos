@@ -6,6 +6,7 @@ import { extractJson } from './json-ia'
 import { getConfig } from './config-db'
 import { margenPorDefecto } from './config'
 import { msg, toInt, toNum, toStr } from './parse'
+import { textoMedido } from './medido'
 
 // Se re-exporta porque era parte de la API de este módulo antes de mudarse a lib/json-ia.
 export { extractJson }
@@ -27,6 +28,7 @@ export interface MeasuresResult {
   updated: number       // filas de Product actualizadas
   priced: number        // de esas, cuántas quedaron con precio recalculado (> 0)
   rejected: number      // filas que NO se escribieron por no pasar el chequeo físico
+  protegidas: number    // piezas pesadas y medidas a mano (medidoAt): la IA no las pisa
   notFound: string[]    // identificadores que no matchearon ningún producto
   errors: { name: string; message: string }[]
   // Se escribieron igual, pero hay algo raro. Van aparte de `errors` porque exigen
@@ -36,7 +38,7 @@ export interface MeasuresResult {
 }
 
 export const emptyMeasuresResult: MeasuresResult = {
-  ok: false, updated: 0, priced: 0, rejected: 0, notFound: [], errors: [], warnings: [],
+  ok: false, updated: 0, priced: 0, rejected: 0, protegidas: 0, notFound: [], errors: [], warnings: [],
 }
 
 // JSON laxo: la IA puede devolver strings o números. Cada fila identifica un
@@ -93,6 +95,7 @@ export async function applyMeasures(raw: string): Promise<MeasuresResult> {
   let updated = 0
   let priced = 0
   let rejected = 0
+  const protegidas = new Set<number>()
   const notFound: string[] = []
   const errors: MeasuresResult['errors'] = []
   const warnings: MeasuresResult['warnings'] = []
@@ -178,6 +181,20 @@ export async function applyMeasures(raw: string): Promise<MeasuresResult> {
 
     for (const base of targets) {
       const p = estado.get(base.id)!
+      const etiqueta = `${p.bajajCode ?? f.label} · ${p.nameEs}`
+
+      // Pesada y medida a mano: una estimación de la IA no reemplaza una medición. Se
+      // avisa en vez de callar, porque quien pegó el JSON espera ver la pieza actualizada.
+      if (p.medidoAt) {
+        if (!protegidas.has(p.id)) {
+          protegidas.add(p.id)
+          warnings.push({
+            name: etiqueta,
+            message: `${textoMedido(p.medidoAt)}: se conservaron sus medidas. Para reemplazarlas, desmarcala en su edición.`,
+          })
+        }
+        continue
+      }
       const merged = {
         priceInr:    p.priceInr,
         weightGrams: f.patch.weightGrams !== undefined ? f.patch.weightGrams : p.weightGrams,
@@ -191,7 +208,6 @@ export async function applyMeasures(raw: string): Promise<MeasuresResult> {
       // es esa combinación la que va a costear. Lo imposible no entra — el catálogo es
       // la fuente del precio de venta, y un dato absurdo ahí se cobra en flete.
       const chequeos = chequearMedidas(merged)
-      const etiqueta = `${p.bajajCode ?? f.label} · ${p.nameEs}`
       if (hayError(chequeos)) {
         rejected++
         for (const c of chequeos.filter(c => c.severidad === 'error')) {
@@ -230,6 +246,7 @@ export async function applyMeasures(raw: string): Promise<MeasuresResult> {
       return {
         ...emptyMeasuresResult,
         rejected,
+        protegidas: protegidas.size,
         notFound,
         errors: [...errors, { name: 'Escritura', message: msg(e) }],
         warnings,
@@ -242,6 +259,7 @@ export async function applyMeasures(raw: string): Promise<MeasuresResult> {
   parts.push(`${updated} producto(s) actualizado(s)`)
   if (priced > 0) parts.push(`${priced} con precio recalculado`)
   if (rejected > 0) parts.push(`${rejected} RECHAZADO(S) por chequeo físico`)
+  if (protegidas.size > 0) parts.push(`${protegidas.size} conservada(s) por estar medida(s) a mano`)
   if (notFound.length > 0) parts.push(`${notFound.length} no encontrado(s)`)
   if (warnings.length > 0) parts.push(`${warnings.length} con aviso`)
   if (errors.length > 0) parts.push(`${errors.length} con error`)
@@ -251,6 +269,7 @@ export async function applyMeasures(raw: string): Promise<MeasuresResult> {
     updated,
     priced,
     rejected,
+    protegidas: protegidas.size,
     notFound,
     errors,
     warnings,

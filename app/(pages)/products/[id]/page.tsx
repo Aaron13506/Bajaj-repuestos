@@ -1,4 +1,5 @@
 import { db } from '@/lib/db'
+import IndicadorMedido from '@/components/IndicadorMedido'
 import { formatModels, fullModel, toModelIds } from '@/lib/modelo'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
@@ -148,6 +149,8 @@ export default async function ProductDetailPage({
           <div>
             <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Peso</p>
             <p className="font-medium text-gray-900">{product.weightGrams ? `${product.weightGrams} g` : '—'}</p>
+            {/* Cubre peso Y dimensiones: se miden juntos. */}
+            <IndicadorMedido medidoAt={product.medidoAt} className="mt-1" />
           </div>
           <div>
             <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Dimensiones (cm)</p>

@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import DeleteButton from '@/components/DeleteButton'
 import QuickEditProduct from '@/components/QuickEditProduct'
+import IndicadorMedido from '@/components/IndicadorMedido'
 import { CostCells } from '@/components/ProductRow'
 import ChipDescontinuada from '@/components/ChipDescontinuada'
 import { costHeaders } from '@/lib/cost-columns'
@@ -90,6 +91,7 @@ export default async function EnsambleDetailPage({
     dimL: p.dimL,
     dimA: p.dimA,
     dimH: p.dimH,
+    medido: p.medidoAt != null,
     quantity: qtyByPieza.get(p.id) ?? 1,
   }))
 
@@ -234,6 +236,7 @@ export default async function EnsambleDetailPage({
                         price: parseFloat(c.price.toString()),
                         priceLocked: c.priceLocked,
                         descontinuada: c.discontinuedAt != null,
+                        medidoAt: c.medidoAt?.toISOString() ?? null,
                         stock: c.stock,
                       }
                       return (
@@ -255,6 +258,7 @@ export default async function EnsambleDetailPage({
                             {comp.quantity > 1 && c.weightGrams != null && (
                               <span className="block text-[10px] text-gray-400 font-normal">{c.weightGrams} g c/u</span>
                             )}
+                            <IndicadorMedido medidoAt={c.medidoAt} className="ml-1.5" />
                           </td>
                           <td className={`px-2 py-2 text-right font-mono ${!hasDims ? 'text-red-400' : 'text-gray-700'}`}>
                             {hasDims ? dims.map(d => d ?? '—').join('×') : '—'}
