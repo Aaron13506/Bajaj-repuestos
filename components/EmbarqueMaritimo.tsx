@@ -9,6 +9,8 @@ import CopiarJson from '@/components/CopiarJson'
 // del despiece parecería un error del catálogo y te mandaría a buscarla de nuevo.
 import ChipDescontinuada from '@/components/ChipDescontinuada'
 import StockBadge from '@/components/StockBadge'
+import CompraPorEnsambleLista from '@/components/CompraPorEnsambleLista'
+import type { CompraPorEnsamble } from '@/lib/compra-99rpm'
 import type { PosicionesStock } from '@/lib/inventario'
 import { parseModelos, sirveParaModelo } from '@/lib/modelos'
 import { cumpleMoq, cantidadMinima } from '@/lib/moq'
@@ -118,6 +120,9 @@ interface Props {
   models: string[]
   /** Lo que ya tengo o ya viene de cada pieza, SIN contar esta caja (eso es "ya llevás"). */
   posiciones?: PosicionesStock
+  /** El contenido GUARDADO como se compra en 99rpm (por ensamble). Lo arma el server: la
+   *  línea no guarda de qué ensamble salió y reconstruirlo pide el despiece entero. */
+  porEnsamble: CompraPorEnsamble
 }
 
 const usd = (n: number) => `$${n.toFixed(2)}`
@@ -171,7 +176,7 @@ function ChipMoq({ moq, cantidad, costoUsd }: { moq: number | null; cantidad?: n
 }
 
 export default function EmbarqueMaritimo({
-  envioId, nombre, proveedor, lineas, volumeM3, minM3, ratePerM3, fobUsd, assemblies, models, posiciones,
+  envioId, nombre, proveedor, lineas, volumeM3, minM3, ratePerM3, fobUsd, assemblies, models, posiciones, porEnsamble,
 }: Props) {
   const [search, setSearch] = useState('')
   const [encontrados, setEncontrados] = useState<Resultado[]>([])
@@ -827,159 +832,186 @@ export default function EmbarqueMaritimo({
         </p>
       </div>
 
-      {/* Contenido */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        {borrador.length > 0 && (
-          <div className="flex items-center justify-between gap-3 flex-wrap px-4 py-3 border-b border-gray-100">
-            <h2 className="text-sm font-semibold text-gray-900">Contenido del embarque</h2>
-            {/* Copia el BORRADOR, no lo guardado: es lo que estás viendo en la tabla de
-                abajo, que es lo que uno cree estar copiando. Se avisa cuando difieren. */}
-            <CopiarJson
-              obtener={() => embarqueAJson({ embarque: nombre, proveedor }, borrador)}
-              label={`Copiar JSON (${borrador.length})`}
-              title={
-                sucio
-                  ? 'Copia lo que ves acá abajo, incluidos los cambios sin guardar'
-                  : 'Copiar el contenido del embarque como JSON'
-              }
-              className="shrink-0 border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-gray-50 transition-colors"
-            />
-          </div>
-        )}
-        {borrador.length === 0 ? (
-          <div className="p-12 text-center text-gray-400">
-            <p className="text-lg">El embarque está vacío</p>
-            <p className="text-sm mt-1">Buscá piezas arriba para empezar a llenarlo.</p>
-          </div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100 bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
-                <th className="text-left px-4 py-3 font-semibold">Pieza</th>
-                <th className="text-center px-3 py-3 font-semibold w-28">Cant.</th>
-                <th className="text-right px-3 py-3 font-semibold" title="L×A×H en cm">Medidas</th>
-                <th className="text-right px-3 py-3 font-semibold">m³</th>
-                <th className="text-right px-3 py-3 font-semibold">kg</th>
-                <th className="text-right px-3 py-3 font-semibold">Costo origen</th>
-                <th className="w-10 px-3 py-3" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {borrador.map(l => (
-                <tr key={l.id} className={l.descontinuada ? 'bg-red-50/60' : l.sinMedidas ? 'bg-amber-50/50' : 'hover:bg-gray-50'}>
-                  <td className="px-4 py-2.5">
-                    <Link
-                      href={`/products/${l.productId}`}
-                      className={`hover:text-blue-600 ${l.descontinuada ? 'text-gray-500 line-through' : 'text-gray-900'}`}
-                    >
-                      {l.nameEs}
-                    </Link>
-                    <ChipDescontinuada activo={l.descontinuada} />
-                    {l.id < 0 && (
-                      <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-cyan-100 text-cyan-800">
-                        nueva
-                      </span>
-                    )}
-                    {l.bajajCode && <span className="ml-2 font-mono text-xs text-gray-400">{l.bajajCode}</span>}
-                    <CodigoAlterno code={l.altCode} />
-                    <ChipMoq moq={l.moq} cantidad={l.quantity} />
-                    <StockBadge productId={l.productId} posiciones={posiciones} className="ml-2" />
-                    {(() => {
-                      const motos = chipMotos(l.compatibleModels)
-                      return motos && (
-                        <span
-                          className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600"
-                          title={motos.lista}
-                        >
-                          🏍 {motos.n} motos
-                        </span>
-                      )
-                    })()}
-                    {l.sinMedidas && (
-                      <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800">
-                        sin medidas
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5 text-center">
-                    {/* value controlado, no defaultValue: la cantidad ahora vive en el
-                        borrador y tiene que poder cambiarla también Deshacer. */}
-                    <input
-                      type="number"
-                      min={l.moq && l.moq > 1 ? l.moq : 1}
-                      value={l.quantity}
-                      disabled={guardando}
-                      onChange={e => {
-                        const q = parseInt(e.target.value)
-                        if (!Number.isFinite(q) || q < 1) return
-                        editar(
-                          prev => prev.map(x => (x.id === l.id ? { ...x, quantity: q } : x)),
-                          `cant:${l.id}`,
-                        )
-                      }}
-                      className={`w-16 border rounded px-2 py-0.5 text-sm text-center ${
-                        cumpleMoq(l.quantity, l.moq) ? 'border-gray-200' : 'border-amber-400 bg-amber-50'
-                      }`}
-                    />
-                    {/* El piso del proveedor. Se muestra el número y no un botón que lo
-                        aplique: subir a 50 arandelas puede ser la respuesta correcta o el
-                        momento de sacar la pieza de la caja. */}
-                    {!cumpleMoq(l.quantity, l.moq) && (
-                      <p className="text-[10px] text-amber-700 mt-0.5 whitespace-nowrap">
-                        mínimo {l.moq} → +{cantidadMinima(l.quantity, l.moq) - l.quantity}
-                      </p>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5 text-right font-mono text-gray-500 text-xs">
-                    {dims(l.dimL, l.dimA, l.dimH) ?? <span className="text-amber-600">—</span>}
-                  </td>
-                  <td className="px-3 py-2.5 text-right font-mono text-gray-700">
-                    {l.sinMedidas ? <span className="text-amber-600">—</span> : vol(l.volumeUnitM3 * l.quantity)}
-                  </td>
-                  <td className="px-3 py-2.5 text-right font-mono text-gray-500">
-                    {(l.weightUnitKg * l.quantity).toFixed(2)}
-                  </td>
-                  <td className="px-3 py-2.5 text-right font-mono text-gray-700">
-                    {usd(l.costoUnitUsd * l.quantity)}
-                  </td>
-                  <td className="px-3 py-2.5 text-right">
-                    <button
-                      type="button"
-                      disabled={guardando}
-                      onClick={() => editar(prev => prev.filter(x => x.id !== l.id))}
-                      className="text-gray-300 hover:text-red-500 transition-colors"
-                      title="Quitar (se puede deshacer)"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </td>
+      {/* Contenido, en las dos formas en que se usa: por SKU (la que se edita, y la que se
+          le manda a un proveedor que cotiza por pieza) y por ensamble (la que se sigue con
+          99rpm abierto al lado). Las dos plegadas: mientras se arma, lo que se mira es el
+          navegador de arriba, y el título ya dice cuánto llevás. */}
+      {borrador.length === 0 ? (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-400">
+          <p className="text-lg">El embarque está vacío</p>
+          <p className="text-sm mt-1">Buscá piezas arriba para empezar a llenarlo.</p>
+        </div>
+      ) : (
+        <>
+          <details className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <summary className="px-4 py-3 cursor-pointer text-sm font-semibold text-gray-900">
+              Contenido por SKU · {borrador.length} línea{borrador.length === 1 ? '' : 's'}
+              {' · '}{borrador.reduce((s, l) => s + l.quantity, 0)} u. · {vol(volumenBorrador)}
+              {' · '}{usd(borrador.reduce((s, l) => s + l.costoUnitUsd * l.quantity, 0))}
+              {sucio && <span className="ml-2 text-xs font-normal text-amber-600">con cambios sin guardar</span>}
+            </summary>
+            <div className="flex justify-end px-4 py-2 border-t border-gray-100">
+              {/* Copia el BORRADOR, no lo guardado: es lo que estás viendo en la tabla de
+                  abajo, que es lo que uno cree estar copiando. Se avisa cuando difieren. */}
+              <CopiarJson
+                obtener={() => embarqueAJson({ embarque: nombre, proveedor }, borrador)}
+                label={`Copiar JSON (${borrador.length})`}
+                title={
+                  sucio
+                    ? 'Copia lo que ves acá abajo, incluidos los cambios sin guardar'
+                    : 'Copiar el contenido del embarque como JSON'
+                }
+                className="shrink-0 border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-gray-50 transition-colors"
+              />
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+                  <th className="text-left px-4 py-3 font-semibold">Pieza</th>
+                  <th className="text-center px-3 py-3 font-semibold w-28">Cant.</th>
+                  <th className="text-right px-3 py-3 font-semibold" title="L×A×H en cm">Medidas</th>
+                  <th className="text-right px-3 py-3 font-semibold">m³</th>
+                  <th className="text-right px-3 py-3 font-semibold">kg</th>
+                  <th className="text-right px-3 py-3 font-semibold">Costo origen</th>
+                  <th className="w-10 px-3 py-3" />
                 </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="border-t border-gray-200 bg-gray-50 text-xs">
-                <td className="px-4 py-2 text-gray-500">
-                  {borrador.length} línea{borrador.length === 1 ? '' : 's'}
-                </td>
-                <td className="px-3 py-2 text-center font-mono text-gray-600">
-                  {borrador.reduce((s, l) => s + l.quantity, 0)}
-                </td>
-                <td />
-                <td className="px-3 py-2 text-right font-mono text-gray-700">{vol(volumenBorrador)}</td>
-                <td className="px-3 py-2 text-right font-mono text-gray-600">
-                  {borrador.reduce((s, l) => s + l.weightUnitKg * l.quantity, 0).toFixed(2)}
-                </td>
-                <td className="px-3 py-2 text-right font-mono text-gray-700">
-                  {usd(borrador.reduce((s, l) => s + l.costoUnitUsd * l.quantity, 0))}
-                </td>
-                <td />
-              </tr>
-            </tfoot>
-          </table>
-        )}
-      </div>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {borrador.map(l => (
+                  <tr key={l.id} className={l.descontinuada ? 'bg-red-50/60' : l.sinMedidas ? 'bg-amber-50/50' : 'hover:bg-gray-50'}>
+                    <td className="px-4 py-2.5">
+                      <Link
+                        href={`/products/${l.productId}`}
+                        className={`hover:text-blue-600 ${l.descontinuada ? 'text-gray-500 line-through' : 'text-gray-900'}`}
+                      >
+                        {l.nameEs}
+                      </Link>
+                      <ChipDescontinuada activo={l.descontinuada} />
+                      {l.id < 0 && (
+                        <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-cyan-100 text-cyan-800">
+                          nueva
+                        </span>
+                      )}
+                      {l.bajajCode && <span className="ml-2 font-mono text-xs text-gray-400">{l.bajajCode}</span>}
+                      <CodigoAlterno code={l.altCode} />
+                      <ChipMoq moq={l.moq} cantidad={l.quantity} />
+                      <StockBadge productId={l.productId} posiciones={posiciones} className="ml-2" />
+                      {(() => {
+                        const motos = chipMotos(l.compatibleModels)
+                        return motos && (
+                          <span
+                            className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600"
+                            title={motos.lista}
+                          >
+                            🏍 {motos.n} motos
+                          </span>
+                        )
+                      })()}
+                      {l.sinMedidas && (
+                        <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                          sin medidas
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-center">
+                      {/* value controlado, no defaultValue: la cantidad ahora vive en el
+                          borrador y tiene que poder cambiarla también Deshacer. */}
+                      <input
+                        type="number"
+                        min={l.moq && l.moq > 1 ? l.moq : 1}
+                        value={l.quantity}
+                        disabled={guardando}
+                        onChange={e => {
+                          const q = parseInt(e.target.value)
+                          if (!Number.isFinite(q) || q < 1) return
+                          editar(
+                            prev => prev.map(x => (x.id === l.id ? { ...x, quantity: q } : x)),
+                            `cant:${l.id}`,
+                          )
+                        }}
+                        className={`w-16 border rounded px-2 py-0.5 text-sm text-center ${
+                          cumpleMoq(l.quantity, l.moq) ? 'border-gray-200' : 'border-amber-400 bg-amber-50'
+                        }`}
+                      />
+                      {/* El piso del proveedor. Se muestra el número y no un botón que lo
+                          aplique: subir a 50 arandelas puede ser la respuesta correcta o el
+                          momento de sacar la pieza de la caja. */}
+                      {!cumpleMoq(l.quantity, l.moq) && (
+                        <p className="text-[10px] text-amber-700 mt-0.5 whitespace-nowrap">
+                          mínimo {l.moq} → +{cantidadMinima(l.quantity, l.moq) - l.quantity}
+                        </p>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono text-gray-500 text-xs">
+                      {dims(l.dimL, l.dimA, l.dimH) ?? <span className="text-amber-600">—</span>}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono text-gray-700">
+                      {l.sinMedidas ? <span className="text-amber-600">—</span> : vol(l.volumeUnitM3 * l.quantity)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono text-gray-500">
+                      {(l.weightUnitKg * l.quantity).toFixed(2)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono text-gray-700">
+                      {usd(l.costoUnitUsd * l.quantity)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <button
+                        type="button"
+                        disabled={guardando}
+                        onClick={() => editar(prev => prev.filter(x => x.id !== l.id))}
+                        className="text-gray-300 hover:text-red-500 transition-colors"
+                        title="Quitar (se puede deshacer)"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-gray-200 bg-gray-50 text-xs">
+                  <td className="px-4 py-2 text-gray-500">
+                    {borrador.length} línea{borrador.length === 1 ? '' : 's'}
+                  </td>
+                  <td className="px-3 py-2 text-center font-mono text-gray-600">
+                    {borrador.reduce((s, l) => s + l.quantity, 0)}
+                  </td>
+                  <td />
+                  <td className="px-3 py-2 text-right font-mono text-gray-700">{vol(volumenBorrador)}</td>
+                  <td className="px-3 py-2 text-right font-mono text-gray-600">
+                    {borrador.reduce((s, l) => s + l.weightUnitKg * l.quantity, 0).toFixed(2)}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono text-gray-700">
+                    {usd(borrador.reduce((s, l) => s + l.costoUnitUsd * l.quantity, 0))}
+                  </td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          </details>
+
+          <details className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <summary className="px-4 py-3 cursor-pointer text-sm font-semibold text-gray-900">
+              Por ensamble (como se compra en 99rpm) · {porEnsamble.ensambles.length} ensamble
+              {porEnsamble.ensambles.length === 1 ? '' : 's'} · {porEnsamble.totalBloques} pasada
+              {porEnsamble.totalBloques === 1 ? '' : 's'}
+              {porEnsamble.sinEnsamble.length > 0 && <> · {porEnsamble.sinEnsamble.length} sin ensamble</>}
+            </summary>
+            <div className="border-t border-gray-100">
+              {/* La arma el server sobre lo guardado (ver la prop): con cambios pendientes
+                  se dice, en vez de mostrar una lista que parece al día y no lo está. */}
+              {sucio && (
+                <p className="px-6 py-2 text-xs text-amber-700 bg-amber-50 border-b border-amber-100">
+                  Muestra lo guardado: guardá para que incluya los cambios que hiciste.
+                </p>
+              )}
+              <CompraPorEnsambleLista datos={porEnsamble} />
+            </div>
+          </details>
+        </>
+      )}
 
       {/* Barra de guardado. Pegada abajo y solo cuando hay algo pendiente: mientras esté
           visible, lo que ves en pantalla todavía no está en la base — y "Cerrar embarque"

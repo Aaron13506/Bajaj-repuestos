@@ -1,6 +1,7 @@
 import type { BundlePiece } from './bundle'
 import { formatModels, toModelIds } from './modelo'
 import { limpiarNombre } from './utils'
+import { asignarPorCobertura } from './asignar-ensamble'
 
 /**
  * Lista de compra de 99rpm, ordenada por ENSAMBLE en vez de por SKU.
@@ -52,7 +53,8 @@ export interface EnsambleCompra {
   // Las motos del ensamble ya colapsadas por familia (formatModels); '' si no tiene.
   modelo: string
   bloques: BloqueCompra[]
-  // De qué presupuestos salió, para saber a quién le estás comprando.
+  // De qué presupuestos salió, para saber a quién le estás comprando. Vacío en un
+  // embarque de mercancía propia, que no tiene cliente.
   pedidos: string[]
   unidades: number
   avisos: string[]
@@ -80,6 +82,7 @@ export interface LineaPendiente99 {
   // PedidoItem.quantity: cuántas veces se pidió el conjunto entero.
   quantity: number
   bundleItems: BundlePiece[] | null
+  // '' = sin cliente (mercancía propia).
   clientName: string
 }
 
@@ -151,7 +154,7 @@ export function armarCompra99rpm(
       e = { linea: l, piezas: new Map(), pedidos: new Set(), avisos: [] }
       porEnsamble.set(l.ensambleId, e)
     }
-    e.pedidos.add(l.clientName)
+    if (l.clientName) e.pedidos.add(l.clientName)
 
     for (const bp of l.bundleItems) {
       const k = clavePieza(bp.bajajCode, bp.nameEs)
@@ -199,7 +202,7 @@ export function armarCompra99rpm(
       const unidades = tildes * p.base
       if (unidades !== p.pedido) {
         avisos.push(
-          `${p.sku ?? p.name}: el presupuesto pide ${p.pedido} y 99rpm la vende de a ${p.base} — se compran ${unidades} (sobran ${unidades - p.pedido}).`,
+          `${p.sku ?? p.name}: se piden ${p.pedido} y 99rpm la vende de a ${p.base} — se compran ${unidades} (sobran ${unidades - p.pedido}).`,
         )
       }
       if (p.descontinuada) {
@@ -260,4 +263,96 @@ export function armarCompra99rpm(
     totalUnidades: ensambles.reduce((s, e) => s + e.unidades, 0),
     totalBloques: ensambles.reduce((s, e) => s + e.bloques.length, 0),
   }
+}
+
+// Una línea de mercancía propia (EnvioLinea): producto y cantidad, sin ensamble.
+export interface LineaPropia {
+  productId: number
+  bajajCode: string | null
+  nameEs: string
+  quantity: number
+}
+
+// Un renglón del despiece de una de esas piezas: en qué ensamble está y de a cuánto entra.
+export interface EnlaceDespiece {
+  ensambleId: number
+  ensambleNombre: string
+  ensambleModelos: string | null
+  productId: number
+  quantity: number
+  groupName: string
+  sortOrder: number
+  descontinuada: boolean
+}
+
+/**
+ * La misma lista, para un embarque marítimo. Sus líneas no guardan de qué ensamble salieron
+ * (son producto y cantidad), así que primero se le elige uno a cada pieza —el que cubre más
+ * piezas de la caja, ver `asignarPorCobertura`— y cada ensamble pasa a ser un conjunto
+ * pedido una vez con esas piezas adentro. De ahí en más es la lista de 99rpm de siempre:
+ * mismos bloques por Qty, mismo redondeo hacia arriba con aviso.
+ *
+ * Se asigna por id y no por nombre: hay variantes del mismo despiece (color, año) que son
+ * páginas distintas de 99rpm, y comprar es entrar a UNA.
+ */
+export function armarCompraPropia(lineas: LineaPropia[], enlaces: EnlaceDespiece[]): CompraPorEnsamble {
+  const hijos = new Map<number, Set<number>>()
+  const enlace = new Map<string, EnlaceDespiece>()
+  for (const e of enlaces) {
+    const set = hijos.get(e.ensambleId) ?? new Set<number>()
+    set.add(e.productId)
+    hijos.set(e.ensambleId, set)
+    // La misma pieza puede estar en dos subgrupos del ensamble: queda la primera.
+    const k = `${e.ensambleId}|${e.productId}`
+    if (!enlace.has(k)) enlace.set(k, e)
+  }
+  const { asignado } = asignarPorCobertura(hijos, lineas.map(l => l.productId), (a, b) => a - b)
+
+  const porEnsamble = new Map<number, LineaPropia[]>()
+  const pendientes: LineaPendiente99[] = []
+  for (const l of lineas) {
+    const ens = asignado.get(l.productId)
+    if (ens == null) {
+      pendientes.push({
+        ensambleId: null, assemblyName: l.nameEs, assemblySku: l.bajajCode,
+        compatibleModels: null, quantity: l.quantity, bundleItems: null, clientName: '',
+      })
+      continue
+    }
+    const arr = porEnsamble.get(ens) ?? []
+    arr.push(l)
+    porEnsamble.set(ens, arr)
+  }
+  for (const [ens, ls] of porEnsamble) {
+    const info = enlace.get(`${ens}|${ls[0].productId}`)!
+    pendientes.push({
+      ensambleId: ens,
+      assemblyName: info.ensambleNombre,
+      assemblySku: null,
+      compatibleModels: info.ensambleModelos,
+      quantity: 1,
+      bundleItems: ls.map(l => ({
+        nameEs: l.nameEs,
+        bajajCode: l.bajajCode,
+        quantity: l.quantity,
+        groupName: enlace.get(`${ens}|${l.productId}`)?.groupName ?? '',
+      })),
+      clientName: '',
+    })
+  }
+
+  const linea = new Map(lineas.map(l => [l.productId, l]))
+  const bases: BaseDespiece[] = enlaces
+    .filter(e => asignado.get(e.productId) === e.ensambleId)
+    .map(e => ({
+      ensambleId: e.ensambleId,
+      bajajCode: linea.get(e.productId)!.bajajCode,
+      nameEs: linea.get(e.productId)!.nameEs,
+      quantity: e.quantity,
+      groupName: e.groupName,
+      sortOrder: e.sortOrder,
+      descontinuada: e.descontinuada,
+    }))
+
+  return armarCompra99rpm(pendientes, bases)
 }

@@ -8,9 +8,11 @@ import EmbarqueMaritimo, { type LineaEmbarque, type AssemblyOption } from '@/com
 import MedidasIA, { type GrupoMedidas, type PiezaMedible } from '@/components/MedidasIA'
 import CompararProveedores from '@/components/CompararProveedores'
 import SelectorProveedorEmbarque from '@/components/SelectorProveedorEmbarque'
-import CopiarJson from '@/components/CopiarJson'
+import CopiarEmbarqueJson from '@/components/CopiarEmbarqueJson'
+import CompraPorEnsambleLista from '@/components/CompraPorEnsambleLista'
 import ChipDescontinuada from '@/components/ChipDescontinuada'
-import { embarqueAJson } from '@/lib/export-embarque'
+import { armarCompraPropia } from '@/lib/compra-99rpm'
+import { asignarPorCobertura } from '@/lib/asignar-ensamble'
 import { compararProveedores } from '@/lib/comparar-proveedores'
 import { resumirCbm, costoRealPorM3, costoEmbarque, CBM_MAX_KG_PER_M3 } from '@/lib/cbm'
 import { cbmParams, type ConfigMap } from '@/lib/calc'
@@ -161,6 +163,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
   // deja agregarlas, así que solo pueden llegar acá por ese camino — y hay que sacarlas a
   // mano: el embarque no se puede guardar mientras estén.
   const descontinuadas = lineas.filter(l => l.descontinuada)
+  const totalUnidades = lineas.reduce((s, l) => s + l.quantity, 0)
 
   // Costo REAL de la caja: el mínimo facturable adentro. El prorrateo por m³ que usa el
   // catálogo sirve para costear una pieza suelta, pero acá esconde justamente lo que hay
@@ -205,7 +208,10 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
   const enlaces = envio.lineas.length > 0
     ? await db.ensambleComponente.findMany({
         where: { productId: { in: envio.lineas.map(l => l.productId) } },
-        select: { productId: true, ensamble: { select: { nameEs: true, nameEn: true } } },
+        select: {
+          productId: true, ensambleId: true, quantity: true, groupName: true, sortOrder: true,
+          ensamble: { select: { nameEs: true, nameEn: true, compatibleModels: true } },
+        },
       })
     : []
 
@@ -222,27 +228,15 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
     ensambles.set(clave, g)
   }
 
-  // Una pieza cuelga de varios ensambles (un tornillo está en veinte), así que hay que
-  // elegirle uno. Gana el que cubre más piezas TODAVÍA sin asignar: eso reconstruye cómo
-  // se armó la caja — ensamble por ensamble — y deja cada pieza en un solo grupo, que es
-  // lo que hace que la tanda se pueda auditar sin cruzar pestañas.
-  const pendientes = new Set(envio.lineas.map(l => l.productId))
-  const asignado = new Map<number, string>()   // productId → ensamble
-  const orden: string[] = []
-  for (;;) {
-    let mejor: { clave: string; n: number } | null = null
-    for (const [clave, g] of ensambles) {
-      let n = 0
-      for (const hijo of g.hijos) if (pendientes.has(hijo)) n++
-      // Empate: gana el alfabético, para que el orden de las pestañas no cambie solo.
-      if (n > 0 && (mejor == null || n > mejor.n || (n === mejor.n && clave < mejor.clave))) mejor = { clave, n }
-    }
-    if (mejor == null) break
-    for (const hijo of ensambles.get(mejor.clave)!.hijos) {
-      if (pendientes.delete(hijo)) asignado.set(hijo, mejor.clave)
-    }
-    orden.push(mejor.clave)
-  }
+  // Una pieza cuelga de varios ensambles, así que se le elige uno: el que cubre más piezas
+  // de la caja (ver lib/asignar-ensamble). Cada pieza queda en un solo grupo, que es lo que
+  // hace que la tanda se pueda auditar sin cruzar pestañas. Empate: gana el alfabético,
+  // para que el orden de las pestañas no cambie solo.
+  const { asignado, orden } = asignarPorCobertura(
+    new Map(Array.from(ensambles, ([clave, g]) => [clave, g.hijos])),
+    envio.lineas.map(l => l.productId),
+    (a, b) => (a < b ? -1 : a > b ? 1 : 0),
+  )
 
   type LineaConProducto = (typeof envio.lineas)[number]
   const comoPieza = (l: LineaConProducto): PiezaMedible => ({
@@ -280,6 +274,29 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
   if (sueltas.length > 0) {
     grupos.push({ key: 'sueltas', titulo: 'Piezas sueltas', piezas: sueltas })
   }
+
+  // El contenido como se le compra a 99rpm: por ensamble y, adentro, un bloque por cada
+  // "Add to cart". La tabla por SKU es la correcta para un proveedor que cotiza por pieza;
+  // para 99rpm obliga a entrar al mismo ensamble una vez por código. Ver lib/compra-99rpm.
+  const descontinuadaIds = new Set(envio.lineas.filter(l => l.product.discontinuedAt != null).map(l => l.productId))
+  const porEnsamble = armarCompraPropia(
+    envio.lineas.map(l => ({
+      productId: l.productId,
+      bajajCode: l.product.bajajCode,
+      nameEs: l.product.nameEs,
+      quantity: l.quantity,
+    })),
+    enlaces.map(e => ({
+      ensambleId: e.ensambleId,
+      ensambleNombre: nombreEnsamble(e.ensamble),
+      ensambleModelos: e.ensamble.compatibleModels,
+      productId: e.productId,
+      quantity: e.quantity,
+      groupName: e.groupName,
+      sortOrder: e.sortOrder,
+      descontinuada: descontinuadaIds.has(e.productId),
+    })),
+  )
 
   return (
     <div className="max-w-5xl space-y-4">
@@ -593,85 +610,97 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
           assemblies={assemblies}
           models={models}
           posiciones={posiciones}
+          porEnsamble={porEnsamble}
         />
       ) : (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          {/* Copiar sirve tanto o más con la caja cerrada que armándola: es la lista que se
-              le pasa al proveedor para cerrar la compra, y a esa altura ya no cambia. */}
-          <div className="flex items-center justify-between gap-3 flex-wrap px-4 py-3 border-b border-gray-100">
-            <h2 className="text-sm font-semibold text-gray-900">
-              Contenido · {lineas.length} línea{lineas.length === 1 ? '' : 's'}
-            </h2>
-            <CopiarJson
-              obtener={() => embarqueAJson(
-                { embarque: nombreEmbarque, proveedor: envio.supplier?.name ?? null },
-                lineas,
-              )}
-              label={`Copiar JSON (${lineas.length})`}
-              title="Copiar el contenido del embarque como JSON"
-              className="shrink-0 border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-gray-50 transition-colors"
-            />
-          </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100 bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
-                <th className="text-left px-4 py-3 font-semibold">Pieza</th>
-                <th className="text-center px-3 py-3 font-semibold">Cant.</th>
-                <th className="text-right px-3 py-3 font-semibold" title="L×A×H en cm">Medidas</th>
-                <th className="text-right px-3 py-3 font-semibold">m³</th>
-                <th className="text-right px-4 py-3 font-semibold">Costo origen</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {lineas.map(l => {
-                const motos = chipMotos(l.compatibleModels)
-                return (
-                <tr key={l.id}>
-                  <td className="px-4 py-2.5">
-                    <Link
-                      href={`/products/${l.productId}`}
-                      className={`hover:text-blue-600 ${l.descontinuada ? 'text-gray-500 line-through' : 'text-gray-900'}`}
-                    >
-                      {l.nameEs}
-                    </Link>
-                    <ChipDescontinuada activo={l.descontinuada} />
-                    {l.bajajCode && <span className="ml-2 font-mono text-xs text-gray-400">{l.bajajCode}</span>}
-                    {l.altCode && (
-                      <span className="ml-1 font-mono text-xs text-gray-300" title="El otro código de la misma pieza">
-                        / {l.altCode}
-                      </span>
-                    )}
-                    {l.moq != null && l.moq > 1 && (
-                      <span
-                        className={`ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
-                          cumpleMoq(l.quantity, l.moq) ? 'bg-gray-100 text-gray-600' : 'bg-amber-100 text-amber-800'
-                        }`}
-                        title={`Mínimo de compra: ${l.moq} unidades`}
-                      >
-                        mín. {l.moq}
-                      </span>
-                    )}
-                    {motos && (
-                      <span
-                        className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600"
-                        title={motos.lista}
-                      >
-                        🏍 {motos.n} motos
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5 text-center text-gray-600">{l.quantity}</td>
-                  <td className="px-3 py-2.5 text-right font-mono text-gray-500 text-xs">
-                    {l.dimL && l.dimA && l.dimH ? `${l.dimL}×${l.dimA}×${l.dimH}` : '—'}
-                  </td>
-                  <td className="px-3 py-2.5 text-right font-mono text-gray-700">{m3(l.volumeUnitM3 * l.quantity)}</td>
-                  <td className="px-4 py-2.5 text-right font-mono text-gray-700">{usd(l.costoUnitUsd * l.quantity)}</td>
+        <>
+          {/* Las dos vistas del contenido, plegadas: con la caja cerrada se abren para
+              comprar o para mandar la lista, no para mirarlas cada vez que se entra. */}
+          <details className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <summary className="px-4 py-3 cursor-pointer text-sm font-semibold text-gray-900">
+              Contenido por SKU · {lineas.length} línea{lineas.length === 1 ? '' : 's'} · {totalUnidades} u. · {usd(resumen.costoOrigenUsd)}
+            </summary>
+            {/* Copiar sirve tanto o más con la caja cerrada que armándola: es la lista que se
+                le pasa al proveedor para cerrar la compra, y a esa altura ya no cambia. */}
+            <div className="flex justify-end px-4 py-2 border-t border-gray-100">
+              <CopiarEmbarqueJson
+                embarque={nombreEmbarque}
+                proveedor={envio.supplier?.name ?? null}
+                lineas={lineas}
+                className="shrink-0 border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-gray-50 transition-colors"
+              />
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+                  <th className="text-left px-4 py-3 font-semibold">Pieza</th>
+                  <th className="text-center px-3 py-3 font-semibold">Cant.</th>
+                  <th className="text-right px-3 py-3 font-semibold" title="L×A×H en cm">Medidas</th>
+                  <th className="text-right px-3 py-3 font-semibold">m³</th>
+                  <th className="text-right px-4 py-3 font-semibold">Costo origen</th>
                 </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {lineas.map(l => {
+                  const motos = chipMotos(l.compatibleModels)
+                  return (
+                  <tr key={l.id}>
+                    <td className="px-4 py-2.5">
+                      <Link
+                        href={`/products/${l.productId}`}
+                        className={`hover:text-blue-600 ${l.descontinuada ? 'text-gray-500 line-through' : 'text-gray-900'}`}
+                      >
+                        {l.nameEs}
+                      </Link>
+                      <ChipDescontinuada activo={l.descontinuada} />
+                      {l.bajajCode && <span className="ml-2 font-mono text-xs text-gray-400">{l.bajajCode}</span>}
+                      {l.altCode && (
+                        <span className="ml-1 font-mono text-xs text-gray-300" title="El otro código de la misma pieza">
+                          / {l.altCode}
+                        </span>
+                      )}
+                      {l.moq != null && l.moq > 1 && (
+                        <span
+                          className={`ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                            cumpleMoq(l.quantity, l.moq) ? 'bg-gray-100 text-gray-600' : 'bg-amber-100 text-amber-800'
+                          }`}
+                          title={`Mínimo de compra: ${l.moq} unidades`}
+                        >
+                          mín. {l.moq}
+                        </span>
+                      )}
+                      {motos && (
+                        <span
+                          className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600"
+                          title={motos.lista}
+                        >
+                          🏍 {motos.n} motos
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-center text-gray-600">{l.quantity}</td>
+                    <td className="px-3 py-2.5 text-right font-mono text-gray-500 text-xs">
+                      {l.dimL && l.dimA && l.dimH ? `${l.dimL}×${l.dimA}×${l.dimH}` : '—'}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono text-gray-700">{m3(l.volumeUnitM3 * l.quantity)}</td>
+                    <td className="px-4 py-2.5 text-right font-mono text-gray-700">{usd(l.costoUnitUsd * l.quantity)}</td>
+                  </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </details>
+
+          <details className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <summary className="px-4 py-3 cursor-pointer text-sm font-semibold text-gray-900">
+              Por ensamble (como se compra en 99rpm) · {porEnsamble.ensambles.length} ensamble{porEnsamble.ensambles.length === 1 ? '' : 's'} · {porEnsamble.totalBloques} pasada{porEnsamble.totalBloques === 1 ? '' : 's'}
+              {porEnsamble.sinEnsamble.length > 0 && <> · {porEnsamble.sinEnsamble.length} sin ensamble</>}
+            </summary>
+            <div className="border-t border-gray-100">
+              <CompraPorEnsambleLista datos={porEnsamble} />
+            </div>
+          </details>
+        </>
       )}
 
       {opciones.length > 0 && (
