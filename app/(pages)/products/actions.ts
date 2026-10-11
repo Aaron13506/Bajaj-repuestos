@@ -10,7 +10,8 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { getConfig } from '@/lib/config-db'
 import { toNum } from '@/lib/parse'
-import { fallo, ok, type ActionResult } from '@/lib/action-result'
+import { ErrorDeNegocio, fallo, ok, type ActionResult } from '@/lib/action-result'
+import { copiarImagenAlBucket } from '@/lib/imagen-producto'
 import { motivoProductoEnUso } from '@/lib/producto-en-uso'
 import { cambioFisico, medidoAtDesde } from '@/lib/medido'
 
@@ -44,6 +45,7 @@ function parseProductForm(formData: FormData, modelosActuales: string | null = n
   return {
     bajajCode:        (formData.get('bajajCode') as string) || null,
     sourceUrl:        (formData.get('sourceUrl') as string) || null,
+    imageUrl:         ((formData.get('imageUrl') as string | null) ?? '').trim() || null,
     nameEs:           ((formData.get('nameEs') as string | null) ?? '').trim(),
     nameEn:           (formData.get('nameEn') as string) || null,
     description:      (formData.get('description') as string) || null,
@@ -78,9 +80,25 @@ function deltaDeStock(formData: FormData): number {
   return nuevo - cargado
 }
 
+// La foto se guarda desde NUESTRO bucket: una URL ajena se copia antes de escribir (ver
+// lib/imagen-producto.ts). Solo cuando cambió — re-guardar el formulario no la vuelve a bajar.
+// Si no se puede copiar devuelve el motivo y no se guarda nada.
+async function fotoParaGuardar(nueva: string | null, actual: string | null): Promise<{ url: string | null } | { error: string }> {
+  if (!nueva || nueva === actual) return { url: nueva }
+  try {
+    return { url: await copiarImagenAlBucket(nueva) }
+  } catch (e) {
+    if (e instanceof ErrorDeNegocio) return { error: e.message }
+    throw e
+  }
+}
+
 export async function createProduct(formData: FormData): Promise<ActionResult> {
   const data     = parseProductForm(formData)
   if (!data.nameEs) return fallo('El nombre en español es obligatorio.')
+  const foto = await fotoParaGuardar(data.imageUrl, null)
+  if ('error' in foto) return fallo(foto.error)
+  data.imageUrl = foto.url
   const ensambleId = formData.get('ensambleId') as string
   const groupName = (formData.get('parentGroupName') as string)?.trim() ?? ''
 
@@ -107,7 +125,7 @@ export async function createProduct(formData: FormData): Promise<ActionResult> {
 export async function updateProduct(id: number, formData: FormData): Promise<ActionResult> {
   const actual = await db.product.findUnique({
     where: { id },
-    select: { compatibleModels: true, stock: true, medidoAt: true, weightGrams: true, dimL: true, dimA: true, dimH: true },
+    select: { compatibleModels: true, stock: true, medidoAt: true, weightGrams: true, dimL: true, dimA: true, dimH: true, imageUrl: true },
   })
   if (!actual) return fallo('Esa pieza ya no existe.')
   // El stock no se pisa con el absoluto del formulario: se aplica la diferencia (deltaDeStock).
@@ -117,6 +135,9 @@ export async function updateProduct(id: number, formData: FormData): Promise<Act
   if (actual.stock + delta < 0) {
     return fallo(`El stock actual es ${actual.stock}: no se puede restar ${-delta}. Cambió desde que abriste el formulario.`)
   }
+  const foto = await fotoParaGuardar(data.imageUrl, actual.imageUrl)
+  if ('error' in foto) return fallo(foto.error)
+  data.imageUrl = foto.url
   const landed = await computeLanded(data)
   if (landed != null) data.landedCostUsd = landed
   const medidoAt = medidoAtDesde(formData.get('medido') === 'true', actual.medidoAt, cambioFisico(data, actual))

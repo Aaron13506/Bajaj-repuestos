@@ -5,7 +5,7 @@ import { shortModel, type MotoModelInfo } from '@/lib/modelo'
 
 interface Props {
   basePath: string          // '/groups' o '/products'
-  models: readonly MotoModelInfo[]  // las 15 motos (el valor del filtro es el id del enum)
+  models: readonly MotoModelInfo[]  // las motos del catálogo (el valor del filtro es el id del enum)
   /** Categorías ya scopeadas al modelo actual. Sin esto no hay campo de categoría. */
   categories?: string[]
   current: { model: string; category?: string; search: string; lowStock?: boolean; medido?: string }

@@ -41,6 +41,7 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
         defaultValues={{
           bajajCode:        product.bajajCode,
           sourceUrl:        product.sourceUrl,
+          imageUrl:         product.imageUrl,
           nameEs:           product.nameEs,
           nameEn:           product.nameEn,
           description:      product.description,

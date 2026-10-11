@@ -26,7 +26,7 @@ export function sortModels(models: string[]): string[] {
  *
  * Es un `contains` y no una comparación exacta porque un producto puede servir a varias
  * motos y las guarda separadas por comas. Buscar la etiqueta suelta dentro del string es
- * exacto igual: ninguna de las 15 etiquetas es substring de otra (verificado; "Pulsar
+ * exacto igual: ninguna de las 16 etiquetas es substring de otra (verificado; "Pulsar
  * NS200 BS6 2020" no cae dentro de "Pulsar NS200 BS6 2021 23"). Si alguna vez se agrega
  * una que sí lo sea, esto deja de ser exacto y hay que pasar a matchear por elemento.
  */

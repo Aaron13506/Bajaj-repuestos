@@ -1,6 +1,8 @@
 'use client'
 import ModelPicker from '@/components/ModelPicker'
 import FormConResultado from '@/components/FormConResultado'
+import FichaProductoIA from '@/components/FichaProductoIA'
+import PegarImagen from '@/components/PegarImagen'
 import type { ActionResult } from '@/lib/action-result'
 
 import Link from 'next/link'
@@ -9,6 +11,7 @@ import { useFormStatus } from 'react-dom'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
 import { formatModels, toModelIds } from '@/lib/modelo'
 import { fechaMedido } from '@/lib/medido'
+import type { FichaProductoIA as Ficha } from '@/lib/producto-ia'
 
 // Un ensamble al que se puede asignar la pieza. La moto va junto al nombre porque es lo único
 // que distingue dos ensambles homónimos.
@@ -21,6 +24,7 @@ interface Group {
 interface ProductFormValues {
   bajajCode?: string | null
   sourceUrl?: string | null
+  imageUrl?: string | null
   nameEs?: string
   nameEn?: string | null
   description?: string | null
@@ -75,6 +79,51 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
   const priceRef    = useRef<HTMLInputElement>(null)
   const lockRef     = useRef<HTMLInputElement>(null)
   const [groupSearch, setGroupSearch] = useState('')
+  const rootRef = useRef<HTMLDivElement>(null)
+  // Las motos se pueden llenar desde la IA, así que dejan de ser defaultValue puro: el
+  // selector se remonta con la lista nueva (`pickerKey`).
+  const [models, setModels] = useState<readonly string[]>(d.models ?? [])
+  const [pickerKey, setPickerKey] = useState(0)
+
+  // El resto de los campos son no controlados: se escriben directo en el DOM, igual que
+  // hacen los recálculos de costo con sus refs.
+  function campo(name: string) {
+    return rootRef.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${name}"]`) ?? null
+  }
+
+  function aplicarFicha(f: Ficha): { llenados: string[]; avisos: string[] } {
+    const llenados: string[] = []
+    const avisos: string[] = []
+    const poner = (name: string, v: string | number | null, etiqueta: string) => {
+      const el = campo(name)
+      if (v == null || !el) return
+      el.value = String(v)
+      llenados.push(etiqueta)
+    }
+    poner('bajajCode', f.sku, 'código')
+    poner('nameEs', f.nameEs, 'nombre')
+    poner('nameEn', f.nameEn, 'nombre en inglés')
+    poner('description', f.description, 'descripción')
+    if (f.models) {
+      setModels(f.models)
+      setPickerKey(k => k + 1)
+      llenados.push(f.models.length ? 'motos' : 'motos (universal: ninguna marcada)')
+    }
+    poner('priceInr', f.priceInr, 'precio ₹')
+    if (f.weightGrams != null) {
+      // Lo pesado a mano no lo pisa una estimación (misma regla que applyMeasures).
+      if ((campo('medido') as HTMLInputElement | null)?.checked) {
+        avisos.push('Peso y medidas no se tocaron: está tildado "Pesada y medida a mano".')
+      } else {
+        poner('weightGrams', f.weightGrams, 'peso')
+        poner('dimL', f.dimL, 'medidas')
+        poner('dimA', f.dimA, 'medidas')
+        poner('dimH', f.dimH, 'medidas')
+      }
+    }
+    recalcFromCost()
+    return { llenados: [...new Set(llenados)], avisos }
+  }
 
   // Costo landed calculado en vivo desde INR + peso + dims + config (mismo
   // cálculo que el catálogo). Devuelve null si falta INR o peso.
@@ -133,7 +182,10 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
     : groups
 
   return (
+    <div ref={rootRef}>
     <FormConResultado action={action} className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-6">
+
+      <FichaProductoIA aplicar={aplicarFicha} />
 
       {/* Identificación */}
       <section>
@@ -158,12 +210,16 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
           </div>
           <div className="sm:col-span-2">
             <label className="block text-sm font-medium text-gray-700 mb-1">Motos</label>
-            <ModelPicker value={d.models ?? []} />
+            <ModelPicker key={pickerKey} value={models} />
           </div>
           <div className="sm:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1">URL fuente (99rpm / Boodmo)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">URL fuente</label>
             <input name="sourceUrl" type="url" defaultValue={d.sourceUrl ?? ''} placeholder="https://..."
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Foto</label>
+            <PegarImagen inicial={d.imageUrl} />
           </div>
         </div>
       </section>
@@ -324,5 +380,6 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
         <SubmitButton label={submitLabel} />
       </div>
     </FormConResultado>
+    </div>
   )
 }

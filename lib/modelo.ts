@@ -11,7 +11,7 @@ import type { $Enums } from '@prisma/client'
 //
 // Un ensamble lleva exactamente una moto — esa es su identidad, y es lo único que
 // distingue dos conjuntos con el mismo nombre ("Spark Plugs") que en realidad son de
-// motos distintas. Una pieza suelta lleva todas las motos que la usan (hasta las 15), y
+// motos distintas. Una pieza suelta lleva todas las motos que la usan (todas las del catálogo), y
 // de ahí sale la compatibilidad cruzada: la misma pastilla que sirve para la N250 y para
 // la N160 es una sola fila.
 //
@@ -21,7 +21,7 @@ import type { $Enums } from '@prisma/client'
 // Módulo puro (sin `db`): lo importa tanto el server como el armador, que es cliente.
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Las 15 motos. `id` es EXACTAMENTE el valor del enum MotoModel del schema
+// Las motos del catálogo. `id` es EXACTAMENTE el valor del enum MotoModel del schema
 // (lib/catalog.ts falla la compilación si se desincronizan), así que esta tabla es la
 // traducción única entre lo guardado y todo lo que se ve.
 //
@@ -47,6 +47,10 @@ export const MOTO_MODELS = [
   { id: 'PULSAR_N250_SINGLE_ABS_2021_23', label: 'Pulsar N250 Single ABS 2021 23', family: 'N250',  variant: 'Single ABS', years: '2021-23' },
   { id: 'PULSAR_N250_DUAL_ABS_2022_23',   label: 'Pulsar N250 Dual ABS 2022 23',   family: 'N250',  variant: 'Dual ABS',   years: '2022-23' },
   { id: 'PULSAR_N250_USD_FORK_2024_25',   label: 'Pulsar N250 USD Fork 2024 25',   family: 'N250',  variant: 'USD Fork',   years: '2024-25' },
+  // Fuera de la línea Pulsar y la de más cilindrada: va al final. Entró con los accesorios
+  // (no viene del scrape de 99rpm). Familia "Dominar 400" y no "Dominar": así una versión
+  // futura (UG, 250) se agrupa o se separa como las Pulsar.
+  { id: 'DOMINAR_400_BS6',                label: 'Dominar 400 BS6',                family: 'Dominar 400', variant: 'BS6',  years: null      },
 ] as const
 
 /** El id del enum MotoModel de Prisma, como unión de literales. */
@@ -69,7 +73,7 @@ const BY_ID = new Map<string, MotoModelInfo>(MOTO_MODELS.map(m => [m.id, m]))
 const BY_LABEL = new Map<string, MotoModelInfo>(MOTO_MODELS.map(m => [m.label, m]))
 const ORDER = new Map<string, number>(MOTO_MODELS.map((m, i) => [m.id, i]))
 
-/** true si el string es uno de los 15 ids del enum (para validar entrada externa). */
+/** true si el string es uno de los ids del enum (para validar entrada externa). */
 export function isMotoModelId(v: unknown): v is MotoModelId {
   return typeof v === 'string' && BY_ID.has(v)
 }

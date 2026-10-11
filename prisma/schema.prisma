@@ -520,6 +520,9 @@ enum MotoModel {
   // y ya existe en la DB con 81 ensambles scrapeados, así que declararla acá es lo que evita
   // que una migración futura recree el tipo sin este valor y falle contra esas filas.
   BOXER_BM150 // 596
+  // Entró con los accesorios (2026-10), no por el scrape: ningún ScrapedProduct la usa
+  // todavía. Está acá solo porque lib/modelo.ts exige que su tabla y este enum coincidan.
+  DOMINAR_400_BS6
 }
 
 // ENSAMBLE: una página de producto de 99rpm = un bundle Magento (con subgrupos).

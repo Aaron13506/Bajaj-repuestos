@@ -1,3 +1,5 @@
+import { MOTO_MODELS } from '@/lib/modelo'
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Prompt de investigación de peso y dimensiones.
 //
@@ -322,3 +324,113 @@ Reglas del JSON:
 - Sin precios, sin pesos, sin medidas, sin totales. Solo código, cantidad y descripción.
 - "sinCodigo" puede ir vacío, pero no lo omitas: que esté vacío me dice que leíste todo.
 - El bloque tiene que ser JSON válido y contener únicamente eso: la verificación va FUERA.`
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Prompt de la ficha completa de un producto que NO viene de un catálogo.
+//
+// Los repuestos entran por el scrape de 99rpm y solo les falta peso y medidas (eso es
+// MEASURES_PROMPT). Los accesorios no tienen catálogo detrás: el usuario le da a la IA en su
+// chat el SKU (lo inventa él), el nombre en inglés, las motos y lo que tenga (enlace, fotos,
+// precio), y la respuesta LLENA el formulario de producto (components/FichaProductoIA.tsx).
+// La foto la pega él aparte.
+//
+// El SKU vuelve TAL CUAL: es del usuario, la IA solo lo transporta para que la ficha entera
+// se cargue de una vez.
+//
+// Decisiones del texto:
+//  · El nombre en inglés es el del usuario y no se toca; el español es su TRADUCCIÓN, no un
+//    nombre nuevo. Dos nombres que dicen cosas distintas son dos productos para quien busca.
+//  · Las motos las decide el usuario: la IA solo las pasa a las etiquetas EXACTAS de
+//    MOTO_MODELS. Lo que no sea una etiqueta conocida lo descarta `toModelIds` al cargar, y
+//    el modelo tiende a escribir "Pulsar NS200" a secas, que no es ninguna.
+//  · La descripción es opcional: null antes que relleno.
+//  · El precio en ₹ es el que da el usuario o el que figura en lo que pasó; si no, null. Es
+//    lo que se le paga al vendedor, y un precio supuesto entra derecho al precio de venta.
+//  · Peso y medidas son del BULTO, con las mismas reglas que MEASURES_PROMPT en corto: los
+//    datos de PAQUETE publicados ya son el bulto, y sumarles cartón otra vez es el error
+//    simétrico a no sumarlo.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function productoPrompt(): string {
+  const motos = MOTO_MODELS.map(m => `   - ${m.label}`).join('\n')
+  return `Eres un especialista en accesorios y repuestos de motocicleta. Te voy a dar un producto: su SKU, su
+NOMBRE EN INGLÉS, las MOTOS en las que va y lo que tenga (enlace, fotos, precio). Necesito su ficha en JSON para
+cargarla en mi catálogo. Lo compro en India y lo revendo en Venezuela.
+
+Voy a AUDITAR la respuesta. Un dato inventado que se ve ordenado me cuesta dinero real (flete, precio de
+venta) o me hace prometer una compatibilidad que no existe. Lo que no sepas va como null, no supuesto.
+
+QUÉ NECESITO:
+
+0. sku — el código que te doy, TAL CUAL: mismas letras, números, guiones y mayúsculas. Es mío; no lo
+   corrijas, no lo completes y no inventes uno si no te lo di (null).
+
+1. nameEn — el nombre en inglés que te doy, TAL CUAL. No lo corrijas ni lo completes.
+
+2. nameEs — la TRADUCCIÓN al español de ese nombre, no un nombre nuevo: lo mismo que dice el inglés,
+   con el término que usa un motociclista en Latinoamérica ("crash guard" → "defensa de motor",
+   "tank pad" → "protector de tanque"). Conserva la marca, el material y el color si el inglés los
+   trae; no agregues lo que el inglés no dice. Máximo ~60 caracteres.
+
+3. description — OPCIONAL. De 1 a 3 frases en español solo si tienes datos que el nombre no dice:
+   material, qué trae el paquete (piezas, tornillería, soportes), cómo se instala. Nada de publicidad.
+   Si no tienes nada útil que agregar, null.
+
+4. compatibleModels — las motos que YO te indico, pasadas a las etiquetas EXACTAS de esta lista:
+${motos}
+   - No agregues ni quites motos por tu cuenta: solo traduces lo que te dije a la etiqueta de la lista.
+   - Si te nombro una familia sin versión ni año ("NS200"), incluye todas sus variantes de la lista y
+     dilo en la ficha.
+   - Si alguna moto que te dije no está en la lista, nómbrala en la ficha y déjala fuera del JSON.
+   - Si te digo que es universal, devuelve [].
+
+5. priceInr — el precio en rupias que te indique, o el que figure en lo que te pasé, entero y sin
+   envío (no el "M.R.P." tachado). Si no hay ninguno, null: no lo estimes.
+   Si se vende como par o kit, el producto ES el kit: precio, peso y medidas son del kit.
+
+6. weightGrams, dimL, dimA, dimH — el BULTO, como lo despacha el transportista: el producto CON su
+   caja o bolsa. El transportista pesa lo que sale del depósito, no lo que hay adentro: con el producto
+   pelado el flete siempre sale de menos.
+   - Si hay datos publicados del PAQUETE ("Package Dimensions", "Package Weight", "shipping weight"),
+     PREFIÉRELOS: ya son el bulto y NO se les suma empaque otra vez.
+   - Si solo hay los del artículo pelado ("Item Weight", "Product Dimensions"), súmale la caja: +1 cm
+     por lado (+2 cm en piezas grandes o frágiles) y cartón ≈ 0,55 g por cm² de superficie exterior de
+     la caja. Muestra la cuenta.
+   - Si no hay ningún dato, estima a partir de productos equivalentes con datos publicados (de otras
+     marcas o motos: un producto del mismo tipo pesa y mide casi igual) y di cuáles usaste.
+   - Normaliza unidades ANTES de nada: 1 kg = 1000 g · 1 lb = 453,6 g · 1 oz = 28,35 g ·
+     1 pulgada = 2,54 cm · 10 mm = 1 cm. Ojo con líneas mixtas ("30 x 20 x 10 cm; 500 g").
+   - Desconfía de los valores por defecto de los vendedores: 1 kg / 500 g / 100 g exactos, cajas con
+     L = A = H o 10 × 10 × 10.
+   - Chequeo: densidad = weightGrams / (dimL × dimA × dimH) en g/cm³. Nunca puede superar la del
+     material (acero 7,8 · aluminio 2,7 · plástico 0,9–1,4). Mi cargador RECHAZA más de 8 o menos de
+     0,02 y cualquier campo en 0: revisa la cuenta antes de entregar.
+
+QUÉ DEVOLVER:
+
+1) Una ficha breve FUERA del JSON: qué producto identificaste, de dónde salió cada dato, la cuenta del
+   bulto con su densidad, y toda duda (moto que no está en la lista, variante, kit).
+
+2) El JSON en un bloque \`\`\`json … \`\`\`, UN solo objeto:
+
+\`\`\`json
+{
+  "sku": "<el SKU que te di, tal cual>",
+  "nameEn": "<el nombre en inglés que te di, tal cual>",
+  "nameEs": "<su traducción al español>",
+  "description": "<1 a 3 frases, o null>",
+  "compatibleModels": ["<etiqueta exacta de la lista>"],
+  "priceInr": <entero en rupias, o null>,
+  "weightGrams": <peso del BULTO en gramos>,
+  "dimL": <largo del BULTO en cm>,
+  "dimA": <ancho del BULTO en cm>,
+  "dimH": <alto del BULTO en cm>
+}
+\`\`\`
+
+Reglas del JSON:
+- Números como números, no como texto.
+- Sin foto, sin margen y sin precios en dólares: eso lo pongo yo.
+- El bloque tiene que ser JSON válido y contener solo el objeto: la ficha va FUERA.`
+}
