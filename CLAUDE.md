@@ -30,8 +30,7 @@ pnpm q search <texto>          # buscar por nombre o SKU
 pnpm q missing                 # piezas sin peso o sin medidas
 
 # Precios externos (los corre el timer horario del servidor, bajaj-fx.timer: pnpm fx:update)
-pnpm fx:update                 # tasas INR/USD + BsD/USD, y de paso las tarifas de flete
-pnpm rates:update [--force]    # solo tarifas Shoppre → Config.shoppre_rates_usd
+pnpm fx:update [--force-rates]  # tasas INR/USD + BsD/USD, y de paso las tarifas de flete (cada 3 días; --force-rates: ya)
 pnpm rates:baseline            # regenera shipping_rates.json (el fallback del bundle)
 
 # Producción (Lightsail): el servidor trae lo de GitHub (hacé el push antes), corre deploy.sh y verifica. --dry solo muestra.
@@ -43,10 +42,8 @@ pnpm db:migrar                 # estado: aplicadas / pendientes / modificadas (s
 pnpm db:migrar --probar        # corre las pendientes en una transacción y la deshace: ensaya el SQL sin dejar nada
 pnpm db:migrar --aplicar       # aplica las pendientes (cada una en su transacción) y compara la base contra schema.prisma
 pnpm db:migrar --drift         # solo compara la base contra schema.prisma
-pnpm db:push      # Push schema changes without migration (dev, descartable: NO deja registro)
 pnpm db:generate  # Regenerate Prisma client after schema changes
 pnpm db:studio    # Open Prisma Studio GUI
-pnpm db:seed      # Run prisma/seed.ts
 
 # 99rpm prices + discontinued flags (dry by default — `--apply` writes)
 pnpm scrape:99rpm --out=<file>.json   # crawl (writes only data/scrape/, never the DB)

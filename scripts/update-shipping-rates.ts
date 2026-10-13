@@ -1,18 +1,16 @@
 // Refresca la tabla de tarifas Shoppre India→USA y la deja en Config.shoppre_rates_usd.
 //
-// Lo invoca scripts/update-fx-rates.ts (el cron horario de Heroku). El filesystem del
-// dyno es efímero, así que la tabla NO puede vivir en shipping_rates.json en producción:
-// ese archivo queda como el baseline que se buildea, y la copia viva va en Config, que
-// es de donde ya salen todas las tarifas que lee calcLanded/calcEnvio.
+// Lo invoca scripts/update-fx-rates.ts (pnpm fx:update, el timer horario del servidor).
+// La copia viva va en Config, que es de donde ya salen todas las tarifas que lee
+// calcLanded/calcEnvio; shipping_rates.json queda como el baseline que se buildea.
 //
 // CLI:
-//   pnpm rates:update            actualiza Config (respeta la ventana de frescura)
-//   pnpm rates:update --force    scrapea aunque la tabla guardada sea reciente
+//   pnpm fx:update --force-rates scrapea aunque la tabla guardada sea reciente
 //   pnpm rates:baseline          reescribe shipping_rates.json (el fallback del bundle)
 import { PrismaClient } from '@prisma/client'
 import { buildRateTable, type RateTable, type ScrapedRates } from '@/lib/shipping-rates'
 
-// El scraper es CommonJS sin tipos (viene tal cual del repo de análisis, ver HEROKU-CRON.md).
+// El scraper es CommonJS sin tipos (viene tal cual del repo de análisis).
 const { scrapeRates } = require('./shoppre-scraper') as {
   scrapeRates: (opts?: Record<string, unknown>) => Promise<ScrapedRates>
 }
@@ -131,8 +129,7 @@ if (require.main === module) {
 
   const run = async () => {
     if (argv.includes('--baseline')) {
-      // Regenera el fallback que se buildea en el bundle. Solo local: en Heroku el
-      // archivo se pierde con el dyno.
+      // Regenera el fallback que se buildea en el bundle. Se corre en la PC y se commitea.
       const fs = await import('node:fs')
       const path = await import('node:path')
       const table = buildRateTable(await scrapeRates({

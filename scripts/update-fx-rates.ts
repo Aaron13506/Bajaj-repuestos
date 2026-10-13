@@ -1,4 +1,4 @@
-// Invocado por Heroku Scheduler cada hora (pnpm fx:update). Actualiza inr_usd_rate y
+// Lo corre cada hora el timer del servidor, bajaj-fx.timer (pnpm fx:update). Actualiza inr_usd_rate y
 // bsd_usd_rate en Config con tasas frescas, para que calcLanded/calcEnvio siempre usen
 // el valor del día sin intervención manual en /config.
 //
@@ -58,7 +58,7 @@ async function main() {
   console.log(`inr_usd_rate=${inrUsd.toFixed(2)} bsd_usd_rate=${bsdUsd.toFixed(2)} bcv_usd_rate=${bcvUsd.toFixed(4)} bcv_brecha_pct=${brechaPct.toFixed(2)}`)
 
   // Que Shoppre se caiga no puede tumbar la actualización de tasas, que ya quedó
-  // guardada arriba: se reporta el fallo y se sale con código ≠ 0 para que Heroku lo
+  // guardada arriba: se reporta el fallo y se sale con código ≠ 0 para que systemd lo
   // marque, pero sin revertir lo bueno.
   try {
     const res = await updateShippingRates(db, { force: process.argv.includes('--force-rates') })

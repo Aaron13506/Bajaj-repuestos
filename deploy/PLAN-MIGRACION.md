@@ -555,8 +555,8 @@ Pendiente (no se puede cerrar hoy):
 - **Tu `.env` local:** la base ya es la local (hecho, ver el punto 4 de «Después»; las URLs viejas de Supabase quedaron **comentadas** en el `.env` porque hacen falta para
   el dump final). Falta que las `S3_*` pasen a las llaves de `motokira-images` (siguen siendo las de Supabase, así que los scripts de imágenes no corren desde la PC).
 - **Docker en tu PC:** limpiado por el usuario (ya no están `lightsail` ni `bajaj-migtest`). Para la fase 8 el ensayo del SQL se rehace sobre la base local (`pnpm db:pull-prod`).
-- Opcionales: `HEROKU-CRON.md` (lo cita `scripts/update-shipping-rates.ts:15`) y los comentarios que aún dicen «Heroku» en el código (el hecho que describen, el servidor en
-  UTC, sigue valiendo: `TZ=UTC` en la unidad de systemd).
+- ~~Opcionales: `HEROKU-CRON.md` y los comentarios que aún dicen «Heroku» en el código~~ *(hecho el 2026-10-12: el archivo se borró y los
+  comentarios de los scripts de tasas y tarifas ahora nombran el timer del servidor; el servidor en UTC sigue valiendo: `TZ=UTC` en la unidad de systemd)*.
 
 ---
 
