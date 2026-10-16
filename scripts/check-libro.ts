@@ -148,7 +148,8 @@ async function main() {
   console.log('\nCONVERSIONES Bs → USDT')
   const patas = await db.movimiento.groupBy({
     by: ['grupo'],
-    where: { grupo: { not: null } },
+    // El grupo también liga un cobro con su diferencia por brecha: esas no son conversiones.
+    where: { grupo: { not: null }, categoria: { in: ['conversion_salida', 'conversion_entrada'] } },
     _count: true,
   })
   const rotas = patas.filter(g => g._count !== 2)

@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import {
   CATEGORIAS_INGRESO,
   CATEGORIAS_EGRESO,
+  CATEGORIAS_CONVERSION,
   tipoDeCategoria,
   registrarCompra as registrarCompraLib,
   cobrarPedido,
@@ -106,7 +107,7 @@ export async function eliminarMovimiento(id: number) {
     envioId = mov.envioId
 
     // Las dos patas de una conversión se van juntas: una sola descuadraría la caja.
-    if (mov.grupo != null) {
+    if (mov.grupo != null && (CATEGORIAS_CONVERSION as readonly string[]).includes(mov.categoria)) {
       await tx.movimiento.deleteMany({ where: { grupo: mov.grupo } })
       return
     }
@@ -125,6 +126,8 @@ export async function eliminarMovimiento(id: number) {
 
     const borrados = await tx.movimiento.deleteMany({ where: { id } })
     if (borrados.count === 0) return
+    // Un cobro se lleva su diferencia por brecha (anotarDiferenciaBrecha): sin el cobro no existe.
+    if (esCobro && mov.grupo != null) await tx.movimiento.deleteMany({ where: { grupo: mov.grupo, categoria: 'diferencia_brecha' } })
 
     if (esCobro) await ajustarDeposito(tx, mov.pedidoId!, -parseFloat(mov.monto.toString()))
     if (esDevolucion) await ajustarDeposito(tx, mov.pedidoId!, parseFloat(mov.monto.toString()))

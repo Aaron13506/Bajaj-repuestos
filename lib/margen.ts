@@ -45,6 +45,11 @@ export interface MargenPedido {
    * línea, y tenía que quedar en algún lado.
    */
   perdidasUsd: number
+  /**
+   * Lo que la brecha le quitó (+) o dio (−) a los cobros en Bs de este pedido a BCV
+   * (Movimiento 'diferencia_brecha'). Ya está dentro del costo: el negocio la asume.
+   */
+  brechaUsd: number
   /** Suma de las líneas con costo. Con `sinCosto > 0` es un piso. */
   costoUsd: number
   /** null mientras alguna línea no tenga costo. */
@@ -62,6 +67,8 @@ export interface PerdidasPedido {
   perdidasUsd: number
   /** Cuándo se registró la última, para ubicar el mes de un pedido que quedó sin líneas. */
   ultimaAt: Date | null
+  /** Ver MargenPedido.brechaUsd. */
+  brechaUsd?: number
 }
 
 export function margenDePedido(lineas: LineaMargen[], perdidas: PerdidasPedido = { perdidasUsd: 0, ultimaAt: null }): MargenPedido {
@@ -69,8 +76,10 @@ export function margenDePedido(lineas: LineaMargen[], perdidas: PerdidasPedido =
   const conCosto = lineas.filter(l => l.costoUsd != null)
   const costoLineas = conCosto.reduce((s, l) => s + (l.costoUsd as number), 0)
   const perdidasUsd = round2(perdidas.perdidasUsd)
-  // La pérdida es costo del pedido: el de las unidades que se pagaron y no se entregaron.
-  const costoUsd = round2(costoLineas + perdidasUsd)
+  const brechaUsd = round2(perdidas.brechaUsd ?? 0)
+  // La pérdida es costo del pedido: el de las unidades que se pagaron y no se entregaron. La
+  // brecha también: es plata de la venta que no llegó a la caja.
+  const costoUsd = round2(costoLineas + perdidasUsd + brechaUsd)
   const sinCosto = lineas.length - conCosto.length
   // Un pedido al que se le reembolsó todo se quedó sin líneas: terminó, y terminó en pérdida.
   const sinLineas = lineas.length === 0 && perdidasUsd > 0
@@ -89,6 +98,7 @@ export function margenDePedido(lineas: LineaMargen[], perdidas: PerdidasPedido =
   return {
     ventaUsd,
     perdidasUsd,
+    brechaUsd,
     costoUsd,
     margenUsd,
     margenPct: margenUsd != null && ventaUsd > 0 ? (margenUsd / ventaUsd) * 100 : null,

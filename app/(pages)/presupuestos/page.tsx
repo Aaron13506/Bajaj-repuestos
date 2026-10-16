@@ -8,7 +8,7 @@ import { motivoNoEliminable } from '@/lib/pedido-eliminable'
 import { escalonBcvVigente } from '@/lib/calc'
 import { toConfigMap } from '@/lib/config'
 import { resumenCobro } from '@/lib/cobro-bcv'
-import { estadoValidez, validezDias } from '@/lib/validez'
+import { embudo, estadoValidez, validezDias } from '@/lib/validez'
 
 export default async function PresupuestosPage() {
   const [todos, configRows] = await Promise.all([
@@ -22,7 +22,10 @@ export default async function PresupuestosPage() {
   const escalonHoy = escalonBcvVigente(cfg)
   const diasValidez = validezDias(cfg)
 
-  const presupuestos = todos.filter(p => p.tipo !== 'propio' && p.status === 'presupuesto')
+  const presupuestos = todos.filter(p => p.tipo !== 'propio' && p.status === 'presupuesto' && !p.perdidoAt)
+  const perdidos = todos.filter(p => p.status === 'presupuesto' && p.perdidoAt)
+  // Conversión de los presupuestos de cliente de los últimos 90 días (lib/validez.ts, embudo).
+  const conversion = embudo(todos.filter(p => p.tipo === 'cliente'), diasValidez, undefined, 90)
   const pedidos = todos.filter(p => p.tipo !== 'propio' && p.status === 'pedido')
   const cancelados = todos.filter(p => p.status === 'cancelado')
   const propios = todos.filter(p => p.tipo === 'propio')
@@ -39,7 +42,8 @@ export default async function PresupuestosPage() {
     const isPresupuesto = p.status === 'presupuesto'
     const isCancelado = p.status === 'cancelado'
     // Un presupuesto de cliente pasado de fecha no se confirma: se renueva (lib/validez.ts).
-    const vencido = isPresupuesto && !isPropio && estadoValidez(p, diasValidez).vencido
+    const perdido = isPresupuesto && p.perdidoAt != null
+    const vencido = isPresupuesto && !isPropio && !perdido && estadoValidez(p, diasValidez).vencido
     const depositUsd = p.depositUsd != null ? parseFloat(p.depositUsd.toString()) : null
     // Los mismos montos que el detalle y el PDF: a dólar BCV con el escalón de hoy (presupuesto)
     // o el congelado al confirmar (pedido). Ver lib/cobro-bcv.ts.
@@ -76,13 +80,15 @@ export default async function PresupuestosPage() {
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
               isPropio
                 ? 'bg-blue-100 text-blue-700'
+                : perdido
+                  ? 'bg-gray-200 text-gray-600'
                 : isCancelado || vencido
                   ? 'bg-red-100 text-red-700'
                   : isPresupuesto
                     ? 'bg-yellow-100 text-yellow-700'
                     : 'bg-green-100 text-green-700'
             }`}>
-              {isPropio ? 'Stock propio' : isVenta ? 'Venta del depósito' : isCancelado ? 'Cancelado' : vencido ? 'Vencido' : isPresupuesto ? 'Presupuesto' : 'Pedido'}
+              {isPropio ? 'Stock propio' : isVenta ? 'Venta del depósito' : isCancelado ? 'Cancelado' : perdido ? 'Perdido' : vencido ? 'Vencido' : isPresupuesto ? 'Presupuesto' : 'Pedido'}
             </span>
             {p.origenMotivo && (
               <span className="text-xs text-gray-400">{p.origenMotivo === 'reposicion' ? '↻ reposición' : '↩ sobrante'} de #{p.origenId}</span>
@@ -169,6 +175,16 @@ export default async function PresupuestosPage() {
         </div>
       </div>
 
+      {conversion.total > 0 && (
+        <p className="text-xs text-gray-500 mb-4">
+          Últimos 90 días: {conversion.total} presupuestos · {conversion.confirmados} confirmados · {conversion.perdidos} perdidos ·{' '}
+          {conversion.vencidos} vencidos sin respuesta · {conversion.abiertos} abiertos
+          {conversion.conversionPct != null && (
+            <> · <span className="font-semibold text-gray-700">{conversion.conversionPct.toFixed(0)}% de conversión</span> (sobre los que ya se decidieron)</>
+          )}
+        </p>
+      )}
+
       {todos.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-400">
           <p className="text-lg">Sin presupuestos</p>
@@ -205,6 +221,17 @@ export default async function PresupuestosPage() {
               </h2>
               <div className="space-y-3">
                 {cancelados.map(p => <Row key={p.id} p={p} />)}
+              </div>
+            </div>
+          )}
+
+          {perdidos.length > 0 && (
+            <div>
+              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                Perdidos ({perdidos.length})
+              </h2>
+              <div className="space-y-3">
+                {perdidos.map(p => <Row key={p.id} p={p} />)}
               </div>
             </div>
           )}

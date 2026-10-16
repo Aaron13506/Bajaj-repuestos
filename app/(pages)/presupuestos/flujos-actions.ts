@@ -8,7 +8,7 @@
 import { db } from '@/lib/db'
 import { revalidatePath } from 'next/cache'
 import { revalidateClientes } from '@/lib/clientes'
-import { fallo, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
+import { ok, fallo, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
 import { escalonBcvVigente } from '@/lib/calc'
 import { toConfigMap, num } from '@/lib/config'
 import { bloquearPedido, devolverACliente } from '@/lib/movimientos'
@@ -191,6 +191,40 @@ export async function renovarPresupuesto(id: number): Promise<ActionResult> {
   })
   if (r.ok) revalidarPedido(id)
   return r
+}
+
+/**
+ * Cierra un presupuesto que el cliente no aceptó, sin borrarlo: así cuenta en la conversión
+ * (lib/validez.ts, embudo) y no queda abierto para siempre. Sigue siendo 'presupuesto'.
+ */
+export async function marcarPerdido(id: number, formData: FormData): Promise<ActionResult> {
+  const motivo = String(formData.get('motivo') ?? '').trim() || null
+  const hecho = await db.$transaction(async tx => {
+    const r = await tx.pedido.updateMany({
+      where: { id, tipo: 'cliente', status: 'presupuesto', perdidoAt: null },
+      data: { perdidoAt: new Date(), perdidoMotivo: motivo },
+    })
+    if (r.count > 0) await registrarEvento(tx, id, 'perdido', `Presupuesto perdido${motivo ? `: ${motivo}` : ''}`)
+    return r.count > 0
+  })
+  if (!hecho) return fallo('Solo se marca como perdido un presupuesto de cliente abierto. Recargá la página.')
+  revalidarPedido(id)
+  return ok()
+}
+
+/** Vuelve a abrir un presupuesto perdido (el cliente volvió). La validez sigue corriendo igual. */
+export async function reabrirPresupuesto(id: number): Promise<ActionResult> {
+  const hecho = await db.$transaction(async tx => {
+    const r = await tx.pedido.updateMany({
+      where: { id, status: 'presupuesto', perdidoAt: { not: null } },
+      data: { perdidoAt: null, perdidoMotivo: null },
+    })
+    if (r.count > 0) await registrarEvento(tx, id, 'reabierto', 'Presupuesto reabierto')
+    return r.count > 0
+  })
+  if (!hecho) return fallo('Ese presupuesto ya no está perdido. Recargá la página.')
+  revalidarPedido(id)
+  return ok()
 }
 
 // ── Incidencias ──────────────────────────────────────────────────────────────────────────────

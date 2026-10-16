@@ -405,6 +405,10 @@ model Pedido {
   // cancelado conserva lo cobrado que no se devolvió (depositUsd): es plata que se quedó.
   canceladoAt     DateTime?
   canceladoMotivo String?
+  // Un presupuesto que el cliente no aceptó (lib/validez.ts, marcarPerdido). Sigue siendo
+  // status 'presupuesto' (CHECK Pedido_perdido_solo_presupuesto); null = abierto.
+  perdidoAt       DateTime?
+  perdidoMotivo   String?
   // Cuándo se emitió o renovó el presupuesto y con qué escalón BCV se le presentó al cliente.
   // La validez corre desde acá y el escalón de la aprobación es ESTE, no el del día en que
   // se aprueba (lib/validez.ts). Null = presupuesto anterior: vale su fecha de creación y el

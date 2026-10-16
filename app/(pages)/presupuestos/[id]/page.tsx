@@ -12,8 +12,11 @@ import RenovarPresupuestoButton from '@/components/RenovarPresupuestoButton'
 import IncidenciasLinea, { type IncidenciaVista } from '@/components/IncidenciasLinea'
 import { deletePresupuesto, aprobarPedido, registrarPagoPedido } from '../actions'
 import {
-  cancelarPedido, devolverAlCliente, renovarPresupuesto, reportarIncidencia, resolverIncidencia,
+  cancelarPedido, devolverAlCliente, marcarPerdido, reabrirPresupuesto, renovarPresupuesto, reportarIncidencia,
+  resolverIncidencia,
 } from '../flujos-actions'
+import FormConResultado from '@/components/FormConResultado'
+import PendingButton from '@/components/PendingButton'
 import { anularVenta } from '../../ventas/actions'
 import { type BundlePiece, groupBundlePieces } from '@/lib/bundle'
 import { lookupDeConjuntos } from '@/lib/envio-build'
@@ -239,7 +242,8 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
     d.toLocaleDateString('es-VE', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'America/Caracas' })
   // Validez: corre desde la última vez que se cotizó o renovó (ver lib/validez.ts).
   const vigencia = estadoValidez(presupuesto, validezDias(cfg))
-  const vencido = isPresupuesto && presupuesto.tipo === 'cliente' && vigencia.vencido
+  const perdido = isPresupuesto && presupuesto.perdidoAt != null
+  const vencido = isPresupuesto && presupuesto.tipo === 'cliente' && vigencia.vencido && !perdido
   const fecha = fmtDate(vigencia.desde)
   const validez = fmtDate(vigencia.venceEl)
   const numero = `N.º ${String(presupuesto.id).padStart(4, '0')}`
@@ -311,15 +315,22 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
                 : isCancelado
                   ? 'bg-red-100 text-red-700'
                   : isPresupuesto
-                    ? vencido ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
+                    ? perdido ? 'bg-gray-200 text-gray-600' : vencido ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
                     : 'bg-green-100 text-green-700'
             }`}>
-              {isPropio ? 'Stock propio' : isVenta ? 'Venta del depósito' : isCancelado ? 'Cancelado' : isPresupuesto ? (vencido ? 'Presupuesto vencido' : 'Presupuesto') : 'Pedido confirmado'}
+              {isPropio ? 'Stock propio' : isVenta ? 'Venta del depósito' : isCancelado ? 'Cancelado' : isPresupuesto ? (perdido ? 'Presupuesto perdido' : vencido ? 'Presupuesto vencido' : 'Presupuesto') : 'Pedido confirmado'}
             </span>
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-          {!isPropio && isPresupuesto && (
+          {perdido && (
+            <FormConResultado action={reabrirPresupuesto.bind(null, id)} className="flex items-center gap-2">
+              <PendingButton pendingLabel="Reabriendo…" className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">
+                Reabrir
+              </PendingButton>
+            </FormConResultado>
+          )}
+          {!isPropio && isPresupuesto && !perdido && (
             <>
               <div className="relative">
                 {vencido ? (
@@ -341,6 +352,26 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
               >
                 Editar
               </Link>
+              {presupuesto.tipo === 'cliente' && (
+                // El cliente dijo que no: se cierra sin borrarlo, para que cuente en la conversión.
+                <details className="relative">
+                  <summary className="list-none cursor-pointer px-3 py-1.5 text-sm text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50">
+                    Perdido
+                  </summary>
+                  <FormConResultado
+                    action={marcarPerdido.bind(null, id)}
+                    className="absolute right-0 z-10 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg p-3 flex flex-col gap-2"
+                  >
+                    <label className="text-xs text-gray-600">
+                      ¿Por qué no se cerró? (opcional)
+                      <input name="motivo" className="mt-1 w-full border border-gray-300 rounded px-2 py-1 text-sm" placeholder="Precio, demora, lo consiguió en otro lado…" />
+                    </label>
+                    <PendingButton pendingLabel="Guardando…" className="self-end px-3 py-1.5 text-sm bg-gray-700 text-white rounded-lg hover:bg-gray-800">
+                      Marcar como perdido
+                    </PendingButton>
+                  </FormConResultado>
+                </details>
+              )}
             </>
           )}
           {isCancelado && depositUsd != null && depositUsd > 0.005 && (
@@ -455,6 +486,12 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
               <span key={d.id}> Lo que ya estaba comprado pasó a <Link href={`/presupuestos/${d.id}`} className="underline">stock propio #{d.id}</Link>.</span>
             ))}
           </p>
+        </div>
+      )}
+      {perdido && (
+        <div className="bg-gray-50 border border-gray-200 rounded-xl px-5 py-3 mb-4 text-sm text-gray-700">
+          <p className="font-semibold">Presupuesto perdido el {fmtDate(presupuesto.perdidoAt!)}{presupuesto.perdidoMotivo ? `: ${presupuesto.perdidoMotivo}` : '.'}</p>
+          <p className="text-xs mt-0.5">No se puede confirmar. Si el cliente vuelve, reabrilo.</p>
         </div>
       )}
       {vencido && (

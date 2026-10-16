@@ -71,6 +71,14 @@ export function realDeCobro(
   return round2(monto * pedido.factor)
 }
 
+// Lo que se perdió (+) o se ganó (−) por la brecha en un cobro en Bs de un pedido a BCV: lo que
+// se le acreditó al cliente (con el escalón congelado al confirmar) menos lo que esos Bs valen en
+// reales con la brecha del día. El negocio asume la brecha del saldo (decisión del 2026-10-15);
+// esto la deja escrita en el libro en vez de esconderla dentro del costo de la conversión a USDT.
+export function diferenciaBrecha(montoBcv: number, acreditadoReal: number, brechaHoyPct: number): number {
+  return round2(acreditadoReal - montoBcv * (1 - brechaHoyPct / 100))
+}
+
 // Nota para el libro: el Movimiento queda en reales, y esto deja a la vista lo que se cobró.
 export function notaCobroBcv(monto: number, enBolivares: boolean, escalonPct: number | null): string | null {
   if (escalonPct == null || !enBolivares) return null

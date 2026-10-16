@@ -79,3 +79,49 @@ export function motivoNoAprobable(e: EstadoValidez): string | null {
   const fecha = e.venceEl.toLocaleDateString('es-VE', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'America/Caracas' })
   return `El presupuesto venció el ${fecha}: los precios y la tasa BCV de entonces ya no valen. Renovalo (revisá los precios) antes de confirmarlo.`
 }
+
+// ── Cerrar presupuestos y medir cuántos se convierten ────────────────────────────────────────
+//
+// Un presupuesto de cliente termina de una de tres formas: se confirma (pasa a pedido, y si
+// después se cancela igual fue una venta cerrada), se pierde (el cliente dijo que no:
+// `perdidoAt`) o vence sin respuesta. Mientras no pasa nada de eso, está abierto y hay que
+// seguirlo.
+export type CierrePresupuesto = 'confirmado' | 'perdido' | 'vencido' | 'abierto'
+
+export interface PresupuestoCierre extends PresupuestoFechas {
+  status: string
+  perdidoAt: Date | null
+}
+
+export function cierreDe(p: PresupuestoCierre, dias: number, ahora: Date = new Date()): CierrePresupuesto {
+  if (p.status !== 'presupuesto') return 'confirmado'
+  if (p.perdidoAt) return 'perdido'
+  return estadoValidez(p, dias, ahora).vencido ? 'vencido' : 'abierto'
+}
+
+export interface Embudo {
+  total: number
+  confirmados: number
+  perdidos: number
+  vencidos: number
+  abiertos: number
+  /** Confirmados sobre los que ya se decidieron (sin los abiertos). null = ninguno decidido. */
+  conversionPct: number | null
+}
+
+// `ventanaDias`: solo los creados en los últimos N días (null = todos).
+export function embudo(
+  todos: PresupuestoCierre[], dias: number, ahora: Date = new Date(), ventanaDias: number | null = null,
+): Embudo {
+  const ps = ventanaDias == null ? todos : todos.filter(p => ahora.getTime() - p.createdAt.getTime() <= ventanaDias * 24 * 3600 * 1000)
+  const e = { total: ps.length, confirmados: 0, perdidos: 0, vencidos: 0, abiertos: 0 }
+  for (const p of ps) {
+    const c = cierreDe(p, dias, ahora)
+    if (c === 'confirmado') e.confirmados++
+    else if (c === 'perdido') e.perdidos++
+    else if (c === 'vencido') e.vencidos++
+    else e.abiertos++
+  }
+  const decididos = e.total - e.abiertos
+  return { ...e, conversionPct: decididos > 0 ? (e.confirmados / decididos) * 100 : null }
+}
