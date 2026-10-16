@@ -9,6 +9,7 @@
 import { PrismaClient } from '@prisma/client'
 import { fetchFxRates } from '@/lib/fx-rates'
 import { updateShippingRates } from './update-shipping-rates'
+import { repreciarCatalogo } from './repreciar-catalogo'
 
 const db = new PrismaClient()
 
@@ -46,6 +47,15 @@ async function main() {
     const e = err as Error & { failures?: string[] }
     console.error(`update-shipping-rates falló: ${e.message}`)
     for (const f of (e.failures ?? []).slice(0, 10)) console.error(`  - ${f}`)
+    process.exitCode = 1
+  }
+
+  // Con tasas y flete al día, el precio de catálogo (una caché de reprice) se pone al día.
+  try {
+    const r = await repreciarCatalogo(db)
+    console.log(`catálogo: ${r.cambiados} de ${r.revisados} precios actualizados`)
+  } catch (err) {
+    console.error(`repreciar catálogo falló: ${(err as Error).message}`)
     process.exitCode = 1
   }
 }
