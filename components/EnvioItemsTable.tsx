@@ -56,7 +56,7 @@ interface Props {
   bloqueada?: boolean
   // Se quita el presupuesto COMPLETO, no piezas sueltas: el presupuesto es lo que se le
   // vendió al cliente y no se parte. O viaja entero en esta caja, o no viaja.
-  quitar: (envioId: number, pedidoId: number) => Promise<void>
+  quitar: (envioId: number, pedidoId: number) => Promise<ActionResult>
 }
 
 // Aviso ámbar de piezas sin peso o sin medidas. No dice cuáles: lleva al presupuesto, que es
@@ -298,7 +298,9 @@ export default function EnvioItemsTable({
     startGuardar(async () => {
       setQuitados(pedidoId)
       try {
-        await quitar(envioId, pedidoId)
+        // Lo ya comprado se queda en la caja: el server dice cuánto y por qué.
+        const r = await quitar(envioId, pedidoId)
+        if (!r.ok) setError(r.error)
       } catch {
         setError('No se pudo quitar el presupuesto.')
       }

@@ -535,12 +535,17 @@ model PedidoItem {
   // Lo que se pagó realmente por la línea (contraste contra el landed estimado).
   costRealUsd      Decimal?  @db.Decimal(10, 2)
   compradoAt       DateTime?
+  // El egreso con el que se pagó (registrarCompra). Es lo que permite deshacer una compra mal
+  // cargada: borrar ese movimiento vuelve a dejar estas líneas sin costo real. Null = líneas de
+  // antes de esto, o un costo que no salió de una compra (venta del depósito).
+  compraId         Int?
 
   pedido   Pedido    @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
   product  Product?  @relation(fields: [productId], references: [id], onDelete: Restrict)
   ensamble Ensamble? @relation(fields: [ensambleId], references: [id], onDelete: Restrict)
   envio    Envio?    @relation(fields: [envioId], references: [id], onDelete: SetNull)
   supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  compra   Movimiento? @relation(fields: [compraId], references: [id], onDelete: SetNull)
   etapas      PedidoItemEtapa[]
   incidencias Incidencia[]
 
@@ -548,6 +553,7 @@ model PedidoItem {
   @@unique([pedidoId, ensambleId])
   @@index([envioId])
   @@index([shippingStatus])
+  @@index([compraId])
 }
 
 // Libro de movimientos: la fuente única de "cuánta plata tengo". Registra ingresos y
@@ -591,6 +597,8 @@ model Movimiento {
   pedido   Pedido?   @relation(fields: [pedidoId], references: [id], onDelete: SetNull)
   envio    Envio?    @relation(fields: [envioId], references: [id], onDelete: SetNull)
   supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  // Las líneas que pagó este egreso, si fue una compra (ver PedidoItem.compraId).
+  itemsComprados PedidoItem[]
 
   @@index([fecha])
   @@index([pedidoId])

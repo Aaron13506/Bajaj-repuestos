@@ -95,7 +95,7 @@ if (( migrar )); then
   [[ -n "$marca" ]] || ssh "$HOST" "sudo -iu bajaj sh -c 'echo $actual > $MARCA'" || die "No se pudo escribir $MARCA en el servidor."
   srv merge --ff-only origin/master >/dev/null || die "El servidor no pudo adelantar su repo a origin/master."
 fi
-ssh "$HOST" "sudo -iu bajaj $APP_DIR/deploy/deploy.sh$extra" || die "deploy.sh falló (leé arriba: si fue el build de un deploy sin migraciones, la versión anterior sigue sirviendo; si migraba, el mensaje dice en qué estado quedó la app)."
+ssh "$HOST" "sudo -iu bajaj $APP_DIR/deploy/deploy.sh$extra" || die "deploy.sh falló (leé arriba: si fue el build de un deploy sin migraciones, deploy.sh reconstruyó y reinició la versión anterior; si migraba, el mensaje dice en qué estado quedó la app)."
 
 nuevo=$(srv rev-parse HEAD)
 [[ "$nuevo" == "$destino" ]] || die "El servidor quedó en ${nuevo:0:7}, no en ${destino:0:7}."

@@ -543,7 +543,7 @@ Hecho:
   (retención de 14). La app siguió respondiendo.
 - **Repo (3, sin commitear al momento de escribir esto):** `CLAUDE.md` (Environment y Auth, el cron de Heroku → `bajaj-fx.timer`, el `postinstall`), `.env.example`
   (túnel SSH en vez de Supabase, bucket de Lightsail), el comentario de `X-Forwarded-For` en `proxy.ts` (ahora dice que el bloqueo por IP es un solo contador para
-  todos y por qué es aceptable) y `Procfile` borrado. `lib/db.ts` y `lib/supabase-ca.ts` siguen: la CA de Supabase sobra pero no molesta.
+  todos y por qué es aceptable) y `Procfile` borrado. `lib/db.ts` y `lib/supabase-ca.ts` siguen: la CA de Supabase sobra pero no molesta. (Después se borró `lib/supabase-ca.ts`: con la base en localhost no se usaba.)
 
 Pendiente (no se puede cerrar hoy):
 - **Ventana de estabilización:** 1–2 semanas desde el 2026-10-04 (hasta ~el 18/10), con el chequeo de «Durante» cada pocos días.

@@ -41,6 +41,7 @@ export async function saveConfig(formData: FormData) {
 
   const escrituras = []
   const delCron: string[] = []
+  const invalidos: string[] = []
   for (const [key, value] of valores) {
     const actual = actuales.get(key)
     // Solo claves que el código conoce o que ya existen: un POST armado a mano no
@@ -49,6 +50,13 @@ export async function saveConfig(formData: FormData) {
 
     const normalized = normalizeDecimalComma(value.trim())
     if (normalized === (actual?.value ?? '')) continue
+
+    // Un número fuera de rango no se guarda (vacío sí: es "usar el default").
+    const rango = FIELD_META[key]?.rango
+    if (rango && normalized !== '') {
+      const n = Number(normalized)
+      if (!Number.isFinite(n) || n < rango[0] || n > rango[1]) { invalidos.push(key); continue }
+    }
 
     // El cron escribió esta tasa DESPUÉS de que se abrió el formulario: lo que trae el
     // campo es el valor viejo, y guardarlo desharía la actualización. Se respeta la del
@@ -66,6 +74,10 @@ export async function saveConfig(formData: FormData) {
       }),
     )
   }
+
+  // Con algún valor fuera de rango no se guarda nada: guardar el resto a medias dejaría la pantalla
+  // diciendo "guardado" con un número que no entró.
+  if (invalidos.length > 0) redirect(`/config?${new URLSearchParams({ invalido: invalidos.join(',') })}`)
 
   if (escrituras.length > 0) await db.$transaction(escrituras)
 

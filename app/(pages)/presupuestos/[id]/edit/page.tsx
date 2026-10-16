@@ -7,7 +7,7 @@ import { updatePresupuesto } from '../../actions'
 import { type BundlePiece } from '@/lib/bundle'
 import { cabeceraDeLinea, nombreEnsamble } from '@/lib/linea-pedido'
 import { posicionesParaArmador } from '@/lib/inventario'
-import { permisoDeLinea } from '@/lib/pedido-edicion'
+import { permisoDeLinea, permisoSinCliente } from '@/lib/pedido-edicion'
 
 export default async function EditPresupuestoPage({ params }: { params: Promise<{ id: string }> }) {
   const id = parseInt((await params).id)
@@ -73,13 +73,12 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
       noDisponibles: confirmado ? item.incidencias.flatMap(i => (i.pieza ? [i.pieza] : [])) : undefined,
       lineaNoDisponible: confirmado && item.incidencias.some(i => !i.pieza),
       // En un pedido confirmado, lo que esta línea admite según esté sin comprar, comprada o entregada.
-      restriccion: confirmado
-        ? permisoDeLinea({
-            shippingStatus: item.shippingStatus,
-            costRealUsd: item.costRealUsd != null ? Number(item.costRealUsd) : null,
-            quantity: item.quantity,
-          })
-        : undefined,
+      // En un propio o un presupuesto, lo ya comprado queda fijo salvo el precio (permisoSinCliente).
+      restriccion: (confirmado ? permisoDeLinea : permisoSinCliente)({
+        shippingStatus: item.shippingStatus,
+        costRealUsd: item.costRealUsd != null ? Number(item.costRealUsd) : null,
+        quantity: item.quantity,
+      }),
     }
   })
 

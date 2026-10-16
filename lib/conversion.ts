@@ -11,17 +11,25 @@
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 
-// Cuánto vale en el libro un bolívar que está en el banco: el promedio ponderado de lo que
-// entró (dólares reales ÷ Bs), no de lo que queda — no se sabe qué bolívares se fueron
-// primero, y un promedio de lo cobrado es lo más cercano que da el dato sin llevar lotes.
-// Null = todavía no hay ningún cobro en Bs con su monto anotado.
-export function usdPorBsPromedio(ingresos: { usd: number; bs: number }[]): number | null {
+// Cuánto vale en el libro un bolívar que está en el banco: el COSTO PROMEDIO MÓVIL de lo que
+// queda (dólares en la cuenta ÷ Bs en la cuenta), con signo: lo que entra suma, lo que sale
+// resta. No hace falta saber qué bolívares se fueron primero: una conversión saca Bs a este
+// mismo valor, así que el promedio de lo que queda no se mueve por ella.
+//
+// Antes era el promedio de TODO lo cobrado en la historia. Con el bolívar devaluándose cada mes,
+// los Bs de enero (ya convertidos) seguían pesando en octubre: 40.000 Bs = $1000 en enero y
+// 200.000 Bs = $1000 en octubre daban un valor de $1667 a los 200.000 de hoy, y convertirlos
+// por 990 USDT anotaba $677 de "costo" en vez de $10.
+//
+// Solo cuentan las filas con Bs anotados (las de antes de guardarlos no dicen cuántos fueron).
+// Null = no queda nada en la cuenta según lo anotado: no hay de dónde sacar un valor.
+export function usdPorBsEnCuenta(movs: { usd: number; bs: number }[]): number | null {
   let usd = 0
   let bs = 0
-  for (const i of ingresos) {
-    if (i.bs > 0) { usd += i.usd; bs += i.bs }
+  for (const m of movs) {
+    if (m.bs !== 0) { usd += m.usd; bs += m.bs }
   }
-  return bs > 0 ? usd / bs : null
+  return bs > 0.005 && usd > 0.005 ? usd / bs : null
 }
 
 export interface Conversion {

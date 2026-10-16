@@ -12,9 +12,9 @@ const DEFAULT_KEYS = Object.keys(FIELD_META)
 export default async function ConfigPage({
   searchParams,
 }: {
-  searchParams: Promise<{ saved?: string; cron?: string }>
+  searchParams: Promise<{ saved?: string; cron?: string; invalido?: string }>
 }) {
-  const { saved, cron } = await searchParams
+  const { saved, cron, invalido } = await searchParams
   const rows = await db.config.findMany({ orderBy: { key: 'asc' } })
 
   // Merge DB values with defaults so all known keys always appear
@@ -67,6 +67,15 @@ export default async function ConfigPage({
       {saved === '0' && (
         <div className="mb-6 bg-gray-50 border border-gray-200 text-gray-700 rounded-lg px-4 py-3 text-sm font-medium">
           No había nada que guardar: ningún valor cambió.
+        </div>
+      )}
+      {invalido && (
+        <div role="alert" className="mb-6 bg-red-50 border border-red-200 text-red-800 rounded-lg px-4 py-3 text-sm">
+          No se guardó nada: {invalido.split(',').map(k => {
+            const m = FIELD_META[k]
+            return m?.rango ? `${m.label} (entre ${m.rango[0]} y ${m.rango[1] === Infinity ? '∞' : m.rango[1]})` : k
+          }).join(' · ')} {invalido.split(',').length === 1 ? 'está' : 'están'} fuera de rango. Los seguros van en
+          fracción (0.03 = 3%).
         </div>
       )}
       {cron && (

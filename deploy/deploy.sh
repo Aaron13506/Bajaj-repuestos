@@ -126,7 +126,19 @@ if (( pendientes > 0 )); then
   echo "==> base migrada; backup previo en $dump (se puede borrar cuando la versión nueva esté probada)"
 fi
 
-pnpm build
+# `next build` vacía .next ANTES de construir: si falla, la app que sigue corriendo se queda sin
+# sus archivos (las páginas que no había cargado dan error, y un reinicio ya no arranca). Sin
+# migraciones se vuelve a construir la versión anterior y se reinicia con ella. Con migraciones
+# no hay vuelta así (la base ya es la nueva): la app queda parada y el trap lo dice.
+if ! pnpm build; then
+  (( parada )) && die "El build de $nuevo falló con la base ya migrada. Backup previo: $dump. Corregí y repetí el deploy."
+  echo "✗ El build de $nuevo falló. Vuelvo a $anterior y lo reconstruyo (el .next anterior ya se borró)." >&2
+  git reset --hard "$anterior_full"
+  NODE_ENV=development pnpm install --frozen-lockfile
+  pnpm build || die "Tampoco se pudo reconstruir $anterior: la app puede estar rota. Revisá: journalctl -u bajaj-app -n 50"
+  sudo systemctl restart bajaj-app
+  die "El build de $nuevo falló; quedó $anterior reconstruida y reiniciada."
+fi
 
 if (( parada )); then
   sudo systemctl start bajaj-app

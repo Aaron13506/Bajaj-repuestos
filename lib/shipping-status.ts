@@ -109,12 +109,6 @@ export function nextStatus(status: string, ruta: Ruta = 'shoppre'): ShippingStat
   const i = statusIndex(normalizeToRoute(status, ruta))
   return allowed.find(s => statusIndex(s) > i) ?? null
 }
-export function prevStatus(status: string, ruta: Ruta = 'shoppre'): ShippingStatus | null {
-  const allowed = ROUTE_STATUSES[ruta]
-  const i = statusIndex(normalizeToRoute(status, ruta))
-  const anteriores = allowed.filter(s => statusIndex(s) < i)
-  return anteriores.length ? anteriores[anteriores.length - 1] : null
-}
 
 export function isBought(status: string) {
   return shippingStatusMeta(status).bought

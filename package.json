@@ -27,6 +27,7 @@
     "measures:audit": "tsx scripts/audit-measures.ts",
     "check:costeo": "tsx scripts/check-costeo.ts",
     "check:libro": "tsx scripts/check-libro.ts",
+    "check:etapas": "tsx scripts/check-etapas-sql.ts",
     "rates:baseline": "tsx scripts/update-shipping-rates.ts --baseline",
     "q": "tsx scripts/q.ts",
     "deploy:prod": "bash deploy/desplegar.sh"

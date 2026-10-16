@@ -23,7 +23,7 @@ export async function registrarEvento(tx: Tx, pedidoId: number, tipo: string, de
 const LINEA_LOGISTICA = {
   id: true, productId: true, ensambleId: true, quantity: true, salePrice: true, bundleItems: true,
   envioId: true, shippingStatus: true, shippingStatusAt: true, supplierId: true, origen: true,
-  inbound: true, isLanded: true, costRealUsd: true, compradoAt: true,
+  inbound: true, isLanded: true, costRealUsd: true, compradoAt: true, compraId: true,
 } as const
 
 export type LineaMovible = Prisma.PedidoItemGetPayload<{ select: typeof LINEA_LOGISTICA }>
@@ -83,7 +83,7 @@ export async function pasarAStockPropio(
     const clave = claveLinea(linea)
     const ya = (await tx.pedidoItem.findMany({
       where: { pedidoId },
-      select: { id: true, productId: true, ensambleId: true, quantity: true, envioId: true, shippingStatus: true, costRealUsd: true },
+      select: { id: true, productId: true, ensambleId: true, quantity: true, envioId: true, shippingStatus: true, costRealUsd: true, compraId: true },
     })).find(i => claveLinea(i) === clave)
 
     if (ya) {
@@ -95,7 +95,8 @@ export async function pasarAStockPropio(
       const costoJunto = sobranteUsd == null && ya.costRealUsd == null ? null : (sobranteUsd ?? 0) + (dec(ya.costRealUsd) ?? 0)
       await tx.pedidoItem.update({
         where: { id: ya.id },
-        data: { quantity: ya.quantity + unidades, costRealUsd: costoJunto },
+        // Dos compras distintas juntas en una línea ya no se pueden deshacer por separado.
+        data: { quantity: ya.quantity + unidades, costRealUsd: costoJunto, compraId: ya.compraId === linea.compraId ? ya.compraId : null },
       })
       if (entera) await tx.pedidoItem.delete({ where: { id: linea.id } })
       else await tx.pedidoItem.update({ where: { id: linea.id }, data: { quantity: linea.quantity - unidades, costRealUsd: quedaUsd } })
@@ -125,6 +126,7 @@ export async function pasarAStockPropio(
         isLanded: linea.isLanded,
         costRealUsd: sobranteUsd,
         compradoAt: linea.compradoAt,
+        compraId: linea.compraId,
       },
     })
     await tx.pedidoItem.update({ where: { id: linea.id }, data: { quantity: linea.quantity - unidades, costRealUsd: quedaUsd } })

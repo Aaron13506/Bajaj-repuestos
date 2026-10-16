@@ -169,7 +169,13 @@ async function main() {
     // descubrir dentro de tres meses que vendiste a un precio inventado.
     if (p.priceInr != null && p.priceInr > 0) {
       const delta = Math.abs((af.priceInr - p.priceInr) / p.priceInr) * 100
-      if (delta > maxDelta) { sospechosos.push(c); continue }
+      if (delta > maxDelta) {
+        sospechosos.push(c)
+        // El precio se aparta para revisarlo, la marca no: que Bajaj la dejó de fabricar no
+        // depende de cuánto cueste, y sin marcarla se seguiría presupuestando.
+        if (marcarNls) soloNls.push({ id: p.id, code, nameEs: p.nameEs })
+        continue
+      }
     }
 
     if (!noReprice) {

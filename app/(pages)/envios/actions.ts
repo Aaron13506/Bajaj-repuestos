@@ -2,7 +2,6 @@
 
 import { cuentaDeMetodo } from '@/lib/cuentas'
 import { db } from '@/lib/db'
-import { Prisma } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { isDelivered, isPending, isValidStatus, normalizeToRoute, routeFor } from '@/lib/shipping-status'
@@ -14,6 +13,7 @@ import { fallo, ok, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from 
 import { isForeignKeyViolation } from '@/lib/prisma-errors'
 import { CATEGORIAS_EGRESO } from '@/lib/movimientos'
 import { listarFaltantes, piezasDeLinea } from '@/lib/stock-piezas'
+import { moverEtapas, type FilaEtapa, type PiezaEtapa } from '@/lib/mover-etapas'
 import { resolverDePiezas } from '@/lib/inventario'
 import type { BundlePiece } from '@/lib/bundle'
 import {
@@ -168,22 +168,6 @@ export async function assignItems(envioId: number, itemIds: number[]): Promise<A
   return r
 }
 
-// Saca líneas sueltas de la caja. El contrapeso de `assignItems`: si el reparto entre dos
-// envíos salió mal, se corrige la línea que sobra y no el presupuesto entero.
-//
-// Acotado a `envioId` para que no pueda liberar lo que viaja en otra caja.
-export async function removeItems(envioId: number, itemIds: number[]) {
-  const ids = itemIds.filter(Number.isInteger)
-  if (ids.length === 0) return
-  await db.pedidoItem.updateMany({
-    where: { id: { in: ids }, envioId },
-    data: { envioId: null },
-  })
-  revalidatePath(`/envios/${envioId}`)
-  revalidatePath('/envios')
-  revalidatePath('/presupuestos')
-}
-
 // Mete líneas en una caja y les copia el proveedor de ESA caja.
 //
 // La caja es la compra: se le compró a alguien, y todo lo que va adentro se le compró a
@@ -210,7 +194,7 @@ async function asignarAEnvio(envioId: number, itemIds: number[]): Promise<Action
     }),
     db.pedidoItem.findMany({
       where: { id: { in: itemIds } },
-      select: { id: true, productId: true, shippingStatus: true, pedido: { select: { tipo: true, status: true } } },
+      select: { id: true, productId: true, shippingStatus: true, costRealUsd: true, pedido: { select: { tipo: true, status: true } } },
     }),
   ])
 
@@ -227,6 +211,12 @@ async function asignarAEnvio(envioId: number, itemIds: number[]): Promise<Action
   }
   if (envio.estado === 'entregado') {
     return fallo('Esa caja ya se entregó: no se le pueden agregar pedidos.')
+  }
+  // Lo que ya se pagó se le compró a alguien que no es esta caja: entrar acá le cambiaría el
+  // proveedor y la ruta, y su pago (sin caja) nunca saldaría la deuda que sumaría aquí. Una caja
+  // de 99rpm no lleva cuenta con el proveedor, así que esa sí la recibe.
+  if (envio.supplier && items.some(i => i.costRealUsd != null)) {
+    return fallo('Hay piezas que ya se compraron fuera de esta caja: no pueden pasar a una caja con proveedor.')
   }
 
   const sup = envio.supplier
@@ -264,11 +254,22 @@ async function asignarAEnvio(envioId: number, itemIds: number[]): Promise<Action
   return ok()
 }
 
-export async function removePedido(envioId: number, pedidoId: number) {
-  await db.pedidoItem.updateMany({ where: { pedidoId, envioId }, data: { envioId: null } })
+// Saca de la caja SOLO lo que nunca se compró (estadoLinea 'libre'). Una línea comprada ya tiene
+// su pago contado en esta caja y su etapa en el camino: liberarla dejaba la caja "sobrepagada",
+// la pieza fuera del inventario en camino y lista para entrar a otra caja con otro proveedor.
+// Devuelve cuántas quedaron adentro para que la pantalla lo diga.
+export async function removePedido(envioId: number, pedidoId: number): Promise<ActionResult> {
+  await db.pedidoItem.updateMany({
+    where: { pedidoId, envioId, costRealUsd: null, shippingStatus: 'pendiente' },
+    data: { envioId: null },
+  })
+  const quedan = await db.pedidoItem.count({ where: { pedidoId, envioId } })
   revalidatePath(`/envios/${envioId}`)
   revalidatePath('/envios')
   revalidatePath('/presupuestos')
+  return quedan > 0
+    ? fallo(`${quedan} línea${quedan === 1 ? '' : 's'} de ese pedido ya se compró o está en camino: se queda${quedan === 1 ? '' : 'n'} en la caja. Lo demás salió.`)
+    : ok()
 }
 
 // Asigna de un tirón los ítems sin envío de todos los pedidos CONFIRMADOS
@@ -598,7 +599,7 @@ export async function saveItemChanges(
   // stock. El signo sigue la TRANSICIÓN de "entregado" (no un flag aparte guardado en otro
   // lado), así que ida y vuelta del estado nunca duplica ni pierde el crédito: si el ítem ya
   // estaba entregado antes de este cambio, ya se sumó, y si deja de estarlo hay que restarlo.
-  const filas: { id: number; desde: string; hacia: string; signo: number }[] = []
+  const filas: FilaEtapa[] = []
   const conStock: (typeof items)[number][] = []
   const conSaldo = new Map<number, { pedidoId: number; clientName: string; saldoUsd: number }>()
   for (const it of items) {
@@ -651,7 +652,7 @@ export async function saveItemChanges(
   // nada: sumar el conjunto a medias dejaría el stock mal sin que nadie lo note.
   const lineas = conStock.map(it => ({ ...it, bundleItems: it.bundleItems as BundlePiece[] | null }))
   const resolver = await resolverDePiezas(lineas)
-  const piezas: { itemId: number; productId: number; unidades: number }[] = []
+  const piezas: PiezaEtapa[] = []
   const faltan: BundlePiece[] = []
   for (const l of lineas) {
     const r = piezasDeLinea(l, resolver)
@@ -665,69 +666,8 @@ export async function saveItemChanges(
     )
   }
 
-  // UNA sentencia: el cambio de estado y el ajuste de stock salen de las mismas filas (las
-  // que de verdad se movieron, RETURNING), así que no puede haber una sin la otra ni un stock
-  // sumado por una fila que otra request ya movió. La fecha de compra se sella la primera vez
-  // que el ítem deja de estar pendiente, y se borra si vuelve a pendiente. La hora se toma en
-  // la base, en UTC (así guarda Prisma los DateTime).
-  const valores = Prisma.join(
-    filas.map(f => Prisma.sql`(${f.id}::int, ${f.desde}::text, ${f.hacia}::text, ${f.signo}::int)`),
-  )
-  const mover = Prisma.sql`
-    UPDATE "PedidoItem" AS pi
-    SET "shippingStatus" = v.hacia,
-        "shippingStatusAt" = (NOW() AT TIME ZONE 'UTC'),
-        "compradoAt" = CASE
-          WHEN v.hacia = 'pendiente' THEN NULL
-          WHEN v.desde = 'pendiente' THEN (NOW() AT TIME ZONE 'UTC')
-          ELSE pi."compradoAt"
-        END
-    FROM v
-    WHERE pi."id" = v.id AND pi."envioId" = ${envioId} AND pi."shippingStatus" = v.desde
-    RETURNING pi."id", v.signo, v.desde, v.hacia`
-  // Cada fila que de verdad se movió deja su paso en el historial (misma sentencia: no hay un
-  // cambio de etapa sin su registro ni un registro de uno que otra request ya hizo).
-  const etapa = Prisma.sql`
-    INSERT INTO "PedidoItemEtapa" ("itemId", "desde", "hacia", "at")
-    SELECT m."id", m.desde, m.hacia, (NOW() AT TIME ZONE 'UTC') FROM movidas m`
-
-  if (piezas.length === 0) {
-    await db.$executeRaw`WITH v(id, desde, hacia, signo) AS (VALUES ${valores}), movidas AS (${mover}) ${etapa}`
-  } else {
-    const valoresPiezas = Prisma.join(
-      piezas.map(p => Prisma.sql`(${p.itemId}::int, ${p.productId}::int, ${p.unidades}::int)`),
-    )
-    const r = await conErrorDeNegocio(() => db.$transaction(async tx => {
-      await tx.$executeRaw`
-        WITH v(id, desde, hacia, signo) AS (VALUES ${valores}),
-        piezas(item_id, product_id, unidades) AS (VALUES ${valoresPiezas}),
-        movidas AS (${mover}),
-        etapas AS (${etapa})
-        UPDATE "Product" AS p
-        SET "stock" = p."stock" + s.delta, "updatedAt" = NOW()
-        FROM (
-          SELECT pz.product_id, SUM(m.signo * pz.unidades)::int AS delta
-          FROM movidas m JOIN piezas pz ON pz.item_id = m."id"
-          WHERE m.signo <> 0
-          GROUP BY pz.product_id
-        ) AS s
-        WHERE p."id" = s.product_id`
-      // Sacar de 'entregado' resta del depósito: si eso ya se vendió, el stock quedaría en
-      // negativo, o sea, afirmaría que se vendió lo que no existía. Se revierte todo.
-      const negativos = await tx.product.findMany({
-        where: { id: { in: [...new Set(piezas.map(p => p.productId))] }, stock: { lt: 0 } },
-        select: { nameEs: true, bajajCode: true },
-        take: 3,
-      })
-      if (negativos.length > 0) {
-        throw new ErrorDeNegocio(
-          `No se puede sacar de entregado: ya no hay en stock lo que esta línea sumó ` +
-          `(${negativos.map(n => n.bajajCode ?? n.nameEs).join(', ')}). Se vendió o se ajustó a mano; corregí ese stock primero.`,
-        )
-      }
-    }, { maxWait: 10_000, timeout: 20_000 }))
-    if (!r.ok) return r
-  }
+  const r = await conErrorDeNegocio(() => moverEtapas(envioId, filas, piezas))
+  if (!r.ok) return r
 
   if (conSaldo.size > 0) {
     await db.pedidoEvento.createMany({
@@ -757,7 +697,15 @@ export async function saveItemChanges(
 export async function deleteEnvio(id: number): Promise<ActionResult> {
   const envio = await db.envio.findUnique({
     where: { id },
-    select: { estado: true, _count: { select: { movimientos: true } } },
+    select: {
+      estado: true,
+      _count: {
+        select: {
+          movimientos: true,
+          items: { where: { OR: [{ costRealUsd: { not: null } }, { shippingStatus: { not: 'pendiente' } }] } },
+        },
+      },
+    },
   })
   // Ya no existe (otra pestaña, un reintento): lo que se quería ya está logrado.
   if (!envio) redirect('/envios')
@@ -769,6 +717,10 @@ export async function deleteEnvio(id: number): Promise<ActionResult> {
   // la deuda con el proveedor saldría de "cuentas por pagar" sin que nadie la haya saldado.
   if (envio._count.movimientos > 0) {
     return fallo(`Tiene ${envio._count.movimientos} movimiento${envio._count.movimientos === 1 ? '' : 's'} de caja registrado${envio._count.movimientos === 1 ? '' : 's'}: borrarla los dejaría sin caja.`)
+  }
+  // Lo comprado o en camino viaja en ESTA caja: borrarla lo soltaría a medio camino (ver removePedido).
+  if (envio._count.items > 0) {
+    return fallo(`Tiene ${envio._count.items} línea${envio._count.items === 1 ? '' : 's'} ya comprada${envio._count.items === 1 ? '' : 's'} o en camino: no se puede borrar.`)
   }
 
   // Los ítems quedan liberados (envioId -> null) por onDelete: SetNull.

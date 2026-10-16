@@ -1,14 +1,16 @@
+// Lo que trajo cada fuente. Una que falla queda en undefined con su motivo en `errores`: las
+// fuentes son independientes, y que se caiga una no puede congelar las otras.
 export interface FxRates {
-  inrUsd: number
-  bsdUsd: number
-  bcvUsd: number
-  brechaPct: number
+  inrUsd?: number
+  bsdUsd?: number
+  bcv?: { bcvUsd: number; brechaPct: number }
+  errores: string[]
 }
 
 // `fetch` no tiene timeout propio: si el otro lado acepta la conexión y después se queda
-// callado, la promesa no resuelve nunca. Esto lo corre el cron horario de Heroku, así que
-// sin corte el dyno se queda colgado esperando a una API de terceros hasta que Heroku lo
-// mata — y encima sin dejar dicho cuál de las dos fue.
+// callado, la promesa no resuelve nunca. Esto lo corre el timer horario del servidor, así que
+// sin corte la corrida se queda colgada esperando a una API de terceros — y sin dejar dicho
+// cuál fue.
 const TIMEOUT_MS = 15_000
 
 // INR por 1 USD — frankfurter.app (tasas BCE, gratis, sin API key).
@@ -73,6 +75,12 @@ async function fetchBcvGap(): Promise<{ bcvUsd: number; brechaPct: number }> {
 }
 
 export async function fetchFxRates(): Promise<FxRates> {
-  const [inrUsd, bsdUsd, bcv] = await Promise.all([fetchInrUsd(), fetchBsdUsd(), fetchBcvGap()])
-  return { inrUsd, bsdUsd, bcvUsd: bcv.bcvUsd, brechaPct: bcv.brechaPct }
+  const [inr, bsd, bcv] = await Promise.allSettled([fetchInrUsd(), fetchBsdUsd(), fetchBcvGap()])
+  const errores = [inr, bsd, bcv].flatMap(r => (r.status === 'rejected' ? [String((r.reason as Error)?.message ?? r.reason)] : []))
+  return {
+    inrUsd: inr.status === 'fulfilled' ? inr.value : undefined,
+    bsdUsd: bsd.status === 'fulfilled' ? bsd.value : undefined,
+    bcv: bcv.status === 'fulfilled' ? bcv.value : undefined,
+    errores,
+  }
 }

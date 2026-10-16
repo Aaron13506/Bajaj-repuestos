@@ -27,9 +27,12 @@ export const SCRAPE_OPTIONS = { from: 0.5, to: 22, step: 0.1 }
 // documentada: se scrapea cada 3 días y el resto de las corridas no tocan Shoppre.
 const MAX_AGE_HOURS = Number(process.env.SHOPPRE_RATES_MAX_AGE_H ?? 72)
 
-function ageHours(table: RateTable | null): number {
-  if (!table?.generated_at) return Infinity
-  const ms = Date.now() - new Date(table.generated_at).getTime()
+// Hace cuánto se REVISÓ la tabla: `updatedAt` de la fila, que se toca en cada scrape aunque no
+// haya cambios. No `generated_at`, que solo se mueve cuando cambian los precios: con él, tres
+// días sin cambios de tarifa volvían a la tabla "vieja" para siempre y se scrapeaba cada hora.
+function ageHours(revisadaAt: Date | undefined): number {
+  if (!revisadaAt) return Infinity
+  const ms = Date.now() - revisadaAt.getTime()
   return Number.isFinite(ms) ? ms / 3_600_000 : Infinity
 }
 
@@ -94,7 +97,7 @@ export interface UpdateResult {
 export async function updateShippingRates(db: PrismaClient, opts: { force?: boolean } = {}): Promise<UpdateResult> {
   const row = await db.config.findUnique({ where: { key: CONFIG_KEY } })
   const stored = readStored(row?.value)
-  const age = ageHours(stored)
+  const age = stored ? ageHours(row?.updatedAt) : Infinity
 
   if (!opts.force && age < MAX_AGE_HOURS) {
     return { skipped: true, reason: `tabla de hace ${age.toFixed(1)} h (< ${MAX_AGE_HOURS} h)` }
@@ -105,9 +108,12 @@ export async function updateShippingRates(db: PrismaClient, opts: { force?: bool
   const diff = diffTables(stored, table)
   console.log(summarize(diff))
 
-  // Sin cambios no se reescribe la fila: así generated_at sigue marcando cuándo
-  // cambiaron los precios de verdad, no cuándo corrió el cron por última vez.
-  if (diff.total === 0 && stored) return { skipped: true, reason: 'sin cambios', steps, changed: 0 }
+  // Sin cambios no se reescribe la tabla (generated_at sigue marcando cuándo cambiaron los precios
+  // de verdad), pero sí se anota que se revisó: es lo que frena el próximo scrape (ver ageHours).
+  if (diff.total === 0 && stored) {
+    await db.config.update({ where: { key: CONFIG_KEY }, data: { updatedAt: new Date() } })
+    return { skipped: true, reason: 'sin cambios', steps, changed: 0 }
+  }
 
   const value = JSON.stringify(table)
   await db.config.upsert({

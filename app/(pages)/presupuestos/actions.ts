@@ -19,7 +19,7 @@ import { escalonBcvVigente } from '@/lib/calc'
 import { toConfigMap } from '@/lib/config'
 import { bloquearDescontinuadas } from '@/lib/descontinuadas'
 import { estadoValidez, escalonDelPresupuesto, motivoNoAprobable, validezDias } from '@/lib/validez'
-import { describirOps, planEdicion, estadoLinea, type LineaActual, type LineaNueva } from '@/lib/pedido-edicion'
+import { describirOps, planEdicion, estadoLinea, motivoEdicionSinCliente, type LineaActual, type LineaNueva } from '@/lib/pedido-edicion'
 import { pasarAStockPropio, registrarEvento, SELECT_LINEA_MOVIBLE } from '@/lib/pedido-derivado'
 import { cerradosPorEdicion } from '@/lib/incidencias'
 import { notaCobroBcv, realDeCobro, resumenCobro } from '@/lib/cobro-bcv'
@@ -231,7 +231,12 @@ async function editarPresupuesto(id: number, formData: FormData) {
     where: { id },
     select: {
       tipo: true, status: true,
-      items: { select: { productId: true, ensambleId: true, quantity: true, shippingStatus: true, bundleItems: true } },
+      items: {
+        select: {
+          productId: true, ensambleId: true, quantity: true, shippingStatus: true, bundleItems: true, costRealUsd: true,
+          salePrice: true, product: { select: { nameEs: true } }, ensamble: { select: { nameEs: true, nameEn: true } },
+        },
+      },
     },
   })
   if (!existing) throw new ErrorDeNegocio(`El presupuesto #${id} ya no existe.`)
@@ -252,6 +257,19 @@ async function editarPresupuesto(id: number, formData: FormData) {
   const items = parseItems(formData)
   if (items.length === 0) throw new ErrorDeNegocio('Agregá al menos una pieza.')
   await bloquearDescontinuadas(items)
+
+  // Lo ya comprado no se quita ni cambia de cantidad (ver permisoSinCliente): borrarlo borraba su
+  // costo pagado y la caja quedaba "sobrepagada".
+  const comprada = motivoEdicionSinCliente(
+    existing.items.map((it, k) => ({
+      id: k, productId: it.productId, ensambleId: it.ensambleId, quantity: it.quantity,
+      salePrice: Number(it.salePrice), bundleItems: it.bundleItems, shippingStatus: it.shippingStatus,
+      costRealUsd: it.costRealUsd != null ? Number(it.costRealUsd) : null,
+      nombre: it.product?.nameEs ?? (it.ensamble ? nombreEnsamble(it.ensamble) : 'una línea'),
+    })),
+    items.map(i => ({ ...i, bundleItems: i.bundleItems ?? null })),
+  )
+  if (comprada) throw new ErrorDeNegocio(comprada)
 
   let clientName: string
   let clienteId: number | null = null

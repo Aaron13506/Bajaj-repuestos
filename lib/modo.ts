@@ -1,5 +1,3 @@
-import type { ModoEnvio } from './calc'
-
 // ─────────────────────────────────────────────────────────────────────────────
 // RUTA DE UN EMBARQUE
 //
@@ -41,16 +39,6 @@ export const MODOS: { value: ModoApp; label: string; short: string; icon: string
 
 export function isModoApp(v: string | null | undefined): v is ModoApp {
   return v === 'aereo' || v === 'maritimo_cbm'
-}
-
-export function modoMeta(modo: ModoApp) {
-  return MODOS.find(m => m.value === modo)!
-}
-
-// Toda ruta de embarque es un modo de cálculo válido; este alias existe para que los
-// llamadores no tengan que castear entre los dos tipos.
-export function modoToEnvio(modo: ModoApp): ModoEnvio {
-  return modo
 }
 
 // Ruta con la que se costeó un envío. Cada Envio la congela al crearse. Las filas

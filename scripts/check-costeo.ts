@@ -33,11 +33,11 @@ import { compatibleModelsFrom } from '../lib/modelo'
 import { realDeCobro, resumenCobro } from '../lib/cobro-bcv'
 import { construirResolver, piezasDeLinea } from '../lib/stock-piezas'
 import { cuentaDeMetodo, datosBs, leerCobroBs } from '../lib/cuentas'
-import { convertir, usdPorBsPromedio } from '../lib/conversion'
+import { convertir, usdPorBsEnCuenta } from '../lib/conversion'
 import { costoDeLinea, motivoNoVendible, resumenVenta } from '../lib/venta-stock'
 import { margenDePedido, mesDe, resultadoPorMes, type LineaMargen, type MargenPedido } from '../lib/margen'
 import { estadoValidez, escalonDelPresupuesto, motivoNoAprobable, validezDias } from '../lib/validez'
-import { describirOps, estadoLinea, planEdicion, repartirSobrante, type LineaActual, type LineaNueva } from '../lib/pedido-edicion'
+import { describirOps, estadoLinea, motivoEdicionSinCliente, planEdicion, repartirSobrante, type LineaActual, type LineaNueva } from '../lib/pedido-edicion'
 import { devolucionSugerida, motivoDevolucionInvalida, motivoNoCancelable, resumenCancelacion } from '../lib/pedido-cancelacion'
 import {
   bloqueaCompra, bloqueaEntrega, cerradosPorEdicion, dentroDePlazo, etiquetaPieza, motivoResolucionInvalida, origenPara, perdidaSugerida, planReembolso,
@@ -621,9 +621,19 @@ console.log('\nCUENTAS Y CONVERSIÓN Bs → USDT')
 
   // Dos cobros: $40 = Bs 4000 y $60 = Bs 7200 → 100 / 11200 USD por Bs. Uno sin Bs anotados
   // (de antes de que se guardaran) no mueve el promedio.
-  const prom = usdPorBsPromedio([{ usd: 40, bs: 4000 }, { usd: 60, bs: 7200 }, { usd: 500, bs: 0 }])
-  check('promedio ponderado de lo cobrado en Bs', Math.round((prom ?? 0) * 1e6) / 1e6, Math.round((100 / 11200) * 1e6) / 1e6)
-  check('sin cobros en Bs anotados no hay promedio', si(usdPorBsPromedio([{ usd: 500, bs: 0 }]) === null), 1)
+  const prom = usdPorBsEnCuenta([{ usd: 40, bs: 4000 }, { usd: 60, bs: 7200 }, { usd: 500, bs: 0 }])
+  check('promedio ponderado de lo que hay en Bs', Math.round((prom ?? 0) * 1e6) / 1e6, Math.round((100 / 11200) * 1e6) / 1e6)
+  check('sin Bs anotados no hay promedio', si(usdPorBsEnCuenta([{ usd: 500, bs: 0 }]) === null), 1)
+
+  // Con devaluación: enero 40.000 Bs = $1000, convertidos en febrero (salen a su valor en libro);
+  // octubre 200.000 Bs = $1000. Lo que queda vale $1000, no el promedio de toda la historia ($1667).
+  const enero = { usd: 1000, bs: 40000 }
+  const salidaFeb = { usd: -40000 * (usdPorBsEnCuenta([enero]) ?? 0), bs: -40000 }
+  const oct = { usd: 1000, bs: 200000 }
+  const valorOct = usdPorBsEnCuenta([enero, salidaFeb, oct]) ?? 0
+  check('devaluación: los Bs de hoy valen lo que entraron hoy', convertir(200000, 990, valorOct).valorLibroUsd, 1000)
+  check('devaluación: convertir cuesta lo que costó, no lo que se devaluó antes', convertir(200000, 990, valorOct).costoUsd, 10)
+  check('cuenta vacía según lo anotado: sin promedio', si(usdPorBsEnCuenta([enero, salidaFeb]) === null), 1)
 
   // Doy Bs 11200, que el libro valora en $100, y recibo 92 USDT: costó $8 (8%).
   const c = convertir(11200, 92, 100 / 11200)
@@ -882,6 +892,14 @@ console.log('\nEDITAR UN PEDIDO CONFIRMADO')
   check('sobrante: nunca se pierde ni sobra un centavo', desvio, 0, 1e-9)
   check('sobrante: sin costo cargado no se inventa', si(repartirSobrante(null, 3, 1).sobranteUsd === null), 1)
   check('el historial dice qué pasó', si(describirOps(planEdicion([comprada], [nue(2, 3)]).ops)[0]?.includes('stock propio') ?? false), 1)
+
+  // Stock propio / presupuesto: lo comprado no tiene adónde ir, así que queda fijo salvo el precio.
+  check('sin cliente: quitar una comprada se rechaza', si(motivoEdicionSinCliente([comprada], []) != null), 1)
+  check('sin cliente: bajarle unidades se rechaza', si(motivoEdicionSinCliente([comprada], [nue(2, 3)]) != null), 1)
+  check('sin cliente: cambiarle el precio vale', si(motivoEdicionSinCliente([comprada], [nue(2, 5, 25)]) == null), 1)
+  check('sin cliente: lo libre y lo entregado se editan', si(motivoEdicionSinCliente(
+    [act({ id: 1, productId: 1 }), entregada], [nue(1, 2)],
+  ) == null), 1)
 }
 
 console.log('\nCANCELAR UN PEDIDO')

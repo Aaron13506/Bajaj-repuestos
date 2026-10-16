@@ -50,15 +50,6 @@ export async function equivalenciasDe(codigos: string[]): Promise<Map<string, st
 }
 
 /**
- * Todos los códigos equivalentes a los que se tipearon: los propios más el otro lado de
- * cada par. Devuelve también los originales, así el llamador consulta una sola vez.
- */
-export async function conAlternos(codigos: string[]): Promise<string[]> {
-  const m = await equivalenciasDe(codigos)
-  return [...new Set([...m.values()].flat())]
-}
-
-/**
  * productId → el OTRO código del par, para los productos pedidos. Es lo que se muestra
  * al lado del código propio: "el proveedor lo lista como …". Solo devuelve entrada para
  * las piezas que efectivamente tienen dos números.

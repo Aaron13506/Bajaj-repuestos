@@ -171,6 +171,34 @@ export function planEdicion(actuales: LineaActual[], nuevas: LineaNueva[]): Plan
   return { ops, error: null }
 }
 
+// Un pedido SIN cliente confirmado (stock propio, o un presupuesto metido en una caja) no tiene
+// adónde mandar lo que sobra: ya es lo mío. Así que una línea comprada queda fija salvo el
+// precio — quitarla o bajarle unidades borraba su costo pagado; subirlas pedía lo que no se
+// compró. Lo entregado de un propio sí se edita (ajusta el stock, ver updatePresupuesto).
+export function permisoSinCliente(l: Pick<LineaActual, 'shippingStatus' | 'costRealUsd' | 'quantity'>): Permiso | undefined {
+  if (estadoLinea(l) !== 'comprada') return undefined
+  return {
+    estado: 'comprada',
+    cantidadMaxima: l.quantity,
+    puedeCambiarConjunto: false,
+    puedeCambiarPrecio: true,
+    puedeQuitar: false,
+    nota: 'Ya se compró: solo se le cambia el precio. Para deshacer la compra, borrá su pago en Contabilidad.',
+  }
+}
+
+export function motivoEdicionSinCliente(actuales: LineaActual[], nuevas: LineaNueva[]): string | null {
+  const porClave = new Map(nuevas.map(n => [claveLinea(n), n]))
+  for (const a of actuales) {
+    if (!permisoSinCliente(a)) continue
+    const n = porClave.get(claveLinea(a))
+    if (!n) return `«${a.nombre}» ya se compró: no se puede quitar.`
+    if (n.quantity !== a.quantity) return `«${a.nombre}» ya se compró (${a.quantity}): no se le cambia la cantidad.`
+    if (!mismoConjunto(n.bundleItems, a.bundleItems)) return `«${a.nombre}» ya se compró: no se cambia qué piezas lleva el conjunto.`
+  }
+  return null
+}
+
 // Cómo se reparte el costo de una línea comprada cuando parte de sus unidades pasa a stock: el
 // costo viaja con las unidades (prorrateado por cantidad) y lo que queda en la línea es el resto
 // EXACTO — nunca dos redondeos que sumen un centavo de más o de menos.

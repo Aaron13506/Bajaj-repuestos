@@ -118,6 +118,11 @@ export async function eliminarMovimiento(id: number) {
     // acciones de cobro, para que dos de ellas sobre el mismo pedido no se interbloqueen.
     if (esCobro || esDevolucion) await bloquearPedido(tx, mov.pedidoId!)
 
+    // Si este egreso pagó una compra (registrarCompra), sus líneas vuelven a quedar sin costo real:
+    // es la forma de corregir un monto mal cargado — se borra y se registra de nuevo. Sin esto el
+    // costo quedaba en las líneas y ya no se podía volver a registrar la compra.
+    await tx.pedidoItem.updateMany({ where: { compraId: id }, data: { costRealUsd: null, compraId: null } })
+
     const borrados = await tx.movimiento.deleteMany({ where: { id } })
     if (borrados.count === 0) return
 
@@ -126,7 +131,9 @@ export async function eliminarMovimiento(id: number) {
   })
 
   revalidatePath('/contabilidad')
+  revalidatePath('/contabilidad/comprar')
   revalidatePath('/presupuestos')
+  revalidatePath('/resultados')
   // Un pago contra una caja (proveedor, flete) se ve en su ficha y en la lista: sin esto, borrarlo
   // desde acá dejaba la caja mostrando "pagado".
   if (envioId != null) {

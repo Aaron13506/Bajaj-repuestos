@@ -344,7 +344,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {esBorrador ? (
-            <form action={cerrarEmbarque.bind(null, envio.id)}>
+            <FormConResultado action={cerrarEmbarque.bind(null, envio.id)}>
               <PendingButton
                 disabled={lineas.length === 0}
                 pendingLabel="Cerrando…"
@@ -352,9 +352,9 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
               >
                 Cerrar embarque
               </PendingButton>
-            </form>
+            </FormConResultado>
           ) : esEntregado ? (
-            <form action={deshacerRecepcion.bind(null, envio.id)}>
+            <FormConResultado action={deshacerRecepcion.bind(null, envio.id)}>
               <PendingButton
                 title="Resta de stock lo que se sumó al marcar recibido y vuelve la caja a 'Cerrado'"
                 confirmMessage="¿Deshacer la recepción? Se resta del stock todo lo que se sumó al marcarla recibida."
@@ -363,10 +363,10 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
               >
                 Deshacer recepción
               </PendingButton>
-            </form>
+            </FormConResultado>
           ) : (
             <>
-              <form action={recibirEmbarque.bind(null, envio.id)}>
+              <FormConResultado action={recibirEmbarque.bind(null, envio.id)}>
                 <PendingButton
                   confirmMessage="¿Marcar el embarque como recibido? Se suman sus piezas al stock."
                   pendingLabel="Recibiendo…"
@@ -374,8 +374,8 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
                 >
                   Marcar recibido
                 </PendingButton>
-              </form>
-              <form action={reabrirEmbarque.bind(null, envio.id)}>
+              </FormConResultado>
+              <FormConResultado action={reabrirEmbarque.bind(null, envio.id)}>
                 <PendingButton
                   confirmMessage="¿Reabrir el embarque? Vuelve a borrador y se puede editar su contenido."
                   pendingLabel="Reabriendo…"
@@ -383,7 +383,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
                 >
                   Reabrir
                 </PendingButton>
-              </form>
+              </FormConResultado>
             </>
           )}
           {/* Una caja 'entregado' ya sumó su contenido a stock: borrarla dejaría ese stock

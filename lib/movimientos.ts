@@ -9,7 +9,7 @@ import type { BundlePiece } from '@/lib/bundle'
 import { ok, fallo, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
 import { cobraEnBolivares } from '@/lib/pagos'
 import { CUENTAS, cuentaDeMetodo, datosBs, type Cuenta, type DatosBs } from '@/lib/cuentas'
-import { convertir, usdPorBsPromedio } from '@/lib/conversion'
+import { convertir, usdPorBsEnCuenta } from '@/lib/conversion'
 import { notaCobroBcv, realDeCobro, resumenCobro } from '@/lib/cobro-bcv'
 import { repartirEnCentavos } from '@/lib/reparto-compra'
 
@@ -389,17 +389,21 @@ export async function saldosPorCuenta(rango?: RangoFechas): Promise<SaldoDeCuent
     .filter(c => c.cuenta !== null || Math.abs(c.usd) > 0.005)
 }
 
-// Lo que vale hoy un bolívar del banco según el libro (ver usdPorBsPromedio). Si todavía no
-// hay ningún cobro en Bs con sus Bs anotados, se cae a la tasa de cobro directo de Config:
-// es una estimación y la pantalla lo dice.
+// Lo que vale hoy un bolívar del banco según el libro: el costo promedio de lo que QUEDA en la
+// cuenta (ver usdPorBsEnCuenta). Si según lo anotado no queda nada, se cae a la tasa de cobro
+// directo de Config: es una estimación y la pantalla lo dice.
 export async function valorBsEnLibro(
   cfg: ConfigMap,
 ): Promise<{ usdPorBs: number; fuente: 'libro' | 'config' } | null> {
-  const ingresos = await db.movimiento.findMany({
-    where: { cuenta: 'banco_bs', tipo: 'ingreso', montoBs: { not: null } },
-    select: { monto: true, montoBs: true },
+  const filas = await db.movimiento.groupBy({
+    by: ['tipo'],
+    where: { cuenta: 'banco_bs', montoBs: { not: null } },
+    _sum: { monto: true, montoBs: true },
   })
-  const promedio = usdPorBsPromedio(ingresos.map(i => ({ usd: num(i.monto), bs: num(i.montoBs) })))
+  const promedio = usdPorBsEnCuenta(filas.map(f => {
+    const signo = f.tipo === 'ingreso' ? 1 : -1
+    return { usd: signo * num(f._sum.monto), bs: signo * num(f._sum.montoBs) }
+  }))
   if (promedio != null) return { usdPorBs: promedio, fuente: 'libro' }
   const tasa = cfgNum(cfg, 'bsd_usd_rate', 0)
   return tasa > 0 ? { usdPorBs: 1 / tasa, fuente: 'config' } : null
@@ -769,21 +773,22 @@ export function itemsSinCostoReal(): Promise<ItemPendienteCosto[]> {
 }
 
 // Lo mismo, pero acotado a UNA caja — para cargar el costo real desde /envios/[id] sin
-// tener que ir a buscar las piezas entre todo lo pendiente. Si ya está asignado a una
-// caja, el pedido ya se confirmó, así que no hace falta repetir el filtro de status.
+// tener que ir a buscar las piezas entre todo lo pendiente. El filtro de status va igual: a una
+// caja también entran presupuestos sin aprobar (ver assignPedido), y eso no se compra.
 export function itemsSinCostoRealDeEnvio(envioId: number): Promise<ItemPendienteCosto[]> {
-  return itemsConEstimado({ costRealUsd: null, envioId, ...FUERA_DE_BORRADOR })
+  return itemsConEstimado({ costRealUsd: null, envioId, pedido: { status: 'pedido' }, ...FUERA_DE_BORRADOR })
 }
 
 // Los mismos ítems que eligió el picker, para repartir el monto real que se cargó — se
 // vuelve a calcular en vez de confiar en lo que mandó el formulario, porque el estimado
 // tiene que salir siempre de la misma cuenta.
 //
-// Con `costRealUsd: null`, igual que la lista que ve el picker. Sin ese filtro la acción
-// aceptaba cualquier id: una pestaña vieja o un reenvío re-registraba como "pendiente" algo
-// que ya tenía su costo real, y lo pisaba.
+// Con `costRealUsd: null` y pedido confirmado, igual que la lista que ve el picker. Sin esos
+// filtros la acción aceptaba cualquier id: una pestaña vieja o un reenvío re-registraba como
+// "pendiente" algo que ya tenía su costo real (y lo pisaba), o le cargaba costo a un pedido que se
+// canceló mientras la lista estaba abierta.
 function estimarCostos(ids: number[]): Promise<ItemPendienteCosto[]> {
-  return itemsConEstimado({ id: { in: ids }, costRealUsd: null, ...FUERA_DE_BORRADOR })
+  return itemsConEstimado({ id: { in: ids }, costRealUsd: null, pedido: { status: 'pedido' }, ...FUERA_DE_BORRADOR })
 }
 
 export type ResultadoCompra =
@@ -794,7 +799,7 @@ export type ResultadoCompra =
 class CompraObsoleta extends Error {}
 
 const MSG_COMPRA_OBSOLETA =
-  'Algunas de esas piezas ya tienen su costo real cargado (o ya no existen), así que no se anotó nada. ' +
+  'Algunas de esas piezas ya tienen su costo real cargado (o ya no existen, o su pedido se canceló), así que no se anotó nada. ' +
   'La lista que estás viendo quedó vieja: recargá la página para ver lo que sigue pendiente.'
 
 export async function registrarCompra(formData: FormData): Promise<ResultadoCompra> {
@@ -850,19 +855,7 @@ export async function registrarCompra(formData: FormData): Promise<ResultadoComp
 
   try {
     await db.$transaction(async tx => {
-      // Los costos se escriben con UNA sentencia y condicionados a `costRealUsd IS NULL`: si
-      // dos requests compiten (doble envío, dos pestañas), la segunda espera a la primera,
-      // ya no encuentra esas filas vacías y actualiza menos de las pedidas. Ahí se aborta la
-      // transacción entera, y con ella el egreso — el pago no se anota dos veces.
-      const valores = Prisma.join(items.map((it, k) => Prisma.sql`(${it.id}::int, ${costos[k]}::numeric)`))
-      const n = await tx.$executeRaw`
-        UPDATE "PedidoItem" AS pi
-        SET "costRealUsd" = v.costo
-        FROM (VALUES ${valores}) AS v(id, costo)
-        WHERE pi."id" = v.id AND pi."costRealUsd" IS NULL`
-      if (n !== items.length) throw new CompraObsoleta()
-
-      await tx.movimiento.create({
+      const mov = await tx.movimiento.create({
         data: {
           fecha,
           tipo: 'egreso',
@@ -874,7 +867,21 @@ export async function registrarCompra(formData: FormData): Promise<ResultadoComp
           envioId: envioUnico,
           supplierId: supplierUnico,
         },
+        select: { id: true },
       })
+
+      // Los costos se escriben con UNA sentencia y condicionados a `costRealUsd IS NULL`: si
+      // dos requests compiten (doble envío, dos pestañas), la segunda espera a la primera,
+      // ya no encuentra esas filas vacías y actualiza menos de las pedidas. Ahí se aborta la
+      // transacción entera, y con ella el egreso — el pago no se anota dos veces. Cada línea
+      // guarda el egreso que la pagó: borrarlo deshace la compra (ver eliminarMovimiento).
+      const valores = Prisma.join(items.map((it, k) => Prisma.sql`(${it.id}::int, ${costos[k]}::numeric)`))
+      const n = await tx.$executeRaw`
+        UPDATE "PedidoItem" AS pi
+        SET "costRealUsd" = v.costo, "compraId" = ${mov.id}
+        FROM (VALUES ${valores}) AS v(id, costo)
+        WHERE pi."id" = v.id AND pi."costRealUsd" IS NULL`
+      if (n !== items.length) throw new CompraObsoleta()
     }, { maxWait: 10_000, timeout: 20_000 })
   } catch (e) {
     if (e instanceof CompraObsoleta) return fallo(MSG_COMPRA_OBSOLETA)

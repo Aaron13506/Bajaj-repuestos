@@ -167,45 +167,6 @@ export function resumirCbm(
 }
 
 /**
- * Precio de venta que sale de aplicar el margen sobre el landed CBM, por línea y total.
- *
- * Existe porque `PedidoItem.salePrice` es un SNAPSHOT del momento en que se cotizó: un
- * documento armado en modo aéreo lleva precios de la cadena aérea, y compararlos contra un
- * landed marítimo da un margen que no significa nada (dos modelos de costo distintos en la
- * misma resta). Todo lo que se mire en modo CBM tiene que recotizarse acá, desde cero.
- *
- * Para un pedido de CLIENTE el precio congelado sigue mandando — es un compromiso ya
- * conversado. Para stock propio no hay compromiso con nadie: el precio es una proyección y
- * se recalcula con la cadena por la que realmente va a entrar.
- */
-export function sugerirVenta(
-  resumen: CbmResumen,
-  margenPorProducto: Map<number, number | null>,
-  defaultMargin: number,
-): { totalUsd: number | null; porItem: Map<number, number | null> } {
-  const porItem = new Map<number, number | null>()
-  let totalUsd: number | null = 0
-
-  for (const p of resumen.piezas) {
-    const margen = (p.productId != null ? margenPorProducto.get(p.productId) : null) ?? defaultMargin
-    // Un margen >= 1 (o no numérico) haría explotar el precio: esa línea queda sin sugerencia
-    // y arrastra al total, para no mostrar una venta que no cubre todo lo que hay adentro.
-    const valido = Number.isFinite(margen) && margen < 1
-    const precio = valido ? p.landedUsd / (1 - margen) : null
-
-    const previo = porItem.get(p.itemId)
-    porItem.set(
-      p.itemId,
-      precio == null || previo === null ? null : (previo ?? 0) + precio,
-    )
-    if (precio == null) totalUsd = null
-    else if (totalUsd != null) totalUsd += precio
-  }
-
-  return { totalUsd, porItem }
-}
-
-/**
  * Costo REAL por m³ de un embarque de un volumen dado: el flete escala pero el FOB no,
  * así que llenar más barato sale. Es la curva que justifica esperar a consolidar.
  * Por debajo del mínimo facturable se paga igual el mínimo, y ahí el costo por m³ se

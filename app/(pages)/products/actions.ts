@@ -2,8 +2,8 @@
 
 import { db } from '@/lib/db'
 import { compatibleModelsFrom } from '@/lib/modelo'
-import { calcLanded } from '@/lib/calc'
 import { reprice } from '@/lib/reprice'
+import { chequearMedidas, type Medidas } from '@/lib/measures-check'
 import { margenPorDefecto } from '@/lib/config'
 import type { Prisma } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
@@ -15,22 +15,44 @@ import { copiarImagenAlBucket } from '@/lib/imagen-producto'
 import { motivoProductoEnUso } from '@/lib/producto-en-uso'
 import { cambioFisico, medidoAtDesde } from '@/lib/medido'
 
-// Costo landed autoritativo: se recalcula en el server desde el costo de origen
-// (₹ INR de 99rpm, o USD directo de un proveedor) + peso + dims y la config vigente,
-// así no depende del JS del cliente. Devuelve null si falta el costo o el peso
-// (precio queda manual).
-async function computeLanded(data: {
-  priceInr: number | null
-  priceUsd?: number | null
-  priceIsLanded?: boolean
-  weightGrams: number | null
-  dimL: number | null
-  dimA: number | null
-  dimH: number | null
-}): Promise<number | null> {
+// Costo, precio y margen autoritativos: salen de `reprice` (lib/reprice.ts), la misma regla que
+// la carga de medidas y la actualización de precios — no del JS del navegador, que pudo costear
+// con una tasa que el timer ya cambió. Sin candado el precio sale del costo y el margen; con
+// candado el precio es el escrito y lo que se deriva es el margen. Sin costo calculable (falta
+// el ₹ o el peso) queda lo que vino del formulario: el precio todavía es manual.
+//
+// El margen vacío se respeta como vacío (= usar el global), aunque reprice proponga el efectivo:
+// guardarlo fijaría a la pieza el default de hoy.
+async function conPrecioDelServidor<T extends {
+  priceInr: number | null; weightGrams: number | null; dimL: number | null; dimA: number | null; dimH: number | null
+  margin: number | null; price: number; priceLocked: boolean; landedCostUsd: number | null
+}>(data: T): Promise<T> {
   const cfg = await getConfig()
-  const b = calcLanded({ ...data, margin: null }, cfg)
-  return b ? Math.round(b.landedCostUsd * 100) / 100 : null
+  const rp = reprice(data, cfg, margenPorDefecto(cfg))
+  if (rp.landedCostUsd == null) return data
+  return {
+    ...data,
+    landedCostUsd: rp.data.landedCostUsd ?? data.landedCostUsd,
+    price: rp.data.price ?? data.price,
+    margin: data.priceLocked && rp.data.margin != null ? rp.data.margin : data.margin,
+  }
+}
+
+// Peso y medidas escritos a mano pasan por el mismo control que la carga con IA
+// (lib/measures-check): un número ilegible, los cuatro a medias o una densidad imposible no se
+// guardan. Solo se mira cuando cambiaron, para no trabar la edición de un nombre en una pieza
+// que ya venía incompleta.
+function motivoMedidas(m: Medidas, antes: Medidas | null): string | null {
+  if ([m.weightGrams, m.dimL, m.dimA, m.dimH].some(v => v != null && !Number.isFinite(v))) {
+    return 'Revisá el peso y las medidas: alguno no es un número.'
+  }
+  if (antes && !cambioFisico(m, antes)) return null
+  const cargados = [m.weightGrams, m.dimL, m.dimA, m.dimH].filter(v => v != null).length
+  if (cargados > 0 && cargados < 4) {
+    return 'Peso y medidas van juntos: sin las tres medidas el flete por volumen da $0 y el precio sale bajo. Cargá los cuatro (o dejalos vacíos).'
+  }
+  const errores = chequearMedidas(m).filter(c => c.severidad === 'error')
+  return errores.length > 0 ? errores.map(c => c.mensaje).join(' ') : null
 }
 
 function parseProductForm(formData: FormData, modelosActuales: string | null = null) {
@@ -94,16 +116,17 @@ async function fotoParaGuardar(nueva: string | null, actual: string | null): Pro
 }
 
 export async function createProduct(formData: FormData): Promise<ActionResult> {
-  const data     = parseProductForm(formData)
-  if (!data.nameEs) return fallo('El nombre en español es obligatorio.')
-  const foto = await fotoParaGuardar(data.imageUrl, null)
+  const parsed   = parseProductForm(formData)
+  if (!parsed.nameEs) return fallo('El nombre en español es obligatorio.')
+  const medidas = motivoMedidas(parsed, null)
+  if (medidas) return fallo(medidas)
+  const foto = await fotoParaGuardar(parsed.imageUrl, null)
   if ('error' in foto) return fallo(foto.error)
-  data.imageUrl = foto.url
+  parsed.imageUrl = foto.url
   const ensambleId = formData.get('ensambleId') as string
   const groupName = (formData.get('parentGroupName') as string)?.trim() ?? ''
 
-  const landed = await computeLanded(data)
-  if (landed != null) data.landedCostUsd = landed
+  const data = await conPrecioDelServidor(parsed)
 
   const medidoAt = medidoAtDesde(formData.get('medido') === 'true', null, true)
   const product = await db.product.create({ data: { ...data, medidoAt } })
@@ -129,17 +152,18 @@ export async function updateProduct(id: number, formData: FormData): Promise<Act
   })
   if (!actual) return fallo('Esa pieza ya no existe.')
   // El stock no se pisa con el absoluto del formulario: se aplica la diferencia (deltaDeStock).
-  const { stock: _stockAbsoluto, ...data } = parseProductForm(formData, actual.compatibleModels)
-  if (!data.nameEs) return fallo('El nombre en español es obligatorio.')
+  const { stock: _stockAbsoluto, ...parsed } = parseProductForm(formData, actual.compatibleModels)
+  if (!parsed.nameEs) return fallo('El nombre en español es obligatorio.')
+  const medidas = motivoMedidas(parsed, actual)
+  if (medidas) return fallo(medidas)
   const delta = deltaDeStock(formData)
   if (actual.stock + delta < 0) {
     return fallo(`El stock actual es ${actual.stock}: no se puede restar ${-delta}. Cambió desde que abriste el formulario.`)
   }
-  const foto = await fotoParaGuardar(data.imageUrl, actual.imageUrl)
+  const foto = await fotoParaGuardar(parsed.imageUrl, actual.imageUrl)
   if ('error' in foto) return fallo(foto.error)
-  data.imageUrl = foto.url
-  const landed = await computeLanded(data)
-  if (landed != null) data.landedCostUsd = landed
+  parsed.imageUrl = foto.url
+  const data = await conPrecioDelServidor(parsed)
   const medidoAt = medidoAtDesde(formData.get('medido') === 'true', actual.medidoAt, cambioFisico(data, actual))
   await db.product.update({
     where: { id },
@@ -206,6 +230,8 @@ export async function quickUpdateProduct(
     dimA:             floatOrNull('dimA'),
     dimH:             floatOrNull('dimH'),
   }
+  const medidas = motivoMedidas(campos, actual)
+  if (medidas) return fallo(medidas)
   const cambioMedidas = cambioFisico(campos, actual)
   const medidoAt = medidoAtDesde(formData.get('medido') === 'true', actual.medidoAt, cambioMedidas)
 
@@ -238,21 +264,17 @@ export async function quickUpdateProduct(
     }
     await db.product.update({ where: { id }, data })
   } else {
-    const data = {
+    const data = await conPrecioDelServidor({
       ...campos,
       medidoAt,
       ...ajusteStock,
       priceInr:      intOrNull('priceInr'),
       margin:        str('margin') ? parseFloat(str('margin')) / 100 : null,
-      price:         toNum(str('price')) ?? 0,
+      // Vacío no es $0: se queda el precio que tenía (y si hay costo, lo recalcula reprice).
+      price:         toNum(str('price')) ?? Number(actual.price),
       priceLocked:   formData.get('priceLocked') === 'true',
       landedCostUsd: null as number | null,
-    }
-    const landed = await computeLanded({
-      priceInr: data.priceInr, weightGrams: data.weightGrams,
-      dimL: data.dimL, dimA: data.dimA, dimH: data.dimH,
     })
-    if (landed != null) data.landedCostUsd = landed
     await db.product.update({ where: { id }, data })
   }
 
