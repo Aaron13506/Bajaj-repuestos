@@ -149,7 +149,7 @@ export default async function ContabilidadPage({ searchParams }: Props) {
             <p className="text-xs text-gray-400">Saldo de caja</p>
             <AperturaCajaForm
               action={guardarAperturaCaja}
-              actual={apertura ? { desde: apertura.desde.toISOString().slice(0, 10), saldoInicial: apertura.saldoInicial } : null}
+              actual={apertura ? { desde: apertura.desde.toISOString().slice(0, 10), saldoInicial: apertura.saldoInicial, cuenta: apertura.cuenta } : null}
             />
           </div>
           <p className={`text-2xl font-bold font-mono ${saldoTotal >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
@@ -163,7 +163,7 @@ export default async function ContabilidadPage({ searchParams }: Props) {
           </p>
           {/* Dónde está: lo que suman las cuentas, más la apertura, es el saldo de arriba. */}
           <ul className="mt-2 pt-2 border-t border-gray-100 space-y-0.5">
-            {porCuenta.map(c => (
+            {porCuenta.map(c => ({ ...c, usd: c.usd + (apertura && c.cuenta === apertura.cuenta ? apertura.saldoInicial : 0) })).map(c => (
               <li key={c.cuenta ?? 'sin'} className="flex justify-between text-[11px] text-gray-500">
                 <span>{c.cuenta ? CUENTA_LABELS[c.cuenta] : 'Sin cuenta'}</span>
                 <span className="font-mono">
@@ -176,7 +176,7 @@ export default async function ContabilidadPage({ searchParams }: Props) {
                 </span>
               </li>
             ))}
-            {apertura && (
+            {apertura && !apertura.cuenta && (
               <li className="flex justify-between text-[11px] text-gray-400">
                 <span>Apertura</span>
                 <span className="font-mono">{usd(apertura.saldoInicial)}</span>

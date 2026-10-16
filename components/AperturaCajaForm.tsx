@@ -4,10 +4,11 @@ import { useState } from 'react'
 import CampoFecha from '@/components/CampoFecha'
 import { useEnviarAccion } from '@/components/useEnviarAccion'
 import type { ActionResult } from '@/lib/action-result'
+import { CUENTAS, CUENTA_LABELS, type Cuenta } from '@/lib/cuentas'
 
 interface Props {
   action: (formData: FormData) => Promise<ActionResult>
-  actual: { desde: string; saldoInicial: number } | null
+  actual: { desde: string; saldoInicial: number; cuenta: Cuenta | null } | null
 }
 
 // Declara (o corrige) el ancla del saldo de caja — ver aperturaCaja en lib/movimientos.ts.
@@ -58,6 +59,17 @@ export default function AperturaCajaForm({ action, actual }: Props) {
               className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">En qué cuenta estaba</label>
+          <select
+            name="cuenta" defaultValue={actual?.cuenta ?? ''}
+            className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="">Sin decir (línea aparte)</option>
+            {CUENTAS.map(c => <option key={c} value={c}>{CUENTA_LABELS[c]}</option>)}
+          </select>
         </div>
 
         {error && (

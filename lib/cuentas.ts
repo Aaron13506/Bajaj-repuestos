@@ -15,7 +15,7 @@ export const CUENTA_LABELS: Record<Cuenta, string> = {
   banco_bs: 'Banco (Bs)',
   efectivo_usd: 'Efectivo USD',
   usdt: 'Binance (USDT)',
-  banco_usd: 'Banco / tarjeta (USD)',
+  banco_usd: 'Banco (USD)',
 }
 
 // La cuenta sale del método con que se pagó o cobró; no se le pide al usuario otra vez.
@@ -24,9 +24,9 @@ export function cuentaDeMetodo(metodo: string | null | undefined): Cuenta | null
     case METODOS_PAGO_INGRESO[0]: return 'banco_bs'
     case METODOS_PAGO_INGRESO[1]: return 'efectivo_usd'
     case METODOS_PAGO_INGRESO[2]: return 'usdt'
-    case METODOS_PAGO_EGRESO[0]: // Giro bancario
-    case METODOS_PAGO_EGRESO[1]: // Tarjeta
-      return 'banco_usd'
+    // La tarjeta es la Binance Card: gasta directo de los USDT, no es una cuenta aparte.
+    case METODOS_PAGO_EGRESO[1]: return 'usdt'
+    case METODOS_PAGO_EGRESO[0]: return 'banco_usd' // Giro bancario
     default: return null
   }
 }

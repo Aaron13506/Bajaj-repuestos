@@ -15,7 +15,7 @@ import {
 import { revalidateClientes } from '@/lib/clientes'
 import { ok, fallo, type ActionResult } from '@/lib/action-result'
 import { isForeignKeyViolation } from '@/lib/prisma-errors'
-import { cuentaDeMetodo, datosBs, leerCobroBs } from '@/lib/cuentas'
+import { CUENTAS, cuentaDeMetodo, datosBs, leerCobroBs } from '@/lib/cuentas'
 
 const CATEGORIAS_VALIDAS = new Set<string>([...CATEGORIAS_INGRESO, ...CATEGORIAS_EGRESO])
 
@@ -171,7 +171,15 @@ export async function guardarAperturaCaja(formData: FormData): Promise<ActionRes
   const rawMonto = (formData.get('saldoInicial') as string)?.trim()
   if (!rawMonto || !Number.isFinite(parseFloat(rawMonto))) return fallo('Escribí el saldo de apertura.')
 
+  const rawCuenta = (formData.get('cuenta') as string)?.trim() ?? ''
+  if (rawCuenta && !(CUENTAS as readonly string[]).includes(rawCuenta)) return fallo('Elegí una cuenta válida.')
+
   await db.$transaction([
+    db.config.upsert({
+      where: { key: 'caja_apertura_cuenta' },
+      create: { key: 'caja_apertura_cuenta', value: rawCuenta, description: 'Cuenta donde estaba el saldo de apertura (vacío = sin decir)' },
+      update: { value: rawCuenta },
+    }),
     db.config.upsert({
       where: { key: 'caja_apertura_desde' },
       create: { key: 'caja_apertura_desde', value: rawFecha, description: 'Fecha desde la que se ancla el saldo de caja (ver /contabilidad)' },

@@ -598,6 +598,7 @@ console.log('\nCUENTAS Y CONVERSIÓN Bs → USDT')
   check('Pago móvil entra al banco en Bs', si(cuentaDeMetodo('Pago móvil / Transferencia Bs') === 'banco_bs'), 1)
   check('Binance / USDT es la cuenta USDT', si(cuentaDeMetodo('Binance / USDT') === 'usdt'), 1)
   check('giro bancario sale de la cuenta en USD', si(cuentaDeMetodo('Giro bancario') === 'banco_usd'), 1)
+  check('la tarjeta (Binance Card) sale de USDT', si(cuentaDeMetodo('Tarjeta') === 'usdt'), 1)
   check('sin método no hay cuenta', si(cuentaDeMetodo(null) === null), 1)
 
   // $47.06 BCV a 106.5 Bs → Bs 5011.89; con otro método no hay Bs.

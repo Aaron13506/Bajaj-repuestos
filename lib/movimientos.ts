@@ -298,6 +298,8 @@ export async function descontarIngresosPedido(tx: Tx, pedidoId: number, monto: n
 export interface AperturaCaja {
   desde: Date
   saldoInicial: number
+  /** En qué cuenta estaba ese saldo; null = sin decir (se muestra como línea aparte). */
+  cuenta: Cuenta | null
 }
 
 export function aperturaCaja(cfg: ConfigMap): AperturaCaja | null {
@@ -307,7 +309,9 @@ export function aperturaCaja(cfg: ConfigMap): AperturaCaja | null {
   const desde = new Date(`${rawFecha}T00:00:00`)
   const saldoInicial = parseFloat(rawMonto)
   if (isNaN(desde.getTime()) || !Number.isFinite(saldoInicial)) return null
-  return { desde, saldoInicial }
+  const rawCuenta = cfg['caja_apertura_cuenta']?.trim()
+  const cuenta = (CUENTAS as readonly string[]).includes(rawCuenta ?? '') ? (rawCuenta as Cuenta) : null
+  return { desde, saldoInicial, cuenta }
 }
 
 export interface RangoFechas {
