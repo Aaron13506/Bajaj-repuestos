@@ -2,6 +2,19 @@
 
 Revisión del 2026-10-12. Sale de leer el esquema, presupuestos, cobros, contabilidad, el costeo y los envíos; no se ejecutó la app.
 
+> **Estado (2026-10-16): todo lo de abajo está atendido**, salvo lo que dice "queda". Las reglas viven en las skills `pedidos`, `dinero` y `envios`.
+>
+> - 1.1 Ventas del depósito (`/ventas`) y líneas de cliente servidas con lo del depósito (`PedidoItem.desdeStock`). Queda: servir un conjunto (hoy solo piezas sueltas).
+> - 1.2 La brecha del saldo la asume el negocio y queda a la vista: fila `diferencia_brecha` junto a cada cobro en Bs de un pedido a BCV, que entra al margen del pedido.
+> - 1.3 Cuentas (banco Bs, efectivo, USDT, banco USD), Bs y tasa por movimiento, conversión Bs → USDT con su costo.
+> - 1.4 Un solo camino para cobrar (`cobrarPedido`), también desde Contabilidad.
+> - 1.5 `/resultados`: margen realizado por pedido y resultado por mes.
+> - 2.x Cancelar, editar confirmado, incidencias por línea y por pieza, validez y renovación, revalidar al aprobar, freno al entregar con saldo, historial de etapas y guía. Queda: entrega parcial de una línea al cliente y reembolso del proveedor ligado a una incidencia.
+> - 3.1 `fx:update` recalcula el precio de catálogo cada hora.
+> - 3.2 Dashboard de acción.
+> - 3.3 Presupuestos perdidos y tasa de conversión.
+> - 3.4 Next 16.4.2 estable. `check:costeo` cubre las reglas nuevas; sigue sin haber tests de integración versionados (solo `check:etapas`).
+
 **Resumen.** La parte de costeo es muy buena: precisa y bien defendida. El problema es que **el sistema cubre solo el camino feliz de la compra y el costeo, y está casi ciego después de la venta**. Con un margen del 30%, ahí es donde se pierde la plata.
 
 ---
