@@ -642,6 +642,9 @@ console.log('\nCUENTAS Y CONVERSIÓN Bs → USDT')
   check('tasa efectiva en Bs por USDT', Math.round(c.tasaEfectiva * 100) / 100, 121.74)
   check('costo en %', Math.round(c.costoPct * 10) / 10, 8)
   check('recibir más de lo que valían es ganancia (costo negativo)', convertir(11200, 105, 100 / 11200).costoUsd, -5)
+  // Efectivo → USDT: un dólar vale un dólar; el costo es lo que quitaron (o dieron a favor).
+  check('efectivo: di $100, recibí 97 USDT → costó $3', convertir(100, 97, 1).costoUsd, 3)
+  check('efectivo: di $100, recibí 101 USDT → a favor $1', convertir(100, 101, 1).costoUsd, -1)
   // La caja baja exactamente el costo: sale `valor`, entra `usdt`.
   check('la caja baja lo que costó convertir', Math.round((c.usdt - c.valorLibroUsd) * 100) / 100, -c.costoUsd)
 }

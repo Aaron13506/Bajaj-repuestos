@@ -143,9 +143,9 @@ async function main() {
   for (const o of otros) console.log(`  ${o.categoria.padEnd(16)} ${String(o._count).padStart(3)} movimientos · ${usd(dec(o._sum.monto))}`)
 
   // ── 5. Conversiones entre cuentas ─────────────────────────────────────────
-  // Cada conversión son exactamente dos movimientos con el mismo grupo: una salida de banco_bs y
+  // Cada conversión son exactamente dos movimientos con el mismo grupo: una salida (banco_bs o efectivo) y
   // una entrada a usdt. Una pata sola descuadra la caja (el costo de convertir es su diferencia).
-  console.log('\nCONVERSIONES Bs → USDT')
+  console.log('\nCONVERSIONES A USDT')
   const patas = await db.movimiento.groupBy({
     by: ['grupo'],
     where: { grupo: { not: null } },

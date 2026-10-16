@@ -15,29 +15,42 @@ interface Props {
 const usd = (n: number) => `$${n.toFixed(2)}`
 const nf = (n: number, d = 2) => n.toLocaleString('es-VE', { minimumFractionDigits: d, maximumFractionDigits: d })
 
-// Pasar Bs a USDT: cuántos bolívares se dieron y cuántos USDT se recibieron. De ahí salen la
-// tasa a la que se hizo y lo que costó convertir (contra lo que el libro decía que valían esos
-// Bs). Se anota como una salida del banco en Bs y una entrada a Binance, juntas.
+// Pasar plata a USDT: Bs del banco o efectivo en dólares. Se escribe lo que se dio y lo que se
+// recibió (P2P o en persona: a veces quitan, a veces dan a favor). De ahí sale lo que costó contra
+// lo que el libro decía que valía lo entregado. Se anota como una salida de la cuenta de origen y
+// una entrada a Binance, juntas.
 export default function ConversionForm({ action, valor }: Props) {
-  const [bs, setBs] = useState('')
+  const [desde, setDesde] = useState<'banco_bs' | 'efectivo_usd'>('banco_bs')
+  const [dado, setDado] = useState('')
   const [usdt, setUsdt] = useState('')
-  const { enviar, isPending, error } = useEnviarAccion(action, () => { setBs(''); setUsdt('') })
+  const { enviar, isPending, error } = useEnviarAccion(action, () => { setDado(''); setUsdt('') })
 
-  const b = parseFloat(bs)
+  const enBs = desde === 'banco_bs'
+  const b = parseFloat(dado)
   const u = parseFloat(usdt)
-  const c = b > 0 && u > 0 ? convertir(b, u, valor ?? u / b) : null
+  const c = b > 0 && u > 0 ? convertir(b, u, enBs ? (valor ?? u / b) : 1) : null
 
   return (
     <form
       onSubmit={enviar}
       className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8"
     >
-      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Pasar Bs a USDT</h2>
+      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Pasar a USDT</h2>
       <div className="flex flex-wrap items-end gap-3">
         <div>
-          <label className="block text-sm font-medium text-gray-800 mb-1">Bs que di</label>
+          <label className="block text-sm font-medium text-gray-800 mb-1">Desde</label>
+          <select
+            name="desde" value={desde} onChange={e => setDesde(e.target.value as typeof desde)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="banco_bs">Banco (Bs)</option>
+            <option value="efectivo_usd">Efectivo USD</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-800 mb-1">{enBs ? 'Bs que di' : '$ en efectivo que di'}</label>
           <input
-            type="number" name="bs" min={0.01} step="0.01" required value={bs} onChange={e => setBs(e.target.value)}
+            type="number" name="dado" min={0.01} step="0.01" required value={dado} onChange={e => setDado(e.target.value)}
             className="w-40 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
@@ -72,9 +85,10 @@ export default function ConversionForm({ action, valor }: Props) {
 
       {c ? (
         <p className="text-xs text-gray-500 mt-3">
-          A <span className="font-mono">{nf(c.tasaEfectiva)} Bs por USDT</span>. En el libro esos Bs valían{' '}
+          {enBs && <>A <span className="font-mono">{nf(c.tasaEfectiva)} Bs por USDT</span>. En el libro esos Bs valían{' '}</>}
+          {!enBs && 'Diste '}
           <span className="font-mono">{usd(c.valorLibroUsd)}</span>
-          {valor == null && ' (el libro no tiene Bs anotados para compararlos: se toman por lo que recibiste)'}
+          {enBs && valor == null && ' (el libro no tiene Bs anotados para compararlos: se toman por lo que recibiste)'}
           {' → '}
           {Math.abs(c.costoUsd) < 0.005
             ? 'sin costo.'
@@ -84,7 +98,7 @@ export default function ConversionForm({ action, valor }: Props) {
         </p>
       ) : (
         <p className="text-xs text-gray-400 mt-3">
-          Escribí los dos montos y ves cuánto costó convertir contra lo que el libro decía que valían esos Bs.
+          Escribí lo que diste y lo que recibiste, y ves cuánto costó (o cuánto salió a favor).
         </p>
       )}
       {error && <p role="alert" className="text-xs text-red-600 mt-2">{error}</p>}

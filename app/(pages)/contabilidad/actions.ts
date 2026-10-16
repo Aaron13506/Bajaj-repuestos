@@ -147,8 +147,11 @@ export async function eliminarMovimiento(id: number) {
 export async function crearConversion(formData: FormData): Promise<ActionResult> {
   const leer = (n: string) => parseFloat(String(formData.get(n) ?? '').trim().replace(',', '.'))
   const rawDate = (formData.get('fecha') as string)?.trim()
+  const desde = formData.get('desde')
+  if (desde !== 'banco_bs' && desde !== 'efectivo_usd') return fallo('Elegí de dónde sale la plata.')
   const r = await registrarConversion({
-    bs: leer('bs'),
+    desde,
+    dado: leer('dado'),
     usdt: leer('usdt'),
     fecha: rawDate ? new Date(`${rawDate}T12:00:00`) : new Date(),
     descripcion: (formData.get('descripcion') as string)?.trim() || null,

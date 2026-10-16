@@ -159,7 +159,7 @@ export default async function ContabilidadPage({ searchParams }: Props) {
             {apertura
               ? `${usd(apertura.saldoInicial)} apertura (${fechaCorta(apertura.desde)}) + ${usd(caja.ingresos)} ingresos − ${usd(caja.egresos)} egresos`
               : `${usd(caja.ingresos)} ingresos − ${usd(caja.egresos)} egresos`}
-            {Math.abs(caja.costoConversion) >= 0.005 && ` ${caja.costoConversion > 0 ? '−' : '+'} ${usd(Math.abs(caja.costoConversion))} por convertir Bs`}
+            {Math.abs(caja.costoConversion) >= 0.005 && ` ${caja.costoConversion > 0 ? '−' : '+'} ${usd(Math.abs(caja.costoConversion))} por convertir a USDT`}
           </p>
           {/* Dónde está: lo que suman las cuentas, más la apertura, es el saldo de arriba. */}
           <ul className="mt-2 pt-2 border-t border-gray-100 space-y-0.5">

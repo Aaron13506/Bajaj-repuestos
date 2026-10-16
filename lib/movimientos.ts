@@ -406,32 +406,38 @@ export async function valorBsEnLibro(): Promise<number | null> {
 }
 
 export interface PedidoConversion {
-  /** Bolívares que se entregaron. */
-  bs: number
+  /** De qué cuenta sale la plata: los Bs del banco o el efectivo en dólares. */
+  desde: 'banco_bs' | 'efectivo_usd'
+  /** Lo que se entregó: bolívares si sale del banco, dólares si es efectivo. */
+  dado: number
   /** USDT que se recibieron. */
   usdt: number
   fecha: Date
   descripcion?: string | null
 }
 
-// Pasar Bs a USDT: dos movimientos con el mismo `grupo`. El banco pierde los Bs por lo que el
-// libro dice que valían; USDT gana lo que llegó. El costo de convertir es la diferencia (ver
-// lib/conversion.ts), y por eso no se anota aparte. Si el libro no tiene con qué valorar esos Bs
-// (cobros anteriores a anotar los Bs), salen por lo que se recibió: sin costo, antes que inventarlo.
+// Pasar plata a USDT (Bs del banco o efectivo): dos movimientos con el mismo `grupo`. La cuenta de
+// origen pierde lo que el libro dice que valía lo entregado; USDT gana lo que llegó. El costo de
+// convertir es la diferencia (ver lib/conversion.ts; negativo = salió a favor), y por eso no se
+// anota aparte. El efectivo vale lo que dice (un dólar es un dólar). Los Bs, su costo promedio en el
+// libro; si el libro no tiene con qué valorarlos (cobros anteriores a anotar los Bs), salen por lo
+// que se recibió: sin costo, antes que inventarlo con una tasa de mercado.
 export async function registrarConversion(p: PedidoConversion): Promise<ActionResult> {
-  if (!Number.isFinite(p.bs) || p.bs <= 0) return fallo('Escribí cuántos bolívares diste.')
+  const enBs = p.desde === 'banco_bs'
+  if (!Number.isFinite(p.dado) || p.dado <= 0) return fallo(enBs ? 'Escribí cuántos bolívares diste.' : 'Escribí cuántos dólares en efectivo diste.')
   if (!Number.isFinite(p.usdt) || p.usdt <= 0) return fallo('Escribí cuántos USDT recibiste.')
 
-  const c = convertir(p.bs, p.usdt, (await valorBsEnLibro()) ?? p.usdt / p.bs)
-  if (c.valorLibroUsd <= 0) return fallo('Esos bolívares valen menos de un centavo en el libro: revisá el monto.')
+  const usdPorUnidad = enBs ? ((await valorBsEnLibro()) ?? p.usdt / p.dado) : 1
+  const c = convertir(p.dado, p.usdt, usdPorUnidad)
+  if (c.valorLibroUsd <= 0) return fallo('Eso vale menos de un centavo en el libro: revisá el monto.')
 
   const grupo = randomUUID()
   const base = { fecha: p.fecha, grupo, descripcion: p.descripcion ?? null }
   await db.$transaction([
     db.movimiento.create({
       data: {
-        ...base, tipo: 'egreso', categoria: 'conversion_salida', cuenta: 'banco_bs',
-        monto: c.valorLibroUsd, montoBs: aCentavos(p.bs), tasaBs: c.tasaEfectiva,
+        ...base, tipo: 'egreso', categoria: 'conversion_salida', cuenta: p.desde, monto: c.valorLibroUsd,
+        ...(enBs ? { montoBs: aCentavos(p.dado), tasaBs: c.tasaEfectiva } : {}),
       },
     }),
     db.movimiento.create({
