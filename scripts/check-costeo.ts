@@ -551,6 +551,10 @@ console.log('\nCOBRO A DÓLAR BCV (pedido confirmado)')
   check('lo abonado se muestra en BCV', r1.abonadoBcv, 47.06)
   check('pagar el saldo BCV en Bs lo deja en cero', resumenCobro(lineas, adelanto + realDeCobro(47.06, true, r1, { bcv: r1.saldoBcv, real: r1.saldoReal }), 15).saldoBcv, 0)
   check('pagar el saldo en divisas lo deja en cero', resumenCobro(lineas, adelanto + realDeCobro(40, false, r1), 15).saldoBcv, 0)
+  // Dos métodos al revés: la mitad en efectivo y el saldo BCV que muestra la pantalla, en Bs.
+  const r2m = resumenCobro(lineas, realDeCobro(40, false, r0), 15)
+  check('mitad en efectivo y el saldo en Bs lo deja en cero',
+    resumenCobro(lineas, 40 + realDeCobro(r2m.saldoBcv, true, r2m, { bcv: r2m.saldoBcv, real: r2m.saldoReal }), 15).saldoBcv, 0)
   check('pedido en dólares reales (sin escalón): el monto se guarda tal cual', realDeCobro(47.06, true, resumenCobro(lineas, 0, null)), 47.06)
   check('adelanto del total entero en BCV = total real exacto', realDeCobro(94.12, true, r0, { bcv: 94.12, real: 80 }), 80)
 
