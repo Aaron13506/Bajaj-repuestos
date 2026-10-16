@@ -1,0 +1,53 @@
+'use client'
+
+import { useAccionDirecta } from '@/components/useEnviarAccion'
+import type { ActionResult } from '@/lib/action-result'
+
+// Una línea de pedido que se puede servir con lo del depósito, o que ya se sirvió y espera
+// entregarse (lib/venta-stock.ts). Entregar con saldo pendiente pide confirmación, como en /envios.
+export default function LineaDeposito({
+  modo,
+  enDeposito,
+  servir,
+  devolver,
+  entregar,
+}: {
+  modo: 'servible' | 'servida'
+  /** Unidades que hay en el depósito (solo para 'servible'). */
+  enDeposito?: number
+  servir: () => Promise<ActionResult>
+  devolver: () => Promise<ActionResult>
+  entregar: (conSaldo: boolean) => Promise<ActionResult>
+}) {
+  const { pending, error, ejecutar } = useAccionDirecta()
+  const boton = 'text-[11px] px-2 py-0.5 rounded border disabled:opacity-40'
+
+  async function entregarConfirmando(): Promise<ActionResult> {
+    const r = await entregar(false)
+    if (!r.ok && r.codigo === 'saldo_pendiente' && confirm(`${r.error}\n\n¿Entregar igual, con el saldo pendiente?`)) {
+      return entregar(true)
+    }
+    return r
+  }
+
+  return (
+    <span className="mt-1 flex items-center gap-2 flex-wrap">
+      {modo === 'servible' ? (
+        <button type="button" disabled={pending} onClick={() => ejecutar(servir)} className={`${boton} border-emerald-300 text-emerald-700 hover:bg-emerald-50`}>
+          {pending ? 'Sirviendo…' : `Servir del depósito (hay ${enDeposito})`}
+        </button>
+      ) : (
+        <>
+          <span className="text-[10px] text-emerald-700">del depósito</span>
+          <button type="button" disabled={pending} onClick={() => ejecutar(entregarConfirmando)} className={`${boton} border-green-300 text-green-700 hover:bg-green-50`}>
+            {pending ? '…' : 'Entregar'}
+          </button>
+          <button type="button" disabled={pending} onClick={() => ejecutar(devolver)} className={`${boton} border-gray-300 text-gray-600 hover:bg-gray-50`}>
+            Devolver al depósito
+          </button>
+        </>
+      )}
+      {error && <span role="alert" className="text-[11px] text-red-600">{error}</span>}
+    </span>
+  )
+}

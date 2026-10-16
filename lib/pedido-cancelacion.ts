@@ -20,7 +20,7 @@ import { estadoLinea } from '@/lib/pedido-edicion'
 export interface PedidoCancelable {
   tipo: string
   status: string
-  items: { shippingStatus: string; costRealUsd: number | null }[]
+  items: { shippingStatus: string; costRealUsd: number | null; desdeStock?: boolean }[]
 }
 
 export function motivoNoCancelable(p: PedidoCancelable): string | null {
@@ -29,6 +29,9 @@ export function motivoNoCancelable(p: PedidoCancelable): string | null {
   if (p.status === 'presupuesto') return 'Un presupuesto sin confirmar no se cancela: se borra.'
   if (p.items.some(i => estadoLinea(i) === 'entregada')) {
     return 'Ya se le entregó algo al cliente: no se cancela entero. Para lo que falló usá un reclamo o un reembolso por pieza.'
+  }
+  if (p.items.some(i => i.desdeStock)) {
+    return 'Hay piezas servidas con lo del depósito: devolvelas al depósito (en cada línea) antes de cancelar.'
   }
   return null
 }

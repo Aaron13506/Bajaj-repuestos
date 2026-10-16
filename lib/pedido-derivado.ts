@@ -23,7 +23,7 @@ export async function registrarEvento(tx: Tx, pedidoId: number, tipo: string, de
 const LINEA_LOGISTICA = {
   id: true, productId: true, ensambleId: true, quantity: true, salePrice: true, bundleItems: true,
   envioId: true, shippingStatus: true, shippingStatusAt: true, supplierId: true, origen: true,
-  inbound: true, isLanded: true, costRealUsd: true, compradoAt: true, compraId: true,
+  inbound: true, isLanded: true, costRealUsd: true, compradoAt: true, compraId: true, desdeStock: true,
 } as const
 
 export type LineaMovible = Prisma.PedidoItemGetPayload<{ select: typeof LINEA_LOGISTICA }>

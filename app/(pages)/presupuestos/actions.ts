@@ -481,6 +481,7 @@ async function editarPedidoConfirmado(id: number, formData: FormData) {
       shippingStatus: it.shippingStatus,
       costRealUsd: it.costRealUsd != null ? Number(it.costRealUsd) : null,
       nombre: it.product?.nameEs ?? (it.ensamble ? nombreEnsamble(it.ensamble) : 'una línea'),
+      desdeStock: it.desdeStock,
     }))
 
     const plan = planEdicion(actuales, nuevas)

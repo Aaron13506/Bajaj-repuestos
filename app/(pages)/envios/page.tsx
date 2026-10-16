@@ -21,7 +21,7 @@ export default async function EnviosPage() {
       },
       orderBy: { createdAt: 'desc' },
     }),
-    db.pedidoItem.count({ where: { envioId: null, pedido: { tipo: { not: 'venta' }, status: { not: 'cancelado' } } } }),
+    db.pedidoItem.count({ where: { envioId: null, desdeStock: false, pedido: { tipo: { not: 'venta' }, status: { not: 'cancelado' } } } }),
     // Proveedores para las DOS rutas. El aéreo no los ofrecía porque por avión se le
     // compraba siempre a 99rpm; dejó de ser cierto cuando aparecieron proveedores que
     // despachan por su cuenta y hoy viajan cajas suyas en paralelo con las de Shoppre.

@@ -78,6 +78,7 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
         shippingStatus: item.shippingStatus,
         costRealUsd: item.costRealUsd != null ? Number(item.costRealUsd) : null,
         quantity: item.quantity,
+        desdeStock: item.desdeStock,
       }),
     }
   })

@@ -519,6 +519,10 @@ model PedidoItem {
   // distintos y viajando en cajas distintas. El estado del Pedido pasa a ser
   // derivado (la etapa más atrasada de sus ítems), ver pedidoStageSummary.
   envioId          Int?
+  // Servida con lo que ya había en el depósito (lib/venta-stock.ts, servirDesdeStock): no se
+  // compra ni viaja; descontó Product.stock y su costo quedó en costRealUsd. CHECK
+  // PedidoItem_desde_stock_coherente: pieza suelta, sin caja y con costo.
+  desdeStock       Boolean   @default(false)
   shippingStatus   String    @default("pendiente")
   shippingStatusAt DateTime?
   // Proveedor al que se le compró de verdad esta línea. Null ⇒ base 99rpm (India).

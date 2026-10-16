@@ -10,9 +10,11 @@ import CancelarPedidoForm from '@/components/CancelarPedidoForm'
 import DevolverClienteForm from '@/components/DevolverClienteForm'
 import RenovarPresupuestoButton from '@/components/RenovarPresupuestoButton'
 import IncidenciasLinea, { type IncidenciaVista } from '@/components/IncidenciasLinea'
+import LineaDeposito from '@/components/LineaDeposito'
+import { motivoNoServible } from '@/lib/venta-stock'
 import { deletePresupuesto, aprobarPedido, registrarPagoPedido } from '../actions'
 import {
-  cancelarPedido, devolverAlCliente, marcarPerdido, reabrirPresupuesto, renovarPresupuesto, reportarIncidencia,
+  cancelarPedido, devolverAlCliente, devolverAlDeposito, entregarDesdeStock, marcarPerdido, servirDesdeStock, reabrirPresupuesto, renovarPresupuesto, reportarIncidencia,
   resolverIncidencia,
 } from '../flujos-actions'
 import FormConResultado from '@/components/FormConResultado'
@@ -54,6 +56,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
                 id: true, nameEs: true, nameEn: true, bajajCode: true, description: true,
                 imageUrl: true, compatibleModels: true, weightGrams: true,
                 dimL: true, dimA: true, dimH: true, priceInr: true, medidoAt: true,
+                stock: true, landedCostUsd: true,
               },
             },
             ensamble: { select: { id: true, nameEs: true, nameEn: true, imageUrl: true, compatibleModels: true } },
@@ -214,7 +217,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
   })))
   const noCancelable = motivoNoCancelable({
     tipo: presupuesto.tipo, status: presupuesto.status,
-    items: presupuesto.items.map(it => ({ shippingStatus: it.shippingStatus, costRealUsd: it.costRealUsd != null ? Number(it.costRealUsd) : null })),
+    items: presupuesto.items.map(it => ({ shippingStatus: it.shippingStatus, costRealUsd: it.costRealUsd != null ? Number(it.costRealUsd) : null, desdeStock: it.desdeStock })),
   })
   const totalRealPedido = presupuesto.items.reduce((sum, it) => sum + parseFloat(it.salePrice.toString()) * it.quantity, 0)
   const incidenciasDe = (itemId: number): IncidenciaVista[] =>
@@ -781,6 +784,20 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
                           </span>
                         )}
                       </p>
+                    )}
+                    {isConfirmadoCliente && (item.desdeStock ? item.shippingStatus === 'en_venezuela' : !motivoNoServible(
+                      { ...item, costRealUsd: item.costRealUsd != null ? Number(item.costRealUsd) : null },
+                      presupuesto,
+                      item.product ? { stock: item.product.stock, costoUnitUsd: item.product.landedCostUsd != null ? Number(item.product.landedCostUsd) : null } : null,
+                    )) && (
+                      // Si la pieza ya está en el depósito no hace falta comprarla ni que viaje.
+                      <LineaDeposito
+                        modo={item.desdeStock ? 'servida' : 'servible'}
+                        enDeposito={item.product?.stock}
+                        servir={servirDesdeStock.bind(null, item.id)}
+                        devolver={devolverAlDeposito.bind(null, item.id)}
+                        entregar={entregarDesdeStock.bind(null, item.id)}
+                      />
                     )}
                     {isConfirmadoCliente && (
                       <IncidenciasLinea

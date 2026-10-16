@@ -132,12 +132,12 @@ async function motivoCajaEnBorrador(envioId: number): Promise<string | null> {
 // Por eso hay dos puertas: esta, que mete todo el presupuesto, y `assignItems`, que mete
 // las líneas elegidas. La de acá sigue siendo la primaria y la que ofrecen los botones.
 //
-// Mete solo lo que está LIBRE (`envioId: null`). Un presupuesto ya repartido entre cajas
+// Mete solo lo que está LIBRE (`envioId: null`; lo servido con lo del depósito no viaja). Un presupuesto ya repartido entre cajas
 // no se muda entero al agregarlo a una nueva: se le suma únicamente lo que todavía no
 // viaja en ninguna, que es lo que falta por traer.
 export async function assignPedido(envioId: number, pedidoId: number): Promise<ActionResult> {
   const ids = await db.pedidoItem.findMany({
-    where: { pedidoId, envioId: null, pedido: { tipo: { not: 'venta' }, status: { not: 'cancelado' } } },
+    where: { pedidoId, envioId: null, desdeStock: false, pedido: { tipo: { not: 'venta' }, status: { not: 'cancelado' } } },
     select: { id: true },
   })
   const r = await asignarAEnvio(envioId, ids.map(i => i.id))
@@ -158,7 +158,7 @@ export async function assignItems(envioId: number, itemIds: number[]): Promise<A
   const ids = itemIds.filter(Number.isInteger)
   if (ids.length === 0) return ok()
   const libres = await db.pedidoItem.findMany({
-    where: { id: { in: ids }, envioId: null, pedido: { tipo: { not: 'venta' }, status: { not: 'cancelado' } } },
+    where: { id: { in: ids }, envioId: null, desdeStock: false, pedido: { tipo: { not: 'venta' }, status: { not: 'cancelado' } } },
     select: { id: true },
   })
   const r = await asignarAEnvio(envioId, libres.map(i => i.id))

@@ -34,10 +34,10 @@ import { diferenciaBrecha, realDeCobro, resumenCobro } from '../lib/cobro-bcv'
 import { construirResolver, piezasDeLinea } from '../lib/stock-piezas'
 import { cuentaDeMetodo, datosBs, leerCobroBs } from '../lib/cuentas'
 import { convertir, usdPorBsEnCuenta } from '../lib/conversion'
-import { costoDeLinea, motivoNoVendible, resumenVenta } from '../lib/venta-stock'
+import { costoDeLinea, motivoNoServible, motivoNoVendible, resumenVenta } from '../lib/venta-stock'
 import { margenDePedido, mesDe, resultadoPorMes, type LineaMargen, type MargenPedido } from '../lib/margen'
 import { cierreDe, embudo, estadoValidez, escalonDelPresupuesto, motivoNoAprobable, validezDias } from '../lib/validez'
-import { describirOps, estadoLinea, motivoEdicionSinCliente, planEdicion, repartirSobrante, type LineaActual, type LineaNueva } from '../lib/pedido-edicion'
+import { describirOps, estadoLinea, permisoDeLinea, motivoEdicionSinCliente, planEdicion, repartirSobrante, type LineaActual, type LineaNueva } from '../lib/pedido-edicion'
 import { devolucionSugerida, motivoDevolucionInvalida, motivoNoCancelable, resumenCancelacion } from '../lib/pedido-cancelacion'
 import {
   bloqueaCompra, bloqueaEntrega, cerradosPorEdicion, dentroDePlazo, etiquetaPieza, motivoResolucionInvalida, origenPara, perdidaSugerida, planReembolso,
@@ -1110,6 +1110,35 @@ console.log('\nCAJAS PARADAS')
   check('una línea ya entregada también cuenta como movimiento', diasSinMoverse([l('entregado', 1), l('en_venezuela', 30)], ahora) ?? -1, 1)
   check('todo entregado: la caja terminó', si(diasSinMoverse([l('entregado', 40)], ahora) === null), 1)
   check('sin fechas no se inventa', si(diasSinMoverse([l('en_usa', null)], ahora) === null), 1)
+}
+
+console.log('\nSERVIR CON LO DEL DEPÓSITO')
+{
+  const si = (b: boolean) => (b ? 1 : 0)
+  const libre = { productId: 7, ensambleId: null, quantity: 2, envioId: null, shippingStatus: 'pendiente', costRealUsd: null, desdeStock: false }
+  const pedido = { tipo: 'cliente', status: 'pedido' }
+  const hay = { stock: 3, costoUnitUsd: 4.5 }
+  check('pieza suelta libre con stock: se sirve', si(motivoNoServible(libre, pedido, hay) === null), 1)
+  check('no alcanza el stock', si(motivoNoServible(libre, pedido, { stock: 1, costoUnitUsd: 4.5 }) !== null), 1)
+  check('sin costo cargado no se sirve (vacío no es cero)', si(motivoNoServible(libre, pedido, { stock: 3, costoUnitUsd: null }) !== null), 1)
+  check('ya comprada no se sirve', si(motivoNoServible({ ...libre, costRealUsd: 9 }, pedido, hay) !== null), 1)
+  check('en una caja no se sirve', si(motivoNoServible({ ...libre, envioId: 4 }, pedido, hay) !== null), 1)
+  check('un conjunto no se sirve', si(motivoNoServible({ ...libre, productId: null, ensambleId: 3 }, pedido, null) !== null), 1)
+  check('un presupuesto sin confirmar no se sirve', si(motivoNoServible(libre, { tipo: 'cliente', status: 'presupuesto' }, hay) !== null), 1)
+  check('el costo de la línea es el del inventario × cantidad', costoDeLinea(4.5, 2), 9)
+
+  // Una línea servida no se quita ni cambia de cantidad (se devuelve al depósito primero); el precio sí.
+  const servida: LineaActual = {
+    id: 1, productId: 7, ensambleId: null, quantity: 2, salePrice: 10, bundleItems: null,
+    shippingStatus: 'en_venezuela', costRealUsd: 9, nombre: 'Bujía', desdeStock: true,
+  }
+  const nueva = (q: number, precio: number): LineaNueva => ({ productId: 7, ensambleId: null, quantity: q, salePrice: precio, bundleItems: null })
+  check('servida: no se quita', si(planEdicion([servida], []).error !== null), 1)
+  check('servida: no baja la cantidad', si(planEdicion([servida], [nueva(1, 10)]).error !== null), 1)
+  const precio = planEdicion([servida], [nueva(2, 12)])
+  check('servida: el precio sí cambia', si(precio.error === null && precio.ops[0]?.op === 'precio'), 1)
+  check('servida: la pantalla no deja quitarla', si(permisoDeLinea(servida).puedeQuitar === false), 1)
+  check('con una línea servida el pedido no se cancela', si(motivoNoCancelable({ tipo: 'cliente', status: 'pedido', items: [servida] }) !== null), 1)
 }
 
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)

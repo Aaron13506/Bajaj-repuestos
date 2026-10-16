@@ -137,7 +137,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     }),
     db.config.findMany(),
     db.pedidoItem.findMany({
-      where: { envioId: null, pedido: { tipo: { not: 'venta' }, status: { not: 'cancelado' } } },
+      where: { envioId: null, desdeStock: false, pedido: { tipo: { not: 'venta' }, status: { not: 'cancelado' } } },
       include: {
         product: { select: { nameEs: true, bajajCode: true, discontinuedAt: true } },
         ensamble: { select: { nameEs: true, nameEn: true } },
@@ -187,7 +187,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     db.pedidoItem.findMany({
       where: {
         envioId: { not: null },
-        pedido: { items: { some: { envioId: null } } },
+        pedido: { items: { some: { envioId: null, desdeStock: false } } },
       },
       select: { pedidoId: true, envio: { select: { id: true, nombre: true } } },
     }),

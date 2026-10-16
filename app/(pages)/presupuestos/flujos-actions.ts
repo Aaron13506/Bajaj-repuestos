@@ -18,13 +18,14 @@ import { estadoLinea } from '@/lib/pedido-edicion'
 import { motivoDevolucionInvalida, motivoNoCancelable, resumenCancelacion } from '@/lib/pedido-cancelacion'
 import { crearReposicion, pasarAStockPropio, registrarEvento, SELECT_LINEA_MOVIBLE } from '@/lib/pedido-derivado'
 import {
-  RECLAMO_HORAS_DEFAULT, RESOLUCION_LABELS, TIPO_LABELS, dentroDePlazo, esResolucion, esTipoIncidencia, etiquetaPieza,
+  RECLAMO_HORAS_DEFAULT, RESOLUCION_LABELS, TIPO_LABELS, bloqueaCompra, bloqueaEntrega, dentroDePlazo, esResolucion, esTipoIncidencia, etiquetaPieza,
   motivoResolucionInvalida, origenPara, perdidaSugerida, planReembolso, tiposPara,
   type TipoIncidencia,
 } from '@/lib/incidencias'
 import { nombreEnsamble } from '@/lib/linea-pedido'
 import type { BundlePiece } from '@/lib/bundle'
-import { saldoReal } from '@/lib/saldo-entrega'
+import { debeSaldo, mensajeEntregaConSaldo, saldoReal } from '@/lib/saldo-entrega'
+import { costoDeLinea, motivoNoServible } from '@/lib/venta-stock'
 
 const dec = (v: { toString(): string } | null | undefined) => (v != null ? parseFloat(v.toString()) : null)
 const usd = (n: number) => `$${n.toFixed(2)}`
@@ -75,7 +76,7 @@ export async function cancelarPedido(id: number, formData: FormData): Promise<Ac
     const items = pedido.items.map(i => ({ ...i, costReal: dec(i.costRealUsd) }))
     const no = motivoNoCancelable({
       tipo: pedido.tipo, status: pedido.status,
-      items: items.map(i => ({ shippingStatus: i.shippingStatus, costRealUsd: i.costReal })),
+      items: items.map(i => ({ shippingStatus: i.shippingStatus, costRealUsd: i.costReal, desdeStock: i.desdeStock })),
     })
     if (no) throw new ErrorDeNegocio(no)
 
@@ -225,6 +226,125 @@ export async function reabrirPresupuesto(id: number): Promise<ActionResult> {
   if (!hecho) return fallo('Ese presupuesto ya no está perdido. Recargá la página.')
   revalidarPedido(id)
   return ok()
+}
+
+// ── Servir con lo del depósito ───────────────────────────────────────────────────────────────
+
+/**
+ * Sirve una línea de un pedido de cliente con lo que ya hay en el depósito (lib/venta-stock.ts):
+ * descuenta el stock, congela el costo y la deja en Venezuela, lista para entregar. Todo o nada,
+ * bajo el cerrojo del pedido; el stock se descuenta con un UPDATE condicionado (dos pedidos que se
+ * llevan la última unidad: uno gana, el otro recibe el motivo).
+ */
+export async function servirDesdeStock(itemId: number): Promise<ActionResult> {
+  let pedidoId = 0
+  const r = await conErrorDeNegocio(() => db.$transaction(async tx => {
+    const it = await tx.pedidoItem.findUnique({ where: { id: itemId }, select: { pedidoId: true } })
+    if (!it) throw new ErrorDeNegocio('Esa línea ya no existe. Recargá la página.')
+    pedidoId = it.pedidoId
+    await bloquearPedido(tx, pedidoId)
+    const l = await tx.pedidoItem.findUniqueOrThrow({
+      where: { id: itemId },
+      select: {
+        productId: true, ensambleId: true, quantity: true, envioId: true, shippingStatus: true, costRealUsd: true, desdeStock: true,
+        pedido: { select: { tipo: true, status: true } },
+        product: { select: { stock: true, landedCostUsd: true, nameEs: true } },
+        incidencias: { select: { tipo: true, estado: true } },
+      },
+    })
+    const costoUnit = dec(l.product?.landedCostUsd)
+    const no = motivoNoServible(
+      { ...l, costRealUsd: dec(l.costRealUsd) },
+      l.pedido,
+      l.product ? { stock: l.product.stock, costoUnitUsd: costoUnit } : null,
+    )
+    if (no) throw new ErrorDeNegocio(no)
+    if (bloqueaCompra(l.incidencias)) throw new ErrorDeNegocio('La línea tiene un "no disponible" abierto: resolvelo primero.')
+
+    const costo = costoDeLinea(costoUnit!, l.quantity)
+    const sacado = await tx.$executeRaw`
+      UPDATE "Product" SET "stock" = "stock" - ${l.quantity} WHERE "id" = ${l.productId} AND "stock" >= ${l.quantity}`
+    if (sacado === 0) throw new ErrorDeNegocio('Ya no alcanza el stock del depósito (otra venta se lo llevó). Recargá la página.')
+    const hecho = await tx.pedidoItem.updateMany({
+      where: { id: itemId, desdeStock: false, envioId: null, costRealUsd: null, shippingStatus: 'pendiente' },
+      data: {
+        desdeStock: true, costRealUsd: costo, shippingStatus: 'en_venezuela',
+        shippingStatusAt: new Date(), compradoAt: new Date(),
+      },
+    })
+    if (hecho.count === 0) throw new ErrorDeNegocio('La línea cambió mientras tanto. Recargá la página.')
+    await tx.pedidoItemEtapa.create({ data: { itemId, desde: 'pendiente', hacia: 'en_venezuela' } })
+    await registrarEvento(tx, pedidoId, 'desde_stock', `${l.quantity} × ${l.product!.nameEs} servida con lo del depósito (costo ${usd(costo)})`)
+  }, TX))
+  if (r.ok) revalidarPedido(pedidoId)
+  return r
+}
+
+/** Deshace servirDesdeStock: las unidades vuelven al depósito y la línea queda libre para comprarse. */
+export async function devolverAlDeposito(itemId: number): Promise<ActionResult> {
+  let pedidoId = 0
+  const r = await conErrorDeNegocio(() => db.$transaction(async tx => {
+    const it = await tx.pedidoItem.findUnique({ where: { id: itemId }, select: { pedidoId: true } })
+    if (!it) throw new ErrorDeNegocio('Esa línea ya no existe. Recargá la página.')
+    pedidoId = it.pedidoId
+    await bloquearPedido(tx, pedidoId)
+    const l = await tx.pedidoItem.findUniqueOrThrow({
+      where: { id: itemId },
+      select: { productId: true, quantity: true, desdeStock: true, shippingStatus: true, product: { select: { nameEs: true } } },
+    })
+    if (!l.desdeStock) throw new ErrorDeNegocio('Esta línea no se sirvió con lo del depósito.')
+    if (l.shippingStatus === 'entregado') throw new ErrorDeNegocio('Ya se le entregó al cliente: si la devolvió, anotá un reclamo.')
+    const hecho = await tx.pedidoItem.updateMany({
+      where: { id: itemId, desdeStock: true, shippingStatus: { not: 'entregado' } },
+      data: { desdeStock: false, costRealUsd: null, shippingStatus: 'pendiente', shippingStatusAt: new Date(), compradoAt: null },
+    })
+    if (hecho.count === 0) throw new ErrorDeNegocio('La línea cambió mientras tanto. Recargá la página.')
+    await tx.$executeRaw`UPDATE "Product" SET "stock" = "stock" + ${l.quantity} WHERE "id" = ${l.productId}`
+    await tx.pedidoItemEtapa.create({ data: { itemId, desde: l.shippingStatus, hacia: 'pendiente' } })
+    await registrarEvento(tx, pedidoId, 'desde_stock', `${l.quantity} × ${l.product?.nameEs ?? 'pieza'} devuelta al depósito`)
+  }, TX))
+  if (r.ok) revalidarPedido(pedidoId)
+  return r
+}
+
+/**
+ * Entrega al cliente una línea servida con lo del depósito (no está en ninguna caja, así que no
+ * pasa por la tabla de etapas de /envios). Mismas reglas que entregar desde una caja: con saldo
+ * pendiente pide confirmación (`saldo_pendiente`) y con un problema abierto no se entrega.
+ */
+export async function entregarDesdeStock(itemId: number, entregarConSaldo = false): Promise<ActionResult> {
+  let pedidoId = 0
+  const r = await conErrorDeNegocio(() => db.$transaction(async tx => {
+    const it = await tx.pedidoItem.findUnique({ where: { id: itemId }, select: { pedidoId: true } })
+    if (!it) throw new ErrorDeNegocio('Esa línea ya no existe. Recargá la página.')
+    pedidoId = it.pedidoId
+    await bloquearPedido(tx, pedidoId)
+    const l = await tx.pedidoItem.findUniqueOrThrow({
+      where: { id: itemId },
+      select: {
+        desdeStock: true, shippingStatus: true, quantity: true, product: { select: { nameEs: true } },
+        incidencias: { select: { tipo: true, estado: true } },
+        pedido: { select: { id: true, clientName: true, depositUsd: true, items: { select: { salePrice: true, quantity: true } } } },
+      },
+    })
+    if (!l.desdeStock || l.shippingStatus !== 'en_venezuela') throw new ErrorDeNegocio('Esta línea no está lista para entregar desde el depósito. Recargá la página.')
+    if (bloqueaEntrega(l.incidencias)) throw new ErrorDeNegocio('La línea tiene un problema sin resolver: resolvelo antes de entregarla.')
+    const saldo = saldoReal(l.pedido.items.map(i => ({ salePrice: Number(i.salePrice), quantity: i.quantity })), dec(l.pedido.depositUsd))
+    if (debeSaldo(saldo) && !entregarConSaldo) {
+      throw new ErrorDeNegocio(mensajeEntregaConSaldo([{ pedidoId, clientName: l.pedido.clientName, saldoUsd: saldo }]), 'saldo_pendiente')
+    }
+    const hecho = await tx.pedidoItem.updateMany({
+      where: { id: itemId, desdeStock: true, shippingStatus: 'en_venezuela' },
+      data: { shippingStatus: 'entregado', shippingStatusAt: new Date() },
+    })
+    if (hecho.count === 0) throw new ErrorDeNegocio('La línea cambió mientras tanto. Recargá la página.')
+    await tx.pedidoItemEtapa.create({ data: { itemId, desde: 'en_venezuela', hacia: 'entregado' } })
+    if (debeSaldo(saldo)) {
+      await registrarEvento(tx, pedidoId, 'entrega_con_saldo', `Se entregó con saldo pendiente de ${usd(saldo)} (confirmado al marcar la entrega)`)
+    }
+  }, TX))
+  if (r.ok) revalidarPedido(pedidoId)
+  return r
 }
 
 // ── Incidencias ──────────────────────────────────────────────────────────────────────────────

@@ -29,6 +29,8 @@ export interface LineaActual {
   shippingStatus: string
   costRealUsd: number | null
   nombre: string
+  /** Servida con lo del depósito (lib/venta-stock.ts): se devuelve al depósito antes de cambiarla. */
+  desdeStock?: boolean
 }
 
 export interface LineaNueva {
@@ -62,8 +64,18 @@ export interface Permiso {
   nota: string | null
 }
 
-export function permisoDeLinea(l: Pick<LineaActual, 'shippingStatus' | 'costRealUsd' | 'quantity'>): Permiso {
+export function permisoDeLinea(l: Pick<LineaActual, 'shippingStatus' | 'costRealUsd' | 'quantity' | 'desdeStock'>): Permiso {
   const estado = estadoLinea(l)
+  if (estado === 'comprada' && l.desdeStock) {
+    return {
+      estado,
+      cantidadMaxima: l.quantity,
+      puedeCambiarConjunto: false,
+      puedeCambiarPrecio: true,
+      puedeQuitar: false,
+      nota: MSG_DESDE_STOCK,
+    }
+  }
   if (estado === 'libre') {
     return { estado, cantidadMaxima: null, puedeCambiarConjunto: true, puedeCambiarPrecio: true, puedeQuitar: true, nota: null }
   }
@@ -86,6 +98,8 @@ export function permisoDeLinea(l: Pick<LineaActual, 'shippingStatus' | 'costReal
     nota: 'Ya se entregó: no se edita. Si hay un problema con la pieza, anotá un reclamo.',
   }
 }
+
+const MSG_DESDE_STOCK = 'Se sirvió con lo del depósito: para quitarla o cambiar la cantidad, devolvela al depósito desde la ficha del pedido.'
 
 export type OpLinea =
   | { op: 'crear'; nueva: LineaNueva }
@@ -140,6 +154,14 @@ export function planEdicion(actuales: LineaActual[], nuevas: LineaNueva[]): Plan
       const igual =
         n.quantity === a.quantity && centavos(n.salePrice) === centavos(a.salePrice) && mismoConjunto(n.bundleItems, a.bundleItems)
       if (!igual) ops.push({ op: 'actualizar', actual: a, nueva: n })
+      continue
+    }
+
+    // Servida con lo del depósito: sus unidades salieron del stock. Bajarlas o quitarla mandaría el
+    // sobrante a un stock propio que no viaja en ninguna caja; se devuelve al depósito primero.
+    if (a.desdeStock) {
+      if (!n || n.quantity !== a.quantity) return rechazo(`«${a.nombre}»: ${MSG_DESDE_STOCK}`)
+      if (centavos(n.salePrice) !== centavos(a.salePrice)) ops.push({ op: 'precio', actual: a, nueva: n })
       continue
     }
 
