@@ -4,6 +4,7 @@ import { useState, useRef, useTransition } from 'react'
 import type { ActionResult } from '@/lib/action-result'
 import CampoFecha from '@/components/CampoFecha'
 import { cobraEnBolivares } from '@/lib/pagos'
+import MontoBs from '@/components/MontoBs'
 
 interface Props {
   action: (formData: FormData) => Promise<ActionResult>
@@ -15,6 +16,8 @@ interface Props {
    */
   montos: { bs: number; divisas: number }
   modoBcv: boolean
+  /** Tasa con la que se anotan los Bs de un cobro en bolívares. */
+  tasaBs: { valor: number; etiqueta: string }
   initialMethod?: string | null
   initialDate?: string | null
   mode?: 'aprobar' | 'editar'
@@ -27,6 +30,7 @@ export default function AprobarPedidoForm({
   methods,
   montos,
   modoBcv,
+  tasaBs,
   initialMethod = null,
   initialDate = null,
   mode = 'aprobar',
@@ -99,19 +103,33 @@ export default function AprobarPedidoForm({
         </p>
 
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Adelanto recibido ({unidad})</label>
-          <div className="flex items-center">
-            <span className="text-sm text-gray-400 mr-1">$</span>
-            <input
-              type="number"
-              name="depositUsd"
-              min={0}
-              step="0.01"
-              value={monto ?? money(propuesto)}
-              onChange={e => setMonto(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          {enBs ? (
+            <MontoBs
+              key="bs"
+              etiqueta="Adelanto recibido en Bs"
+              tasaSugerida={tasaBs.valor}
+              etiquetaTasa={tasaBs.etiqueta}
+              sugerido={propuesto}
+              inicial
+              unidad={modoBcv ? 'USD a tasa BCV' : 'USD'}
             />
-          </div>
+          ) : (
+            <>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Adelanto recibido ({unidad})</label>
+              <div className="flex items-center">
+                <span className="text-sm text-gray-400 mr-1">$</span>
+                <input
+                  type="number"
+                  name="depositUsd"
+                  min={0}
+                  step="0.01"
+                  value={monto ?? money(propuesto)}
+                  onChange={e => setMonto(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+            </>
+          )}
           {mode === 'aprobar' && (
             <p className="text-[11px] text-gray-400 mt-1">
               Sugerido: 50% del total (${money(propuesto)}{modoBcv && (enBs ? ' a tasa BCV' : ' en divisas')}). Editable.
@@ -120,7 +138,7 @@ export default function AprobarPedidoForm({
           {modoBcv && (
             <p className="text-[11px] text-gray-400 mt-1">
               {enBs
-                ? 'Lo pagado en Bs ÷ la tasa BCV de ese día. Se guarda su valor en divisas.'
+                ? 'Los Bs que entraron y la tasa BCV de ese día. Se guarda su valor en divisas.'
                 : 'Los dólares que entraron: el descuento por divisas ya está aplicado.'}
             </p>
           )}

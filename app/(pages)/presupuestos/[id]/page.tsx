@@ -6,7 +6,15 @@ import PresupuestoPdfButton from '@/components/PresupuestoPdfButton'
 import AprobarPedidoForm from '@/components/AprobarPedidoForm'
 import RegistrarPagoClienteForm from '@/components/RegistrarPagoClienteForm'
 import MedidasIA, { type GrupoMedidas, type PiezaMedible } from '@/components/MedidasIA'
+import CancelarPedidoForm from '@/components/CancelarPedidoForm'
+import DevolverClienteForm from '@/components/DevolverClienteForm'
+import RenovarPresupuestoButton from '@/components/RenovarPresupuestoButton'
+import IncidenciasLinea, { type IncidenciaVista } from '@/components/IncidenciasLinea'
 import { deletePresupuesto, aprobarPedido, registrarPagoPedido } from '../actions'
+import {
+  cancelarPedido, devolverAlCliente, renovarPresupuesto, reportarIncidencia, resolverIncidencia,
+} from '../flujos-actions'
+import { anularVenta } from '../../ventas/actions'
 import { type BundlePiece, groupBundlePieces } from '@/lib/bundle'
 import { lookupDeConjuntos } from '@/lib/envio-build'
 import { escalonBcvVigente, type ConfigMap } from '@/lib/calc'
@@ -21,6 +29,12 @@ import { pedidoLogistics } from '@/lib/pedido-logistics'
 import { num, toConfigMap } from '@/lib/config'
 import { motivoNoEliminable } from '@/lib/pedido-eliminable'
 import { cabeceraDeLinea } from '@/lib/linea-pedido'
+import { cargarMargenes } from '@/lib/resultados'
+import { estadoValidez, escalonDelPresupuesto, validezDias } from '@/lib/validez'
+import { devolucionSugerida, motivoNoCancelable, resumenCancelacion } from '@/lib/pedido-cancelacion'
+import { estadoLinea } from '@/lib/pedido-edicion'
+import { etiquetaPieza, tiposPara, TIPO_LABELS } from '@/lib/incidencias'
+import { saldoReal } from '@/lib/saldo-entrega'
 
 export default async function PresupuestoDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const id = parseInt((await params).id)
@@ -41,9 +55,17 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
             },
             ensamble: { select: { id: true, nameEs: true, nameEn: true, imageUrl: true, compatibleModels: true } },
             supplier: { select: { name: true } },
+            // La caja en que viaja (con su guía) y por qué etapas pasó: lo que se le contesta al
+            // cliente cuando pregunta dónde está su pieza.
+            envio: { select: { id: true, guia: true, transportista: true } },
+            etapas: { select: { desde: true, hacia: true, at: true }, orderBy: { at: 'asc' } },
           },
           orderBy: { id: 'asc' },
         },
+        incidencias: { orderBy: { id: 'asc' } },
+        eventos: { orderBy: { createdAt: 'desc' } },
+        origen: { select: { id: true, clientName: true } },
+        derivados: { select: { id: true, origenMotivo: true }, orderBy: { id: 'asc' } },
         _count: { select: { movimientos: true } },
       },
     }),
@@ -63,7 +85,12 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
     .sort((a, b) => compararNombre(a.cab.nameEs, b.cab.nameEs))
 
   const isPropio = presupuesto.tipo === 'propio'
+  // Una venta del depósito: nació confirmada y entregada, sin compra ni caja (ver lib/venta-stock).
+  const isVenta = presupuesto.tipo === 'venta'
   const isPresupuesto = presupuesto.status === 'presupuesto'
+  // Cancelado: ya no se mueve nada. Conserva lo cobrado que no se devolvió (ver cancelarPedido).
+  const isCancelado = presupuesto.status === 'cancelado'
+  const isConfirmadoCliente = presupuesto.tipo === 'cliente' && presupuesto.status === 'pedido'
   // Un pedido con cobros, compras o piezas en una caja no se borra (ver motivoNoEliminable).
   const noEliminable = motivoNoEliminable({ ...presupuesto, movimientos: presupuesto._count.movimientos })
   const terminos = await getTerminos(presupuesto.status)
@@ -77,7 +104,9 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
   )
 
   // Progreso de compra agregado desde los ítems (ver lib/shipping-status.ts).
-  const compra = stageSummary(presupuesto.items)
+  const compra = isCancelado ? null : stageSummary(presupuesto.items)
+  // Cuánto se gana con este pedido: solo cuando ya es una venta (un presupuesto todavía no).
+  const margen = !isPropio && !isPresupuesto ? (await cargarMargenes([id]))[0]?.margen ?? null : null
 
   // ── Volumen y costo por mar ────────────────────────────────────────────────
   // El presupuesto es donde se decide el precio, así que es donde tiene que verse el
@@ -143,12 +172,22 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
   // pedido en dólares reales, anterior al cobro a BCV). Sin tasa BCV cargada se cae a dólares
   // reales y NO se rotula como BCV, en vez de afirmar algo falso.
   const tasaBcv = num(cfg, 'bcv_usd_rate', 0)
+  // Un presupuesto se presenta con el escalón con que se cotizó (el del PDF que vio el cliente) y no con el
+  // de hoy: es el que se congela al confirmarlo. Uno anterior a esto, sin escalón guardado, usa el de hoy.
   const escalon = isPropio
     ? null
     : isPresupuesto
-      ? escalonBcvVigente(cfg)
+      ? escalonDelPresupuesto(
+          presupuesto.escalonCotizadoPct != null ? Number(presupuesto.escalonCotizadoPct) : null,
+          escalonBcvVigente(cfg),
+        )
       : presupuesto.brechaEscalonPct != null ? Number(presupuesto.brechaEscalonPct) : null
   const modoBcv = escalon != null
+  // La tasa con la que se anotan los Bs de un cobro: la BCV si el pedido es a BCV, y si no la de
+  // cobro directo.
+  const tasaBsCobro = modoBcv
+    ? { valor: tasaBcv, etiqueta: 'Tasa BCV' }
+    : { valor: num(cfg, 'bsd_usd_rate', 0), etiqueta: 'Tasa de cobro' }
   const aBcv = (usd: number) => (escalon != null ? aDolarBcv(usd, escalon) : usd)
   // El descuento por divisas ES el escalón: pagar en divisas devuelve exactamente el real.
   const descuentoDivisasPct = escalon ?? 0
@@ -161,6 +200,30 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
     escalon,
   )
   const totalMostrado = cobro.totalBcv
+  // El cliente tiene de más cuando se editó el pedido a la baja: se le devuelve (o se aplica a otra cosa).
+  const saldoAFavor = isConfirmadoCliente ? Math.max(0, -saldoReal(
+    presupuesto.items.map(it => ({ salePrice: parseFloat(it.salePrice.toString()), quantity: it.quantity })),
+    depositUsd,
+  )) : 0
+  const tasaDevolucion = num(cfg, 'bsd_usd_rate', 0)
+  const resumenCancel = resumenCancelacion(presupuesto.items.map(it => ({
+    shippingStatus: it.shippingStatus, costRealUsd: it.costRealUsd != null ? Number(it.costRealUsd) : null,
+  })))
+  const noCancelable = motivoNoCancelable({
+    tipo: presupuesto.tipo, status: presupuesto.status,
+    items: presupuesto.items.map(it => ({ shippingStatus: it.shippingStatus, costRealUsd: it.costRealUsd != null ? Number(it.costRealUsd) : null })),
+  })
+  const totalRealPedido = presupuesto.items.reduce((sum, it) => sum + parseFloat(it.salePrice.toString()) * it.quantity, 0)
+  const incidenciasDe = (itemId: number): IncidenciaVista[] =>
+    presupuesto.incidencias.filter(i => i.itemId === itemId).map(i => ({
+      id: i.id, tipo: i.tipo as IncidenciaVista['tipo'], origen: i.origen as IncidenciaVista['origen'],
+      cantidad: i.cantidad, nota: i.nota, estado: i.estado as IncidenciaVista['estado'],
+      resolucion: i.resolucion as IncidenciaVista['resolucion'],
+      perdidaUsd: i.perdidaUsd != null ? Number(i.perdidaUsd) : null, reposicionId: i.reposicionId, creadaAt: i.creadaAt.toISOString(),
+      pieza: i.pieza,
+    }))
+  // Problemas de líneas que ya no están (se reembolsaron enteras): quedan para que se vea dónde se perdió plata.
+  const incidenciasSinLinea = presupuesto.incidencias.filter(i => i.itemId == null)
 
   const bsdRate = bsdRow ? parseFloat(bsdRow.value) : NaN
   // A dólar BCV no se muestra equivalente en Bs: la tasa del día no es la del pago y confunde.
@@ -172,11 +235,13 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
     ? new Date(presupuesto.depositAt).toISOString().slice(0, 10)
     : null
 
-  const created = new Date(presupuesto.createdAt)
   const fmtDate = (d: Date) =>
-    d.toLocaleDateString('es-VE', { day: '2-digit', month: 'long', year: 'numeric' })
-  const fecha = fmtDate(created)
-  const validez = fmtDate(new Date(created.getTime() + 7 * 24 * 60 * 60 * 1000))
+    d.toLocaleDateString('es-VE', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'America/Caracas' })
+  // Validez: corre desde la última vez que se cotizó o renovó (ver lib/validez.ts).
+  const vigencia = estadoValidez(presupuesto, validezDias(cfg))
+  const vencido = isPresupuesto && presupuesto.tipo === 'cliente' && vigencia.vencido
+  const fecha = fmtDate(vigencia.desde)
+  const validez = fmtDate(vigencia.venceEl)
   const numero = `N.º ${String(presupuesto.id).padStart(4, '0')}`
   const docLabel = isPresupuesto ? 'Presupuesto' : 'Pedido'
   const fileName = toFileName(
@@ -243,11 +308,13 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
             <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
               isPropio
                 ? 'bg-blue-100 text-blue-700'
-                : isPresupuesto
-                  ? 'bg-yellow-100 text-yellow-700'
-                  : 'bg-green-100 text-green-700'
+                : isCancelado
+                  ? 'bg-red-100 text-red-700'
+                  : isPresupuesto
+                    ? vencido ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
+                    : 'bg-green-100 text-green-700'
             }`}>
-              {isPropio ? 'Stock propio' : isPresupuesto ? 'Presupuesto' : 'Pedido confirmado'}
+              {isPropio ? 'Stock propio' : isVenta ? 'Venta del depósito' : isCancelado ? 'Cancelado' : isPresupuesto ? (vencido ? 'Presupuesto vencido' : 'Presupuesto') : 'Pedido confirmado'}
             </span>
           </div>
         </div>
@@ -255,12 +322,18 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
           {!isPropio && isPresupuesto && (
             <>
               <div className="relative">
-                <AprobarPedidoForm
-                  action={aprobarPedido.bind(null, id)}
-                  methods={METODOS_PAGO_INGRESO}
-                  montos={{ bs: deposit, divisas: depositDivisas }}
-                  modoBcv={modoBcv}
-                />
+                {vencido ? (
+                  // Un presupuesto vencido no se confirma: sus precios y su escalón BCV ya no valen.
+                  <RenovarPresupuestoButton action={renovarPresupuesto.bind(null, id)} />
+                ) : (
+                  <AprobarPedidoForm
+                    action={aprobarPedido.bind(null, id)}
+                    methods={METODOS_PAGO_INGRESO}
+                    montos={{ bs: deposit, divisas: depositDivisas }}
+                    modoBcv={modoBcv}
+                    tasaBs={tasaBsCobro}
+                  />
+                )}
               </div>
               <Link
                 href={`/presupuestos/${id}/edit`}
@@ -270,12 +343,42 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
               </Link>
             </>
           )}
-          {!isPropio && !isPresupuesto && (
+          {isCancelado && depositUsd != null && depositUsd > 0.005 && (
+            <DevolverClienteForm action={devolverAlCliente.bind(null, id)} maximo={depositUsd} tasaSugerida={tasaDevolucion} />
+          )}
+          {isConfirmadoCliente && (
+            <>
+              <Link
+                href={`/presupuestos/${id}/edit`}
+                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Editar pedido
+              </Link>
+              {saldoAFavor > 0.005 && (
+                <DevolverClienteForm action={devolverAlCliente.bind(null, id)} maximo={saldoAFavor} tasaSugerida={tasaDevolucion} />
+              )}
+              {noCancelable ? (
+                <span className="text-xs text-gray-400 cursor-help select-none" title={noCancelable}>🔒 No se puede cancelar</span>
+              ) : (
+                <CancelarPedidoForm
+                  action={cancelarPedido.bind(null, id)}
+                  clientName={presupuesto.clientName}
+                  depositUsd={depositUsd ?? 0}
+                  compradas={resumenCancel.compradas}
+                  libres={resumenCancel.libres}
+                  devolucionSugerida={devolucionSugerida(depositUsd ?? 0, resumenCancel)}
+                  tasaSugerida={tasaDevolucion}
+                />
+              )}
+            </>
+          )}
+          {!isPropio && !isPresupuesto && !isCancelado && (
             <div className="relative flex items-center gap-2">
               <RegistrarPagoClienteForm
                 action={registrarPagoPedido.bind(null, id)}
                 methods={METODOS_PAGO_INGRESO}
                 modoBcv={modoBcv}
+                tasaBs={tasaBsCobro}
                 saldo={{ bs: cobro.saldoBcv, divisas: cobro.saldoReal }}
               />
               <AprobarPedidoForm
@@ -288,6 +391,7 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
                     : { bs: deposit, divisas: depositDivisas }
                 }
                 modoBcv={modoBcv}
+                tasaBs={tasaBsCobro}
                 initialMethod={presupuesto.paymentMethod}
                 initialDate={depositDateStr}
               />
@@ -301,20 +405,30 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
               Editar
             </Link>
           )}
-          <Link
-            href={`/presupuestos/${id}/comparar`}
-            className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            Comparar proveedores
-          </Link>
-          <Link
-            href={`/presupuestos/${id}/proveedor`}
-            className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            Para proveedor
-          </Link>
+          {!isVenta && (
+            <>
+              <Link
+                href={`/presupuestos/${id}/comparar`}
+                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Comparar proveedores
+              </Link>
+              <Link
+                href={`/presupuestos/${id}/proveedor`}
+                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Para proveedor
+              </Link>
+            </>
+          )}
           <PresupuestoPdfButton fileName={fileName} data={pdfData} />
-          {noEliminable ? (
+          {isVenta ? (
+            <DeleteButton
+              action={anularVenta.bind(null, id)}
+              label="Anular venta"
+              confirmMessage={`¿Anular la venta a "${presupuesto.clientName}"? Las piezas vuelven al depósito y se sacan sus cobros del libro. Si el cliente ya se llevó la mercancía y hay que devolverle plata, no es esto: anotá un egreso aparte.`}
+            />
+          ) : noEliminable ? (
             <span className="text-sm text-gray-400 cursor-help select-none" title={noEliminable}>
               🔒 No se puede eliminar
             </span>
@@ -327,6 +441,53 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
         </div>
       </div>
 
+      {isCancelado && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-5 py-3 mb-4 text-sm text-red-900">
+          <p className="font-semibold">
+            Pedido cancelado{presupuesto.canceladoAt ? ` el ${fmtDate(presupuesto.canceladoAt)}` : ''}
+          </p>
+          {presupuesto.canceladoMotivo && <p className="mt-0.5">{presupuesto.canceladoMotivo}</p>}
+          <p className="text-xs mt-1">
+            {depositUsd != null && depositUsd > 0.005
+              ? <>Se quedó <strong>${depositUsd.toFixed(2)}</strong> de lo cobrado (cuenta en el resultado del mes).</>
+              : 'No quedó plata cobrada.'}
+            {presupuesto.derivados.filter(d => d.origenMotivo === 'sobrante').map(d => (
+              <span key={d.id}> Lo que ya estaba comprado pasó a <Link href={`/presupuestos/${d.id}`} className="underline">stock propio #{d.id}</Link>.</span>
+            ))}
+          </p>
+        </div>
+      )}
+      {vencido && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-5 py-3 mb-4 text-sm text-red-900">
+          <p className="font-semibold">Este presupuesto venció el {validez}.</p>
+          <p className="text-xs mt-0.5">
+            Los precios y la tasa BCV con que se cotizó ya no valen, así que no se puede confirmar. Mirá si los precios siguen
+            siendo los de hoy (Editar los vuelve a cotizar) o renovalo tal cual: toma la fecha y el escalón BCV de hoy.
+          </p>
+        </div>
+      )}
+      {presupuesto.origen && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl px-5 py-3 mb-4 text-sm text-blue-900">
+          {presupuesto.origenMotivo === 'reposicion' ? 'Reposición del pedido' : 'Sobrante del pedido'}{' '}
+          <Link href={`/presupuestos/${presupuesto.origen.id}`} className="font-semibold underline">
+            #{presupuesto.origen.id} · {presupuesto.origen.clientName}
+          </Link>
+          {presupuesto.origenMotivo === 'reposicion'
+            ? '. Se vuelve a mandar sin costo para el cliente; lo que cuesta traerlo queda como margen negativo de este pedido.'
+            : '. Eran piezas ya compradas para ese pedido que el cliente no se lleva; pasaron acá con su costo.'}
+        </div>
+      )}
+      {!presupuesto.origen && presupuesto.derivados.length > 0 && !isCancelado && (
+        <p className="text-xs text-gray-500 mb-4">
+          Pedidos que nacieron de éste:{' '}
+          {presupuesto.derivados.map(d => (
+            <Link key={d.id} href={`/presupuestos/${d.id}`} className="text-blue-600 hover:underline mr-2">
+              #{d.id} ({d.origenMotivo === 'reposicion' ? 'reposición' : 'sobrante'})
+            </Link>
+          ))}
+        </p>
+      )}
+
       {/* Client info */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-4">
         <div className="flex justify-between text-sm">
@@ -335,10 +496,12 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
             <p className="font-semibold text-gray-900 text-base">{presupuesto.clientName}</p>
           </div>
           <div className="text-right">
-            <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Fecha</p>
-            <p className="text-gray-700">{fecha}</p>
+            <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">{isPresupuesto ? 'Cotizado' : 'Fecha'}</p>
+            <p className="text-gray-700">{isPresupuesto ? fecha : fmtDate(presupuesto.createdAt)}</p>
             {isPresupuesto && (
-              <p className="text-xs text-gray-400 mt-1">Válido hasta {validez}</p>
+              <p className={`text-xs mt-1 ${vencido ? 'text-red-600 font-semibold' : 'text-gray-400'}`}>
+                {vencido ? `Venció el ${validez}` : `Válido hasta ${validez}`}
+              </p>
             )}
           </div>
         </div>
@@ -401,9 +564,63 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
         </div>
       )}
 
+      {/* Margen: lo vendido contra lo que cuesta (o costó) tenerlo puesto acá, en dólares reales.
+          Con todo entregado y costeado con lo pagado de verdad es el margen realizado; antes de
+          eso es una proyección, y se dice. */}
+      {margen && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-4">
+          <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Margen</h2>
+            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+              margen.estado === 'realizado' ? 'bg-green-100 text-green-700'
+                : margen.estado === 'estimado' ? 'bg-blue-100 text-blue-700'
+                : margen.estado === 'sin_costo' ? 'bg-amber-100 text-amber-700'
+                : 'bg-gray-100 text-gray-600'
+            }`}>
+              {margen.estado === 'realizado' ? 'Realizado'
+                : margen.estado === 'estimado' ? 'Entregado, costo estimado'
+                : margen.estado === 'sin_costo' ? 'Entregado, falta costo'
+                : 'Proyectado'}
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-4 text-sm">
+            <div>
+              <p className="text-xs text-gray-400 mb-0.5">Vendido (reales)</p>
+              <p className="font-mono font-semibold text-gray-900">${margen.ventaUsd.toFixed(2)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-0.5">Costo puesto acá</p>
+              <p className="font-mono font-semibold text-gray-900">
+                ${margen.costoUsd.toFixed(2)}
+                {margen.sinCosto > 0 && <span className="text-amber-700" title={`${margen.sinCosto} línea(s) sin costo`}> +?</span>}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-0.5">Margen</p>
+              {margen.margenUsd == null ? (
+                <p className="font-mono text-gray-400">—</p>
+              ) : (
+                <p className={`font-mono font-semibold ${margen.margenUsd < 0 ? 'text-red-700' : 'text-green-700'}`}>
+                  {margen.margenUsd < 0 ? '−' : ''}${Math.abs(margen.margenUsd).toFixed(2)}
+                  {margen.margenPct != null && <span className="text-xs font-normal ml-1">({margen.margenPct.toFixed(1)}%)</span>}
+                </p>
+              )}
+            </div>
+          </div>
+          {margen.sinCosto > 0 && (
+            <p className="text-xs text-amber-700 mt-3">
+              {margen.sinCosto === 1 ? 'Una línea no tiene' : `${margen.sinCosto} líneas no tienen`} costo: no está en ninguna caja ni se cargó lo que costó. Hasta entonces no se sabe cuánto se gana.
+            </p>
+          )}
+          {margen.margenUsd != null && margen.margenUsd < 0 && (
+            <p className="text-xs text-red-700 mt-3">Este pedido pierde plata: lo que costó traerlo supera lo que se le cobró al cliente.</p>
+          )}
+        </div>
+      )}
+
       {/* Estado de compra — derivado de los ítems, no del pedido: de un mismo
           presupuesto unas piezas pueden estar compradas y otras no. */}
-      {!isPresupuesto && compra && (
+      {!isPresupuesto && !isCancelado && compra && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-4">
           <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
             <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Estado de compra</h2>
@@ -521,7 +738,41 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
                             envío #{item.envioId}
                           </Link>
                         )}
+                        {item.envio?.guia && (
+                          <span className="text-[10px] font-mono text-gray-500" title="Número de guía de la caja">
+                            guía {item.envio.guia}{item.envio.transportista ? ` · ${item.envio.transportista}` : ''}
+                          </span>
+                        )}
                       </p>
+                    )}
+                    {isConfirmadoCliente && (
+                      <IncidenciasLinea
+                        itemId={item.id}
+                        piezas={Array.isArray(item.bundleItems)
+                          ? (item.bundleItems as unknown as BundlePiece[]).map(p => ({ etiqueta: etiquetaPieza(p), quantity: p.quantity }))
+                          : undefined}
+                        editarHref={`/presupuestos/${presupuesto.id}/edit`}
+                        tipos={tiposPara({ shippingStatus: item.shippingStatus, costRealUsd: item.costRealUsd != null ? Number(item.costRealUsd) : null })}
+                        linea={{ quantity: item.quantity, salePrice: parseFloat(item.salePrice.toString()), costRealUsd: item.costRealUsd != null ? Number(item.costRealUsd) : null }}
+                        pedido={{ totalReal: totalRealPedido, depositUsd: depositUsd ?? 0 }}
+                        tasaSugerida={tasaDevolucion}
+                        incidencias={incidenciasDe(item.id)}
+                        reportar={reportarIncidencia}
+                        resolver={resolverIncidencia}
+                      />
+                    )}
+                    {!isPresupuesto && item.etapas.length > 0 && (
+                      <details className="mt-1">
+                        <summary className="text-[10px] text-gray-400 cursor-pointer hover:text-gray-600">Recorrido ({item.etapas.length})</summary>
+                        <ul className="mt-1 text-[11px] text-gray-500 space-y-0.5">
+                          {item.etapas.map((e, k) => (
+                            <li key={k}>
+                              <span className="font-mono text-gray-400">{e.at.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', timeZone: 'America/Caracas' })}</span>{' '}
+                              {shippingStatusMeta(e.desde).short} → <strong>{shippingStatusMeta(e.hacia).short}</strong>
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
                     )}
                     {bundlePieces.length > 0 && (
                       <div className="mt-1.5 ml-1 pl-3 border-l-2 border-gray-100 space-y-1.5">
@@ -589,7 +840,13 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
               <span className="font-bold font-mono text-yellow-900">${deposit.toFixed(2)}</span>
             </div>
           )}
-          {!isPropio && !isPresupuesto && depositUsd != null && (
+          {isCancelado && depositUsd != null && depositUsd > 0.005 && (
+            <div className="flex justify-between items-center bg-red-50 border border-red-200 rounded-lg px-3 py-2 mt-2">
+              <span className="text-sm font-semibold text-red-800">Cobrado que se quedó</span>
+              <span className="font-bold font-mono text-red-900">${depositUsd.toFixed(2)}</span>
+            </div>
+          )}
+          {!isPropio && !isPresupuesto && !isCancelado && depositUsd != null && (
             // A dólar BCV, lo cobrado y el saldo se muestran en BCV (lo que dice la tabla) y, al
             // lado, en divisas: lo guardado es real y un pago en divisas cancela el real.
             <div className="mt-2 space-y-1.5">
@@ -606,10 +863,10 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
                 </span>
               </div>
               <div className="flex justify-between items-center px-3">
-                <span className="text-sm font-semibold text-gray-700">Saldo pendiente</span>
+                <span className="text-sm font-semibold text-gray-700">{saldoAFavor > 0.005 ? 'A favor del cliente' : 'Saldo pendiente'}</span>
                 <span className="text-right">
-                  <span className="block font-bold font-mono text-gray-900">${cobro.saldoBcv.toFixed(2)}</span>
-                  {modoBcv && <span className="block text-[11px] text-gray-500 font-mono">${cobro.saldoReal.toFixed(2)} en divisas</span>}
+                  <span className="block font-bold font-mono text-gray-900">${Math.abs(cobro.saldoBcv).toFixed(2)}</span>
+                  {modoBcv && <span className="block text-[11px] text-gray-500 font-mono">${Math.abs(cobro.saldoReal).toFixed(2)} en divisas</span>}
                 </span>
               </div>
               {presupuesto.depositAt && (
@@ -621,6 +878,39 @@ export default async function PresupuestoDetailPage({ params }: { params: Promis
           )}
         </div>
       </div>
+
+      {incidenciasSinLinea.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-3 mb-4">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Problemas de piezas que ya no están en el pedido</h2>
+          <ul className="text-xs text-gray-600 space-y-1">
+            {incidenciasSinLinea.map(i => (
+              <li key={i.id}>
+                {TIPO_LABELS[i.tipo as keyof typeof TIPO_LABELS] ?? i.tipo} · {i.cantidad}× «{i.descripcion}»
+                {i.perdidaUsd != null && Number(i.perdidaUsd) > 0 && <span className="text-red-700"> · pérdida ${Number(i.perdidaUsd).toFixed(2)}</span>}
+                {i.nota && <span className="text-gray-400"> — {i.nota}</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {presupuesto.eventos.length > 0 && (
+        <details className="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-3 mb-4">
+          <summary className="text-xs font-semibold uppercase tracking-wide text-gray-500 cursor-pointer">
+            Historial del pedido ({presupuesto.eventos.length})
+          </summary>
+          <ul className="mt-3 space-y-2">
+            {presupuesto.eventos.map(e => (
+              <li key={e.id} className="text-xs text-gray-600 flex gap-3">
+                <span className="font-mono text-gray-400 shrink-0 w-24">
+                  {e.createdAt.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: '2-digit', timeZone: 'America/Caracas' })}
+                </span>
+                <span className="whitespace-pre-line">{e.detalle}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       {/* Términos: los mismos que van al PDF (ver getTerminos), visibles acá para
           poder revisarlos antes de mandarlo. */}

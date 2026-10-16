@@ -5,7 +5,7 @@ import { Prisma } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { type BundlePiece } from '@/lib/bundle'
-import { claveLinea, type RefLinea } from '@/lib/linea-pedido'
+import { claveLinea, nombreEnsamble, type RefLinea } from '@/lib/linea-pedido'
 import { findOrCreateCliente, revalidateClientes } from '@/lib/clientes'
 import { isDelivered } from '@/lib/shipping-status'
 import { listarFaltantes, piezasDeLinea, type LineaStock } from '@/lib/stock-piezas'
@@ -13,9 +13,15 @@ import { resolverDePiezas } from '@/lib/inventario'
 import { ok, fallo, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
 import { motivoNoEliminable } from '@/lib/pedido-eliminable'
 import { isForeignKeyViolation } from '@/lib/prisma-errors'
-import { bloquearPedido, descontarIngresosPedido, registrarIngresoPedido } from '@/lib/movimientos'
+import { cuentaDeMetodo, datosBs, leerCobroBs, type CobroEnBs } from '@/lib/cuentas'
+import { bloquearPedido, cobrarPedido, descontarIngresosPedido } from '@/lib/movimientos'
 import { escalonBcvVigente } from '@/lib/calc'
 import { toConfigMap } from '@/lib/config'
+import { bloquearDescontinuadas } from '@/lib/descontinuadas'
+import { estadoValidez, escalonDelPresupuesto, motivoNoAprobable, validezDias } from '@/lib/validez'
+import { describirOps, planEdicion, estadoLinea, type LineaActual, type LineaNueva } from '@/lib/pedido-edicion'
+import { pasarAStockPropio, registrarEvento, SELECT_LINEA_MOVIBLE } from '@/lib/pedido-derivado'
+import { cerradosPorEdicion } from '@/lib/incidencias'
 import { notaCobroBcv, realDeCobro, resumenCobro } from '@/lib/cobro-bcv'
 import { cobraEnBolivares } from '@/lib/pagos'
 
@@ -26,11 +32,18 @@ type Tx = Prisma.TransactionClient
 async function lineasYEscalon(tx: Tx, pedidoId: number) {
   const p = await tx.pedido.findUniqueOrThrow({
     where: { id: pedidoId },
-    select: { tipo: true, brechaEscalonPct: true, items: { select: { salePrice: true, quantity: true } } },
+    select: {
+      tipo: true, brechaEscalonPct: true, createdAt: true, cotizadoAt: true, escalonCotizadoPct: true,
+      items: { select: { salePrice: true, quantity: true, productId: true, ensambleId: true } },
+    },
   })
   return {
     tipo: p.tipo,
     escalon: p.brechaEscalonPct != null ? Number(p.brechaEscalonPct) : null,
+    // El escalón con el que se le presentó el presupuesto al cliente (null = uno anterior a esto).
+    escalonCotizado: p.escalonCotizadoPct != null ? Number(p.escalonCotizadoPct) : null,
+    fechas: { cotizadoAt: p.cotizadoAt, createdAt: p.createdAt },
+    refs: p.items.map(i => ({ productId: i.productId, ensambleId: i.ensambleId })),
     lineas: p.items.map(i => ({ salePrice: Number(i.salePrice), quantity: i.quantity })),
   }
 }
@@ -106,42 +119,6 @@ function snapshotBundle(items: BundlePiece[] | null | undefined) {
     : Prisma.DbNull
 }
 
-/**
- * Corta si alguna línea es una pieza que Bajaj dejó de fabricar.
- *
- * El armador ya las bloquea en pantalla, pero eso no alcanza: la pieza pudo marcarse
- * DESPUÉS de que el presupuesto se guardó, y al reabrirlo para tocar una cantidad se
- * reescribiría igual. Es la misma razón por la que el embarque marítimo corta en
- * `sincronizarLineas` — el bloqueo es una regla del negocio, no un detalle de la pantalla.
- *
- * Acá pesa más que en un embarque: un embarque es mercancía propia y se saca sin costo,
- * un presupuesto es un compromiso con un cliente y suele tener el 50% cobrado de seña.
- *
- * Tira un `ErrorDeNegocio`, que `createPresupuesto`/`updatePresupuesto` devuelven como
- * `{ ok: false, error }`: un `Error` pelado llega al navegador en producción como "An error
- * occurred in the Server Components render", sin el texto. Es el último cerrojo, no la vía
- * normal de enterarse: lo normal es verlas tachadas en el armador. Que falle es preferible a
- * guardar la promesa.
- */
-async function bloquearDescontinuadas(items: RefLinea[]) {
-  // Solo las piezas sueltas: un conjunto no es una pieza y no tiene `discontinuedAt`.
-  const ids = [...new Set(items.flatMap(i => (i.productId != null ? [i.productId] : [])))]
-  if (ids.length === 0) return
-  const nls = await db.product.findMany({
-    where: { id: { in: ids }, discontinuedAt: { not: null } },
-    select: { nameEs: true, bajajCode: true },
-  })
-  if (nls.length === 0) return
-  const lista = nls.map(p => p.bajajCode ?? p.nameEs).join(', ')
-  const una = nls.length === 1
-  throw new ErrorDeNegocio(
-    `No se puede guardar: ${nls.length} pieza${una ? '' : 's'} descontinuada${una ? '' : 's'} (${lista}). ` +
-    `Bajaj no ${una ? 'la fabrica' : 'las fabrica'} más y no ${una ? 'la consigue' : 'las consigue'} ningún ` +
-    `proveedor, así que cotizar${una ? 'la' : 'las'} es prometer algo que no se va a poder comprar. ` +
-    `Sacá${una ? 'la' : 'las'} del presupuesto.`
-  )
-}
-
 // Resuelve el Cliente elegido en el builder: existente (clienteId) o uno nuevo
 // creado al vuelo (nuevoClienteNombre). Solo aplica a tipo 'cliente' — el stock
 // propio (tipo 'propio') no lleva Cliente, sigue con clientName de texto libre.
@@ -190,6 +167,12 @@ async function crearPresupuesto(formData: FormData) {
   // pedido (no necesita aprobación ni adelanto). El de cliente arranca como presupuesto.
   const status = tipo === 'propio' ? 'pedido' : 'presupuesto'
 
+  // Un presupuesto de cliente se cotiza con el escalón de hoy y desde hoy: es lo que el cliente
+  // va a ver y lo que se le va a cobrar mientras esté vigente (lib/validez.ts).
+  const cotizacion = tipo === 'cliente'
+    ? { cotizadoAt: new Date(), escalonCotizadoPct: escalonBcvVigente(toConfigMap(await db.config.findMany())) }
+    : {}
+
   const pedido = await db.pedido.create({
     data: {
       clientName,
@@ -197,6 +180,7 @@ async function crearPresupuesto(formData: FormData) {
       notas,
       tipo,
       status,
+      ...cotizacion,
       items: {
         create: items.map(i => ({
           productId: i.productId,
@@ -251,6 +235,10 @@ async function editarPresupuesto(id: number, formData: FormData) {
     },
   })
   if (!existing) throw new ErrorDeNegocio(`El presupuesto #${id} ya no existe.`)
+  if (existing.status === 'cancelado') throw new ErrorDeNegocio('Este pedido está cancelado: no se edita.')
+  // Un pedido de cliente ya confirmado también se edita, pero con otras reglas: sus líneas pueden
+  // estar compradas (ver editarPedidoConfirmado).
+  if (existing.tipo === 'cliente' && existing.status === 'pedido') return editarPedidoConfirmado(id, formData)
 
   // El mismo candado que la página (edit/page.tsx). Estaba SOLO en la página, así que una
   // pestaña vieja o un POST directo editaba un pedido de cliente ya confirmado. El resto
@@ -380,7 +368,12 @@ async function editarPresupuesto(id: number, formData: FormData) {
     }))
   }
 
-  ops.push(db.pedido.update({ where: { id }, data: { clientName, clienteId, notas } }))
+  // Guardar un presupuesto de cliente lo vuelve a cotizar: es otro documento que el cliente va a
+  // ver, así que corre la validez y se congela el escalón de hoy (lib/validez.ts).
+  const cotizacion = existing.tipo === 'cliente' && existing.status === 'presupuesto'
+    ? { cotizadoAt: new Date(), escalonCotizadoPct: escalonBcvVigente(toConfigMap(await db.config.findMany())) }
+    : {}
+  ops.push(db.pedido.update({ where: { id }, data: { clientName, clienteId, notas, ...cotizacion } }))
 
   await db.$transaction(ops)
 
@@ -393,6 +386,182 @@ async function editarPresupuesto(id: number, formData: FormData) {
     revalidatePath('/')
   }
   redirect(`/presupuestos/${id}`)
+}
+
+/**
+ * Edita un pedido de cliente YA confirmado.
+ *
+ * Es lo más común del negocio por encargo —el proveedor no tiene la pieza, Bajaj la reemplazó por
+ * otro código, el cliente pide menos— y antes no tenía camino. Lo que lo hace delicado es que
+ * las líneas pueden estar compradas: la plata salió y la pieza viaja en una caja. Qué se puede
+ * hacer con cada una lo decide `planEdicion` (lib/pedido-edicion.ts): lo que nunca se compró se
+ * cambia, se quita o se agrega libremente; lo comprado solo admite otro precio o menos unidades
+ * (las de más pasan a stock propio con su costo, nada se pierde por el camino); lo entregado no
+ * se toca.
+ *
+ * Todo corre bajo el cerrojo del pedido y lee las líneas DENTRO de la transacción: una compra
+ * registrada mientras el formulario estaba abierto cambia lo que se puede hacer con esa línea, y
+ * decidir con la lectura vieja sacaría de un pedido una pieza que ya se pagó.
+ *
+ * No devuelve plata sola: si el total baja de lo cobrado, el pedido queda con saldo a favor y la
+ * pantalla ofrece devolverlo — es una decisión que se toma con el cliente.
+ */
+async function editarPedidoConfirmado(id: number, formData: FormData) {
+  const notas = (formData.get('notas') as string)?.trim() || null
+  const items = parseItems(formData)
+  if (items.length === 0) {
+    throw new ErrorDeNegocio('Un pedido no puede quedarse sin piezas. Si el cliente ya no quiere nada, cancelalo.')
+  }
+
+  // Los nombres de lo que se agrega, para el historial (una línea nueva todavía no tiene fila).
+  const prodIds = [...new Set(items.flatMap(i => (i.productId != null ? [i.productId] : [])))]
+  const ensIds = [...new Set(items.flatMap(i => (i.ensambleId != null ? [i.ensambleId] : [])))]
+  const [prods, enss] = await Promise.all([
+    prodIds.length ? db.product.findMany({ where: { id: { in: prodIds } }, select: { id: true, nameEs: true } }) : [],
+    ensIds.length ? db.ensamble.findMany({ where: { id: { in: ensIds } }, select: { id: true, nameEs: true, nameEn: true } }) : [],
+  ])
+  const nombres = new Map<string, string>([
+    ...prods.map(p => [`p${p.id}`, p.nameEs] as [string, string]),
+    ...enss.map(e => [`e${e.id}`, nombreEnsamble(e)] as [string, string]),
+  ])
+  const nuevas: LineaNueva[] = items.map(i => ({
+    nombre: nombres.get(claveLinea(i)),
+    productId: i.productId,
+    ensambleId: i.ensambleId,
+    quantity: i.quantity,
+    salePrice: i.salePrice,
+    bundleItems: i.bundleItems ?? null,
+  }))
+
+  await db.$transaction(async tx => {
+    const actual = await bloquearPedido(tx, id)
+    if (!actual) throw new ErrorDeNegocio(`El pedido #${id} ya no existe.`)
+    if (actual.status !== 'pedido') throw new ErrorDeNegocio('El pedido cambió de estado mientras lo editabas. Recargá la página.')
+
+    const pedido = await tx.pedido.findUniqueOrThrow({
+      where: { id },
+      select: {
+        clientName: true,
+        items: {
+          select: {
+            ...SELECT_LINEA_MOVIBLE,
+            product: { select: { nameEs: true } },
+            ensamble: { select: { nameEs: true, nameEn: true } },
+          },
+          orderBy: { id: 'asc' },
+        },
+      },
+    })
+    const actuales: LineaActual[] = pedido.items.map(it => ({
+      id: it.id,
+      productId: it.productId,
+      ensambleId: it.ensambleId,
+      quantity: it.quantity,
+      salePrice: Number(it.salePrice),
+      bundleItems: it.bundleItems,
+      shippingStatus: it.shippingStatus,
+      costRealUsd: it.costRealUsd != null ? Number(it.costRealUsd) : null,
+      nombre: it.product?.nameEs ?? (it.ensamble ? nombreEnsamble(it.ensamble) : 'una línea'),
+    }))
+
+    const plan = planEdicion(actuales, nuevas)
+    if (plan.error) throw new ErrorDeNegocio(plan.error)
+
+    // Lo que se agrega o se reescribe tiene que poder comprarse; lo ya comprado no se vuelve a juzgar.
+    await bloquearDescontinuadas(
+      plan.ops.flatMap(o => (o.op === 'crear' || o.op === 'actualizar' ? [o.nueva] : [])),
+    )
+
+    const porId = new Map(pedido.items.map(it => [it.id, it]))
+    const sobrantes: { linea: (typeof pedido.items)[number]; unidades: number; precio: number | null }[] = []
+
+    for (const o of plan.ops) {
+      switch (o.op) {
+        case 'crear':
+          await tx.pedidoItem.create({
+            data: {
+              pedidoId: id,
+              productId: o.nueva.productId,
+              ensambleId: o.nueva.ensambleId,
+              quantity: o.nueva.quantity,
+              salePrice: o.nueva.salePrice,
+              bundleItems: snapshotBundle(o.nueva.bundleItems as BundlePiece[] | null),
+            },
+          })
+          break
+        case 'quitar':
+          // Un "no disponible" abierto de una línea que se saca ya está resuelto: se cambió por otra.
+          await tx.incidencia.updateMany({
+            where: { itemId: o.actual.id, estado: 'abierta', tipo: 'no_disponible' },
+            data: { estado: 'resuelta', resolucion: 'sustituida', resueltaAt: new Date() },
+          })
+          await tx.pedidoItem.delete({ where: { id: o.actual.id } })
+          break
+        case 'actualizar':
+          await tx.pedidoItem.update({
+            where: { id: o.actual.id },
+            data: {
+              quantity: o.nueva.quantity,
+              salePrice: o.nueva.salePrice,
+              bundleItems: snapshotBundle(o.nueva.bundleItems as BundlePiece[] | null),
+            },
+          })
+          // Faltaba UN SKU del conjunto y ya no lo lleva: ese problema está resuelto (se cambió el
+          // pedido), sin ir a cerrarlo a mano. Los demás problemas de la línea siguen abiertos.
+          if (Array.isArray(o.nueva.bundleItems)) {
+            const abiertas = await tx.incidencia.findMany({
+              where: { itemId: o.actual.id, estado: 'abierta', tipo: 'no_disponible', pieza: { not: null } },
+              select: { id: true, tipo: true, pieza: true },
+            })
+            const cerrar = cerradosPorEdicion(abiertas, o.nueva.bundleItems as BundlePiece[])
+            if (cerrar.length > 0) {
+              await tx.incidencia.updateMany({
+                where: { id: { in: cerrar } },
+                data: { estado: 'resuelta', resolucion: 'sustituida', resueltaAt: new Date() },
+              })
+            }
+          }
+          break
+        case 'precio':
+          await tx.pedidoItem.update({ where: { id: o.actual.id }, data: { salePrice: o.nueva.salePrice } })
+          break
+        case 'sobrante':
+          sobrantes.push({ linea: porId.get(o.actual.id)!, unidades: o.unidades, precio: o.nueva ? o.nueva.salePrice : null })
+          break
+      }
+    }
+
+    if (sobrantes.length > 0) {
+      await pasarAStockPropio(tx, { id, clientName: pedido.clientName }, sobrantes.map(s => ({ linea: s.linea, unidades: s.unidades })))
+      // Lo que se quedó en el pedido con otro precio.
+      for (const s of sobrantes) {
+        if (s.precio != null && s.unidades < s.linea.quantity && Math.abs(s.precio - Number(s.linea.salePrice)) >= 0.005) {
+          await tx.pedidoItem.update({ where: { id: s.linea.id }, data: { salePrice: s.precio } })
+        }
+      }
+    }
+
+    await tx.pedido.update({ where: { id }, data: { notas } })
+    const detalle = describirOps(plan.ops)
+    if (detalle.length > 0) await registrarEvento(tx, id, 'editado', detalle.join('\n'))
+  }, { maxWait: 10_000, timeout: 20_000 })
+
+  revalidatePath('/presupuestos')
+  revalidatePath(`/presupuestos/${id}`)
+  revalidatePath('/envios')
+  revalidatePath('/inventario')
+  revalidatePath('/contabilidad')
+  revalidatePath('/resultados')
+  revalidateClientes()
+  redirect(`/presupuestos/${id}`)
+}
+
+// Los Bs de un adelanto, en la forma que espera Movimiento: dólares BCV × tasa, o nada.
+// Si es todo el cobro se guardan los Bs que se escribieron, tal cual; en una corrección el monto
+// escrito no es el delta y los Bs se calculan con la misma tasa.
+function bsDelAdelanto(metodo: string | null, bcv: number, cobro: CobroEnBs | null, esTodo: boolean) {
+  const bs = cobro ? datosBs(metodo, bcv, cobro.tasaBs, esTodo ? cobro.montoBs : null) : null
+  return { montoBs: bs?.montoBs ?? null, tasaBs: bs?.tasaBs ?? null }
 }
 
 // Aprueba un presupuesto (status -> 'pedido') registrando el adelanto: monto,
@@ -418,8 +587,14 @@ async function editarPresupuesto(id: number, formData: FormData) {
 // su valor real; uno en divisas se escribe y se guarda tal cual. Guardar el monto BCV como si
 // fueran dólares reales inflaba la caja y dejaba el saldo del cliente corto en la brecha.
 export async function aprobarPedido(id: number, formData: FormData): Promise<ActionResult> {
-  const rawDeposit = (formData.get('depositUsd') as string)?.trim()
   const paymentMethod = (formData.get('paymentMethod') as string)?.trim() || null
+  // Cobrado en Bs se escribe en bolívares y tasa; los dólares salen de dividir (ver leerCobroBs).
+  // Vacío = todavía no se cobró nada.
+  const bs = leerCobroBs(formData, paymentMethod, true)
+  if (!bs.ok) return fallo(bs.error)
+  const rawDeposit = bs.cobro
+    ? String(bs.cobro.montoUsd)
+    : cobraEnBolivares(paymentMethod) ? '' : (formData.get('depositUsd') as string)?.trim()
   const rawDate = (formData.get('depositAt') as string)?.trim()
   // El input date da 'YYYY-MM-DD'; se ancla a mediodía para evitar corrimientos de zona horaria.
   const depositAt = rawDate ? new Date(`${rawDate}T12:00:00`) : new Date()
@@ -438,12 +613,30 @@ export async function aprobarPedido(id: number, formData: FormData): Promise<Act
   const resultado = await db.$transaction(async (tx): Promise<ActionResult> => {
     const actual = await bloquearPedido(tx, id)
     if (!actual) return fallo(`El pedido #${id} no existe.`)
+    if (actual.status === 'cancelado') return fallo('Este pedido está cancelado: no se le puede registrar un adelanto.')
     const eraPresupuesto = actual.status === 'presupuesto'
     const ctx = await lineasYEscalon(tx, id)
 
-    // Al confirmar se congela el escalón de hoy: es el total BCV que el cliente acaba de
-    // aceptar. Después ya no se toca, aunque se edite el adelanto.
-    const escalon = eraPresupuesto ? (ctx.tipo === 'cliente' ? escalonBcvVigente(cfg) : null) : ctx.escalon
+    // Confirmar compromete precios y tasa: antes de aceptarlo se revalida lo que pudo cambiar desde
+    // que se cotizó. (Editar el adelanto de un pedido ya confirmado no pasa por acá.)
+    if (eraPresupuesto && ctx.tipo === 'cliente') {
+      const vencido = motivoNoAprobable(estadoValidez(ctx.fechas, validezDias(cfg)))
+      if (vencido) return fallo(vencido)
+      // Una pieza que Bajaj dejó de fabricar DESPUÉS de cotizar: se prometería algo que nadie vende.
+      try {
+        await bloquearDescontinuadas(ctx.refs)
+      } catch (e) {
+        if (e instanceof ErrorDeNegocio) return fallo(e.message)
+        throw e
+      }
+    }
+
+    // Al confirmar se congela el escalón con el que se le presentó el presupuesto al cliente (el del
+    // PDF que vio, no el del día en que se aprueba): es el total BCV que aceptó. Después ya no se
+    // toca, aunque se edite el adelanto. Un presupuesto anterior a esto, sin escalón guardado, usa el de hoy.
+    const escalon = eraPresupuesto
+      ? (ctx.tipo === 'cliente' ? escalonDelPresupuesto(ctx.escalonCotizado, escalonBcvVigente(cfg)) : null)
+      : ctx.escalon
     // El monto escrito es BCV si se cobró en Bs y en divisas si no; lo guardado, siempre real.
     const total = resumenCobro(ctx.lineas, 0, escalon)
     const nuevoDeposito =
@@ -479,6 +672,9 @@ export async function aprobarPedido(id: number, formData: FormData): Promise<Act
           categoria: eraPresupuesto ? 'adelanto_cliente' : 'pago_cliente',
           monto: delta,
           metodoPago: paymentMethod,
+          cuenta: cuentaDeMetodo(paymentMethod),
+          // Los Bs que entraron: el delta en dólares BCV (monto real ÷ factor) por la tasa.
+          ...bsDelAdelanto(paymentMethod, delta / total.factor, bs.cobro, anterior < 0.01),
           // Solo cuando es todo el cobro: en una corrección el monto escrito no es el delta.
           descripcion: anterior < 0.01 ? notaCobroBcv(montoEscrito ?? 0, enBs, escalon) : null,
           pedidoId: id,
@@ -486,6 +682,12 @@ export async function aprobarPedido(id: number, formData: FormData): Promise<Act
       })
     } else if (delta < -0.01) {
       await descontarIngresosPedido(tx, id, -delta)
+    }
+    if (eraPresupuesto && ctx.tipo === 'cliente') {
+      await registrarEvento(
+        tx, id, 'confirmado',
+        `Confirmado con adelanto de $${(nuevoDeposito ?? 0).toFixed(2)}` + (escalon != null ? ` · escalón BCV ${escalon}%` : ''),
+      )
     }
     return ok()
   }, { maxWait: 10_000, timeout: 20_000 })
@@ -509,26 +711,21 @@ export async function aprobarPedido(id: number, formData: FormData): Promise<Act
 // valor real; el saldo se lee bajo el cerrojo del pedido, porque un pago que lo cubre se
 // guarda como el saldo real exacto (ver realDeCobro).
 export async function registrarPagoPedido(pedidoId: number, formData: FormData): Promise<ActionResult> {
-  const monto = parseFloat((formData.get('monto') as string)?.trim() ?? '')
-  if (!Number.isFinite(monto) || monto <= 0) return fallo('El monto tiene que ser mayor que 0.')
   const metodoPago = (formData.get('metodoPago') as string)?.trim() || null
+  const bs = leerCobroBs(formData, metodoPago)
+  if (!bs.ok) return fallo(bs.error)
+  const monto = bs.cobro ? bs.cobro.montoUsd : parseFloat((formData.get('monto') as string)?.trim() ?? '')
+  if (!Number.isFinite(monto) || monto <= 0) return fallo('El monto tiene que ser mayor que 0.')
   const descripcion = (formData.get('descripcion') as string)?.trim() || null
   const rawDate = (formData.get('fecha') as string)?.trim()
   const fecha = rawDate ? new Date(`${rawDate}T12:00:00`) : new Date()
-  const enBs = cobraEnBolivares(metodoPago)
 
   let resultado: ActionResult
   try {
-    resultado = await db.$transaction(async (tx): Promise<ActionResult> => {
-      const actual = await bloquearPedido(tx, pedidoId)
-      if (!actual) return fallo('Ese pedido ya no existe. Recargá la página.')
-      const { escalon, lineas } = await lineasYEscalon(tx, pedidoId)
-      const r = resumenCobro(lineas, actual.depositUsd, escalon)
-      const real = realDeCobro(monto, enBs, r, { bcv: r.saldoBcv, real: r.saldoReal })
-      const nota = [descripcion, notaCobroBcv(monto, enBs, escalon)].filter(Boolean).join(' · ') || null
-      await registrarIngresoPedido(tx, { pedidoId, monto: real, categoria: 'pago_cliente', fecha, metodoPago, descripcion: nota })
-      return ok()
-    }, { maxWait: 10_000, timeout: 20_000 })
+    resultado = await db.$transaction(
+      tx => cobrarPedido(tx, { pedidoId, monto, categoria: 'pago_cliente', fecha, metodoPago, descripcion, tasaBs: bs.cobro?.tasaBs, montoBs: bs.cobro?.montoBs }),
+      { maxWait: 10_000, timeout: 20_000 },
+    )
   } catch (e) {
     // El pedido se borró desde otra pestaña: el movimiento no tiene a quién colgarse.
     if (isForeignKeyViolation(e)) return fallo('Ese pedido ya no existe. Recargá la página.')

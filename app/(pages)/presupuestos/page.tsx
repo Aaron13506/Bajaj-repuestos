@@ -8,6 +8,7 @@ import { motivoNoEliminable } from '@/lib/pedido-eliminable'
 import { escalonBcvVigente } from '@/lib/calc'
 import { toConfigMap } from '@/lib/config'
 import { resumenCobro } from '@/lib/cobro-bcv'
+import { estadoValidez, validezDias } from '@/lib/validez'
 
 export default async function PresupuestosPage() {
   const [todos, configRows] = await Promise.all([
@@ -17,10 +18,13 @@ export default async function PresupuestosPage() {
     }),
     db.config.findMany(),
   ])
-  const escalonHoy = escalonBcvVigente(toConfigMap(configRows))
+  const cfg = toConfigMap(configRows)
+  const escalonHoy = escalonBcvVigente(cfg)
+  const diasValidez = validezDias(cfg)
 
   const presupuestos = todos.filter(p => p.tipo !== 'propio' && p.status === 'presupuesto')
   const pedidos = todos.filter(p => p.tipo !== 'propio' && p.status === 'pedido')
+  const cancelados = todos.filter(p => p.status === 'cancelado')
   const propios = todos.filter(p => p.tipo === 'propio')
 
   // Peso y volumen de lo propio, medido en una sola pasada (ver pedido-logistics):
@@ -31,14 +35,18 @@ export default async function PresupuestosPage() {
 
   function Row({ p }: { p: (typeof todos)[0] }) {
     const isPropio = p.tipo === 'propio'
+    const isVenta = p.tipo === 'venta'
     const isPresupuesto = p.status === 'presupuesto'
+    const isCancelado = p.status === 'cancelado'
+    // Un presupuesto de cliente pasado de fecha no se confirma: se renueva (lib/validez.ts).
+    const vencido = isPresupuesto && !isPropio && estadoValidez(p, diasValidez).vencido
     const depositUsd = p.depositUsd != null ? parseFloat(p.depositUsd.toString()) : null
     // Los mismos montos que el detalle y el PDF: a dólar BCV con el escalón de hoy (presupuesto)
     // o el congelado al confirmar (pedido). Ver lib/cobro-bcv.ts.
     const escalon = isPropio
       ? null
       : isPresupuesto
-        ? escalonHoy
+        ? (p.escalonCotizadoPct != null ? Number(p.escalonCotizadoPct) : escalonHoy)
         : p.brechaEscalonPct != null ? Number(p.brechaEscalonPct) : null
     const cobro = resumenCobro(
       p.items.map(it => ({ salePrice: parseFloat(it.salePrice.toString()), quantity: it.quantity })),
@@ -68,15 +76,20 @@ export default async function PresupuestosPage() {
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
               isPropio
                 ? 'bg-blue-100 text-blue-700'
-                : isPresupuesto
-                  ? 'bg-yellow-100 text-yellow-700'
-                  : 'bg-green-100 text-green-700'
+                : isCancelado || vencido
+                  ? 'bg-red-100 text-red-700'
+                  : isPresupuesto
+                    ? 'bg-yellow-100 text-yellow-700'
+                    : 'bg-green-100 text-green-700'
             }`}>
-              {isPropio ? 'Stock propio' : isPresupuesto ? 'Presupuesto' : 'Pedido'}
+              {isPropio ? 'Stock propio' : isVenta ? 'Venta del depósito' : isCancelado ? 'Cancelado' : vencido ? 'Vencido' : isPresupuesto ? 'Presupuesto' : 'Pedido'}
             </span>
+            {p.origenMotivo && (
+              <span className="text-xs text-gray-400">{p.origenMotivo === 'reposicion' ? '↻ reposición' : '↩ sobrante'} de #{p.origenId}</span>
+            )}
             {/* Avance de compra: solo tiene sentido una vez confirmado. Un pedido puede
                 estar comprado a medias, así que se muestra la etapa más atrasada. */}
-            {!isPresupuesto && compra && (
+            {!isPresupuesto && !isCancelado && compra && (
               <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${compra.lead.badge}`}>
                 {compra.lead.icon} {compra.allDelivered ? 'Entregado' : compra.lead.short}
                 {compra.pendientes > 0 && compra.comprados > 0 && ` · ${compra.comprados}/${compra.total}`}
@@ -104,11 +117,14 @@ export default async function PresupuestosPage() {
           <div className="text-right">
             <span className="font-semibold text-gray-900">${total.toFixed(2)}</span>
             {escalon != null && <span className="ml-1 text-[10px] font-semibold text-gray-400">BCV</span>}
-            {saldo != null && saldo > 0.005 && (
+            {!isCancelado && saldo != null && saldo > 0.005 && (
               <p className="text-xs text-amber-600">Saldo ${saldo.toFixed(2)}</p>
             )}
-            {saldo != null && saldo <= 0.005 && (
-              <p className="text-xs text-green-600">Pagado</p>
+            {!isCancelado && saldo != null && saldo <= 0.005 && (
+              <p className="text-xs text-green-600">{saldo < -0.005 ? `A favor $${(-saldo).toFixed(2)}` : 'Pagado'}</p>
+            )}
+            {isCancelado && depositUsd != null && depositUsd > 0.005 && (
+              <p className="text-xs text-red-600">Se quedó ${depositUsd.toFixed(2)}</p>
             )}
           </div>
           <Link href={`/presupuestos/${p.id}`} className="text-sm text-blue-600 hover:text-blue-800">
@@ -132,6 +148,12 @@ export default async function PresupuestosPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Presupuestos y Pedidos</h1>
         <div className="flex items-center gap-2">
+          <Link
+            href="/ventas/new"
+            className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+          >
+            + Venta del depósito
+          </Link>
           <Link
             href="/presupuestos/new?tipo=propio"
             className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
@@ -172,6 +194,17 @@ export default async function PresupuestosPage() {
               </h2>
               <div className="space-y-3">
                 {pedidos.map(p => <Row key={p.id} p={p} />)}
+              </div>
+            </div>
+          )}
+
+          {cancelados.length > 0 && (
+            <div>
+              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                Cancelados ({cancelados.length})
+              </h2>
+              <div className="space-y-3">
+                {cancelados.map(p => <Row key={p.id} p={p} />)}
               </div>
             </div>
           )}

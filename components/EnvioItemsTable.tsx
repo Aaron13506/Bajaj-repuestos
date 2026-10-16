@@ -50,7 +50,7 @@ interface Props {
   // define las etapas que ofrece el select de estado: una caja que despacha directo no
   // pasa por Shoppre, y ofrecer esas etapas sería prometer un estado que no va a llegar.
   inbound: Inbound
-  guardar: (envioId: number, cambios: CambioItem[]) => Promise<ActionResult>
+  guardar: (envioId: number, cambios: CambioItem[], opciones?: { entregarConSaldo?: boolean }) => Promise<ActionResult>
   // La caja está en borrador: todavía no es una compra, así que sus líneas no se mueven de
   // etapa (el server lo rechaza igual; esto evita ofrecerlo).
   bloqueada?: boolean
@@ -191,7 +191,12 @@ export default function EnvioItemsTable({
         setError(msg)
       }
       try {
-        const r = await guardar(envioId, cambios)
+        let r = await guardar(envioId, cambios)
+        // Los términos dicen que el saldo se cancela contra entrega: entregar con plata pendiente es
+        // posible, pero solo si se confirma a propósito (queda anotado en el historial del pedido).
+        if (!r.ok && r.codigo === 'saldo_pendiente' && confirm(`${r.error}\n\n¿Entregar igual, con el saldo pendiente?`)) {
+          r = await guardar(envioId, cambios, { entregarConSaldo: true })
+        }
         if (r.ok) setGuardadoOk(true)
         else revertir(r.error)
       } catch {

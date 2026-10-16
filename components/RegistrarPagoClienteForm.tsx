@@ -5,6 +5,7 @@ import CampoFecha from '@/components/CampoFecha'
 import { useEnviarAccion } from '@/components/useEnviarAccion'
 import type { ActionResult } from '@/lib/action-result'
 import { cobraEnBolivares } from '@/lib/pagos'
+import MontoBs from '@/components/MontoBs'
 
 interface Props {
   action: (formData: FormData) => Promise<ActionResult>
@@ -13,14 +14,17 @@ interface Props {
   modoBcv: boolean
   /** Lo que falta, en las dos monedas (iguales si el pedido no es a BCV). */
   saldo: { bs: number; divisas: number }
+  /** Tasa con la que se anotan los Bs de un cobro en bolívares. */
+  tasaBs: { valor: number; etiqueta: string }
 }
 
 // Botón + panel para anotar un pago de cliente SIN reabrir el form de aprobación (que
 // pisa el adelanto entero). Este siempre suma un Movimiento nuevo por el monto exacto
 // que entró — ver registrarPagoPedido.
-export default function RegistrarPagoClienteForm({ action, methods, modoBcv, saldo }: Props) {
+export default function RegistrarPagoClienteForm({ action, methods, modoBcv, saldo, tasaBs }: Props) {
   const [open, setOpen] = useState(false)
   const [metodo, setMetodo] = useState<string>(methods[0])
+  const [monto, setMonto] = useState('')
   const enBs = cobraEnBolivares(metodo)
   const unidad = !modoBcv ? 'USD' : enBs ? 'USD a tasa BCV' : 'USD en divisas'
   const saldoMetodo = enBs ? saldo.bs : saldo.divisas
@@ -47,17 +51,32 @@ export default function RegistrarPagoClienteForm({ action, methods, modoBcv, sal
         <p className="text-sm font-semibold text-gray-900">Registrar pago recibido</p>
 
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Monto ({unidad})</label>
-          <div className="flex items-center">
-            <span className="text-sm text-gray-400 mr-1">$</span>
-            <input
-              type="number" name="monto" min={0.01} step="0.01" required autoFocus
-              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          {enBs ? (
+            <MontoBs
+              key="bs"
+              tasaSugerida={tasaBs.valor}
+              etiquetaTasa={tasaBs.etiqueta}
+              sugerido={saldoMetodo > 0.005 ? saldoMetodo : null}
+              unidad={unidad}
+              requerido
+              autoFocus
             />
-          </div>
+          ) : (
+            <>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Monto ({unidad})</label>
+              <div className="flex items-center">
+                <span className="text-sm text-gray-400 mr-1">$</span>
+                <input
+                  type="number" name="monto" min={0.01} step="0.01" required autoFocus
+                  value={monto} onChange={e => setMonto(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+            </>
+          )}
           {saldoMetodo > 0.005 && (
             <p className="text-[11px] text-gray-400 mt-1">
-              Saldo: ${saldoMetodo.toFixed(2)}{modoBcv && (enBs ? ' a tasa BCV (lo pagado en Bs ÷ la tasa BCV de ese día)' : ' en divisas')}
+              Saldo: ${saldoMetodo.toFixed(2)}{modoBcv && (enBs ? ' a tasa BCV' : ' en divisas')}
             </p>
           )}
         </div>

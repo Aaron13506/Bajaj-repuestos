@@ -10,9 +10,8 @@
 // pantalla (para no ofrecer el botón) y la acción (que es el cerrojo de verdad — una pestaña
 // vieja o un POST directo se saltean la pantalla).
 //
-// Lo que NO se puede borrar tampoco se puede "cancelar" todavía: eso pide un estado nuevo
-// que habría que entender en cobranza, clientes y los totales. Hasta entonces, un pedido con
-// historia se queda como está.
+// Lo que NO se puede borrar se puede CANCELAR (lib/pedido-cancelacion.ts): un pedido de cliente
+// ya confirmado se queda en la lista como cancelado, con lo que pasó con su plata y su mercancía.
 
 export interface PedidoBorrable {
   tipo: string
@@ -28,6 +27,9 @@ export function motivoNoEliminable(p: PedidoBorrable): string | null {
   // cobrado. Solo el presupuesto (todavía no aceptado) se tira sin más. El stock propio nace
   // ya como 'pedido' —no hay aprobación ni cliente— y se rige por lo que le pasó, no por el
   // estado.
+  if (p.status === 'cancelado') {
+    return 'Es un pedido cancelado: queda como registro de lo que pasó (y de la plata que dejó).'
+  }
   if (p.tipo !== 'propio' && p.status !== 'presupuesto') {
     return 'Es un pedido confirmado con el cliente, no se puede borrar.'
   }

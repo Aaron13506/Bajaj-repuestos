@@ -1,0 +1,86 @@
+'use client'
+
+import { useState } from 'react'
+import CampoFecha from '@/components/CampoFecha'
+import { cobraEnBolivares } from '@/lib/pagos'
+import { METODOS_DEVOLUCION } from '@/lib/devolucion'
+
+// Los campos de "devolverle plata al cliente", que comparten tres formularios (cancelar un pedido,
+// devolver un saldo a favor, reembolsar una pieza). Los nombres son los que lee `leerDevolucion`.
+//
+// El monto se escribe en dólares REALES —lo que sale de caja—. Si se le devuelve en Bs, además se
+// anotan los bolívares que se entregaron y la tasa de ese día: se cargan tal cual, sin derivar uno
+// del otro, porque lo que se entregó en el banco es lo que se cuadra contra el estado de cuenta.
+interface Props {
+  /** Lo que se propone devolver. */
+  sugerido: number
+  /** Lo máximo que se puede devolver (lo cobrado). */
+  maximo: number
+  /** Tasa de cobro directo, para proponer en los Bs. */
+  tasaSugerida: number
+  /** Texto del campo de monto. */
+  etiqueta?: string
+}
+
+const cls = 'w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+
+export default function CamposDevolucion({ sugerido, maximo, tasaSugerida, etiqueta = 'Devolver al cliente (USD reales)' }: Props) {
+  const [monto, setMonto] = useState(sugerido > 0 ? sugerido.toFixed(2) : '')
+  const [metodo, setMetodo] = useState<string>(METODOS_DEVOLUCION[0])
+  const [tasa, setTasa] = useState(tasaSugerida > 0 ? tasaSugerida.toFixed(2) : '')
+  const [bs, setBs] = useState('')
+  const hay = parseFloat(monto) > 0
+  const enBs = hay && cobraEnBolivares(metodo)
+
+  return (
+    <div className="space-y-2">
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">{etiqueta}</label>
+        <div className="flex items-center">
+          <span className="text-sm text-gray-400 mr-1">$</span>
+          <input
+            type="number" name="devolverUsd" min={0} max={maximo} step="0.01"
+            value={monto} onChange={e => setMonto(e.target.value)}
+            className={`${cls} font-mono`}
+          />
+        </div>
+        <p className="text-[11px] text-gray-400 mt-1">
+          Tiene cobrado ${maximo.toFixed(2)}. Vacío o 0 = no se devuelve nada.
+        </p>
+      </div>
+
+      {hay && (
+        <>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Se le devuelve por</label>
+            <select name="devolverMetodo" value={metodo} onChange={e => setMetodo(e.target.value)} className={cls}>
+              {METODOS_DEVOLUCION.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+          {enBs && (
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Bs entregados</label>
+                <input
+                  type="number" name="devolverBs" min={0.01} step="0.01" required
+                  value={bs} onChange={e => setBs(e.target.value)} className={`${cls} font-mono`}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Tasa (Bs/USD)</label>
+                <input
+                  type="number" name="devolverTasa" min={0.0001} step="0.0001" required
+                  value={tasa} onChange={e => setTasa(e.target.value)} className={`${cls} font-mono`}
+                />
+              </div>
+            </div>
+          )}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Fecha</label>
+            <CampoFecha name="devolverFecha" className={cls} />
+          </div>
+        </>
+      )}
+    </div>
+  )
+}

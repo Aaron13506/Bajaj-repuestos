@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import CampoFecha from '@/components/CampoFecha'
+import { cobraEnBolivares } from '@/lib/pagos'
+import MontoBs from '@/components/MontoBs'
 import { useEnviarAccion } from '@/components/useEnviarAccion'
 import type { ActionResult } from '@/lib/action-result'
 
@@ -35,6 +37,9 @@ interface Props {
   pedidos: Pedido[]
   envios: Envio[]
   suppliers: Supplier[]
+  /** Tasas (Bs por USD) a proponer en un ingreso en bolívares: la de cobro directo, y la BCV si es de un pedido. */
+  tasaBsSugerida: number
+  tasaBcvSugerida: number
 }
 
 // Ingreso y egreso son dos formularios distintos que comparten fecha/monto/nota: un
@@ -51,15 +56,26 @@ export default function MovimientoForm({
   pedidos,
   envios,
   suppliers,
+  tasaBsSugerida,
+  tasaBcvSugerida,
 }: Props) {
   const [categoria, setCategoria] = useState(categoriasIngreso[0]?.value ?? '')
+  const [metodo, setMetodo] = useState('')
+  const [pedidoId, setPedidoId] = useState('')
+  const [monto, setMonto] = useState('')
   const { enviar, isPending, error } = useEnviarAccion(action, form => {
     form.reset()
     setCategoria(categoriasIngreso[0]?.value ?? '')
+    setMetodo('')
+    setPedidoId('')
+    setMonto('')
   })
 
   const esEgreso = categoriasEgreso.some(c => c.value === categoria)
   const metodos = esEgreso ? metodosEgreso : metodosIngreso
+  // Un cobro en Bs de un pedido se escribe en dólares BCV (el servidor guarda su valor real).
+  const enBsIngreso = !esEgreso && cobraEnBolivares(metodo)
+  const enBsDePedido = enBsIngreso && pedidoId !== ''
 
   return (
     <form
@@ -71,7 +87,12 @@ export default function MovimientoForm({
         <select
           name="categoria"
           value={categoria}
-          onChange={e => setCategoria(e.target.value)}
+          onChange={e => {
+            const nueva = e.target.value
+            // Ingreso y egreso tienen métodos distintos: el elegido puede no existir en el otro.
+            if (categoriasEgreso.some(c => c.value === nueva) !== esEgreso) setMetodo('')
+            setCategoria(nueva)
+          }}
           className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         >
           <optgroup label="Ingresos">
@@ -86,13 +107,28 @@ export default function MovimientoForm({
           </optgroup>
         </select>
       </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-800 mb-1">Monto (USD)</label>
-        <input
-          type="number" name="monto" min={0.01} step="0.01" required
-          className="w-32 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-        />
-      </div>
+      {/* Un ingreso en Bs se escribe en bolívares y tasa: los dólares salen de dividir. */}
+      {enBsIngreso ? (
+        <div className="w-44">
+          {/* key: al elegir o quitar el pedido cambia la tasa que corresponde (BCV o directa). */}
+          <MontoBs
+            key={enBsDePedido ? 'bcv' : 'directa'}
+            tasaSugerida={enBsDePedido ? tasaBcvSugerida : tasaBsSugerida}
+            etiquetaTasa={enBsDePedido ? 'Tasa BCV' : 'Tasa'}
+            unidad={enBsDePedido ? 'USD BCV' : 'USD'}
+            requerido
+          />
+        </div>
+      ) : (
+        <div>
+          <label className="block text-sm font-medium text-gray-800 mb-1">Monto (USD)</label>
+          <input
+            type="number" name="monto" min={0.01} step="0.01" required
+            value={monto} onChange={e => setMonto(e.target.value)}
+            className="w-32 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+        </div>
+      )}
       <div>
         <label className="block text-sm font-medium text-gray-800 mb-1">Fecha</label>
         <CampoFecha
@@ -102,7 +138,7 @@ export default function MovimientoForm({
       </div>
       <div>
         <label className="block text-sm font-medium text-gray-800 mb-1">Método de pago</label>
-        <select key={esEgreso ? 'egreso' : 'ingreso'} name="metodoPago" defaultValue="" className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+        <select key={esEgreso ? 'egreso' : 'ingreso'} name="metodoPago" value={metodo} onChange={e => setMetodo(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
           <option value="">—</option>
           {metodos.map(m => <option key={m} value={m}>{m}</option>)}
         </select>
@@ -136,7 +172,7 @@ export default function MovimientoForm({
       ) : (
         <div>
           <label className="block text-sm font-medium text-gray-800 mb-1">Pedido (opcional)</label>
-          <select name="pedidoId" defaultValue="" className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+          <select name="pedidoId" value={pedidoId} onChange={e => setPedidoId(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
             <option value="">—</option>
             {pedidos.map(p => (
               <option key={p.id} value={p.id}>#{p.id} {p.clientName}</option>

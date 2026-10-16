@@ -1,10 +1,13 @@
 'use server'
 
+import { cuentaDeMetodo } from '@/lib/cuentas'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { isDelivered, isValidStatus, normalizeToRoute, routeFor } from '@/lib/shipping-status'
+import { isDelivered, isPending, isValidStatus, normalizeToRoute, routeFor } from '@/lib/shipping-status'
+import { bloqueaCompra, bloqueaEntrega } from '@/lib/incidencias'
+import { debeSaldo, mensajeEntregaConSaldo, saldoReal } from '@/lib/saldo-entrega'
 import { inboundDe } from '@/lib/inbound'
 import { isModoApp } from '@/lib/modo'
 import { fallo, ok, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
@@ -134,7 +137,7 @@ async function motivoCajaEnBorrador(envioId: number): Promise<string | null> {
 // viaja en ninguna, que es lo que falta por traer.
 export async function assignPedido(envioId: number, pedidoId: number): Promise<ActionResult> {
   const ids = await db.pedidoItem.findMany({
-    where: { pedidoId, envioId: null },
+    where: { pedidoId, envioId: null, pedido: { tipo: { not: 'venta' }, status: { not: 'cancelado' } } },
     select: { id: true },
   })
   const r = await asignarAEnvio(envioId, ids.map(i => i.id))
@@ -155,7 +158,7 @@ export async function assignItems(envioId: number, itemIds: number[]): Promise<A
   const ids = itemIds.filter(Number.isInteger)
   if (ids.length === 0) return ok()
   const libres = await db.pedidoItem.findMany({
-    where: { id: { in: ids }, envioId: null },
+    where: { id: { in: ids }, envioId: null, pedido: { tipo: { not: 'venta' }, status: { not: 'cancelado' } } },
     select: { id: true },
   })
   const r = await asignarAEnvio(envioId, libres.map(i => i.id))
@@ -207,11 +210,18 @@ async function asignarAEnvio(envioId: number, itemIds: number[]): Promise<Action
     }),
     db.pedidoItem.findMany({
       where: { id: { in: itemIds } },
-      select: { id: true, productId: true, shippingStatus: true },
+      select: { id: true, productId: true, shippingStatus: true, pedido: { select: { tipo: true, status: true } } },
     }),
   ])
 
   if (!envio) return fallo(`La caja #${envioId} ya no existe.`)
+  // Una venta del depósito ya salió: no hay nada que comprar ni que viajar.
+  if (items.some(i => i.pedido.tipo === 'venta')) {
+    return fallo('Una venta del depósito ya está entregada: no viaja en ninguna caja.')
+  }
+  if (items.some(i => i.pedido.status === 'cancelado')) {
+    return fallo('Ese pedido está cancelado: no viaja en ninguna caja.')
+  }
   if (envio.modo !== 'aereo') {
     return fallo('Esa caja es marítima: lleva mercancía propia pieza por pieza, no pedidos.')
   }
@@ -273,7 +283,8 @@ export async function assignAllConfirmados(envioId: number, formData: FormData):
       envioId: null,
       pedido: {
         status: 'pedido',
-        ...(incluirPropio ? {} : { tipo: { not: 'propio' } }),
+        // Las ventas del depósito ya están entregadas: nunca van a una caja.
+        tipo: incluirPropio ? { not: 'venta' } : { notIn: ['propio', 'venta'] },
       },
     },
     select: { id: true },
@@ -323,6 +334,19 @@ export async function saveMedidasCaja(envioId: number, formData: FormData): Prom
   if (r.count === 0) return fallo('Ese envío ya no existe.')
   revalidatePath('/envios')
   revalidatePath(`/envios/${envioId}`)
+  return ok()
+}
+
+// El número de guía y quién la lleva. Solo se anotan (el sistema no consulta nada afuera): sirven
+// para encontrar la caja cuando el cliente pregunta dónde está su pieza. Vacío = no se sabe.
+export async function guardarGuia(envioId: number, formData: FormData): Promise<ActionResult> {
+  const guia = (formData.get('guia') as string)?.trim() || null
+  const transportista = (formData.get('transportista') as string)?.trim() || null
+  const r = await db.envio.updateMany({ where: { id: envioId }, data: { guia, transportista } })
+  if (r.count === 0) return fallo('Ese envío ya no existe.')
+  revalidatePath('/envios')
+  revalidatePath(`/envios/${envioId}`)
+  revalidatePath('/presupuestos')
   return ok()
 }
 
@@ -414,7 +438,7 @@ export async function pagarFlete(envioId: number, tramo: string, formData: FormD
 
       await tx.movimiento.create({
         data: {
-          fecha, tipo: 'egreso', categoria: t.categoria, monto, metodoPago,
+          fecha, tipo: 'egreso', categoria: t.categoria, monto, metodoPago, cuenta: cuentaDeMetodo(metodoPago),
           descripcion: descripcion ?? `${t.titulo} · caja #${envioId}`,
           envioId,
         },
@@ -502,7 +526,7 @@ export async function registrarPagoProveedor(envioId: number, formData: FormData
   if (envio.estado === 'borrador') return fallo('La caja está en borrador: confirmala antes de anotar pagos.')
 
   await db.movimiento.create({
-    data: { fecha, tipo: 'egreso', categoria, monto, metodoPago, descripcion, envioId, supplierId: envio.supplierId },
+    data: { fecha, tipo: 'egreso', categoria, monto, metodoPago, cuenta: cuentaDeMetodo(metodoPago), descripcion, envioId, supplierId: envio.supplierId },
   })
 
   revalidatePath('/envios')
@@ -529,7 +553,18 @@ export interface CambioItem {
 // Se parte de los ítems que REALMENTE están en este envío, así un id ajeno no puede tocar
 // nada, y el estado se normaliza a la ruta de cada uno: un ítem que despacha el proveedor
 // no puede quedar "en Shoppre".
-export async function saveItemChanges(envioId: number, cambios: CambioItem[]): Promise<ActionResult> {
+//
+// Entregar es el momento en que el cliente se lleva la mercancía, y los términos dicen que el saldo
+// se cancela contra entrega: entregar una línea de un pedido que todavía debe saldo se rechaza con
+// `codigo: 'saldo_pendiente'`, y solo pasa si quien lo pide lo confirma (`entregarConSaldo`) — queda
+// anotado en el historial del pedido. Una línea con un problema abierto (dañada, incompleta…) no se
+// entrega, y una "no disponible" no se compra; esas no se saltean. Cada cambio de etapa deja su fila
+// en `PedidoItemEtapa`, de donde salen los tiempos reales (lib/etapas.ts).
+export async function saveItemChanges(
+  envioId: number,
+  cambios: CambioItem[],
+  opciones: { entregarConSaldo?: boolean } = {},
+): Promise<ActionResult> {
   if (cambios.length === 0) return ok()
 
   // Una caja en borrador no es una compra todavía: sus líneas no se compran ni viajan.
@@ -540,7 +575,14 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]): P
     where: { envioId, id: { in: cambios.map(c => c.id) } },
     select: {
       id: true, shippingStatus: true, origen: true, inbound: true, isLanded: true,
-      productId: true, quantity: true, bundleItems: true, pedido: { select: { tipo: true } },
+      productId: true, quantity: true, bundleItems: true,
+      pedido: {
+        select: {
+          id: true, tipo: true, status: true, clientName: true, depositUsd: true,
+          items: { select: { salePrice: true, quantity: true } },
+        },
+      },
+      incidencias: { select: { tipo: true, estado: true } },
     },
   })
   if (items.length === 0) return ok()
@@ -558,6 +600,7 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]): P
   // estaba entregado antes de este cambio, ya se sumó, y si deja de estarlo hay que restarlo.
   const filas: { id: number; desde: string; hacia: string; signo: number }[] = []
   const conStock: (typeof items)[number][] = []
+  const conSaldo = new Map<number, { pedidoId: number; clientName: string; saldoUsd: number }>()
   for (const it of items) {
     const c = pedido.get(it.id)
     if (!c) continue
@@ -566,6 +609,26 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]): P
     const ruta = routeFor(inboundDe(it.origen, it.inbound), it.isLanded)
     const status = normalizeToRoute(destino, ruta)
     if (status === it.shippingStatus) continue
+
+    // Un pedido cancelado ya no viaja: sus piezas compradas pasaron a stock propio y el resto salió de la caja.
+    if (it.pedido.status === 'cancelado') {
+      return fallo(`El pedido #${it.pedido.id} (${it.pedido.clientName}) está cancelado: sus líneas no se mueven.`)
+    }
+    if (isPending(it.shippingStatus) && !isPending(status) && bloqueaCompra(it.incidencias)) {
+      return fallo(`Una pieza del pedido #${it.pedido.id} está marcada como no disponible: resolvé el problema antes de comprarla.`)
+    }
+    if (isDelivered(status) && bloqueaEntrega(it.incidencias)) {
+      return fallo(`Una pieza del pedido #${it.pedido.id} tiene un problema sin resolver (dañada, incompleta…): resolvelo antes de entregarla.`)
+    }
+    if (isDelivered(status) && it.pedido.tipo === 'cliente' && !isDelivered(it.shippingStatus)) {
+      const saldo = saldoReal(
+        it.pedido.items.map(i => ({ salePrice: Number(i.salePrice), quantity: i.quantity })),
+        it.pedido.depositUsd != null ? Number(it.pedido.depositUsd) : null,
+      )
+      if (debeSaldo(saldo) && !conSaldo.has(it.pedido.id)) {
+        conSaldo.set(it.pedido.id, { pedidoId: it.pedido.id, clientName: it.pedido.clientName, saldoUsd: saldo })
+      }
+    }
 
     let signo = 0
     if (it.pedido.tipo === 'propio') {
@@ -577,6 +640,11 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]): P
     filas.push({ id: it.id, desde: it.shippingStatus, hacia: status, signo })
   }
   if (filas.length === 0) return ok()
+
+  // El saldo se cobra contra entrega: sin confirmación expresa no se entrega con plata pendiente.
+  if (conSaldo.size > 0 && !opciones.entregarConSaldo) {
+    return fallo(mensajeEntregaConSaldo([...conSaldo.values()]), 'saldo_pendiente')
+  }
 
   // Qué piezas del catálogo mueve cada línea: la pieza suelta, o las piezas del conjunto (ver
   // lib/stock-piezas). Si alguna pieza de un conjunto no se puede identificar no se entrega
@@ -616,10 +684,15 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]): P
         END
     FROM v
     WHERE pi."id" = v.id AND pi."envioId" = ${envioId} AND pi."shippingStatus" = v.desde
-    RETURNING pi."id", v.signo`
+    RETURNING pi."id", v.signo, v.desde, v.hacia`
+  // Cada fila que de verdad se movió deja su paso en el historial (misma sentencia: no hay un
+  // cambio de etapa sin su registro ni un registro de uno que otra request ya hizo).
+  const etapa = Prisma.sql`
+    INSERT INTO "PedidoItemEtapa" ("itemId", "desde", "hacia", "at")
+    SELECT m."id", m.desde, m.hacia, (NOW() AT TIME ZONE 'UTC') FROM movidas m`
 
   if (piezas.length === 0) {
-    await db.$executeRaw`WITH v(id, desde, hacia, signo) AS (VALUES ${valores}) ${mover}`
+    await db.$executeRaw`WITH v(id, desde, hacia, signo) AS (VALUES ${valores}), movidas AS (${mover}) ${etapa}`
   } else {
     const valoresPiezas = Prisma.join(
       piezas.map(p => Prisma.sql`(${p.itemId}::int, ${p.productId}::int, ${p.unidades}::int)`),
@@ -628,7 +701,8 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]): P
       await tx.$executeRaw`
         WITH v(id, desde, hacia, signo) AS (VALUES ${valores}),
         piezas(item_id, product_id, unidades) AS (VALUES ${valoresPiezas}),
-        movidas AS (${mover})
+        movidas AS (${mover}),
+        etapas AS (${etapa})
         UPDATE "Product" AS p
         SET "stock" = p."stock" + s.delta, "updatedAt" = NOW()
         FROM (
@@ -655,10 +729,23 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]): P
     if (!r.ok) return r
   }
 
+  if (conSaldo.size > 0) {
+    await db.pedidoEvento.createMany({
+      data: [...conSaldo.values()].map(c => ({
+        pedidoId: c.pedidoId,
+        tipo: 'entrega_con_saldo',
+        detalle: `Se entregó con saldo pendiente de $${c.saldoUsd.toFixed(2)} (confirmado al marcar la entrega)`,
+      })),
+    })
+    for (const c of conSaldo.values()) revalidatePath(`/presupuestos/${c.pedidoId}`)
+    revalidatePath('/contabilidad')
+  }
+
   revalidatePath(`/envios/${envioId}`)
   revalidatePath('/envios')
   revalidatePath('/presupuestos')
   revalidatePath('/inventario')
+  revalidatePath('/resultados')
   if (piezas.length > 0) {
     revalidatePath('/contabilidad')
     revalidatePath('/products')

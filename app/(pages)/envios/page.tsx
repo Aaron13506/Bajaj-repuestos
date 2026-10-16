@@ -7,11 +7,12 @@ import { stageSummary, SHIPPING_STATUSES } from '@/lib/shipping-status'
 import { inboundDe, inboundMeta } from '@/lib/inbound'
 import { costearEnvios } from '@/lib/costo-envios'
 import { CATEGORIAS_FLETE, resumenFletes } from '@/lib/flete-real'
+import { tiempoDeCompraA, tiemposPorTramo } from '@/lib/etapas'
 
 export default async function EnviosPage() {
   // Una sola tanda: ninguna de las tres depende de las otras y encadenarlas costaba
   // tres veces la latencia hasta la base.
-  const [envios, sinAsignar, suppliers, costos, pagosFlete] = await Promise.all([
+  const [envios, sinAsignar, suppliers, costos, pagosFlete, etapas] = await Promise.all([
     db.envio.findMany({
       include: {
         items: { select: { id: true, shippingStatus: true, pedidoId: true } },
@@ -20,7 +21,7 @@ export default async function EnviosPage() {
       },
       orderBy: { createdAt: 'desc' },
     }),
-    db.pedidoItem.count({ where: { envioId: null } }),
+    db.pedidoItem.count({ where: { envioId: null, pedido: { tipo: { not: 'venta' }, status: { not: 'cancelado' } } } }),
     // Proveedores para las DOS rutas. El aéreo no los ofrecía porque por avión se le
     // compraba siempre a 99rpm; dejó de ser cierto cuando aparecieron proveedores que
     // despachan por su cuenta y hoy viajan cajas suyas en paralelo con las de Shoppre.
@@ -36,7 +37,16 @@ export default async function EnviosPage() {
       where: { tipo: 'egreso', envioId: { not: null }, categoria: { in: [...CATEGORIAS_FLETE] } },
       _sum: { monto: true },
     }),
+    // Cada cambio de etapa de cada línea: de ahí salen los tiempos REALES (lib/etapas.ts). Solo
+    // existen desde que se empezaron a guardar; las líneas anteriores no tienen historia y no se inventa.
+    db.pedidoItemEtapa.findMany({
+      select: { itemId: true, desde: true, hacia: true, at: true },
+      orderBy: { at: 'desc' },
+      take: 5000,
+    }),
   ])
+  const tramos = tiemposPorTramo(etapas)
+  const compraAVenezuela = tiempoDeCompraA(etapas, 'en_venezuela')
   const pagadoFlete = new Map<string, number>(
     pagosFlete.map(p => [`${p.envioId}:${p.categoria}`, parseFloat((p._sum.monto ?? 0).toString())]),
   )
@@ -51,6 +61,33 @@ export default async function EnviosPage() {
           cliente</span>, la marítima se arma con <span className="font-medium">mercancía propia</span> pieza por pieza.
         </p>
       </div>
+
+      {/* Cuánto tarda de verdad: es lo que se le promete al cliente. */}
+      {compraAVenezuela && (
+        <div className="mb-6 bg-white rounded-xl shadow-sm border border-gray-100 px-5 py-4">
+          <div className="flex items-baseline justify-between gap-3 flex-wrap mb-2">
+            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Tiempos reales</h2>
+            <p className="text-xs text-gray-400">de las {etapas.length} etapas registradas</p>
+          </div>
+          <p className="text-sm text-gray-700">
+            De comprado a <strong>en Venezuela</strong>:{' '}
+            <span className="font-mono font-semibold">{compraAVenezuela.medianaDias.toFixed(0)} días</span> (mediana)
+            <span className="text-gray-400">
+              {' '}· promedio {compraAVenezuela.promedioDias.toFixed(0)} · entre {compraAVenezuela.minDias.toFixed(0)} y {compraAVenezuela.maxDias.toFixed(0)} · {compraAVenezuela.n} línea{compraAVenezuela.n === 1 ? '' : 's'}
+            </span>
+          </p>
+          {tramos.length > 0 && (
+            <ul className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-0.5 text-xs text-gray-500">
+              {tramos.map(t => (
+                <li key={t.tramo} className="flex justify-between gap-2">
+                  <span>{SHIPPING_STATUSES.find(s => s.value === t.desde)?.short} → {SHIPPING_STATUSES.find(s => s.value === t.hacia)?.short}</span>
+                  <span className="font-mono">{t.medianaDias.toFixed(1)} d <span className="text-gray-300">({t.n})</span></span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* Un embarque marítimo en borrador es el planificador: se sigue llenando hasta que
           se cierra. Va arriba de todo porque es trabajo a medio terminar — si queda

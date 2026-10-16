@@ -123,9 +123,11 @@ export default async function ClienteDetailPage({
             {cliente.pedidos.map(p => {
               const total = pedidoTotal(p.items)
               const isPresupuesto = p.status === 'presupuesto'
+              const isCancelado = p.status === 'cancelado'
               const depositUsd = p.depositUsd != null ? parseFloat(p.depositUsd.toString()) : null
-              // Un presupuesto sin aprobar no tiene saldo: no se vendió nada todavía.
-              const saldoPed = !isPresupuesto && depositUsd != null ? total - depositUsd : null
+              // Un presupuesto sin aprobar no tiene saldo (no se vendió nada todavía) y uno cancelado
+              // tampoco: lo que dejó se decidió al cancelarlo.
+              const saldoPed = !isPresupuesto && !isCancelado && depositUsd != null ? total - depositUsd : null
               return (
                 <div key={p.id} className="px-6 py-3 flex items-center justify-between hover:bg-gray-50">
                   <div>
@@ -136,9 +138,9 @@ export default async function ClienteDetailPage({
                       {p.items.length} {p.items.length === 1 ? 'pieza' : 'piezas'}
                     </span>
                     <span className={`ml-2 text-xs font-semibold px-2 py-0.5 rounded-full ${
-                      isPresupuesto ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'
+                      isCancelado ? 'bg-red-100 text-red-700' : isPresupuesto ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'
                     }`}>
-                      {isPresupuesto ? 'Presupuesto' : 'Pedido'}
+                      {isCancelado ? 'Cancelado' : isPresupuesto ? 'Presupuesto' : 'Pedido'}
                     </span>
                     <p className="text-xs text-gray-400 mt-1">
                       {new Date(p.createdAt).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' })}

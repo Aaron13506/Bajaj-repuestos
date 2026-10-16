@@ -15,6 +15,7 @@ import {
 } from '@/app/(pages)/presupuestos/builder-actions'
 import { compararNombre } from '@/lib/utils'
 import { claveLinea } from '@/lib/linea-pedido'
+import { etiquetaPieza } from '@/lib/incidencias'
 import { esRedireccion } from '@/lib/redireccion'
 import type { ActionResult } from '@/lib/action-result'
 
@@ -52,6 +53,17 @@ interface Assembly {
 // Una línea es una pieza suelta (`productId`) o un conjunto (`ensambleId`), nunca las dos. Un id
 // de pieza y uno de ensamble pueden coincidir —son tablas distintas—, así que lo que identifica
 // a la línea es `claveLinea(item)` y no el número suelto.
+// Lo que se puede hacer con una línea de un pedido YA CONFIRMADO (ver lib/pedido-edicion.ts): una
+// que ya se compró solo admite bajar la cantidad o cambiar el precio; una entregada no se toca.
+// Es lo que el servidor va a exigir; acá solo se evita ofrecer lo que va a rechazar.
+interface Restriccion {
+  cantidadMaxima: number | null
+  puedeCambiarConjunto: boolean
+  puedeCambiarPrecio: boolean
+  puedeQuitar: boolean
+  nota: string | null
+}
+
 interface CartItem {
   productId: number | null
   ensambleId: number | null
@@ -70,6 +82,15 @@ interface CartItem {
   descontinuada?: boolean
   /** Si está presente, la línea es un conjunto a precio único y estas son las piezas incluidas. */
   bundleItems?: BundlePiece[]
+  /** Solo al editar un pedido confirmado: lo que esta línea admite según haya avanzado. */
+  restriccion?: Restriccion
+  /**
+   * Solo al editar un pedido confirmado: piezas de este conjunto marcadas como "no disponible"
+   * (etiquetaPieza). Quitarlas del conjunto cierra ese problema al guardar.
+   */
+  noDisponibles?: string[]
+  /** Toda la línea está marcada como no disponible (no una pieza en particular). */
+  lineaNoDisponible?: boolean
   /**
    * El precio lo fijó una persona a mano (o viene de un presupuesto ya emitido). Las líneas
    * sin tocar siguen automáticamente al precio sugerido por el costo landed; las tocadas
@@ -95,6 +116,8 @@ interface Props {
   /** Clientes existentes para elegir (solo aplica cuando tipo === 'cliente'). */
   clientes?: ClienteOption[]
   initialClienteId?: number | null
+  /** Editando un pedido confirmado: el cliente no se cambia (el adelanto y el escalón ya son suyos). */
+  clienteFijo?: boolean
   /** Lo que ya tengo de cada pieza (aquí / en camino / en borrador). Solo informativo. */
   posiciones?: PosicionesStock
 }
@@ -114,6 +137,7 @@ export default function PresupuestoBuilder({
   tipo = 'cliente',
   clientes = [],
   initialClienteId = null,
+  clienteFijo = false,
   posiciones,
 }: Props) {
   const isPropio = tipo === 'propio'
@@ -134,6 +158,7 @@ export default function PresupuestoBuilder({
   const [notas, setNotas] = useState(initialNotas)
   const [submitting, setSubmitting] = useState(false)
   const [errorGuardado, setErrorGuardado] = useState<string | null>(null)
+  const [avisoBloqueo, setAvisoBloqueo] = useState<string | null>(null)
 
   // Componentes cargados on-demand por ensamble (cache en memoria).
   const [compCache, setCompCache] = useState<Record<number, AssemblyComponent[]>>({})
@@ -235,11 +260,20 @@ export default function PresupuestoBuilder({
       else byChild.set(comp.product.id, { comp, qty })
     }
     if (byChild.size === 0) return
+    // Qué líneas del carrito no admiten más unidades (se calcula acá y no dentro del updater, que
+    // React corre después y más de una vez).
+    const avisados = [...byChild.values()].flatMap(({ comp }) => {
+      const en = cart.find(c => c.ensambleId == null && c.productId === comp.product.id)
+      return en?.restriccion ? [en.nameEs] : []
+    })
     setCart(prev => {
       const next = [...prev]
       for (const { comp, qty } of byChild.values()) {
         const idx = next.findIndex(c => c.ensambleId == null && c.productId === comp.product.id)
         if (idx >= 0) {
+          // Una línea ya comprada o entregada no admite más unidades: se pedirían a un proveedor
+          // al que no se le compraron. Se saltea y se avisa en vez de sumarla en silencio.
+          if (next[idx].restriccion) continue
           next[idx] = { ...next[idx], quantity: next[idx].quantity + qty }
         } else {
           next.push({
@@ -256,6 +290,9 @@ export default function PresupuestoBuilder({
       }
       return next
     })
+    setAvisoBloqueo(avisados.length > 0
+      ? `Ya se compró o entregó: ${avisados.join(', ')}. No se le suman unidades; pedilas en un pedido aparte.`
+      : null)
     setChecked({})
     setQuantities({})
   }
@@ -302,27 +339,45 @@ export default function PresupuestoBuilder({
   }
 
   function removeFromCart(clave: string) {
-    setCart(prev => prev.filter(c => claveLinea(c) !== clave))
+    setCart(prev => prev.filter(c => claveLinea(c) !== clave || c.restriccion?.puedeQuitar === false))
   }
 
   function updateCartQty(clave: string, qty: number) {
     if (qty < 1) return
-    setCart(prev => prev.map(c => claveLinea(c) === clave ? { ...c, quantity: qty } : c))
+    setCart(prev => prev.map(c => {
+      if (claveLinea(c) !== clave) return c
+      const max = c.restriccion?.cantidadMaxima
+      // Una línea ya comprada no sube de lo que se compró; una entregada no cambia.
+      if (c.restriccion?.puedeQuitar === false) return c
+      return { ...c, quantity: max != null ? Math.min(qty, max) : qty }
+    }))
   }
 
   // Un precio escrito a mano queda marcado como fijado: a partir de ahí el costeo deja de
   // moverlo, aunque cambie la tarifa o el proveedor.
   function updateCartPrice(clave: string, price: number) {
     if (isNaN(price) || price < 0) return
-    setCart(prev => prev.map(c => claveLinea(c) === clave ? { ...c, unitPrice: price, touched: true } : c))
+    setCart(prev => prev.map(c =>
+      claveLinea(c) === clave && c.restriccion?.puedeCambiarPrecio !== false ? { ...c, unitPrice: price, touched: true } : c,
+    ))
   }
 
   // Cantidad de una pieza puntual dentro de un conjunto (por set; se multiplica ×
   // cantidad del conjunto al mostrar/imprimir/pedir a proveedor).
+  // Saca UNA pieza de un conjunto: casi nunca falta todo, falta un SKU. El precio del conjunto no se
+  // mueve solo (puede estar conversado con el cliente): queda el sugerido al lado para decidirlo.
+  function quitarPiezaDeConjunto(clave: string, pieceIndex: number) {
+    setCart(prev => prev.map(c => {
+      if (claveLinea(c) !== clave || !c.bundleItems || c.restriccion?.puedeCambiarConjunto === false) return c
+      if (c.bundleItems.length <= 1) return c
+      return { ...c, bundleItems: c.bundleItems.filter((_, i) => i !== pieceIndex) }
+    }))
+  }
+
   function updateBundlePieceQty(clave: string, pieceIndex: number, qty: number) {
     if (qty < 1) return
     setCart(prev => prev.map(c => {
-      if (claveLinea(c) !== clave || !c.bundleItems) return c
+      if (claveLinea(c) !== clave || !c.bundleItems || c.restriccion?.puedeCambiarConjunto === false) return c
       const bundleItems = c.bundleItems.map((p, i) => i === pieceIndex ? { ...p, quantity: qty } : p)
       return { ...c, bundleItems }
     }))
@@ -435,7 +490,7 @@ export default function PresupuestoBuilder({
   function aplicarSugeridos() {
     setCart(prev => prev.map(c => {
       const s = costoPorLinea.get(claveLinea(c))?.sugeridoUnitUsd
-      return s != null ? { ...c, unitPrice: +s.toFixed(2), touched: true } : c
+      return s != null && c.restriccion?.puedeCambiarPrecio !== false ? { ...c, unitPrice: +s.toFixed(2), touched: true } : c
     }))
   }
 
@@ -838,6 +893,9 @@ export default function PresupuestoBuilder({
               )}
             </h2>
 
+            {avisoBloqueo && (
+              <p className="text-[11px] bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-2.5 py-2 mb-2">{avisoBloqueo}</p>
+            )}
             {cart.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-10">
                 Seleccioná piezas para agregar al presupuesto
@@ -891,6 +949,14 @@ export default function PresupuestoBuilder({
                               )}
                             </div>
                           )}
+                          {item.restriccion?.nota && (
+                            <p className="text-[11px] text-amber-700 mt-0.5">🔒 {item.restriccion.nota}</p>
+                          )}
+                          {item.lineaNoDisponible && (
+                            <p className="text-[11px] text-amber-800 font-medium mt-0.5">
+                              ⚠ Marcada como no disponible: cambiala o quitala para poder comprarla.
+                            </p>
+                          )}
                           {/* Costo real de traer esta línea. Es lo que decide si el precio
                               de al lado deja plata o la pierde. */}
                           {(() => {
@@ -919,7 +985,7 @@ export default function PresupuestoBuilder({
                                     {c.sinPeso} sin peso
                                   </span>
                                 )}
-                                {sugeridoUnit != null && Math.abs(sugeridoUnit - item.unitPrice) >= 0.01 && (
+                                {sugeridoUnit != null && Math.abs(sugeridoUnit - item.unitPrice) >= 0.01 && item.restriccion?.puedeCambiarPrecio !== false && (
                                   <button
                                     type="button"
                                     onClick={() => updateCartPrice(claveLinea(item), +sugeridoUnit.toFixed(2))}
@@ -936,10 +1002,12 @@ export default function PresupuestoBuilder({
                         <input
                           type="number"
                           min={1}
+                          max={item.restriccion?.cantidadMaxima ?? undefined}
+                          disabled={item.restriccion?.puedeQuitar === false}
                           value={item.quantity}
                           onChange={e => updateCartQty(claveLinea(item), parseInt(e.target.value) || 1)}
                           title={item.bundleItems ? 'Cantidad de conjuntos (multiplica cada pieza del desglose)' : undefined}
-                          className="w-14 border border-gray-200 rounded px-2 py-0.5 text-sm text-center shrink-0"
+                          className="w-14 border border-gray-200 rounded px-2 py-0.5 text-sm text-center shrink-0 disabled:bg-gray-50 disabled:text-gray-400"
                         />
                         {item.bundleItems ? (
                           <div className="flex items-center gap-1.5 shrink-0">
@@ -950,8 +1018,9 @@ export default function PresupuestoBuilder({
                                 min={0}
                                 step="0.01"
                                 value={item.unitPrice}
+                                disabled={item.restriccion?.puedeCambiarPrecio === false}
                                 onChange={e => updateCartPrice(claveLinea(item), parseFloat(e.target.value))}
-                                className="w-20 border border-gray-200 rounded px-2 py-0.5 text-sm text-right font-mono"
+                                className="w-20 border border-gray-200 rounded px-2 py-0.5 text-sm text-right font-mono disabled:bg-gray-50 disabled:text-gray-400"
                                 title="Precio del conjunto (por set)"
                               />
                             </div>
@@ -969,8 +1038,9 @@ export default function PresupuestoBuilder({
                         <button
                           type="button"
                           onClick={() => removeFromCart(claveLinea(item))}
-                          className="text-gray-300 hover:text-red-500 transition-colors shrink-0"
-                          title="Quitar"
+                          disabled={item.restriccion?.puedeQuitar === false}
+                          className="text-gray-300 hover:text-red-500 transition-colors shrink-0 disabled:opacity-20 disabled:hover:text-gray-300 disabled:cursor-not-allowed"
+                          title={item.restriccion?.puedeQuitar === false ? 'Ya se entregó: no se puede quitar' : 'Quitar'}
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -989,27 +1059,50 @@ export default function PresupuestoBuilder({
                               <ul className="space-y-1">
                                 {pieces.map((p) => {
                                   const pieceIndex = item.bundleItems!.indexOf(p)
+                                  const noHay = item.noDisponibles?.includes(etiquetaPieza(p)) ?? false
+                                  const puedeQuitarPieza = item.restriccion?.puedeCambiarConjunto !== false && item.bundleItems!.length > 1
                                   return (
-                                    <li key={pieceIndex} className="flex items-center gap-1.5 text-xs text-gray-500">
+                                    <li key={pieceIndex} className={`flex items-center gap-1.5 text-xs text-gray-500 ${noHay ? 'bg-amber-50 rounded px-1 -mx-1' : ''}`}>
                                       <input
                                         type="number"
                                         min={1}
                                         value={p.quantity}
+                                        disabled={item.restriccion?.puedeCambiarConjunto === false}
                                         onChange={e =>
                                           updateBundlePieceQty(claveLinea(item), pieceIndex, parseInt(e.target.value) || 1)
                                         }
                                         title="Cantidad de esta pieza por set"
                                         className="w-12 border border-gray-200 rounded px-1 py-0.5 text-xs text-center shrink-0"
                                       />
-                                      <span className="truncate">× {p.nameEs}</span>
+                                      <span className={`truncate ${noHay ? 'text-amber-800 font-medium' : ''}`}>× {p.nameEs}</span>
                                       {p.bajajCode && (
                                         <span className="font-mono text-gray-300 shrink-0">{p.bajajCode}</span>
+                                      )}
+                                      {noHay && (
+                                        <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                                          no disponible — quitala
+                                        </span>
                                       )}
                                       {item.quantity > 1 && (
                                         <span className="text-gray-300 shrink-0">
                                           → {p.quantity * item.quantity} total
                                         </span>
                                       )}
+                                      <button
+                                        type="button"
+                                        onClick={() => quitarPiezaDeConjunto(claveLinea(item), pieceIndex)}
+                                        disabled={!puedeQuitarPieza}
+                                        title={
+                                          item.restriccion?.puedeCambiarConjunto === false
+                                            ? 'Ya se compró: no se cambia qué piezas lleva'
+                                            : item.bundleItems!.length <= 1
+                                              ? 'Es la única pieza: quitá la línea'
+                                              : 'Quitar esta pieza del conjunto'
+                                        }
+                                        className="ml-auto shrink-0 text-gray-300 hover:text-red-500 disabled:opacity-30 disabled:hover:text-gray-300 px-1"
+                                      >
+                                        ✕
+                                      </button>
                                     </li>
                                   )
                                 })}
@@ -1166,15 +1259,19 @@ export default function PresupuestoBuilder({
                   <select
                     value={clienteId}
                     onChange={e => setClienteId(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    disabled={clienteFijo}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
                     required
                   >
                     <option value="">Elegí un cliente…</option>
                     {clientes.map(c => (
                       <option key={c.id} value={c.id}>{c.nombre}</option>
                     ))}
-                    <option value="__new__">+ Nuevo cliente</option>
+                    {!clienteFijo && <option value="__new__">+ Nuevo cliente</option>}
                   </select>
+                  {clienteFijo && (
+                    <p className="text-[11px] text-gray-400 mt-1">El pedido ya está confirmado: el cliente no se cambia.</p>
+                  )}
                 </div>
                 {clienteId === '__new__' && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

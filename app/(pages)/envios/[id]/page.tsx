@@ -36,6 +36,7 @@ import {
   deleteEnvio,
   saveCostosProveedor,
   saveMedidasCaja,
+  guardarGuia,
   guardarFleteReal,
   pagarFlete,
   deshacerPagoFlete,
@@ -136,7 +137,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     }),
     db.config.findMany(),
     db.pedidoItem.findMany({
-      where: { envioId: null },
+      where: { envioId: null, pedido: { tipo: { not: 'venta' }, status: { not: 'cancelado' } } },
       include: {
         product: { select: { nameEs: true, bajajCode: true, discontinuedAt: true } },
         ensamble: { select: { nameEs: true, nameEn: true } },
@@ -923,6 +924,17 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                           ? '✓ Buena utilización: estás llenando el volumen que ya pagás por peso.'
                           : 'Desperdiciás volumen pagado. Podés colar piezas voluminosas y ligeras (plásticos) casi gratis hasta llegar al 100%.'}
                     </p>
+                    {/* La frontera peso/volumen de una caja sin pesar no es un hecho: el reparto entre pedidos
+                        pasa de uno a otro de forma gradual, y esto lo dice para que nadie lea un costo por
+                        pedido como definitivo. */}
+                    {calc.air.repartoVolumen != null && calc.air.repartoVolumen > 0 && calc.air.repartoVolumen < 1 && (
+                      <p className="text-xs mt-2 px-3 py-2 rounded-lg bg-blue-50 text-blue-800">
+                        Caja sin pesar y medir: el volumétrico apenas supera al real, y eso está dentro del error de
+                        sumar las piezas. Por eso el flete aéreo se reparte entre los pedidos{' '}
+                        <strong>{Math.round((1 - calc.air.repartoVolumen) * 100)}% por peso y {Math.round(calc.air.repartoVolumen * 100)}% por volumen</strong>,
+                        y no todo por volumen. Pesala y medila, y cargá el flete facturado, para fijar el reparto.
+                      </p>
+                    )}
                   </div>
                 )}
 
@@ -1118,6 +1130,27 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                   Guardar
                 </PendingButton>
               </div>
+            </FormConResultado>
+
+            {/* Guía: solo se anota. Sirve para encontrar la caja cuando el cliente pregunta dónde está su pieza. */}
+            <FormConResultado action={guardarGuia.bind(null, envio.id)} className="mt-5 pt-4 border-t border-gray-100 flex flex-wrap items-end gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Guía / tracking</label>
+                <input
+                  type="text" name="guia" defaultValue={envio.guia ?? ''} placeholder="Ej: SHP-64898"
+                  className="w-48 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Transportista</label>
+                <input
+                  type="text" name="transportista" defaultValue={envio.transportista ?? ''} placeholder="Ej: Shoppre / DHL"
+                  className="w-40 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+              <PendingButton className="px-4 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+                Guardar guía
+              </PendingButton>
             </FormConResultado>
 
             {calc.caja.medido && (

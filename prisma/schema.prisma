@@ -328,6 +328,9 @@ model Envio {
   cajaL            Float?
   cajaA            Float?
   cajaH            Float?
+  // Número de guía / tracking y quién la lleva. Solo se anotan: el sistema no consulta nada afuera.
+  guia             String?
+  transportista    String?
   // Carga COMERCIAL: piezas que ya se le vendieron a alguien. Es el carril aéreo.
   items            PedidoItem[]
   // Carga PROPIA: mercancía que traigo para stock. Es el carril marítimo.
@@ -371,6 +374,8 @@ model Pedido {
   notas         String?
   // 'cliente' = pedido de un cliente (requiere aprobación + adelanto).
   // 'propio'  = stock que traigo para revender por mi cuenta (sin cliente ni adelanto).
+  // 'venta'   = una venta del depósito (lib/venta-stock.ts): nace confirmada y entregada, sin
+  //             compra ni caja; sus líneas guardan en costRealUsd lo que costaba lo vendido.
   tipo          String       @default("cliente")
   status        String       @default("presupuesto")
   // Adelanto: se llenan al aprobar un presupuesto de cliente (ver aprobarPedido). Desde el
@@ -395,8 +400,98 @@ model Pedido {
   cliente       Cliente?     @relation(fields: [clienteId], references: [id], onDelete: SetNull)
   items         PedidoItem[]
   movimientos   Movimiento[]
+  // ── Fuera del camino feliz (lib/pedido-cancelacion.ts, lib/incidencias.ts) ──────────────
+  // status = 'cancelado' ⇔ canceladoAt tiene fecha (CHECK Pedido_cancelado_coherente). Un pedido
+  // cancelado conserva lo cobrado que no se devolvió (depositUsd): es plata que se quedó.
+  canceladoAt     DateTime?
+  canceladoMotivo String?
+  // Cuándo se emitió o renovó el presupuesto y con qué escalón BCV se le presentó al cliente.
+  // La validez corre desde acá y el escalón de la aprobación es ESTE, no el del día en que
+  // se aprueba (lib/validez.ts). Null = presupuesto anterior: vale su fecha de creación y el
+  // escalón de hoy, como siempre.
+  cotizadoAt         DateTime?
+  escalonCotizadoPct Decimal?   @db.Decimal(5, 2)
+  // Un pedido que nace de otro: 'reposicion' (se vuelve a mandar una pieza que llegó mal, a $0)
+  // o 'sobrante' (lo ya comprado que el cliente no se lleva y pasa a stock propio).
+  origenId      Int?
+  origenMotivo  String?
+  origen        Pedido?      @relation("PedidoDerivado", fields: [origenId], references: [id], onDelete: SetNull)
+  derivados     Pedido[]     @relation("PedidoDerivado")
+  eventos       PedidoEvento[]
+  incidencias   Incidencia[]
+  reposicionesDe Incidencia[] @relation("IncidenciaReposicion")
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
+
+  @@index([origenId])
+}
+
+// Lo que se le hizo a un pedido ya confirmado (se editó, se canceló, se entregó con saldo…).
+// Una línea de texto por hecho: no se lee para calcular nada, es la memoria de por qué el
+// pedido de hoy no es el que aceptó el cliente.
+model PedidoEvento {
+  id        Int      @id @default(autoincrement())
+  pedidoId  Int
+  tipo      String
+  detalle   String
+  createdAt DateTime @default(now())
+
+  pedido Pedido @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+
+  @@index([pedidoId, createdAt])
+}
+
+// Cada cambio de etapa de una línea. PedidoItem.shippingStatusAt solo guarda el último, y con
+// eso no se puede medir cuánto tarda de verdad cada tramo (lib/etapas.ts).
+model PedidoItemEtapa {
+  id     Int      @id @default(autoincrement())
+  itemId Int
+  desde  String
+  hacia  String
+  at     DateTime @default(now())
+
+  item PedidoItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId, at])
+  @@index([hacia])
+}
+
+// Lo que le pasa a una línea fuera del camino feliz (lib/incidencias.ts): una pieza que el
+// proveedor no tiene, una que llegó dañada, perdida o incompleta, o un reclamo del cliente.
+// Cuelga del pedido y no solo de la línea porque la línea puede desaparecer (se reembolsó
+// entera) y la plata que se perdió tiene que quedar en el pedido.
+model Incidencia {
+  id           Int       @id @default(autoincrement())
+  pedidoId     Int
+  itemId       Int?
+  // Nombre de la pieza al momento de anotarla: la línea puede ya no estar.
+  descripcion  String
+  // Solo en un conjunto: cuál de sus piezas es la del problema (etiquetaPieza: «Nombre (CÓDIGO)»).
+  // null = la línea entera. Es lo que deja cerrar un "no disponible" quitando solo esa pieza.
+  pieza        String?
+  // no_disponible | danada | perdida | faltante | equivocada | defecto
+  tipo         String
+  // 'operacion' = lo detecté yo; 'cliente' = lo reclamó el cliente después de entregarle.
+  origen       String    @default("operacion")
+  cantidad     Int
+  nota         String?
+  // abierta | resuelta (resuelta ⇔ tiene resolucion y resueltaAt)
+  estado       String    @default("abierta")
+  // llego | reposicion | reembolso | rechazado | sustituida
+  resolucion   String?
+  // Lo que costó lo perdido (reembolso). Entra al margen del pedido: ver lib/margen.ts.
+  perdidaUsd   Decimal?  @db.Decimal(10, 2)
+  reposicionId Int?
+  creadaAt     DateTime  @default(now())
+  resueltaAt   DateTime?
+
+  pedido     Pedido      @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  item       PedidoItem? @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  reposicion Pedido?     @relation("IncidenciaReposicion", fields: [reposicionId], references: [id], onDelete: SetNull)
+
+  @@index([pedidoId])
+  @@index([itemId])
+  @@index([estado])
 }
 
 model PedidoItem {
@@ -446,6 +541,8 @@ model PedidoItem {
   ensamble Ensamble? @relation(fields: [ensambleId], references: [id], onDelete: Restrict)
   envio    Envio?    @relation(fields: [envioId], references: [id], onDelete: SetNull)
   supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  etapas      PedidoItemEtapa[]
+  incidencias Incidencia[]
 
   @@unique([pedidoId, productId])
   @@unique([pedidoId, ensambleId])
@@ -477,6 +574,18 @@ model Movimiento {
   pedidoId    Int?
   envioId     Int?
   supplierId  Int?
+  // ¿En qué cuenta entró o de cuál salió? (lib/cuentas.ts). Se deriva del método de pago al
+  // anotarlo. Null = no se sabe (movimientos sin método, o la apertura de caja).
+  cuenta      String?
+  // Lo que pasó por la cuenta en bolívares y a qué tasa (Bs por USD). `monto` sigue siendo
+  // dólares REALES y es lo único que suma la caja; esto solo deja constancia de la moneda en
+  // que se movió, para cuadrar contra el banco y para ver qué costó pasar Bs a USDT. Van los
+  // dos o ninguno, y ninguno se calcula después: son lo que se anotó ese día.
+  montoBs     Decimal? @db.Decimal(16, 2)
+  tasaBs      Decimal? @db.Decimal(14, 4)
+  // Las dos patas de una conversión entre cuentas (Bs → USDT) comparten este valor: se
+  // anotan y se borran juntas. Null = movimiento suelto.
+  grupo       String?
   createdAt   DateTime @default(now())
 
   pedido   Pedido?   @relation(fields: [pedidoId], references: [id], onDelete: SetNull)
@@ -486,6 +595,8 @@ model Movimiento {
   @@index([fecha])
   @@index([pedidoId])
   @@index([envioId])
+  @@index([cuenta])
+  @@index([grupo])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

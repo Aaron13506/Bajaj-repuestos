@@ -31,6 +31,7 @@ export const FIELD_META: Record<string, FieldMeta> = {
   reference_weight_kg:    { label: 'Peso de referencia (kg)',      hint: 'Peso total del envío de referencia para prorratear costos Shoppre' },
   air_volumetric_divisor: { label: 'Divisor volumétrico aéreo',     hint: 'vol_kg = L×A×H(cm) / divisor. Shoppre/ShipGlobal: 5000 (IATA clásico: 6000)' },
   miami_caracas_per_ft3:  { label: 'Marítimo Miami → CCS (USD/ft³)', hint: 'Costo del flete marítimo por pie cúbico' },
+  caja_sin_pesar_tolerancia_pct: { label: 'Tolerancia de una caja sin pesar (%)', hint: 'En una caja que todavía no se pesó y midió, "ata el volumen" sale de comparar dos sumas de piezas. Si el volumétrico supera al real por menos de este %, el flete aéreo se reparte entre pedidos de forma gradual (peso → volumen) y no todo por volumen. Con la caja pesada y medida no aplica. Default 10' },
   shoppre_insurance_pct:  { label: 'Seguro Shoppre (fracción)',    hint: 'P.ej. 0.03 = 3% sobre el valor declarado' },
   shoppre_processing_inr: { label: 'Processing fee Shoppre (INR)', hint: 'Cargo fijo por paquete en rupias' },
   // ── Escenario marítimo directo (India → Venezuela por mar, sin aéreo ni escala en USA).
@@ -50,6 +51,8 @@ export const FIELD_META: Record<string, FieldMeta> = {
   // un ensamble ensanchan la tabla y todavía no se usan; apagadas por defecto.
   ensambles_columnas_maritimas: { label: 'Columnas marítimas en ensambles', hint: 'Muestra las columnas 🚢 (m³, flete mar, landed mar, venta mar, Δ) en la tabla de componentes de cada ensamble. Solo cambia qué se ve: el costeo no cambia', boolean: true, booleanDefault: false, checkLabel: 'Mostrar las columnas 🚢 en la ficha del ensamble' },
   default_margin_pct:     { label: 'Margen por defecto (%)',       hint: 'Margen de ganancia al crear un producto; luego se ajusta por producto' },
+  presupuesto_validez_dias: { label: 'Validez del presupuesto (días)', hint: 'Cuántos días vale un presupuesto desde que se cotiza o renueva. Pasado el plazo no se puede confirmar: se renueva (nueva fecha y escalón BCV de hoy). Vacío = 7. Ojo: el texto de los términos dice "7 días"; si lo cambiás, cambialo también ahí' },
+  reclamo_horas:          { label: 'Plazo para reclamar (horas)', hint: 'Horas desde la entrega que el cliente tiene para reportar una pieza dañada, incorrecta o incompleta. Un reclamo fuera de plazo se anota igual, marcado, y vos decidís si se repone. Vacío = 48' },
   terminos_presupuesto:   { label: 'Términos y condiciones — Presupuesto', hint: 'Texto que aparece al pie del presupuesto al imprimir / guardar como PDF', multiline: true },
   terminos_pedido:        { label: 'Términos y condiciones — Pedido oficial', hint: 'Texto que aparece al pie del pedido confirmado al imprimir / guardar como PDF', multiline: true },
 }

@@ -410,6 +410,13 @@ export interface LegBreakdown {
   cajasKg: number[]
   /** El tope por caja de la tarifa. null cuando el tramo no sale de una tabla. */
   capKg: number | null
+  /**
+   * Qué parte del costo se repartió entre las líneas por VOLUMEN (el resto, por peso real).
+   * 0 = todo por peso, 1 = todo por volumen. Es 0 o 1 en una caja pesada y medida (ata una cosa
+   * o la otra); entre medio solo en una caja sin pesar cuyo volumétrico apenas supera al real
+   * (ver `repartirTramo`). La ficha lo dice para que nadie lea una frontera como un hecho.
+   */
+  repartoVolumen?: number
 }
 
 // El tramo hasta USA cuando no hay tarifa: el proveedor despacha por su cuenta y pasa un
@@ -631,6 +638,20 @@ function cajaFacturable(medidas?: MedidasCaja | null): CajaFacturable {
 // dos ata, y reparte `costUsd` entre las líneas según la dimensión que ata. Así una
 // pieza voluminosa y liviana viaja casi gratis cuando el grupo está atado por peso.
 //
+// Repartir por la dimensión que ata es lo correcto cuando se SABE cuál ata: es lo que cada
+// pieza le agrega a lo que se factura. Lo que no aguanta es hacerlo todo-o-nada sobre un dato
+// que no se midió: en una caja sin pesar, "ata el volumen" sale de comparar dos sumas de piezas
+// —las dos pisos, a las que les falta el cartón y el hueco— y 32,0 kg reales contra 33,0
+// volumétricos está dentro del error de esa suma. Pasar de repartir por peso a repartir por
+// volumen por una diferencia de 3% movía más de $100 entre pedidos de la misma caja sin que
+// nada real hubiera cambiado (el total de la caja no se mueve; solo quién lo carga).
+//
+// Por eso, en una caja sin pesar y medir, el reparto pasa de peso a volumen de forma GRADUAL a
+// lo largo de una banda de error (`tolerancia`): con el volumétrico igual o menor que el real
+// se reparte todo por peso —como se arman las cajas, ver la nota de la cotización optimista—,
+// y recién cuando lo supera por la banda entera se reparte todo por volumen. En el medio, la
+// mezcla lineal. Con la caja pesada y medida la tolerancia es 0 y vale la regla exacta.
+
 // `escala` reparte una caja PESADA entre los tramos: si la balanza dijo 18,6 kg y este
 // grupo puso el 40% de las piezas, le tocan 7,4 kg. Con la caja sin pesar vale 1 y los kg
 // del grupo son la suma de sus piezas, que es un piso. El reparto del costo entre líneas
@@ -640,16 +661,28 @@ function repartirTramo(
   costUsd: number,
   escala: { peso: number; volumen: number },
   cajas: { cajas: number; pesosKg: number[]; capKg: number | null } = { cajas: lines.length > 0 ? 1 : 0, pesosKg: [], capKg: null },
+  tolerancia = 0,
 ): LegBreakdown {
   const realKg = lines.reduce((s, l) => s + l.realKg, 0) * escala.peso
   const volKg = lines.reduce((s, l) => s + l.volKg, 0) * escala.volumen
   const chargeableKg = Math.max(realKg, volKg)
   const binding: 'weight' | 'volume' = realKg >= volKg ? 'weight' : 'volume'
 
-  const denom = lines.reduce((s, l) => s + (binding === 'weight' ? l.realKg : l.volKg), 0)
+  const denomPeso = lines.reduce((s, l) => s + l.realKg, 0)
+  const denomVol = lines.reduce((s, l) => s + l.volKg, 0)
+  // Qué parte se reparte por volumen: 0 si ata el peso; 1 si ata el volumen y no hay banda; con
+  // banda, crece de 0 a 1 mientras el volumétrico supera al real por la tolerancia entera.
+  const repartoVolumen =
+    binding === 'weight' ? 0
+    : tolerancia > 0 && realKg > 0 ? Math.min(1, (volKg / realKg - 1) / tolerancia)
+    : 1
   for (const l of lines) {
-    const contrib = binding === 'weight' ? l.realKg : l.volKg
-    l.airUsd = denom > 0 ? costUsd * (contrib / denom) : 0
+    const porPeso = denomPeso > 0 ? l.realKg / denomPeso : 0
+    const porVol = denomVol > 0 ? l.volKg / denomVol : 0
+    // Si una de las dos dimensiones no se puede repartir (nada tiene peso, o nada tiene medidas)
+    // se usa la otra entera: no se deja el costo sin imputar.
+    const w = denomPeso <= 0 ? 1 : denomVol <= 0 ? 0 : repartoVolumen
+    l.airUsd = costUsd * ((1 - w) * porPeso + w * porVol)
   }
 
   return {
@@ -664,6 +697,7 @@ function repartirTramo(
     cajas: cajas.cajas,
     cajasKg: cajas.pesosKg,
     capKg: cajas.capKg,
+    repartoVolumen,
   }
 }
 
@@ -806,7 +840,11 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   const airQuote = !esMaritimo && shoppreChargeable > 0
     ? cotizarTramoAereo(shoppreChargeable, carrier, isMember, cfg)
     : { costUsd: 0, cajas: 0, pesosKg: [] as number[], capKg: null as number | null }
-  const airLeg = repartirTramo(shoppreLines, airQuote.costUsd, escala, airQuote)
+  // La banda de error solo rige mientras la caja no se pesó Y midió: con las dos cosas cargadas
+  // el volumétrico deja de ser una suma de pisos y vale la regla exacta.
+  const cajaCompleta = caja.pesoKg != null && caja.cm3 != null
+  const tolerancia = cajaCompleta ? 0 : num(cfg, 'caja_sin_pesar_tolerancia_pct', 10) / 100
+  const airLeg = repartirTramo(shoppreLines, airQuote.costUsd, escala, airQuote, tolerancia)
 
   // Tramo cotizado: no hay tabla, es el total que facturó el proveedor de la caja.
   const prov = opts.proveedor ?? null
@@ -814,7 +852,7 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   const tramo: TramoCotizado | null = cotizadoLines.length > 0
     ? {
         nombre: prov?.nombre ?? 'Proveedor sin identificar',
-        leg: repartirTramo(cotizadoLines, tramoCostUsd, escala),
+        leg: repartirTramo(cotizadoLines, tramoCostUsd, escala, undefined, tolerancia),
         costUsd: tramoCostUsd,
         faltaCosto: !esMaritimo && prov?.tramoUsd == null,
       }

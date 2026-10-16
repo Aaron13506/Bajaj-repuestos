@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { nombreEnsamble } from '@/lib/linea-pedido'
@@ -5,7 +6,11 @@ import { toConfigMap, num as cfgNum, type ConfigMap } from '@/lib/config'
 import { resumirCbm, costoEmbarque } from '@/lib/cbm'
 import { lookupDeConjuntos, expandCostPieces, type ProductCost } from '@/lib/envio-build'
 import type { BundlePiece } from '@/lib/bundle'
-import { fallo } from '@/lib/action-result'
+import { ok, fallo, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
+import { cobraEnBolivares } from '@/lib/pagos'
+import { CUENTAS, cuentaDeMetodo, datosBs, type Cuenta, type DatosBs } from '@/lib/cuentas'
+import { convertir, usdPorBsPromedio } from '@/lib/conversion'
+import { notaCobroBcv, realDeCobro, resumenCobro } from '@/lib/cobro-bcv'
 import { repartirEnCentavos } from '@/lib/reparto-compra'
 
 // Libro de movimientos: la fuente única de "cuánta plata tengo". Cada categoría fija su
@@ -31,9 +36,22 @@ export const CATEGORIAS_EGRESO = [
 // de la caja, que si no podían discrepar sobre el mismo número.
 export const CATEGORIAS_PAGO_PROVEEDOR = ['pago_proveedor', 'comision_giro'] as const
 
+// Las dos patas de pasar plata de una cuenta a otra (Bs → USDT). No están en las listas de
+// arriba a propósito: esas son lo que el formulario deja anotar a mano, y una pata sola
+// descuadraría la caja. Se crean juntas con `registrarConversion` y se borran juntas.
+export const CATEGORIAS_CONVERSION = ['conversion_salida', 'conversion_entrada'] as const
+
+// Plata que se le devuelve a un cliente (un pedido cancelado, saldo a favor tras editarlo, un
+// reembolso por una pieza). Tampoco está en las listas de lo que se anota a mano: va siempre
+// ligada a su pedido y baja `depositUsd` en el mismo paso (ver `devolverACliente`); suelta,
+// dejaría el pedido diciendo que el cliente sigue pagado.
+export const CATEGORIAS_DEVOLUCION = ['devolucion_cliente'] as const
+
 export type CategoriaIngreso = (typeof CATEGORIAS_INGRESO)[number]
 export type CategoriaEgreso = (typeof CATEGORIAS_EGRESO)[number]
-export type Categoria = CategoriaIngreso | CategoriaEgreso
+export type CategoriaConversion = (typeof CATEGORIAS_CONVERSION)[number]
+export type CategoriaDevolucion = (typeof CATEGORIAS_DEVOLUCION)[number]
+export type Categoria = CategoriaIngreso | CategoriaEgreso | CategoriaConversion | CategoriaDevolucion
 
 export const CATEGORIA_LABELS: Record<Categoria, string> = {
   adelanto_cliente: 'Adelanto de cliente',
@@ -45,10 +63,15 @@ export const CATEGORIA_LABELS: Record<Categoria, string> = {
   flete_maritimo: 'Flete marítimo',
   gasto_operativo: 'Gasto operativo',
   otro_egreso: 'Otro egreso',
+  conversion_salida: 'Conversión · sale',
+  conversion_entrada: 'Conversión · entra',
+  devolucion_cliente: 'Devolución a cliente',
 }
 
 export function tipoDeCategoria(categoria: string): 'ingreso' | 'egreso' {
-  return (CATEGORIAS_INGRESO as readonly string[]).includes(categoria) ? 'ingreso' : 'egreso'
+  return (CATEGORIAS_INGRESO as readonly string[]).includes(categoria) || categoria === 'conversion_entrada'
+    ? 'ingreso'
+    : 'egreso'
 }
 
 const num = (d: Prisma.Decimal | number | null | undefined) =>
@@ -116,6 +139,8 @@ export interface IngresoPedido {
   // de Contabilidad deja ligarlos y se respeta lo que mande.
   envioId?: number | null
   supplierId?: number | null
+  /** Los bolívares que entraron y a qué tasa, si el cobro fue en Bs (ver datosBs). */
+  bs?: DatosBs | null
 }
 
 // Un cobro de un pedido: el movimiento en el libro y el aumento del depósito, juntos.
@@ -132,8 +157,93 @@ export async function registrarIngresoPedido(tx: Tx, i: IngresoPedido) {
       pedidoId: i.pedidoId,
       envioId: i.envioId ?? null,
       supplierId: i.supplierId ?? null,
+      cuenta: cuentaDeMetodo(i.metodoPago),
+      montoBs: i.bs?.montoBs ?? null,
+      tasaBs: i.bs?.tasaBs ?? null,
     },
   })
+}
+
+export interface DevolucionPedido {
+  pedidoId: number
+  /** Dólares reales que salen de caja y que dejan de contar como cobrados. */
+  monto: number
+  fecha: Date
+  metodoPago: string | null
+  descripcion?: string | null
+  /** Los bolívares que se entregaron y a qué tasa, si se le devolvió en Bs. */
+  bs?: DatosBs | null
+}
+
+// Devolverle plata a un cliente: el egreso en el libro y la baja de `depositUsd`, juntos. El
+// depósito es lo que el cliente tiene PAGADO (neto de lo devuelto), así que cobranza y clientes
+// siguen leyéndolo sin cambios. Va bajo el cerrojo del pedido y rechaza devolver más de lo que
+// el pedido tiene cobrado: devolver de más dejaría un depósito negativo y un libro que dice que
+// salió plata que nunca entró.
+export async function devolverACliente(tx: Tx, d: DevolucionPedido): Promise<void> {
+  const actual = await bloquearPedido(tx, d.pedidoId)
+  if (!actual) throw new ErrorDeNegocio('Ese pedido ya no existe. Recargá la página.')
+  const monto = aCentavos(d.monto)
+  if (!(monto > 0)) throw new ErrorDeNegocio('El monto a devolver tiene que ser mayor que 0.')
+  if (monto > actual.depositUsd + 0.005) {
+    throw new ErrorDeNegocio(
+      `No se puede devolver $${monto.toFixed(2)}: el pedido tiene cobrado $${actual.depositUsd.toFixed(2)}.`,
+    )
+  }
+  await ajustarDeposito(tx, d.pedidoId, -monto)
+  await tx.movimiento.create({
+    data: {
+      fecha: d.fecha,
+      tipo: 'egreso',
+      categoria: 'devolucion_cliente',
+      monto,
+      metodoPago: d.metodoPago,
+      cuenta: cuentaDeMetodo(d.metodoPago),
+      descripcion: d.descripcion ?? null,
+      pedidoId: d.pedidoId,
+      montoBs: d.bs?.montoBs ?? null,
+      tasaBs: d.bs?.tasaBs ?? null,
+    },
+  })
+}
+
+export interface CobroPedido extends Omit<IngresoPedido, 'bs'> {
+  /** Lo que se escribió en el formulario: dólares BCV si se cobró en Bs, divisas si no. */
+  monto: number
+  /** Bs por dólar a los que se cobró en Bs (obligatoria con ese método, ver leerCobroBs). */
+  tasaBs?: number | null
+  /** Los bolívares exactos que entraron, si el formulario los trajo (si no, se calculan). */
+  montoBs?: number | null
+}
+
+// El cobro de un pedido tal como se escribe en un formulario: convierte lo escrito a dólares
+// REALES (lib/cobro-bcv.ts) y lo anota con `registrarIngresoPedido`, todo bajo el cerrojo del
+// pedido porque un pago que cubre el saldo se guarda como el saldo real exacto. Es la ÚNICA
+// puerta de un cobro con formulario: la ficha del pedido y el asiento suelto de Contabilidad
+// pasan los dos por acá. Cuando el segundo guardaba el monto tal cual, un pago en Bs entraba
+// en dólares BCV como si fueran reales — inflaba la caja y dejaba corto el saldo del cliente.
+export async function cobrarPedido(tx: Tx, i: CobroPedido): Promise<ActionResult> {
+  const actual = await bloquearPedido(tx, i.pedidoId)
+  if (!actual) return fallo('Ese pedido ya no existe. Recargá la página.')
+  // Un pedido cancelado ya no cobra: lo que dejó se decidió al cancelarlo (devuelto o retenido).
+  if (actual.status === 'cancelado') return fallo('Ese pedido está cancelado: no se le pueden registrar cobros.')
+
+  const p = await tx.pedido.findUniqueOrThrow({
+    where: { id: i.pedidoId },
+    select: { brechaEscalonPct: true, items: { select: { salePrice: true, quantity: true } } },
+  })
+  const escalon = p.brechaEscalonPct != null ? Number(p.brechaEscalonPct) : null
+  const lineas = p.items.map(l => ({ salePrice: Number(l.salePrice), quantity: l.quantity }))
+  const enBs = cobraEnBolivares(i.metodoPago)
+
+  const r = resumenCobro(lineas, actual.depositUsd, escalon)
+  const real = realDeCobro(i.monto, enBs, r, { bcv: r.saldoBcv, real: r.saldoReal })
+  const nota = [i.descripcion, notaCobroBcv(i.monto, enBs, escalon)].filter(Boolean).join(' · ') || null
+  const { tasaBs, montoBs, ...resto } = i
+  await registrarIngresoPedido(tx, {
+    ...resto, monto: real, descripcion: nota, bs: datosBs(i.metodoPago, i.monto, tasaBs ?? null, montoBs ?? null),
+  })
+  return ok()
 }
 
 // Corrección a la BAJA de lo cobrado (se cargó $1000 por error y era $100): saca `monto` de
@@ -149,7 +259,7 @@ export async function descontarIngresosPedido(tx: Tx, pedidoId: number, monto: n
   const ingresos = await tx.movimiento.findMany({
     where: { pedidoId, tipo: 'ingreso' },
     orderBy: [{ fecha: 'desc' }, { id: 'desc' }],
-    select: { id: true, monto: true },
+    select: { id: true, monto: true, montoBs: true },
   })
   let resta = aCentavos(monto)
   let descontado = 0
@@ -161,7 +271,12 @@ export async function descontarIngresosPedido(tx: Tx, pedidoId: number, monto: n
       resta = aCentavos(resta - v)
       descontado += v
     } else {
-      await tx.movimiento.update({ where: { id: m.id }, data: { monto: aCentavos(v - resta) } })
+      // Los Bs bajan en la misma proporción: son los mismos bolívares, menos una parte.
+      const bs = m.montoBs != null ? aCentavos(num(m.montoBs) * ((v - resta) / v)) : null
+      await tx.movimiento.update({
+        where: { id: m.id },
+        data: { monto: aCentavos(v - resta), ...(bs != null ? { montoBs: bs } : {}) },
+      })
       descontado += resta
       resta = 0
     }
@@ -204,21 +319,132 @@ export interface RangoFechas {
 export interface SaldoCaja {
   ingresos: number
   egresos: number
+  /**
+   * Lo que costó pasar plata entre cuentas (Bs → USDT): lo que salió menos lo que entró. Es
+   * costo si es positivo. Las dos patas no cuentan como ingreso ni egreso —no es plata que
+   * entre ni que salga del negocio— pero el saldo sí baja por esta diferencia.
+   */
+  costoConversion: number
   saldo: number
 }
 
+const filtroRango = (rango?: RangoFechas) =>
+  rango ? { fecha: { gte: rango.desde, ...(rango.hasta ? { lt: rango.hasta } : {}) } } : {}
+
 export async function saldoCaja(rango?: RangoFechas): Promise<SaldoCaja> {
-  const where = rango
-    ? { fecha: { gte: rango.desde, ...(rango.hasta ? { lt: rango.hasta } : {}) } }
-    : {}
   const rows = await db.movimiento.groupBy({
-    by: ['tipo'],
-    where,
+    by: ['tipo', 'categoria'],
+    where: filtroRango(rango),
     _sum: { monto: true },
   })
-  const ingresos = num(rows.find(r => r.tipo === 'ingreso')?._sum.monto)
-  const egresos = num(rows.find(r => r.tipo === 'egreso')?._sum.monto)
-  return { ingresos, egresos, saldo: ingresos - egresos }
+  const suma = (f: (r: (typeof rows)[number]) => boolean) =>
+    rows.filter(f).reduce((s, r) => s + num(r._sum.monto), 0)
+  const esConversion = (c: string) => (CATEGORIAS_CONVERSION as readonly string[]).includes(c)
+
+  const ingresos = suma(r => r.tipo === 'ingreso' && !esConversion(r.categoria))
+  const egresos = suma(r => r.tipo === 'egreso' && !esConversion(r.categoria))
+  const costoConversion = aCentavos(
+    suma(r => r.categoria === 'conversion_salida') - suma(r => r.categoria === 'conversion_entrada'),
+  )
+  return { ingresos, egresos, costoConversion, saldo: ingresos - egresos - costoConversion }
+}
+
+export interface SaldoDeCuenta {
+  /** null = movimientos sin cuenta (sin método de pago al anotarlos). */
+  cuenta: Cuenta | null
+  /** Dólares reales: la suma de lo que entró menos lo que salió de esa cuenta. */
+  usd: number
+  /**
+   * Solo en la cuenta en bolívares: los Bs que quedan según lo ANOTADO. Los movimientos de
+   * antes de que se guardaran los Bs no los tienen, así que es un piso mientras `sinBs` > 0.
+   */
+  bs: number | null
+  /** Movimientos de esta cuenta sin Bs anotados (solo se cuenta en la cuenta en Bs). */
+  sinBs: number
+}
+
+// El saldo en dólares de cada cuenta, con la misma cuenta que saldoCaja (apertura aparte, la
+// conversión incluida): la suma de las cuentas más la apertura es el saldo de caja.
+export async function saldosPorCuenta(rango?: RangoFechas): Promise<SaldoDeCuenta[]> {
+  const rows = await db.movimiento.groupBy({
+    by: ['cuenta', 'tipo'],
+    where: filtroRango(rango),
+    _sum: { monto: true, montoBs: true },
+    _count: { _all: true, montoBs: true },
+  })
+  const cuentas: (Cuenta | null)[] = [...CUENTAS, null]
+  return cuentas
+    .map((cuenta): SaldoDeCuenta => {
+      const propias = rows.filter(r => r.cuenta === cuenta)
+      const firmado = (f: (r: (typeof rows)[number]) => number) =>
+        propias.reduce((s, r) => s + (r.tipo === 'ingreso' ? 1 : -1) * f(r), 0)
+      const enBs = cuenta === 'banco_bs'
+      return {
+        cuenta,
+        usd: aCentavos(firmado(r => num(r._sum.monto))),
+        bs: enBs ? aCentavos(firmado(r => num(r._sum.montoBs))) : null,
+        sinBs: enBs ? propias.reduce((s, r) => s + r._count._all - r._count.montoBs, 0) : 0,
+      }
+    })
+    .filter(c => c.cuenta !== null || Math.abs(c.usd) > 0.005)
+}
+
+// Lo que vale hoy un bolívar del banco según el libro (ver usdPorBsPromedio). Si todavía no
+// hay ningún cobro en Bs con sus Bs anotados, se cae a la tasa de cobro directo de Config:
+// es una estimación y la pantalla lo dice.
+export async function valorBsEnLibro(
+  cfg: ConfigMap,
+): Promise<{ usdPorBs: number; fuente: 'libro' | 'config' } | null> {
+  const ingresos = await db.movimiento.findMany({
+    where: { cuenta: 'banco_bs', tipo: 'ingreso', montoBs: { not: null } },
+    select: { monto: true, montoBs: true },
+  })
+  const promedio = usdPorBsPromedio(ingresos.map(i => ({ usd: num(i.monto), bs: num(i.montoBs) })))
+  if (promedio != null) return { usdPorBs: promedio, fuente: 'libro' }
+  const tasa = cfgNum(cfg, 'bsd_usd_rate', 0)
+  return tasa > 0 ? { usdPorBs: 1 / tasa, fuente: 'config' } : null
+}
+
+export interface PedidoConversion {
+  /** Bolívares que se entregaron. */
+  bs: number
+  /** USDT que se recibieron. */
+  usdt: number
+  fecha: Date
+  descripcion?: string | null
+}
+
+// Pasar Bs a USDT: dos movimientos con el mismo `grupo`. El banco pierde los Bs por lo que el
+// libro dice que valían; USDT gana lo que llegó. El costo de convertir es la diferencia (ver
+// lib/conversion.ts), y por eso no se anota aparte.
+export async function registrarConversion(
+  p: PedidoConversion,
+  cfg: ConfigMap,
+): Promise<ActionResult> {
+  if (!Number.isFinite(p.bs) || p.bs <= 0) return fallo('Escribí cuántos bolívares diste.')
+  if (!Number.isFinite(p.usdt) || p.usdt <= 0) return fallo('Escribí cuántos USDT recibiste.')
+
+  const valor = await valorBsEnLibro(cfg)
+  if (!valor) {
+    return fallo('No hay ninguna tasa para valorar esos bolívares: cargá la tasa en /config o registrá primero un cobro en Bs.')
+  }
+  const c = convertir(p.bs, p.usdt, valor.usdPorBs)
+  if (c.valorLibroUsd <= 0) return fallo('Esos bolívares valen menos de un centavo en el libro: revisá el monto.')
+
+  const grupo = randomUUID()
+  const base = { fecha: p.fecha, grupo, descripcion: p.descripcion ?? null }
+  await db.$transaction([
+    db.movimiento.create({
+      data: {
+        ...base, tipo: 'egreso', categoria: 'conversion_salida', cuenta: 'banco_bs',
+        monto: c.valorLibroUsd, montoBs: aCentavos(p.bs), tasaBs: c.tasaEfectiva,
+      },
+    }),
+    db.movimiento.create({
+      data: { ...base, tipo: 'ingreso', categoria: 'conversion_entrada', cuenta: 'usdt', monto: c.usdt },
+    }),
+  ])
+  return ok()
 }
 
 export interface EnvioPendiente {
@@ -379,6 +605,11 @@ export interface MovimientoRow {
   monto: number
   metodoPago: string | null
   descripcion: string | null
+  cuenta: string | null
+  /** Las dos patas de una conversión comparten grupo: se borran juntas. */
+  grupo: string | null
+  /** Bs que pasaron por la cuenta, si se anotaron. */
+  montoBs: number | null
   pedido: { id: number; clientName: string } | null
   envio: { id: number; nombre: string | null } | null
   supplier: { id: number; name: string } | null
@@ -406,6 +637,9 @@ export async function listarMovimientos(limit = 50, rango?: RangoFechas): Promis
     monto: num(r.monto),
     metodoPago: r.metodoPago,
     descripcion: r.descripcion,
+    cuenta: r.cuenta,
+    grupo: r.grupo,
+    montoBs: r.montoBs != null ? num(r.montoBs) : null,
     pedido: r.pedido,
     envio: r.envio,
     supplier: r.supplier,
@@ -583,6 +817,19 @@ export async function registrarCompra(formData: FormData): Promise<ResultadoComp
   const enBorrador = await db.pedidoItem.count({ where: { id: { in: ids }, envio: { estado: 'borrador' } } })
   if (enBorrador > 0) return fallo('Hay piezas en una caja en borrador: confirmá la caja antes de registrar la compra.')
 
+  // Una pieza que el proveedor no tiene no se compra: primero se cambia o se saca del pedido.
+  const noDisponibles = await db.incidencia.findMany({
+    where: { itemId: { in: ids }, estado: 'abierta', tipo: 'no_disponible' },
+    select: { descripcion: true, pedidoId: true },
+  })
+  if (noDisponibles.length > 0) {
+    const lista = noDisponibles.slice(0, 3).map(n => `«${n.descripcion}» (pedido #${n.pedidoId})`).join(', ')
+    return fallo(
+      `Hay piezas marcadas como no disponibles: ${lista}${noDisponibles.length > 3 ? '…' : ''}. ` +
+      `Editá el pedido para cambiar o quitar esa pieza (o resolvé el problema) antes de registrar la compra.`,
+    )
+  }
+
   const items = await estimarCostos(ids)
   // Menos piezas de las pedidas = alguna ya tenía costo real (o no existe). Seguir con las
   // que sí quedan repartiría el monto entero —que era por TODAS— entre unas pocas.
@@ -622,6 +869,7 @@ export async function registrarCompra(formData: FormData): Promise<ResultadoComp
           categoria: 'pago_proveedor',
           monto,
           metodoPago,
+          cuenta: cuentaDeMetodo(metodoPago),
           descripcion: descripcion ?? `Compra: ${items.length} ítem(s) en ${pedidoIds.size} pedido(s)`,
           envioId: envioUnico,
           supplierId: supplierUnico,

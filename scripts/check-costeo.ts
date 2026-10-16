@@ -32,6 +32,20 @@ import { motivoProductoEnUso } from '../lib/producto-en-uso'
 import { compatibleModelsFrom } from '../lib/modelo'
 import { realDeCobro, resumenCobro } from '../lib/cobro-bcv'
 import { construirResolver, piezasDeLinea } from '../lib/stock-piezas'
+import { cuentaDeMetodo, datosBs, leerCobroBs } from '../lib/cuentas'
+import { convertir, usdPorBsPromedio } from '../lib/conversion'
+import { costoDeLinea, motivoNoVendible, resumenVenta } from '../lib/venta-stock'
+import { margenDePedido, mesDe, resultadoPorMes, type LineaMargen, type MargenPedido } from '../lib/margen'
+import { estadoValidez, escalonDelPresupuesto, motivoNoAprobable, validezDias } from '../lib/validez'
+import { describirOps, estadoLinea, planEdicion, repartirSobrante, type LineaActual, type LineaNueva } from '../lib/pedido-edicion'
+import { devolucionSugerida, motivoDevolucionInvalida, motivoNoCancelable, resumenCancelacion } from '../lib/pedido-cancelacion'
+import {
+  bloqueaCompra, bloqueaEntrega, cerradosPorEdicion, dentroDePlazo, etiquetaPieza, motivoResolucionInvalida, origenPara, perdidaSugerida, planReembolso,
+  resolucionesPara, tiposPara, type Resolucion,
+} from '../lib/incidencias'
+import { debeSaldo, saldoReal, situacionDeCobro } from '../lib/saldo-entrega'
+import { tiempoDeCompraA, tiemposPorTramo } from '../lib/etapas'
+import { leerDevolucion } from '../lib/devolucion'
 
 const cfg: ConfigMap = {
   inr_usd_rate: '94.95',
@@ -573,6 +587,191 @@ console.log('\nCOBRO A DÓLAR BCV (pedido confirmado)')
   check('sin cobros, saldo BCV = total BCV de la tabla (20000 pedidos al azar)', corridos, 0)
 }
 
+// ── Cuentas y conversión de Bs a USDT ──────────────────────────────────────────────────
+console.log('\nCUENTAS Y CONVERSIÓN Bs → USDT')
+{
+  const si = (b: boolean) => (b ? 1 : 0)
+  check('Pago móvil entra al banco en Bs', si(cuentaDeMetodo('Pago móvil / Transferencia Bs') === 'banco_bs'), 1)
+  check('Binance / USDT es la cuenta USDT', si(cuentaDeMetodo('Binance / USDT') === 'usdt'), 1)
+  check('giro bancario sale de la cuenta en USD', si(cuentaDeMetodo('Giro bancario') === 'banco_usd'), 1)
+  check('sin método no hay cuenta', si(cuentaDeMetodo(null) === null), 1)
+
+  // $47.06 BCV a 106.5 Bs → Bs 5011.89; con otro método no hay Bs.
+  const bs = datosBs('Pago móvil / Transferencia Bs', 47.06, 106.5)
+  check('Bs de un cobro = monto × tasa', bs?.montoBs ?? -1, 5011.89)
+  check('en divisas no hay Bs', si(datosBs('Efectivo USD', 40, 106.5) === null), 1)
+  // Un cobro en Bs se escribe en bolívares y tasa; los dólares salen de dividir.
+  const BS = 'Pago móvil / Transferencia Bs'
+  const form = (campos: Record<string, string>) => {
+    const fd = new FormData()
+    for (const [k, v] of Object.entries(campos)) fd.set(k, v)
+    return fd
+  }
+  const l = leerCobroBs(form({ montoBs: '20000', tasaBs: '103' }), BS)
+  check('20000 Bs a 103 = $194.17 (dólares que salen de dividir)', l.ok && l.cobro ? l.cobro.montoUsd : -1, 194.17)
+  check('los Bs se guardan tal cual se escribieron', l.ok && l.cobro ? l.cobro.montoBs : -1, 20000)
+  check('coma decimal en la tasa', (() => { const r = leerCobroBs(form({ montoBs: '1065', tasaBs: '106,5' }), BS); return r.ok && r.cobro ? r.cobro.montoUsd : -1 })(), 10)
+  check('Bs vacíos se rechazan', si(leerCobroBs(form({ montoBs: '', tasaBs: '103' }), BS).ok), 0)
+  check('Bs vacíos con "opcional" = todavía no pagó', si(leerCobroBs(form({ montoBs: '', tasaBs: '103' }), BS, true).ok), 1)
+  check('tasa vacía se rechaza', si(leerCobroBs(form({ montoBs: '20000', tasaBs: '' }), BS).ok), 0)
+  check('tasa en cero se rechaza', si(leerCobroBs(form({ montoBs: '20000', tasaBs: '0' }), BS).ok), 0)
+  const divisas = leerCobroBs(form({}), 'Efectivo USD')
+  check('en divisas no se lee nada de Bs', si(divisas.ok && divisas.cobro === null), 1)
+  check('los Bs exactos mandan sobre monto × tasa', datosBs(BS, 194.17, 103, 20000)?.montoBs ?? -1, 20000)
+
+  // Dos cobros: $40 = Bs 4000 y $60 = Bs 7200 → 100 / 11200 USD por Bs. Uno sin Bs anotados
+  // (de antes de que se guardaran) no mueve el promedio.
+  const prom = usdPorBsPromedio([{ usd: 40, bs: 4000 }, { usd: 60, bs: 7200 }, { usd: 500, bs: 0 }])
+  check('promedio ponderado de lo cobrado en Bs', Math.round((prom ?? 0) * 1e6) / 1e6, Math.round((100 / 11200) * 1e6) / 1e6)
+  check('sin cobros en Bs anotados no hay promedio', si(usdPorBsPromedio([{ usd: 500, bs: 0 }]) === null), 1)
+
+  // Doy Bs 11200, que el libro valora en $100, y recibo 92 USDT: costó $8 (8%).
+  const c = convertir(11200, 92, 100 / 11200)
+  check('valor en libro de los Bs entregados', c.valorLibroUsd, 100)
+  check('costo de convertir = valor en libro − USDT recibidos', c.costoUsd, 8)
+  check('tasa efectiva en Bs por USDT', Math.round(c.tasaEfectiva * 100) / 100, 121.74)
+  check('costo en %', Math.round(c.costoPct * 10) / 10, 8)
+  check('recibir más de lo que valían es ganancia (costo negativo)', convertir(11200, 105, 100 / 11200).costoUsd, -5)
+  // La caja baja exactamente el costo: sale `valor`, entra `usdt`.
+  check('la caja baja lo que costó convertir', Math.round((c.usdt - c.valorLibroUsd) * 100) / 100, -c.costoUsd)
+}
+
+// ── Venta del depósito: stock, costo congelado y margen ─────────────────────────────────
+console.log('\nVENTA DEL DEPÓSITO')
+{
+  const si = (b: boolean) => (b ? 1 : 0)
+  const piezas = [
+    { id: 1, stock: 5, nameEs: 'Pastillas', bajajCode: 'P1' },
+    { id: 2, stock: 1, nameEs: 'Filtro', bajajCode: null },
+  ]
+  const ok1 = { productId: 1, quantity: 2, salePrice: 12, costoUnitUsd: 7.5 }
+  check('una venta con stock y costo se puede hacer', si(motivoNoVendible([ok1], piezas) === null), 1)
+  check('más de lo que hay en el depósito se rechaza', si(motivoNoVendible([{ ...ok1, quantity: 6 }], piezas) !== null), 1)
+  check('justo lo que hay se puede vender', si(motivoNoVendible([{ ...ok1, quantity: 5 }], piezas) === null), 1)
+  check('sin costo no se vende (vacío no es cero)', si(motivoNoVendible([{ ...ok1, costoUnitUsd: 0 }], piezas) !== null), 1)
+  check('costo ilegible se rechaza', si(motivoNoVendible([{ ...ok1, costoUnitUsd: NaN }], piezas) !== null), 1)
+  check('la misma pieza dos veces se rechaza', si(motivoNoVendible([ok1, ok1], piezas) !== null), 1)
+  check('una pieza que ya no existe se rechaza', si(motivoNoVendible([{ ...ok1, productId: 99 }], piezas) !== null), 1)
+  check('cantidad con decimales se rechaza', si(motivoNoVendible([{ ...ok1, quantity: 1.5 }], piezas) !== null), 1)
+  check('venta vacía se rechaza', si(motivoNoVendible([], piezas) !== null), 1)
+
+  check('costo de la línea = unitario × cantidad, al centavo', costoDeLinea(7.333, 3), 22)
+  const r = resumenVenta([ok1, { productId: 2, quantity: 1, salePrice: 20, costoUnitUsd: 13 }])
+  check('venta total', r.ventaUsd, 44)
+  check('costo total', r.costoUsd, 28)
+  check('margen en dólares', r.margenUsd, 16)
+  check('margen sobre el precio de venta', Math.round(r.margenPct * 100) / 100, 36.36)
+}
+
+// ── Reparto del aéreo en una caja sin pesar: sin volado en la frontera peso/volumen ─────────
+console.log('\nREPARTO DEL AÉREO EN UNA CAJA SIN PESAR')
+{
+  const pieza = (id: number, gramos: number, l: number, a: number, h: number): EnvioItemInput => ({
+    pedidoId: id, productId: id, name: `P${id}`, weightGrams: gramos, dimL: l, dimA: a, dimH: h,
+    priceInr: 1000, quantity: 1, origen: 'india', inbound: 'shoppre', supplierId: null,
+  })
+  const r3 = (n: number) => Math.round(n * 1000) / 1000
+  // Una pieza densa (8 kg, 1.6 kg volumétricos) y una voluminosa y liviana (0.5 kg real).
+  const denso = pieza(1, 8000, 20, 20, 20)
+  // Volumétrico del conjunto: justo 3% por encima del real (8.5 kg).
+  const casi = calcEnvio([denso, pieza(2, 500, 35, 33, 31)], cfg)
+  const aire = casi.lines.reduce((s, l) => s + l.airUsd, 0)
+  check('la suma del reparto es el costo del tramo (nada se pierde ni se inventa)', r3(aire), r3(casi.air.costUsd))
+  check('ata el volumen por 3%: el reparto es una mezcla, no todo volumen', r3(casi.air.repartoVolumen ?? -1), r3((casi.air.volKg / casi.air.realKg - 1) / 0.1))
+
+  // Continuidad: se barre la altura de la pieza voluminosa de 29 a 30.5 cm (el volumétrico cruza
+  // al real hacia los 29.5) de a una centésima. La parte que carga la voluminosa tiene que
+  // moverse de a poco; con el reparto todo-o-nada daba un salto de ~0.75 en un solo paso.
+  const parte = (h: number) => {
+    const c = calcEnvio([denso, pieza(2, 500, 35, 33, h)], cfg)
+    return { parte: c.lines[1].airUsd / c.air.costUsd, volumen: c.air.repartoVolumen ?? -1 }
+  }
+  let salto = 0
+  let previo = parte(29)
+  for (let h = 29.01; h <= 30.5; h += 0.01) {
+    const ahora = parte(h)
+    salto = Math.max(salto, Math.abs(ahora.parte - previo.parte))
+    previo = ahora
+  }
+  check('barrido por la frontera peso/volumen: el mayor salto entre pasos es < 0.01 (era ~0.75)', salto < 0.01 ? 1 : 0, 1)
+
+  const debajo = calcEnvio([denso, pieza(2, 500, 35, 33, 29)], cfg)   // volumétrico 8.30 < real 8.50: ata el peso
+  check('atada por peso: todo se reparte por peso', debajo.air.repartoVolumen ?? -1, 0)
+  check('…y la voluminosa carga solo su parte de peso', Math.abs(debajo.lines[1].airUsd / debajo.air.costUsd - 0.5 / 8.5) < 1e-9 ? 1 : 0, 1)
+  const lejos = calcEnvio([denso, pieza(2, 500, 60, 50, 40)], cfg)  // volumétrico 3x el real
+  check('muy por encima de la banda: todo por volumen', lejos.air.repartoVolumen ?? -1, 1)
+  const volShare = lejos.lines[1].volKg / (lejos.lines[0].volKg + lejos.lines[1].volKg)
+  check('…y la voluminosa carga su parte de volumen', Math.abs(lejos.lines[1].airUsd / lejos.air.costUsd - volShare) < 1e-9 ? 1 : 0, 1)
+
+  // La voluminosa cuesta MENOS en la caja que apenas ata por volumen que si se repartiera
+  // todo por volumen (que es lo que daba un −$23 por un 3% de diferencia).
+  const todoVolumen = casi.lines[1].volKg / (casi.lines[0].volKg + casi.lines[1].volKg)
+  check('la voluminosa paga menos que con el reparto todo-por-volumen', casi.lines[1].airUsd / casi.air.costUsd < todoVolumen ? 1 : 0, 1)
+
+  // Con la caja pesada y medida vale la regla exacta, aunque la diferencia sea de 0.5%.
+  const medida = calcEnvio([denso, pieza(2, 500, 35, 33, 31)], cfg, { medidas: { pesoKg: 8.6, dimL: 40, dimA: 40, dimH: 27 } })
+  check('caja pesada y medida: ata el volumen por un pelo y se reparte entero por volumen', medida.air.repartoVolumen ?? -1, 1)
+}
+
+// ── Margen realizado ────────────────────────────────────────────────────────────────────
+console.log('\nMARGEN REALIZADO')
+{
+  const si = (b: boolean) => (b ? 1 : 0)
+  const en = (d: string) => new Date(d)
+  const linea = (venta: number, costo: number | null, real = true, entregada = true, at = '2026-10-10T15:00:00Z'): LineaMargen =>
+    ({ ventaUsd: venta, costoUsd: costo, costoReal: real, entregada, entregadaAt: entregada ? en(at) : null })
+
+  const a = margenDePedido([linea(80, 52), linea(20, 14)])
+  check('venta = suma de las líneas', a.ventaUsd, 100)
+  check('costo = suma de las líneas', a.costoUsd, 66)
+  check('margen = venta − costo', a.margenUsd ?? -1, 34)
+  check('margen % sobre la venta', Math.round((a.margenPct ?? 0) * 10) / 10, 34)
+  check('entregado y todo real = realizado', si(a.estado === 'realizado'), 1)
+  check('entregado con un costo estimado = estimado', si(margenDePedido([linea(80, 52), linea(20, 14, false)]).estado === 'estimado'), 1)
+  check('una línea sin entregar = en curso (proyección)', si(margenDePedido([linea(80, 52), linea(20, 14, true, false)]).estado === 'en_curso'), 1)
+  const sc = margenDePedido([linea(80, 52), linea(20, null)])
+  check('una línea sin costo: no hay margen (no se inventa)', si(sc.margenUsd === null), 1)
+  check('una línea sin costo = sin_costo', si(sc.estado === 'sin_costo'), 1)
+  check('el costo conocido sigue sumando (es un piso)', sc.costoUsd, 52)
+  check('pérdida: el margen sale negativo', margenDePedido([linea(45, 68.32)]).margenUsd ?? 0, -23.32)
+  check('se entregó cuando se entregó la última línea', margenDePedido([linea(10, 5, true, true, '2026-10-02T12:00:00Z'), linea(10, 5, true, true, '2026-10-20T12:00:00Z')]).entregadoAt?.toISOString().slice(0, 10) === '2026-10-20' ? 1 : 0, 1)
+
+  // El mes se corta en hora de Venezuela (UTC−4): la noche del 31 sigue siendo octubre.
+  check('01:00 UTC del 1 de noviembre es todavía 31 de octubre en Caracas', si(mesDe(en('2026-11-01T01:00:00Z')) === '2026-10'), 1)
+  check('04:00 UTC del 1 de noviembre ya es noviembre', si(mesDe(en('2026-11-01T04:00:00Z')) === '2026-11'), 1)
+
+  const P = (m: MargenPedido, f: string) => ({ margen: m, fecha: en(f) })
+  const meses = resultadoPorMes(
+    [
+      P(a, '2026-10-10T15:00:00Z'),
+      P(margenDePedido([linea(50, 30, false)]), '2026-10-12T15:00:00Z'),
+      P(sc, '2026-10-15T15:00:00Z'),
+      P(margenDePedido([linea(200, 100, true, false)]), '2026-10-16T15:00:00Z'),
+      P(margenDePedido([linea(60, 40)]), '2026-09-20T15:00:00Z'),
+    ],
+    [
+      { fecha: en('2026-10-05T16:00:00Z'), categoria: 'gasto_operativo', monto: 25 },
+      { fecha: en('2026-10-06T16:00:00Z'), categoria: 'otro_egreso', monto: 5 },
+      { fecha: en('2026-10-07T16:00:00Z'), categoria: 'flete_aereo', monto: 612 },
+      { fecha: en('2026-10-07T16:00:00Z'), categoria: 'comision_giro', monto: 9 },
+      { fecha: en('2026-10-07T16:00:00Z'), categoria: 'pago_proveedor', monto: 300 },
+      { fecha: en('2026-10-08T16:00:00Z'), categoria: 'conversion_salida', monto: 100 },
+      { fecha: en('2026-10-08T16:00:00Z'), categoria: 'conversion_entrada', monto: 92 },
+    ],
+  )
+  const oct = meses.find(m => m.mes === '2026-10')!
+  check('octubre: cuenta lo realizado y lo estimado, no lo en curso ni lo sin costo', oct.pedidos, 2)
+  check('octubre: vendido', oct.ventaUsd, 150)
+  check('octubre: margen', oct.margenUsd, 54)
+  check('octubre: la parte estimada del margen', oct.margenEstimadoUsd, 20)
+  check('octubre: el entregado sin costo se avisa, no suma', oct.pedidosSinCosto, 1)
+  check('octubre: gastos = operativo + otros (flete, giro y compra ya están en el costo)', oct.gastosUsd, 30)
+  check('octubre: costo de convertir Bs = salida − entrada', oct.conversionUsd, 8)
+  check('octubre: resultado = margen − gastos − convertir', oct.resultadoUsd, 16)
+  check('septiembre aparece aparte', meses.find(m => m.mes === '2026-09')?.margenUsd ?? -1, 20)
+  check('más reciente primero', si(meses[0].mes === '2026-10'), 1)
+}
+
 // ── Stock de un conjunto: entra como sus piezas ─────────────────────────────────────────
 console.log('\nSTOCK DE UN CONJUNTO (entrega de stock propio)')
 {
@@ -604,6 +803,256 @@ console.log('\nSTOCK DE UN CONJUNTO (entrega de stock propio)')
 
   const suelta = piezasDeLinea({ productId: 9, quantity: 3, bundleItems: null }, resolver)
   check('pieza suelta: su producto y su cantidad', suelta.piezas[0]?.unidades ?? 0, 3)
+}
+
+// ── Flujos fuera del camino feliz (docs/REVISION-NEGOCIO.md, punto 2) ───────────────────────
+console.log('\nVALIDEZ DEL PRESUPUESTO')
+{
+  const si = (b: boolean) => (b ? 1 : 0)
+  const cotizado = new Date('2026-10-01T15:00:00Z') // 11:00 en Venezuela
+  const e = estadoValidez({ cotizadoAt: cotizado, createdAt: new Date('2026-09-01T00:00:00Z') }, 7, new Date('2026-10-08T20:00:00Z'))
+  check('vale todo el día 7 (hora de Venezuela), no hasta las 11:00', si(e.venceEl.toISOString() === '2026-10-09T03:59:59.999Z'), 1)
+  check('el último día todavía vale', si(e.vencido), 0)
+  check('…y dice que vence hoy', e.diasRestantes, 0)
+  const pasado = estadoValidez({ cotizadoAt: cotizado, createdAt: cotizado }, 7, new Date('2026-10-09T04:00:00Z'))
+  check('un instante después del último día venció', si(pasado.vencido), 1)
+  const viejo = estadoValidez({ cotizadoAt: null, createdAt: new Date('2026-08-01T12:00:00Z') }, 7, new Date('2026-10-13T12:00:00Z'))
+  check('un presupuesto anterior (sin cotizadoAt) cuenta desde que se creó', si(viejo.vencido), 1)
+  check('validezDias: vacío cae a 7', validezDias({}), 7)
+  check('validezDias: 0 cae a 7 (vencería todo al emitirlo)', validezDias({ presupuesto_validez_dias: '0' }), 7)
+  check('validezDias: ilegible cae a 7', validezDias({ presupuesto_validez_dias: 'abc' }), 7)
+  check('validezDias: 10', validezDias({ presupuesto_validez_dias: '10' }), 10)
+  check('el escalón de la cotización gana al de hoy', escalonDelPresupuesto(15, 20) ?? -1, 15)
+  check('sin escalón guardado se usa el de hoy', escalonDelPresupuesto(null, 20) ?? -1, 20)
+  check('sin ninguno, ninguno', si(escalonDelPresupuesto(null, null) === null), 1)
+  check('vencido no se aprueba', si(motivoNoAprobable(pasado) != null), 1)
+  check('vigente sí', si(motivoNoAprobable(e) != null), 0)
+}
+
+console.log('\nEDITAR UN PEDIDO CONFIRMADO')
+{
+  const si = (b: boolean) => (b ? 1 : 0)
+  const act = (over: Partial<LineaActual> & { id: number; productId: number }): LineaActual => ({
+    ensambleId: null, quantity: 5, salePrice: 20, bundleItems: null, shippingStatus: 'pendiente', costRealUsd: null, nombre: `P${over.productId}`, ...over,
+  })
+  const nue = (productId: number, quantity: number, salePrice = 20, bundleItems: unknown = null): LineaNueva => ({
+    productId, ensambleId: null, quantity, salePrice, bundleItems,
+  })
+  check('pendiente sin costo = libre', si(estadoLinea({ shippingStatus: 'pendiente', costRealUsd: null }) === 'libre'), 1)
+  check('pendiente con costo real = comprada', si(estadoLinea({ shippingStatus: 'pendiente', costRealUsd: 10 }) === 'comprada'), 1)
+  check('en camino sin costo cargado = comprada', si(estadoLinea({ shippingStatus: 'camino_usa', costRealUsd: null }) === 'comprada'), 1)
+  check('entregado = entregada', si(estadoLinea({ shippingStatus: 'entregado', costRealUsd: 10 }) === 'entregada'), 1)
+
+  const libre = planEdicion([act({ id: 1, productId: 1 })], [nue(1, 3)])
+  check('libre: cambiar la cantidad se aplica', si(libre.ops[0]?.op === 'actualizar'), 1)
+  check('libre: sin cambios no hace nada', planEdicion([act({ id: 1, productId: 1 })], [nue(1, 5)]).ops.length, 0)
+  check('libre: sacarla la quita', si(planEdicion([act({ id: 1, productId: 1 })], []).ops[0]?.op === 'quitar'), 1)
+  check('agregar una pieza nueva la crea', si(planEdicion([act({ id: 1, productId: 1 })], [nue(1, 5), nue(2, 1)]).ops.some(o => o.op === 'crear')), 1)
+
+  const comprada = act({ id: 2, productId: 2, shippingStatus: 'camino_usa', costRealUsd: 100 })
+  const baja = planEdicion([comprada], [nue(2, 3)]).ops[0]
+  check('comprada: bajar la cantidad manda las de más a stock', si(baja?.op === 'sobrante' && baja.unidades === 2 && baja.nueva?.quantity === 3), 1)
+  const quita = planEdicion([comprada], [nue(9, 1)]).ops.find(o => o.op === 'sobrante')
+  check('comprada: sacarla manda TODAS a stock, nada se pierde', si(quita?.op === 'sobrante' && quita.unidades === 5 && quita.nueva === null), 1)
+  check('comprada: subir la cantidad se rechaza', si(planEdicion([comprada], [nue(2, 6)]).error != null), 1)
+  check('comprada: cambiar solo el precio es solo el precio', si(planEdicion([comprada], [nue(2, 5, 25)]).ops[0]?.op === 'precio'), 1)
+  check('comprada: cambiar el conjunto se rechaza', si(planEdicion(
+    [act({ ...comprada, id: 3, productId: 3, bundleItems: [{ nameEs: 'a', quantity: 1 }] })],
+    [nue(3, 5, 20, [{ nameEs: 'a', quantity: 2 }])],
+  ).error != null), 1)
+  check('comprada: el mismo conjunto en otro orden de claves no cuenta como cambio', planEdicion(
+    [act({ ...comprada, id: 3, productId: 3, bundleItems: [{ nameEs: 'a', quantity: 1 }] })],
+    [nue(3, 5, 20, [{ quantity: 1, nameEs: 'a' }])],
+  ).ops.length, 0)
+
+  const entregada = act({ id: 4, productId: 4, shippingStatus: 'entregado', costRealUsd: 50 })
+  check('entregada: tal cual no hace nada', planEdicion([entregada], [nue(4, 5)]).ops.length, 0)
+  check('entregada: cambiarla se rechaza', si(planEdicion([entregada], [nue(4, 4)]).error != null), 1)
+  check('entregada: sacarla se rechaza', si(planEdicion([entregada], []).error != null), 1)
+
+  // El costo de lo que pasa a stock viaja con las unidades y lo que queda es el resto EXACTO.
+  const r = repartirSobrante(100, 3, 1)
+  check('sobrante: el costo de 1 de 3', r.sobranteUsd ?? -1, 33.33)
+  check('sobrante: lo que queda es el resto exacto', r.quedaUsd ?? -1, 66.67)
+  let desvio = 0
+  for (const [costo, cant, uds] of [[100, 3, 1], [99.99, 7, 3], [0.05, 9, 4], [1234.56, 11, 10]] as const) {
+    const x = repartirSobrante(costo, cant, uds)
+    desvio += Math.abs((x.sobranteUsd ?? 0) + (x.quedaUsd ?? 0) - costo)
+  }
+  check('sobrante: nunca se pierde ni sobra un centavo', desvio, 0, 1e-9)
+  check('sobrante: sin costo cargado no se inventa', si(repartirSobrante(null, 3, 1).sobranteUsd === null), 1)
+  check('el historial dice qué pasó', si(describirOps(planEdicion([comprada], [nue(2, 3)]).ops)[0]?.includes('stock propio') ?? false), 1)
+}
+
+console.log('\nCANCELAR UN PEDIDO')
+{
+  const si = (b: boolean) => (b ? 1 : 0)
+  const base = { tipo: 'cliente', status: 'pedido', items: [{ shippingStatus: 'pendiente', costRealUsd: null }] }
+  check('un pedido de cliente confirmado se cancela', si(motivoNoCancelable(base) != null), 0)
+  check('un presupuesto no se cancela, se borra', si(motivoNoCancelable({ ...base, status: 'presupuesto' }) != null), 1)
+  check('uno ya cancelado no', si(motivoNoCancelable({ ...base, status: 'cancelado' }) != null), 1)
+  check('stock propio no', si(motivoNoCancelable({ ...base, tipo: 'propio' }) != null), 1)
+  check('con algo ya entregado no se cancela entero', si(motivoNoCancelable({ ...base, items: [{ shippingStatus: 'entregado', costRealUsd: 5 }] }) != null), 1)
+  const mixto = resumenCancelacion([
+    { shippingStatus: 'pendiente', costRealUsd: null }, { shippingStatus: 'camino_usa', costRealUsd: 40 }, { shippingStatus: 'pendiente', costRealUsd: 10 },
+  ])
+  check('cuenta lo comprado (aunque siga pendiente con costo)', mixto.compradas, 2)
+  check('y lo que nunca se compró', mixto.libres, 1)
+  check('sin nada comprado se propone devolver todo', devolucionSugerida(100, { compradas: 0, libres: 2 }), 100)
+  check('con algo comprado, nada (los términos: no se reembolsa)', devolucionSugerida(100, mixto), 0)
+  check('no se devuelve más de lo cobrado', si(motivoDevolucionInvalida(150, 100) != null), 1)
+  check('devolver todo lo cobrado sí', si(motivoDevolucionInvalida(100, 100) != null), 0)
+  check('un monto negativo no', si(motivoDevolucionInvalida(-1, 100) != null), 1)
+  check('un cancelado no se puede borrar', si(motivoNoEliminable({ tipo: 'cliente', status: 'cancelado', depositUsd: null, movimientos: 0, items: [] }) != null), 1)
+}
+
+console.log('\nINCIDENCIAS Y RECLAMOS')
+{
+  const si = (b: boolean) => (b ? 1 : 0)
+  const libre = { shippingStatus: 'pendiente', costRealUsd: null }
+  const enCamino = { shippingStatus: 'en_venezuela', costRealUsd: 100 }
+  const entregada = { shippingStatus: 'entregado', costRealUsd: 100 }
+  check('sin comprar solo puede no estar disponible', si(tiposPara(libre).join() === 'no_disponible'), 1)
+  check('en camino: lo que le pasa a la mercancía', tiposPara(enCamino).length, 4)
+  check('entregada: solo reclamos, y el defecto de fábrica se admite', si(tiposPara(entregada).includes('defecto') && !tiposPara(entregada).includes('perdida')), 1)
+  check('lo de una línea entregada es un reclamo del cliente', si(origenPara(entregada) === 'cliente'), 1)
+  check('lo de una en camino lo detecté yo', si(origenPara(enCamino) === 'operacion'), 1)
+  check('un reclamo del cliente puede no proceder', si(resolucionesPara('danada', 'cliente').includes('rechazado')), 1)
+  check('lo que detecto yo no se "rechaza"', si(resolucionesPara('danada', 'operacion').includes('rechazado')), 0)
+  check('un no disponible se cierra cambiándolo', si(resolucionesPara('no_disponible', 'operacion').includes('sustituida')), 1)
+
+  // Un conjunto casi nunca falla entero: falta UN SKU, y quitarlo al editar cierra solo ese problema.
+  const disco = { nameEs: 'Disco', bajajCode: 'JA1' }
+  const resorte = { nameEs: 'Resorte', bajajCode: null }
+  const abiertasConj = [
+    { id: 1, tipo: 'no_disponible', pieza: etiquetaPieza(disco) },
+    { id: 2, tipo: 'no_disponible', pieza: etiquetaPieza(resorte) },
+    { id: 3, tipo: 'no_disponible', pieza: null },
+    { id: 4, tipo: 'danada', pieza: etiquetaPieza(disco) },
+  ]
+  check('la pieza se nombra con su código', si(etiquetaPieza(disco) === 'Disco (JA1)' && etiquetaPieza(resorte) === 'Resorte'), 1)
+  check('quitar solo el SKU que falta cierra solo esa incidencia', si(cerradosPorEdicion(abiertasConj, [resorte]).join() === '1'), 1)
+  check('quitar otra pieza no cierra nada', cerradosPorEdicion(abiertasConj, [disco, resorte]).length, 0)
+  check('si la pieza sigue en el conjunto, sigue frenando la compra', si(cerradosPorEdicion(abiertasConj, [disco]).includes(1)), 0)
+  check('lo de la línea entera no se cierra al cambiar el conjunto', si(cerradosPorEdicion(abiertasConj, []).includes(3)), 0)
+  check('solo un "no disponible" se cierra por quitarlo', si(cerradosPorEdicion(abiertasConj, []).includes(4)), 0)
+
+  check('algo abierto frena la entrega', si(bloqueaEntrega([{ tipo: 'faltante', estado: 'abierta' }])), 1)
+  check('algo ya resuelto no', si(bloqueaEntrega([{ tipo: 'faltante', estado: 'resuelta' }])), 0)
+  check('un no disponible abierto frena la compra', si(bloqueaCompra([{ tipo: 'no_disponible', estado: 'abierta' }])), 1)
+  check('una dañada abierta no frena una compra', si(bloqueaCompra([{ tipo: 'danada', estado: 'abierta' }])), 0)
+
+  check('pérdida sugerida: 2 de 5 de $100', perdidaSugerida(100, 5, 2), 40)
+  const linea = { quantity: 5, salePrice: 20, costRealUsd: 100 }
+  const p = planReembolso(linea, 2, 40)
+  check('reembolsar 2 de 5: quedan 3', p.quedan, 3)
+  check('…la línea conserva el costo de las 3 que quedan', p.costRealNuevo ?? -1, 60)
+  check('…y baja lo vendido 2 × $20', p.bajaVentaUsd, 40)
+  check('…el costo de la línea más la pérdida es lo que se pagó', (p.costRealNuevo ?? 0) + p.perdidaUsd, 100)
+  check('reembolsar las 5 quita la línea', si(planReembolso(linea, 5, 100).quitaLinea), 1)
+  check('…y el costo entero queda como pérdida del pedido', planReembolso(linea, 5, 100).perdidaUsd, 100)
+  check('línea sin costo cargado: no hay costo que sacar', si(planReembolso({ ...linea, costRealUsd: null }, 2, 0).costRealNuevo === null), 1)
+
+  const res = (resolucion: Resolucion, cantidad = 2, over: object = {}) => motivoResolucionInvalida({
+    tipo: 'danada', origen: 'operacion', cantidad, resolucion, linea, perdidaUsd: null, ...over,
+  })
+  check('reponer 2 de 5 es válido', si(res('reposicion') != null), 0)
+  check('reembolsar más de lo que tiene la línea no', si(res('reembolso', 6) != null), 1)
+  check('"no procede" no aplica a algo que detecté yo', si(res('rechazado') != null), 1)
+  check('reponer sin línea no se puede (ya no está)', si(res('reposicion', 2, { linea: null }) != null), 1)
+  check('una pérdida negativa no', si(res('reembolso', 2, { perdidaUsd: -5 }) != null), 1)
+
+  const entregadoAt = new Date('2026-10-01T12:00:00Z')
+  check('reclamo a las 47 h: dentro del plazo', si(dentroDePlazo(entregadoAt, 48, new Date('2026-10-03T11:00:00Z'))), 1)
+  check('a las 49 h: fuera', si(dentroDePlazo(entregadoAt, 48, new Date('2026-10-03T13:00:00Z'))), 0)
+  check('sin fecha de entrega no se puede decir que se pasó', si(dentroDePlazo(null, 48)), 1)
+}
+
+console.log('\nMARGEN CON PÉRDIDAS Y CANCELACIONES')
+{
+  const si = (b: boolean) => (b ? 1 : 0)
+  const linea: LineaMargen = { ventaUsd: 100, costoUsd: 60, costoReal: true, entregada: true, entregadaAt: new Date('2026-10-10T12:00:00Z') }
+  const sin = margenDePedido([linea])
+  const con = margenDePedido([linea], { perdidasUsd: 25, ultimaAt: new Date('2026-10-11T12:00:00Z') })
+  check('sin pérdidas: margen 40', sin.margenUsd ?? -1, 40)
+  check('una pérdida de $25 es costo del pedido', con.costoUsd, 85)
+  check('…y baja el margen a 15', con.margenUsd ?? -1, 15)
+  check('…y se informa aparte', con.perdidasUsd, 25)
+  const vacio = margenDePedido([], { perdidasUsd: 30, ultimaAt: new Date('2026-10-11T12:00:00Z') })
+  check('un pedido reembolsado entero termina en pérdida', vacio.margenUsd ?? 0, -30)
+  check('…y está cerrado (no queda "en curso" para siempre)', si(vacio.estado !== 'en_curso'), 1)
+  check('…en la fecha de la pérdida', si(vacio.entregadoAt?.toISOString() === '2026-10-11T12:00:00.000Z'), 1)
+  check('sin líneas ni pérdidas no inventa nada', si(margenDePedido([]).estado === 'en_curso'), 1)
+
+  const meses = resultadoPorMes(
+    [{ margen: sin, fecha: new Date('2026-10-10T16:00:00Z') }],
+    [{ fecha: new Date('2026-10-11T16:00:00Z'), categoria: 'gasto_operativo', monto: 10 }],
+    [{ fecha: new Date('2026-10-12T16:00:00Z'), retenidoUsd: 45 }, { fecha: new Date('2026-11-02T16:00:00Z'), retenidoUsd: 5 }],
+  )
+  const oct = meses.find(m => m.mes === '2026-10')!
+  check('lo que se quedó de un cancelado suma al mes en que se canceló', oct.cancelacionesUsd, 45)
+  check('resultado = margen + cancelados − gastos', oct.resultadoUsd, 75)
+  check('un mes con solo cancelaciones aparece', meses.find(m => m.mes === '2026-11')?.resultadoUsd ?? -1, 5)
+}
+
+console.log('\nENTREGAR CONTRA EL SALDO')
+{
+  const si = (b: boolean) => (b ? 1 : 0)
+  check('saldo = total − cobrado', saldoReal([{ salePrice: 50, quantity: 2 }], 60), 40)
+  check('sin cobrar nada, todo el total', saldoReal([{ salePrice: 50, quantity: 2 }], null), 100)
+  check('cobrado de más = saldo a favor (negativo)', saldoReal([{ salePrice: 50, quantity: 1 }], 70), -20)
+  check('un centavo de redondeo no es deuda', si(debeSaldo(0.01)), 0)
+  check('dos centavos sí', si(debeSaldo(0.02)), 1)
+  check('todo entregado = entregado sin pagar', si(situacionDeCobro([{ shippingStatus: 'entregado' }, { shippingStatus: 'entregado' }]) === 'entregado'), 1)
+  check('algo entregado = parcial', si(situacionDeCobro([{ shippingStatus: 'entregado' }, { shippingStatus: 'camino_usa' }]) === 'parcial'), 1)
+  check('nada entregado = en tránsito (lo normal)', si(situacionDeCobro([{ shippingStatus: 'camino_usa' }]) === 'en_transito'), 1)
+}
+
+console.log('\nTIEMPOS REALES POR ETAPA')
+{
+  const si = (b: boolean) => (b ? 1 : 0)
+  const d = (n: number) => new Date(Date.UTC(2026, 9, 1 + n))
+  const ev = (itemId: number, desde: string, hacia: string, dia: number) => ({ itemId, desde, hacia, at: d(dia) })
+  const eventos = [
+    ev(1, 'pendiente', 'camino_shoppre', 0), ev(1, 'camino_shoppre', 'en_shoppre', 3), ev(1, 'en_shoppre', 'camino_usa', 5),
+    ev(2, 'pendiente', 'camino_shoppre', 0), ev(2, 'camino_shoppre', 'en_shoppre', 5),
+  ]
+  const tramos = tiemposPorTramo(eventos)
+  const t = tramos.find(x => x.tramo === 'camino_shoppre→en_shoppre')!
+  check('un tramo recorrido por dos líneas: n', t.n, 2)
+  check('…promedio de 3 y 5 días', t.promedioDias, 4)
+  check('…el otro tramo, 2 días', tramos.find(x => x.tramo === 'en_shoppre→camino_usa')?.medianaDias ?? -1, 2)
+  check('en el orden del recorrido', si(tramos[0].tramo === 'camino_shoppre→en_shoppre'), 1)
+  const total = tiempoDeCompraA(eventos, 'en_shoppre')!
+  check('de comprado a llegar a Shoppre: promedio', total.promedioDias, 4)
+  check('…mínimo', total.minDias, 3)
+  check('una línea que no llegó no cuenta', total.n, 2)
+  check('sin llegadas no hay estadística', si(tiempoDeCompraA([ev(1, 'pendiente', 'camino_shoppre', 0)], 'en_venezuela') === null), 1)
+  // Un retroceso (se corrigió un error) no es un tramo.
+  const retro = tiemposPorTramo([ev(3, 'pendiente', 'camino_usa', 0), ev(3, 'camino_usa', 'en_usa', 2), ev(3, 'en_usa', 'camino_usa', 3)])
+  check('un retroceso no cuenta como tramo', retro.length, 1)
+  // Un hueco en la cadena (falta un cambio) no se mide como si fuera continuo.
+  const hueco = tiemposPorTramo([ev(4, 'pendiente', 'camino_usa', 0), ev(4, 'en_usa', 'camino_venezuela', 9)])
+  check('con un hueco en el historial no se inventa el tramo', hueco.length, 0)
+}
+
+console.log('\nDEVOLUCIÓN AL CLIENTE (lo que se lee del formulario)')
+{
+  const si = (b: boolean) => (b ? 1 : 0)
+  const fd = (o: Record<string, string>) => { const f = new FormData(); for (const [k, v] of Object.entries(o)) f.set(k, v); return f }
+  const vacio = leerDevolucion(fd({}))
+  check('vacío = no se devuelve nada', si(vacio.ok && vacio.devolucion === null), 1)
+  const cero = leerDevolucion(fd({ devolverUsd: '0' }))
+  check('0 = no se devuelve nada', si(cero.ok && cero.devolucion === null), 1)
+  check('un texto ilegible se rechaza, no se toma por vacío', si(!leerDevolucion(fd({ devolverUsd: 'abc' })).ok), 1)
+  const efectivo = leerDevolucion(fd({ devolverUsd: '25.5', devolverMetodo: 'Efectivo USD' }))
+  check('en efectivo: monto', efectivo.ok && efectivo.devolucion ? efectivo.devolucion.monto : -1, 25.5)
+  check('…sin Bs', si(efectivo.ok && efectivo.devolucion?.bs === null), 1)
+  check('sin método no se devuelve', si(!leerDevolucion(fd({ devolverUsd: '10' })).ok), 1)
+  check('en Bs piden los bolívares', si(!leerDevolucion(fd({ devolverUsd: '10', devolverMetodo: 'Pago móvil / Transferencia Bs' })).ok), 1)
+  const enBs = leerDevolucion(fd({ devolverUsd: '10', devolverMetodo: 'Pago móvil / Transferencia Bs', devolverBs: '1000', devolverTasa: '100' }))
+  check('en Bs se anotan los entregados tal cual', enBs.ok && enBs.devolucion?.bs ? enBs.devolucion.bs.montoBs : -1, 1000)
+  check('…y la tasa', enBs.ok && enBs.devolucion?.bs ? enBs.devolucion.bs.tasaBs : -1, 100)
 }
 
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)

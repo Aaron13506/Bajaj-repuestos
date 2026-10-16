@@ -7,13 +7,16 @@ import {
   CATEGORIAS_EGRESO,
   tipoDeCategoria,
   registrarCompra as registrarCompraLib,
-  registrarIngresoPedido,
+  cobrarPedido,
   bloquearPedido,
   ajustarDeposito,
+  registrarConversion,
 } from '@/lib/movimientos'
 import { revalidateClientes } from '@/lib/clientes'
 import { ok, fallo, type ActionResult } from '@/lib/action-result'
 import { isForeignKeyViolation } from '@/lib/prisma-errors'
+import { cuentaDeMetodo, datosBs, leerCobroBs } from '@/lib/cuentas'
+import { toConfigMap } from '@/lib/config'
 
 const CATEGORIAS_VALIDAS = new Set<string>([...CATEGORIAS_INGRESO, ...CATEGORIAS_EGRESO])
 
@@ -27,35 +30,46 @@ function optionalInt(formData: FormData, name: string): number | null {
 // Asiento suelto del libro: no todo movimiento tiene un pedido/envío/proveedor detrás
 // (un gasto operativo no va atado a nada). Los tres links son independientes.
 //
-// Un INGRESO ligado a un pedido es un cobro de ese pedido, y por eso pasa por
-// registrarIngresoPedido: además del movimiento suma a Pedido.depositUsd, la caché que leen
-// cobranza y clientes. Antes este camino solo creaba el movimiento, y el pedido seguía
-// mostrando lo cobrado de antes — hasta que se borraba el movimiento, que SÍ restaba del
-// depósito y lo dejaba por debajo de lo real.
+// Un INGRESO ligado a un pedido es un cobro de ese pedido, y por eso pasa por cobrarPedido:
+// convierte lo escrito a dólares reales (BCV) y, además del movimiento, suma a
+// Pedido.depositUsd, la caché que leen cobranza y clientes. Antes este camino solo creaba el
+// movimiento, y el pedido seguía mostrando lo cobrado de antes — hasta que se borraba el
+// movimiento, que SÍ restaba del depósito y lo dejaba por debajo de lo real.
 export async function crearMovimiento(formData: FormData): Promise<ActionResult> {
   const categoria = (formData.get('categoria') as string)?.trim() ?? ''
   if (!CATEGORIAS_VALIDAS.has(categoria)) return fallo('Elegí una categoría.')
 
-  const monto = parseFloat((formData.get('monto') as string)?.trim() ?? '')
+  const metodoPago = (formData.get('metodoPago') as string)?.trim() || null
+  const tipo = tipoDeCategoria(categoria)
+  // Un ingreso en Bs se escribe en bolívares y tasa; los dólares salen de dividir.
+  const bs = leerCobroBs(formData, tipo === 'ingreso' ? metodoPago : null)
+  if (!bs.ok) return fallo(bs.error)
+  const monto = bs.cobro ? bs.cobro.montoUsd : parseFloat((formData.get('monto') as string)?.trim() ?? '')
   if (!Number.isFinite(monto) || monto <= 0) return fallo('El monto tiene que ser mayor que 0.')
 
   const rawDate = (formData.get('fecha') as string)?.trim()
   const fecha = rawDate ? new Date(`${rawDate}T12:00:00`) : new Date()
-  const metodoPago = (formData.get('metodoPago') as string)?.trim() || null
   const descripcion = (formData.get('descripcion') as string)?.trim() || null
   const pedidoId = optionalInt(formData, 'pedidoId')
   const envioId = optionalInt(formData, 'envioId')
   const supplierId = optionalInt(formData, 'supplierId')
-  const tipo = tipoDeCategoria(categoria)
 
   try {
     if (tipo === 'ingreso' && pedidoId != null) {
-      await db.$transaction(tx =>
-        registrarIngresoPedido(tx, { pedidoId, monto, categoria, fecha, metodoPago, descripcion, envioId, supplierId }),
+      // Misma conversión que el formulario de pago de la ficha del pedido: en un pedido a dólar
+      // BCV, lo escrito en Bs son dólares BCV y lo que se guarda es su valor real.
+      const r = await db.$transaction(
+        tx => cobrarPedido(tx, { pedidoId, monto, categoria, fecha, metodoPago, descripcion, envioId, supplierId, tasaBs: bs.cobro?.tasaBs, montoBs: bs.cobro?.montoBs }),
+        { maxWait: 10_000, timeout: 20_000 },
       )
+      if (!r.ok) return r
     } else {
+      const datos = datosBs(metodoPago, monto, bs.cobro?.tasaBs ?? null, bs.cobro?.montoBs)
       await db.movimiento.create({
-        data: { fecha, tipo, categoria, monto, metodoPago, descripcion, pedidoId, envioId, supplierId },
+        data: {
+          fecha, tipo, categoria, monto, metodoPago, descripcion, pedidoId, envioId, supplierId,
+          cuenta: cuentaDeMetodo(metodoPago), montoBs: datos?.montoBs ?? null, tasaBs: datos?.tasaBs ?? null,
+        },
       })
     }
   } catch (e) {
@@ -86,20 +100,29 @@ export async function eliminarMovimiento(id: number) {
   await db.$transaction(async tx => {
     const mov = await tx.movimiento.findUnique({
       where: { id },
-      select: { pedidoId: true, monto: true, tipo: true, envioId: true },
+      select: { pedidoId: true, monto: true, tipo: true, envioId: true, grupo: true, categoria: true },
     })
     if (!mov) return
     envioId = mov.envioId
 
+    // Las dos patas de una conversión se van juntas: una sola descuadraría la caja.
+    if (mov.grupo != null) {
+      await tx.movimiento.deleteMany({ where: { grupo: mov.grupo } })
+      return
+    }
+
     const esCobro = mov.pedidoId != null && mov.tipo === 'ingreso'
+    // Una devolución a un cliente baja el depósito al anotarse: borrarla lo devuelve a lo que era.
+    const esDevolucion = mov.pedidoId != null && mov.categoria === 'devolucion_cliente'
     // Cerrojo del pedido ANTES de tocar sus movimientos: mismo orden que el resto de las
     // acciones de cobro, para que dos de ellas sobre el mismo pedido no se interbloqueen.
-    if (esCobro) await bloquearPedido(tx, mov.pedidoId!)
+    if (esCobro || esDevolucion) await bloquearPedido(tx, mov.pedidoId!)
 
     const borrados = await tx.movimiento.deleteMany({ where: { id } })
     if (borrados.count === 0) return
 
     if (esCobro) await ajustarDeposito(tx, mov.pedidoId!, -parseFloat(mov.monto.toString()))
+    if (esDevolucion) await ajustarDeposito(tx, mov.pedidoId!, parseFloat(mov.monto.toString()))
   })
 
   revalidatePath('/contabilidad')
@@ -111,6 +134,25 @@ export async function eliminarMovimiento(id: number) {
     revalidatePath(`/envios/${envioId}`)
   }
   revalidateClientes()
+}
+
+// Pasar Bs a USDT: lo que se dio y lo que se recibió. El libro anota las dos patas y el costo
+// de convertir sale de la diferencia (ver registrarConversion).
+export async function crearConversion(formData: FormData): Promise<ActionResult> {
+  const leer = (n: string) => parseFloat(String(formData.get(n) ?? '').trim().replace(',', '.'))
+  const rawDate = (formData.get('fecha') as string)?.trim()
+  const r = await registrarConversion(
+    {
+      bs: leer('bs'),
+      usdt: leer('usdt'),
+      fecha: rawDate ? new Date(`${rawDate}T12:00:00`) : new Date(),
+      descripcion: (formData.get('descripcion') as string)?.trim() || null,
+    },
+    toConfigMap(await db.config.findMany()),
+  )
+  if (!r.ok) return r
+  revalidatePath('/contabilidad')
+  return ok()
 }
 
 // Apertura de caja: ancla el saldo mostrado a `saldoInicial + flujo real desde esta

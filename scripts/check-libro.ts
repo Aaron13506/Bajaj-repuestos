@@ -23,7 +23,7 @@ let problemas = 0
 async function main() {
   // ── 1. Depósito vs ingresos del libro, por pedido ─────────────────────────
   console.log('DEPÓSITO DE CADA PEDIDO vs SUS INGRESOS EN EL LIBRO')
-  const [pedidos, ingresos] = await Promise.all([
+  const [pedidos, ingresos, devoluciones] = await Promise.all([
     db.pedido.findMany({
       where: { tipo: { not: 'propio' } },
       select: { id: true, clientName: true, status: true, depositUsd: true },
@@ -33,8 +33,15 @@ async function main() {
       where: { tipo: 'ingreso', pedidoId: { not: null } },
       _sum: { monto: true },
     }),
+    // Lo devuelto a un cliente baja su depósito: el depósito es lo que tiene pagado, NETO de devoluciones.
+    db.movimiento.groupBy({
+      by: ['pedidoId'],
+      where: { tipo: 'egreso', categoria: 'devolucion_cliente', pedidoId: { not: null } },
+      _sum: { monto: true },
+    }),
   ])
-  const enLibro = new Map(ingresos.map(i => [i.pedidoId!, dec(i._sum.monto)]))
+  const devuelto = new Map(devoluciones.map(d => [d.pedidoId!, dec(d._sum.monto)]))
+  const enLibro = new Map(ingresos.map(i => [i.pedidoId!, dec(i._sum.monto) - (devuelto.get(i.pedidoId!) ?? 0)]))
 
   const desfasados = pedidos
     .map(p => ({ p, deposito: dec(p.depositUsd), libro: enLibro.get(p.id) ?? 0 }))
@@ -77,6 +84,35 @@ async function main() {
     }
   }
 
+  // ── 2b. Devoluciones a clientes ───────────────────────────────────────────
+  // Una devolución sin pedido no baja ningún depósito: dejaría al cliente "pagado" en el pedido y
+  // la plata fuera de la caja. Las crea siempre `devolverACliente`, con su pedido.
+  console.log('\nDEVOLUCIONES A CLIENTES')
+  const devSueltas = await db.movimiento.count({ where: { categoria: 'devolucion_cliente', pedidoId: null } })
+  const devTotal = await db.movimiento.count({ where: { categoria: 'devolucion_cliente' } })
+  if (devSueltas === 0) {
+    console.log(`  ✓ ${devTotal} devolución(es), todas ligadas a su pedido`)
+  } else {
+    problemas += devSueltas
+    console.log(`  ✗ ${devSueltas} devolución(es) sin pedido`)
+  }
+
+  // ── 2c. Lo que un pedido cancelado debería haber dejado resuelto ──────────
+  // Cancelar manda lo comprado a stock propio y saca del viaje lo que no se compró: un cancelado
+  // con líneas todavía asignadas a una caja o sin entregar y con costo es una cancelación a medias.
+  console.log('\nPEDIDOS CANCELADOS')
+  const cancelados = await db.pedido.findMany({
+    where: { status: 'cancelado' },
+    select: { id: true, clientName: true, items: { select: { envioId: true, costRealUsd: true } } },
+  })
+  const raros = cancelados.filter(c => c.items.some(i => i.envioId != null || i.costRealUsd != null))
+  if (raros.length === 0) {
+    console.log(`  ✓ ${cancelados.length} cancelado(s), ninguno con líneas en una caja ni con costo`)
+  } else {
+    problemas += raros.length
+    for (const c of raros) console.log(`  ✗ #${c.id} ${c.clientName}: todavía tiene líneas en una caja o con costo real`)
+  }
+
   // ── 3. Stock negativo ─────────────────────────────────────────────────────
   console.log('\nSTOCK NEGATIVO')
   const negativos = await db.product.findMany({
@@ -105,6 +141,23 @@ async function main() {
   })
   if (otros.length === 0) console.log('  — ninguno')
   for (const o of otros) console.log(`  ${o.categoria.padEnd(16)} ${String(o._count).padStart(3)} movimientos · ${usd(dec(o._sum.monto))}`)
+
+  // ── 5. Conversiones entre cuentas ─────────────────────────────────────────
+  // Cada conversión son exactamente dos movimientos con el mismo grupo: una salida de banco_bs y
+  // una entrada a usdt. Una pata sola descuadra la caja (el costo de convertir es su diferencia).
+  console.log('\nCONVERSIONES Bs → USDT')
+  const patas = await db.movimiento.groupBy({
+    by: ['grupo'],
+    where: { grupo: { not: null } },
+    _count: true,
+  })
+  const rotas = patas.filter(g => g._count !== 2)
+  if (rotas.length === 0) {
+    console.log(`  ✓ ${patas.length} conversión(es), todas con sus dos patas`)
+  } else {
+    problemas += rotas.length
+    for (const g of rotas) console.log(`  ✗ grupo ${g.grupo} tiene ${g._count} movimiento(s) en vez de 2`)
+  }
 
   console.log(`\n${problemas === 0 ? '✅ el libro es coherente' : `⚠️  ${problemas} hallazgo(s) a revisar`}\n`)
   await db.$disconnect()

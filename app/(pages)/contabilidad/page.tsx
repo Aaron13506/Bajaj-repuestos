@@ -3,9 +3,12 @@ import Link from 'next/link'
 import DeleteButton from '@/components/DeleteButton'
 import MovimientoForm from '@/components/MovimientoForm'
 import AperturaCajaForm from '@/components/AperturaCajaForm'
-import { crearMovimiento, eliminarMovimiento, guardarAperturaCaja } from './actions'
+import ConversionForm from '@/components/ConversionForm'
+import { crearMovimiento, crearConversion, eliminarMovimiento, guardarAperturaCaja } from './actions'
 import {
   saldoCaja,
+  saldosPorCuenta,
+  valorBsEnLibro,
   cuentasPorPagar,
   listarMovimientos,
   itemsSinCostoReal,
@@ -15,12 +18,15 @@ import {
   CATEGORIA_LABELS,
   type RangoFechas,
 } from '@/lib/movimientos'
-import { toConfigMap } from '@/lib/config'
+import { toConfigMap, num } from '@/lib/config'
+import { CUENTA_LABELS } from '@/lib/cuentas'
 import { resumenInventario } from '@/lib/inventario'
 import { VENTA_STATUS, pedidoTotal } from '@/lib/clientes'
 import { METODOS_PAGO_INGRESO, METODOS_PAGO_EGRESO } from '@/lib/pagos'
+import { SITUACION_LABELS, situacionDeCobro, type SituacionCobro } from '@/lib/saldo-entrega'
 
 const usd = (n: number) => `$${n.toFixed(2)}`
+const ORDEN_SITUACION: Record<SituacionCobro, number> = { entregado: 0, parcial: 1, en_transito: 2 }
 const fechaCorta = (d: Date) => d.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' })
 // Fin de día EXCLUSIVO para el filtro "hasta": el input <input type=date> da la fecha a
 // las 00:00, y sin este +1 día el propio día elegido quedaría afuera del rango.
@@ -47,7 +53,7 @@ export default async function ContabilidadPage({ searchParams }: Props) {
           id: true,
           clientName: true,
           depositUsd: true,
-          items: { select: { salePrice: true, quantity: true } },
+          items: { select: { salePrice: true, quantity: true, shippingStatus: true } },
         },
         orderBy: { id: 'desc' },
       }),
@@ -81,8 +87,11 @@ export default async function ContabilidadPage({ searchParams }: Props) {
     : undefined
   const rangoCaja: RangoFechas | undefined = apertura ? { desde: apertura.desde, hasta: null } : undefined
 
-  const [caja, movimientos] = await Promise.all([
+  const cfg = toConfigMap(cfgRows)
+  const [caja, porCuenta, valorBs, movimientos] = await Promise.all([
     saldoCaja(rangoCaja),
+    saldosPorCuenta(rangoCaja),
+    valorBsEnLibro(cfg),
     listarMovimientos(50, rangoLibro),
   ])
   const saldoTotal = (apertura?.saldoInicial ?? 0) + caja.saldo
@@ -93,12 +102,17 @@ export default async function ContabilidadPage({ searchParams }: Props) {
     .map(p => {
       const total = pedidoTotal(p.items)
       const recibido = p.depositUsd != null ? parseFloat(p.depositUsd.toString()) : 0
-      return { pedidoId: p.id, clientName: p.clientName, total, recibido, falta: total - recibido }
+      // Lo que ya se entregó y no se pagó es el riesgo; lo que todavía viaja es lo normal de un pedido
+      // por encargo, con su saldo contra entrega. No es lo mismo y no se mezclan (ver saldo-entrega).
+      return { pedidoId: p.id, clientName: p.clientName, total, recibido, falta: total - recibido, situacion: situacionDeCobro(p.items) }
     })
     .filter(p => p.falta > 0.01)
-    .sort((a, b) => b.falta - a.falta)
+    // Lo entregado sin pagar primero, y dentro de cada grupo lo más grande.
+    .sort((a, b) => ORDEN_SITUACION[a.situacion] - ORDEN_SITUACION[b.situacion] || b.falta - a.falta)
 
   const totalPorCobrar = porCobrar.reduce((s, p) => s + p.falta, 0)
+  const totalPorSituacion = (sit: SituacionCobro) => porCobrar.filter(p => p.situacion === sit).reduce((s, p) => s + p.falta, 0)
+  const sinPagarEntregado = totalPorSituacion('entregado') + totalPorSituacion('parcial')
   const porPagar = cuentas.pendientes
   const sobrepagadas = cuentas.sobrepagadas
   const totalPorPagar = porPagar.reduce((s, e) => s + Math.max(0, e.pendiente), 0)
@@ -145,7 +159,30 @@ export default async function ContabilidadPage({ searchParams }: Props) {
             {apertura
               ? `${usd(apertura.saldoInicial)} apertura (${fechaCorta(apertura.desde)}) + ${usd(caja.ingresos)} ingresos − ${usd(caja.egresos)} egresos`
               : `${usd(caja.ingresos)} ingresos − ${usd(caja.egresos)} egresos`}
+            {Math.abs(caja.costoConversion) >= 0.005 && ` ${caja.costoConversion > 0 ? '−' : '+'} ${usd(Math.abs(caja.costoConversion))} por convertir Bs`}
           </p>
+          {/* Dónde está: lo que suman las cuentas, más la apertura, es el saldo de arriba. */}
+          <ul className="mt-2 pt-2 border-t border-gray-100 space-y-0.5">
+            {porCuenta.map(c => (
+              <li key={c.cuenta ?? 'sin'} className="flex justify-between text-[11px] text-gray-500">
+                <span>{c.cuenta ? CUENTA_LABELS[c.cuenta] : 'Sin cuenta'}</span>
+                <span className="font-mono">
+                  {usd(c.usd)}
+                  {c.bs != null && c.bs > 0 && (
+                    <span className="text-gray-400">
+                      {' '}· Bs {c.bs.toLocaleString('es-VE', { maximumFractionDigits: 0 })}{c.sinBs > 0 ? '+' : ''}
+                    </span>
+                  )}
+                </span>
+              </li>
+            ))}
+            {apertura && (
+              <li className="flex justify-between text-[11px] text-gray-400">
+                <span>Apertura</span>
+                <span className="font-mono">{usd(apertura.saldoInicial)}</span>
+              </li>
+            )}
+          </ul>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
           <div className="flex items-center justify-between mb-1">
@@ -176,6 +213,11 @@ export default async function ContabilidadPage({ searchParams }: Props) {
           <p className="text-xs text-gray-400 mb-1">Por cobrar</p>
           <p className="text-2xl font-bold font-mono text-amber-700">{usd(totalPorCobrar)}</p>
           <p className="text-[11px] text-gray-400 mt-1">{porCobrar.length} pedidos con saldo</p>
+          {sinPagarEntregado > 0.005 && (
+            <p className="text-[11px] text-red-600 font-semibold mt-0.5">
+              {usd(sinPagarEntregado)} ya entregado sin pagar
+            </p>
+          )}
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
           <p className="text-xs text-gray-400 mb-1">Por pagar</p>
@@ -201,11 +243,18 @@ export default async function ContabilidadPage({ searchParams }: Props) {
             <table className="w-full text-sm">
               <tbody className="divide-y divide-gray-50">
                 {porCobrar.map(p => (
-                  <tr key={p.pedidoId}>
+                  <tr key={p.pedidoId} className={p.situacion === 'entregado' ? 'bg-red-50/50' : undefined}>
                     <td className="px-5 py-2.5">
                       <Link href={`/presupuestos/${p.pedidoId}`} className="text-blue-600 hover:underline">
                         {p.clientName}
                       </Link>
+                      <span className={`ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                        p.situacion === 'entregado' ? 'bg-red-100 text-red-700'
+                          : p.situacion === 'parcial' ? 'bg-amber-100 text-amber-800'
+                          : 'bg-gray-100 text-gray-500'
+                      }`}>
+                        {SITUACION_LABELS[p.situacion]}
+                      </span>
                     </td>
                     <td className="px-5 py-2.5 text-right font-mono text-amber-700">{usd(p.falta)}</td>
                     <td className="px-5 py-2.5 text-right text-xs text-gray-400">de {usd(p.total)}</td>
@@ -282,7 +331,11 @@ export default async function ContabilidadPage({ searchParams }: Props) {
         pedidos={pedidosConfirmados.map(p => ({ id: p.id, clientName: p.clientName }))}
         envios={envios}
         suppliers={suppliers}
+        tasaBsSugerida={num(cfg, 'bsd_usd_rate', 0)}
+        tasaBcvSugerida={num(cfg, 'bcv_usd_rate', 0)}
       />
+
+      <ConversionForm action={crearConversion} valor={valorBs} />
 
       {/* Libro de movimientos */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
@@ -327,6 +380,7 @@ export default async function ContabilidadPage({ searchParams }: Props) {
               <tr>
                 <th className="text-left px-4 py-2 font-medium text-gray-500">Fecha</th>
                 <th className="text-left px-4 py-2 font-medium text-gray-500">Categoría</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-500">Cuenta</th>
                 <th className="text-left px-4 py-2 font-medium text-gray-500">Nota</th>
                 <th className="text-left px-4 py-2 font-medium text-gray-500">Referencia</th>
                 <th className="text-right px-4 py-2 font-medium text-gray-500">Monto</th>
@@ -338,6 +392,7 @@ export default async function ContabilidadPage({ searchParams }: Props) {
                 <tr key={m.id}>
                   <td className="px-4 py-2 text-gray-500">{m.fecha.toISOString().slice(0, 10)}</td>
                   <td className="px-4 py-2">{CATEGORIA_LABELS[m.categoria as keyof typeof CATEGORIA_LABELS] ?? m.categoria}</td>
+                  <td className="px-4 py-2 text-gray-500">{m.cuenta ? CUENTA_LABELS[m.cuenta as keyof typeof CUENTA_LABELS] ?? m.cuenta : '—'}</td>
                   <td className="px-4 py-2 text-gray-500">{m.descripcion ?? '—'}</td>
                   <td className="px-4 py-2 text-gray-500">
                     {m.pedido && <Link href={`/presupuestos/${m.pedido.id}`} className="text-blue-600 hover:underline">{m.pedido.clientName}</Link>}
@@ -346,11 +401,16 @@ export default async function ContabilidadPage({ searchParams }: Props) {
                   </td>
                   <td className={`px-4 py-2 text-right font-mono font-semibold ${m.tipo === 'ingreso' ? 'text-green-700' : 'text-red-700'}`}>
                     {m.tipo === 'ingreso' ? '+' : '−'}{usd(m.monto)}
+                    {m.montoBs != null && (
+                      <span className="block text-[10px] font-normal text-gray-400">
+                        Bs {m.montoBs.toLocaleString('es-VE', { maximumFractionDigits: 2 })}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-2 text-right">
                     <DeleteButton
                       action={eliminarMovimiento.bind(null, m.id)}
-                      confirmMessage="¿Eliminar este movimiento del libro?"
+                      confirmMessage={m.grupo ? 'Es una conversión: se borran las dos patas (la salida en Bs y la entrada a USDT). ¿Seguir?' : '¿Eliminar este movimiento del libro?'}
                     />
                   </td>
                 </tr>
