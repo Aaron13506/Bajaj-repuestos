@@ -4,7 +4,7 @@ Cada cambio de esquema es un archivo `AAAA-MM-DD-nombre.sql` en esta carpeta, qu
 cambio correspondiente de `../schema.prisma`. Los aplica `pnpm db:migrar` (`scripts/migrar.ts`), en orden de nombre y
 una sola vez cada uno; en producción, `pnpm deploy:prod --migrar`.
 
-Reglas (el porqué está en `CLAUDE.md`, sección «Schema changes»):
+Reglas (el porqué está en la skill `.claude/skills/deploy-y-esquema/SKILL.md`):
 
 - **Sin `BEGIN`/`COMMIT`**: el ejecutor envuelve cada archivo en una transacción junto con su registro.
 - **Un archivo aplicado no se edita** (se compara su checksum). El cambio va en uno nuevo.

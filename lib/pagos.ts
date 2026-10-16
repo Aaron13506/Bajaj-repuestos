@@ -8,7 +8,7 @@ export const METODOS_PAGO_INGRESO = [
 
 // Cómo PAGA el negocio a un proveedor/gasto: nunca es "transferencia Bs" — el proveedor
 // está afuera. El giro bancario ya tiene sus propias comisiones (Envio.comisionSaliente/
-// Entrante, ver CLAUDE.md); esto es el MEDIO con el que se pagó, no ese costo.
+// Entrante, ver la skill `envios`); esto es el MEDIO con el que se pagó, no ese costo.
 export const METODOS_PAGO_EGRESO = [
   'Giro bancario',
   'Tarjeta',
