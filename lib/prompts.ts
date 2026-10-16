@@ -151,8 +151,8 @@ PASO 4 — EL EMPAQUE (entra en el PESO Y en las MEDIDAS, no en uno solo):
 - EN CAJA — piezas grandes, frágiles, con forma propia o que ya vienen encajadas (amortiguadores,
   carcasas, faros, discos, plásticos de carrocería): van en su caja de cartón, y esa caja pesa y ocupa.
   · MEDIDAS: envolvente + empaque real, +1 cm por lado en medianas, +2 cm en grandes o frágiles.
-  · PESO: el de la pieza MÁS el de su caja. Un cartón corrugado sencillo pesa unos 0,55 g por cm² de
-    superficie exterior; en la práctica, para una caja mediana eso da entre un 8% y un 15% sobre la
+  · PESO: el de la pieza MÁS el de su caja. Un cartón corrugado sencillo pesa unos 0,055 g por cm² (≈ 550 g/m²) de
+    superficie exterior; en la práctica, para una caja mediana eso da entre un 5% y un 15% sobre la
     pieza, y más en las livianas y voluminosas (un plástico de carrocería puede llevar tanto cartón
     como pieza). Calcúlalo con la superficie de la caja que acabas de definir y muestra la cuenta.
 - Ante la duda mira el peso: menos de ~150 g y pieza de ferretería o de goma va en bolsa. Indica en la
@@ -175,7 +175,7 @@ PASO 5 — CHEQUEO FÍSICO (en todas las filas, muestra la cuenta):
   eso es correcto: no infles el bulto para "corregirla".
 - Absurdamente bajo en una pieza maciza (0,1 g/cm³ en un disco de acero) = peso mal o caja inflada.
 - EL CARGADOR RECHAZA SOLO, ANTES DE GUARDAR: densidad mayor a 8 g/cm³ (más que el acero) o menor a
-  0,02 (más liviano que el telgopor), y cualquier campo en 0. Esa fila no entra al catálogo y hay que
+  0,02 (más liviano que el poliestireno expandido), y cualquier campo en 0. Esa fila no entra al catálogo y hay que
   volver a investigarla entera, así que revisa la cuenta ANTES de entregar: una fila rechazada es todo
   el trabajo de esa pieza tirado. Marca además —sin bloquear— el cubo perfecto (L = A = H) y cualquier
   lado de más de 100 cm.
@@ -201,7 +201,7 @@ QUÉ DEVOLVER:
               0,5 kg (AliExpress — DESCARTADO: valor por defecto del anuncio)
    cruce: rango 310–340 g · mediana 320 g · pieza 320 g · acero + ferodo
    empaque: EN CAJA (pieza con forma propia, viene encajada) · caja 18 × 6 × 4 cm →
-            superficie ≈ 2(18×6 + 18×4 + 6×4) = 408 cm² × 0,55 g = 22 g de cartón
+            superficie ≈ 2(18×6 + 18×4 + 6×4) = 408 cm² × 0,055 g = 22 g de cartón
    BULTO: 342 g · 18 × 6 × 4 cm → densidad 342 / 432 = 0,79 g/cm³ (no maciza, coherente)
    control: la tienda publica "shipping weight 0,35 kg" → mis 342 g cierran contra esa cota
    fuentes:
@@ -214,7 +214,7 @@ QUÉ DEVOLVER:
 \`\`\`json
 [
   {
-    "bajajCode": "<el código que te di>",   // o "id": <el id que te di>
+    "bajajCode": "<el código que te di>",
     "weightGrams": <peso del BULTO en GRAMOS: pieza + su empaque>,
     "dimL": <largo del BULTO en CM>,
     "dimA": <ancho del BULTO en CM>,
@@ -395,7 +395,7 @@ ${motos}
    - Si hay datos publicados del PAQUETE ("Package Dimensions", "Package Weight", "shipping weight"),
      PREFIÉRELOS: ya son el bulto y NO se les suma empaque otra vez.
    - Si solo hay los del artículo pelado ("Item Weight", "Product Dimensions"), súmale la caja: +1 cm
-     por lado (+2 cm en piezas grandes o frágiles) y cartón ≈ 0,55 g por cm² de superficie exterior de
+     por lado (+2 cm en piezas grandes o frágiles) y cartón ≈ 0,055 g por cm² (≈ 550 g/m²) de superficie exterior de
      la caja. Muestra la cuenta.
    - Si no hay ningún dato, estima a partir de productos equivalentes con datos publicados (de otras
      marcas o motos: un producto del mismo tipo pesa y mide casi igual) y di cuáles usaste.
