@@ -7,7 +7,18 @@ import { haceTiempo } from '@/lib/utils'
 import PendingButton from '@/components/PendingButton'
 import { CAMPO_CARGADO, FIELD_META } from './campos'
 
-const DEFAULT_KEYS = Object.keys(FIELD_META)
+// Secciones de la pantalla. Una key de FIELD_META que nadie ubicó acá cae en "Otros", no desaparece.
+const GRUPOS: { titulo: string; keys: string[]; ancho?: boolean }[] = [
+  { titulo: 'Tasas de cambio', keys: ['inr_usd_rate', 'bsd_usd_rate', 'bcv_usd_rate', 'bcv_brecha_pct'] },
+  { titulo: 'Ventas y presupuestos', keys: ['default_margin_pct', 'presupuesto_validez_dias', 'reclamo_horas'] },
+  { titulo: 'Flete aéreo (Shoppre → Miami → CCS)', keys: ['shoppre_member', 'shoppre_carrier', 'shoppre_insurance_pct', 'shoppre_processing_inr', 'reference_weight_kg', 'air_volumetric_divisor', 'caja_sin_pesar_tolerancia_pct', 'miami_caracas_per_ft3'] },
+  { titulo: 'Marítimo CBM (stock propio)', keys: ['cbm_rate_usd', 'cbm_fob_india_usd', 'cbm_min_m3', 'cbm_referencia_m3', 'ensambles_columnas_maritimas'] },
+  { titulo: 'Marítimo directo (solo /simular)', keys: ['maritimo_directo_per_ft3', 'maritimo_min_ft3', 'maritimo_fee_usd', 'maritimo_insurance_pct'] },
+  { titulo: 'Términos y condiciones', keys: ['terminos_presupuesto', 'terminos_pedido'], ancho: true },
+]
+const ubicadas = new Set(GRUPOS.flatMap(g => g.keys))
+const sueltas = Object.keys(FIELD_META).filter(k => !ubicadas.has(k))
+if (sueltas.length > 0) GRUPOS.push({ titulo: 'Otros', keys: sueltas })
 
 export default async function ConfigPage({
   searchParams,
@@ -17,19 +28,10 @@ export default async function ConfigPage({
   const { saved, cron, invalido } = await searchParams
   const rows = await db.config.findMany({ orderBy: { key: 'asc' } })
 
-  // Merge DB values with defaults so all known keys always appear
-  const configMap: Record<string, { value: string; description: string | null; updatedAt: Date | null }> = {}
-  for (const row of rows) {
-    configMap[row.key] = { value: row.value, description: row.description, updatedAt: row.updatedAt }
-  }
-
-  // Ensure all meta keys are present even if not yet in DB
-  for (const key of DEFAULT_KEYS) {
-    if (!configMap[key]) configMap[key] = { value: '', description: null, updatedAt: null }
-  }
-
-  // Keys que el usuario agregó a mano y no están en FIELD_META.
-  const extraKeys = Object.keys(configMap).filter(k => !FIELD_META[k])
+  // Solo se editan las keys que el código conoce. Las demás filas tienen dueño en otra parte
+  // (caja_apertura_* en /contabilidad, shoppre_rates_usd el cron) o ya nadie las lee, y como
+  // texto libre invitaban a romperlas.
+  const guardado = new Map(rows.map(r => [r.key, r]))
 
   // Cuándo escribió el cron por última vez, tal como estaba la base al abrir esta pantalla.
   // `saveConfig` lo compara contra el `updatedAt` actual para no pisar una tasa que el
@@ -51,10 +53,74 @@ export default async function ConfigPage({
       ? Object.keys(resolveRateTable(cfg).carriers)
       : FIELD_META[key]?.options
 
-  const allKeys = [...DEFAULT_KEYS, ...extraKeys]
+  const campo = (key: string) => {
+    const meta    = FIELD_META[key]
+    const stored  = guardado.get(key)
+    const options = optionsFor(key)
+    return (
+      <div key={key}>
+        <label className="block mb-1">
+          <span className="text-sm font-medium text-gray-800">
+            {meta.label}
+          </span>
+          <span className="ml-2 font-mono text-xs text-gray-400">{key}</span>
+        </label>
+        {/* La ayuda es la del código, no la `description` de la fila: esa la escribió el
+            seed y quedó vieja (la de shoppre_member todavía pedía escribir "true"). */}
+        <p className="text-xs text-gray-500 mb-2">{meta.hint}</p>
+        {meta.cron && (
+          <p className="text-xs text-gray-400 mb-2">
+            {stored?.updatedAt
+              ? `Actualizado ${haceTiempo(stored.updatedAt)} — cron horario (pnpm fx:update)`
+              : 'Todavía no lo actualizó el cron'}
+          </p>
+        )}
+        {meta.boolean ? (
+          <label className="flex items-center gap-2 text-sm text-gray-800">
+            {/* Destildado el checkbox no manda nada: el hidden es el que guarda el
+                "false". saveConfig se queda con el último valor de la key. */}
+            <input type="hidden" name={key} value="false" />
+            <input
+              type="checkbox"
+              name={key}
+              value="true"
+              defaultChecked={flag(cfg, key, meta.booleanDefault ?? false)}
+              className="accent-blue-600 h-4 w-4"
+            />
+            {/* Texto fijo: esto es un Server Component, así que no puede seguir
+                al check. Lo que vale es el estado del cuadrito. */}
+            <span>{meta.checkLabel ?? 'Activado'}</span>
+          </label>
+        ) : meta.multiline ? (
+          <textarea
+            name={key}
+            rows={8}
+            defaultValue={stored?.value || TERMINOS_DEFAULTS[key] || ''}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm leading-relaxed focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+        ) : options ? (
+          <select
+            name={key}
+            defaultValue={stored?.value || options[0]}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            {options.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+        ) : (
+          <input
+            type="text"
+            inputMode={meta.rango ? 'decimal' : undefined}
+            name={key}
+            defaultValue={stored?.value}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+        )}
+      </div>
+    )
+  }
 
   return (
-    <div className="max-w-2xl">
+    <div className="max-w-6xl">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Configuración</h1>
       </div>
@@ -88,75 +154,18 @@ export default async function ConfigPage({
 
       <form action={saveConfig}>
         <input type="hidden" name={CAMPO_CARGADO} value={cargado} />
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 divide-y divide-gray-100">
-          {allKeys.map(key => {
-            const meta    = FIELD_META[key]
-            const stored  = configMap[key]
-            const options = optionsFor(key)
-            return (
-              <div key={key} className="px-6 py-4">
-                <label className="block mb-1">
-                  <span className="text-sm font-medium text-gray-800">
-                    {meta?.label ?? key}
-                  </span>
-                  <span className="ml-2 font-mono text-xs text-gray-400">{key}</span>
-                </label>
-                {/* La ayuda del código gana sobre la `description` de la fila: esa la
-                    escribió el seed y queda vieja (la de shoppre_member todavía pedía
-                    escribir "true"). La de la base solo se muestra para las keys que el
-                    código no conoce, que son las únicas que no tienen ayuda acá. */}
-                {(meta?.hint || stored.description) && (
-                  <p className="text-xs text-gray-500 mb-2">{meta?.hint ?? stored.description}</p>
-                )}
-                {meta?.cron && (
-                  <p className="text-xs text-gray-400 mb-2">
-                    {stored.updatedAt
-                      ? `Actualizado ${haceTiempo(stored.updatedAt)} — cron horario (pnpm fx:update)`
-                      : 'Todavía no lo actualizó el cron'}
-                  </p>
-                )}
-                {meta?.boolean ? (
-                  <label className="flex items-center gap-2 text-sm text-gray-800">
-                    {/* Destildado el checkbox no manda nada: el hidden es el que guarda el
-                        "false". saveConfig se queda con el último valor de la key. */}
-                    <input type="hidden" name={key} value="false" />
-                    <input
-                      type="checkbox"
-                      name={key}
-                      value="true"
-                      defaultChecked={flag(cfg, key, meta.booleanDefault ?? false)}
-                      className="accent-blue-600 h-4 w-4"
-                    />
-                    {/* Texto fijo: esto es un Server Component, así que no puede seguir
-                        al check. Lo que vale es el estado del cuadrito. */}
-                    <span>{meta.checkLabel ?? 'Activado'}</span>
-                  </label>
-                ) : meta?.multiline ? (
-                  <textarea
-                    name={key}
-                    rows={8}
-                    defaultValue={stored.value || TERMINOS_DEFAULTS[key] || ''}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm leading-relaxed focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                ) : options ? (
-                  <select
-                    name={key}
-                    defaultValue={stored.value || options[0]}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    {options.map(o => <option key={o} value={o}>{o}</option>)}
-                  </select>
-                ) : (
-                  <input
-                    type="text"
-                    name={key}
-                    defaultValue={stored.value}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                )}
+        <div className="grid gap-6 lg:grid-cols-2 items-start">
+          {GRUPOS.map(g => (
+            <section
+              key={g.titulo}
+              className={`bg-white rounded-xl shadow-sm border border-gray-100 p-6 ${g.ancho ? 'lg:col-span-2' : ''}`}
+            >
+              <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">{g.titulo}</h2>
+              <div className={`grid gap-5 ${g.ancho ? 'lg:grid-cols-2' : ''}`}>
+                {g.keys.map(campo)}
               </div>
-            )
-          })}
+            </section>
+          ))}
         </div>
 
         <div className="mt-6 flex justify-end">
