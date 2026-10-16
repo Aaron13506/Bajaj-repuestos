@@ -106,3 +106,23 @@ export function tiempoDeCompraA(eventos: EventoEtapa[], meta: string): TramoStat
   }
   return dias.length > 0 ? resumir(`compra→${meta}`, 'pendiente', meta, dias) : null
 }
+
+// ── Cajas paradas ──────────────────────────────────────────────────────────────────────────────
+//
+// Una caja en viaje cuyas líneas no cambian de etapa hace días es la que hay que ir a preguntar
+// (al proveedor, a Shoppre, al courier). Se mide desde el último cambio de cualquiera de sus
+// líneas; una caja con todo entregado ya terminó.
+// shortcut: umbral fijo; cuando el historial (tiemposPorTramo) junte suficientes tramos, comparar
+// contra lo que tarda de verdad cada tramo.
+export const DIAS_CAJA_PARADA = 14
+
+export function diasSinMoverse(
+  lineas: { shippingStatus: string; shippingStatusAt: Date | null }[],
+  ahora: Date = new Date(),
+): number | null {
+  const enCurso = lineas.filter(l => l.shippingStatus !== 'entregado')
+  if (enCurso.length === 0) return null
+  const fechas = lineas.flatMap(l => (l.shippingStatusAt ? [l.shippingStatusAt.getTime()] : []))
+  if (fechas.length === 0) return null
+  return Math.floor((ahora.getTime() - Math.max(...fechas)) / (24 * 3600 * 1000))
+}

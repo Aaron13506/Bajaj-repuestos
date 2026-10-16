@@ -44,7 +44,7 @@ import {
   resolucionesPara, tiposPara, type Resolucion,
 } from '../lib/incidencias'
 import { debeSaldo, saldoReal, situacionDeCobro } from '../lib/saldo-entrega'
-import { tiempoDeCompraA, tiemposPorTramo } from '../lib/etapas'
+import { diasSinMoverse, tiempoDeCompraA, tiemposPorTramo } from '../lib/etapas'
 import { leerDevolucion } from '../lib/devolucion'
 
 const cfg: ConfigMap = {
@@ -1096,6 +1096,20 @@ console.log('\nEMBUDO DE PRESUPUESTOS')
   check('conversión sobre los decididos: 2 de 4', e.conversionPct ?? -1, 50)
   check('un perdido todavía vigente cuenta como perdido', si(cierreDe(p('presupuesto', 1, true), 7, ahora) === 'perdido'), 1)
   check('sin decididos no hay conversión', si(embudo([p('presupuesto', 1)], 7, ahora).conversionPct === null), 1)
+  const viejo = { ...p('presupuesto', 100), createdAt: hace(100) }
+  check('la ventana deja afuera lo viejo', embudo([viejo, p('presupuesto', 2)], 7, ahora, 90).total, 1)
+}
+
+console.log('\nCAJAS PARADAS')
+{
+  const si = (b: boolean) => (b ? 1 : 0)
+  const ahora = new Date('2026-10-20T15:00:00Z')
+  const hace = (d: number) => new Date(ahora.getTime() - d * 24 * 3600 * 1000)
+  const l = (s: string, d: number | null) => ({ shippingStatus: s, shippingStatusAt: d == null ? null : hace(d) })
+  check('se mide desde el último cambio de cualquier línea', diasSinMoverse([l('en_usa', 20), l('camino_usa', 3)], ahora) ?? -1, 3)
+  check('una línea ya entregada también cuenta como movimiento', diasSinMoverse([l('entregado', 1), l('en_venezuela', 30)], ahora) ?? -1, 1)
+  check('todo entregado: la caja terminó', si(diasSinMoverse([l('entregado', 40)], ahora) === null), 1)
+  check('sin fechas no se inventa', si(diasSinMoverse([l('en_usa', null)], ahora) === null), 1)
 }
 
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)
