@@ -7,6 +7,8 @@ import { inboundDe } from './inbound'
 import { modoDeEnvio } from './modo'
 import { expandCostPieces, lookupDeConjuntos, repartirCostoReal, type ProductCost, type ProductLookup } from './envio-build'
 import type { BundlePiece } from './bundle'
+import { CATEGORIAS_FLETE, porSalirDeCaja } from './flete-real'
+import { cuentasPorPagar, type EnvioPendiente } from './movimientos'
 
 // Lo que la lista de envíos muestra por caja. Se calcula EN VIVO, con el mismo costeo que la
 // ficha de cada una (calcEnvio en aéreo, costoEmbarque/resumirCbm en marítimo).
@@ -16,8 +18,20 @@ import type { BundlePiece } from './bundle'
 // apenas se cargaba un peso, un precio real o se movía una tasa. Un número que hay que
 // acordarse de refrescar es un número que miente; el costo se deriva, no se guarda.
 export interface CostoEnvio {
+  nombre: string | null
+  borrador: boolean
   /** Lo que cuesta MOVER la caja: tramos + marítimo + FOB (el facturado donde ya se cargó). */
   fleteUsd: number
+  /**
+   * El flete por transportista, lo que se paga con `flete_aereo` / `flete_maritimo`: Shoppre
+   * (tabla + processing + seguro, o su factura) y Miami→Caracas o la naviera. Sin el tramo
+   * cotizado ni el FOB: esos se le pagan al proveedor y van en cuentasPorPagar.
+   */
+  fleteAereoUsd: number
+  fleteMaritimoUsd: number
+  /** El tramo tiene su factura guardada en la caja: su flete es ese monto, no un estimado. */
+  facturadoAereo: boolean
+  facturadoMaritimo: boolean
   /** Mercancía + flete + cargos + comisiones. */
   landedUsd: number
   /** La mercancía sola: el precio real pagado donde se cargó, el de catálogo donde no. */
@@ -205,7 +219,13 @@ export async function costearEnvios(): Promise<Map<number, CostoEnvio>> {
     if (e.modo === 'maritimo_cbm') {
       const m = costearMaritimo(e, ctx)
       out.set(e.id, {
+        nombre: e.nombre,
+        borrador: e.estado === 'borrador',
         fleteUsd: m.fleteUsd,
+        fleteAereoUsd: 0,
+        fleteMaritimoUsd: m.resumen.volumeM3 > 0 ? m.emb.fleteUsd : 0,
+        facturadoAereo: false,
+        facturadoMaritimo: false,
         landedUsd: m.landedUsd,
         mercanciaUsd: m.resumen.costoOrigenUsd,
         conCostoReal: 0,
@@ -217,7 +237,13 @@ export async function costearEnvios(): Promise<Map<number, CostoEnvio>> {
 
     const { calc } = costearAereo(e, ctx)
     out.set(e.id, {
+      nombre: e.nombre,
+      borrador: e.estado === 'borrador',
       fleteUsd: calc.airUsd + calc.maritimeUsd + calc.fobUsd,
+      fleteAereoUsd: calc.airUsd - (calc.tramo?.costUsd ?? 0) + calc.processingUsd + calc.insuranceUsd,
+      fleteMaritimoUsd: calc.maritimeUsd,
+      facturadoAereo: e.shippingCostRealAereo != null,
+      facturadoMaritimo: e.shippingCostRealMaritimo != null,
       landedUsd: calc.landedUsd,
       mercanciaUsd: calc.productCostUsd,
       conCostoReal: e.items.filter(i => i.costRealUsd != null).length,
@@ -230,4 +256,65 @@ export async function costearEnvios(): Promise<Map<number, CostoEnvio>> {
   }
 
   return out
+}
+
+export interface GastoPorVenir {
+  envioId: number
+  nombre: string | null
+  fletePorPagarUsd: number
+  proveedorPorPagarUsd: number
+  totalUsd: number
+  /** Algún tramo por pagar no tiene factura guardada: su parte es el estimado de tabla. */
+  fleteEstimado: boolean
+  /** El flete es un estimado de piso o al proveedor le faltan costos cargados: puede ser más. */
+  incompleto: boolean
+}
+
+// Plata que todavía va a salir por las cajas en curso: el flete de cada tramo que no se pagó
+// (el facturado donde se cargó, el estimado donde no) y lo que se le deba al proveedor. Es una
+// proyección, no una deuda: sirve para saber cuánto del saldo ya está comprometido.
+// Una caja en borrador no entra: es un plan hasta que se confirma (igual que en cuentasPorPagar).
+export async function gastosPorVenir(): Promise<{ cajas: GastoPorVenir[]; sobrepagadas: EnvioPendiente[] }> {
+  const [costos, pagos, cuentas] = await Promise.all([
+    costearEnvios(),
+    db.movimiento.groupBy({
+      by: ['envioId', 'categoria'],
+      where: { tipo: 'egreso', envioId: { not: null }, categoria: { in: [...CATEGORIAS_FLETE] } },
+      _sum: { monto: true },
+    }),
+    cuentasPorPagar(),
+  ])
+  const pagado = (envioId: number, categoria: string) =>
+    dec(pagos.find(p => p.envioId === envioId && p.categoria === categoria)?._sum.monto) ?? 0
+  const proveedor = new Map(cuentas.pendientes.map(p => [p.envioId, p]))
+
+  const ids = new Set([...[...costos].filter(([, c]) => !c.borrador).map(([id]) => id), ...proveedor.keys()])
+  const cajas = [...ids]
+    .map((id): GastoPorVenir => {
+      const c = costos.get(id)
+      const p = proveedor.get(id)
+      const tramos = {
+        fleteAereoUsd: c?.fleteAereoUsd ?? 0, pagadoAereoUsd: pagado(id, 'flete_aereo'),
+        fleteMaritimoUsd: c?.fleteMaritimoUsd ?? 0, pagadoMaritimoUsd: pagado(id, 'flete_maritimo'),
+      }
+      const fletePorPagarUsd = porSalirDeCaja({ ...tramos, proveedorUsd: 0 })
+      const fleteEstimado = c != null && (
+        (!c.facturadoAereo && tramos.fleteAereoUsd - tramos.pagadoAereoUsd > 0.005) ||
+        (!c.facturadoMaritimo && tramos.fleteMaritimoUsd - tramos.pagadoMaritimoUsd > 0.005)
+      )
+      const proveedorPorPagarUsd = Math.max(0, p?.pendiente ?? 0)
+      return {
+        envioId: id,
+        nombre: c?.nombre ?? p?.nombre ?? null,
+        fletePorPagarUsd,
+        proveedorPorPagarUsd,
+        totalUsd: fletePorPagarUsd + proveedorPorPagarUsd,
+        fleteEstimado,
+        // El piso de la caja (sin pesar, sin medidas) solo afecta a lo estimado: lo facturado es exacto.
+        incompleto: (fleteEstimado && (c?.incompleto ?? false)) || (p?.itemsSinCosto ?? 0) > 0,
+      }
+    })
+    .filter(g => g.totalUsd > 0.01)
+    .sort((a, b) => b.totalUsd - a.totalUsd)
+  return { cajas, sobrepagadas: cuentas.sobrepagadas }
 }

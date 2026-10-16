@@ -55,6 +55,21 @@ export function excedeFacturado(facturadoUsd: number, pagadoUsd: number, montoUs
 }
 
 /**
+ * Lo que todavía va a salir de la caja de plata por una caja: cada tramo de flete menos lo ya
+ * pagado de ese tramo, más lo que quede por pagarle al proveedor. Cada parte se topa en cero
+ * por separado: haberle pagado de más a Shoppre no le descuenta nada a la naviera.
+ */
+export function porSalirDeCaja(c: {
+  fleteAereoUsd: number; pagadoAereoUsd: number
+  fleteMaritimoUsd: number; pagadoMaritimoUsd: number
+  proveedorUsd: number
+}): number {
+  return Math.max(0, c.fleteAereoUsd - c.pagadoAereoUsd)
+    + Math.max(0, c.fleteMaritimoUsd - c.pagadoMaritimoUsd)
+    + Math.max(0, c.proveedorUsd)
+}
+
+/**
  * Resumen para la lista de cajas: cuántos tramos hay por pagar. Un tramo sin cargar no cuenta
  * como "por pagar" (no se sabe cuánto es), pero tampoco como pagado.
  */

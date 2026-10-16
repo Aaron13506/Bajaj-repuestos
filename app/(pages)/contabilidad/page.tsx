@@ -9,7 +9,6 @@ import {
   saldoCaja,
   saldosPorCuenta,
   valorBsEnLibro,
-  cuentasPorPagar,
   listarMovimientos,
   itemsSinCostoReal,
   aperturaCaja,
@@ -21,6 +20,7 @@ import {
 import { toConfigMap, num } from '@/lib/config'
 import { CUENTA_LABELS } from '@/lib/cuentas'
 import { resumenInventario } from '@/lib/inventario'
+import { gastosPorVenir } from '@/lib/costo-envios'
 import { VENTA_STATUS, pedidoTotal } from '@/lib/clientes'
 import { METODOS_PAGO_INGRESO, METODOS_PAGO_EGRESO } from '@/lib/pagos'
 import { SITUACION_LABELS, situacionDeCobro, type SituacionCobro } from '@/lib/saldo-entrega'
@@ -41,11 +41,11 @@ interface Props {
 }
 
 export default async function ContabilidadPage({ searchParams }: Props) {
-  const [cfgRows, inventario, cuentas, pendientesCosto, pedidosConfirmados, envios, suppliers] =
+  const [cfgRows, inventario, porVenir, pendientesCosto, pedidosConfirmados, envios, suppliers] =
     await Promise.all([
       db.config.findMany(),
       resumenInventario(),
-      cuentasPorPagar(),
+      gastosPorVenir(),
       itemsSinCostoReal(),
       db.pedido.findMany({
         where: { status: VENTA_STATUS, tipo: { not: 'propio' } },
@@ -113,9 +113,8 @@ export default async function ContabilidadPage({ searchParams }: Props) {
   const totalPorCobrar = porCobrar.reduce((s, p) => s + p.falta, 0)
   const totalPorSituacion = (sit: SituacionCobro) => porCobrar.filter(p => p.situacion === sit).reduce((s, p) => s + p.falta, 0)
   const sinPagarEntregado = totalPorSituacion('entregado') + totalPorSituacion('parcial')
-  const porPagar = cuentas.pendientes
-  const sobrepagadas = cuentas.sobrepagadas
-  const totalPorPagar = porPagar.reduce((s, e) => s + Math.max(0, e.pendiente), 0)
+  const sobrepagadas = porVenir.sobrepagadas
+  const totalPorVenir = porVenir.cajas.reduce((s, g) => s + g.totalUsd, 0)
 
   return (
     <div>
@@ -220,31 +219,35 @@ export default async function ContabilidadPage({ searchParams }: Props) {
           )}
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-          <p className="text-xs text-gray-400 mb-1">Por pagar</p>
-          <p className="text-2xl font-bold font-mono text-amber-700">{usd(totalPorPagar)}</p>
+          <p className="text-xs text-gray-400 mb-1">Gastos por venir</p>
+          <p className="text-2xl font-bold font-mono text-amber-700">{usd(totalPorVenir)}</p>
           <p className="text-[11px] text-gray-400 mt-1">
-            {porPagar.length} cajas con pendiente
+            flete y proveedor de {porVenir.cajas.length} caja{porVenir.cajas.length === 1 ? '' : 's'} en curso
             {sobrepagadas.length > 0 && (
               <span className="text-red-600"> · {sobrepagadas.length} sobrepagada{sobrepagadas.length === 1 ? '' : 's'}</span>
             )}
           </p>
+          {/* El mínimo a guardar: lo que queda del saldo si sale todo lo comprometido. */}
+          <p className={`text-[11px] font-semibold mt-0.5 ${saldoTotal - totalPorVenir >= 0 ? 'text-gray-600' : 'text-red-600'}`}>
+            libre: {usd(saldoTotal - totalPorVenir)}
+          </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        {/* Cuentas por cobrar */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide px-5 py-3 border-b border-gray-100">
-            Cuentas por cobrar
-          </h2>
+      {/* El detalle de cobrar y de lo comprometido, plegado: lo principal de la página es el libro. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6 items-start">
+        <details className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-gray-500 uppercase tracking-wide">
+            Por cobrar <span className="normal-case font-normal text-gray-400">· {porCobrar.length} pedidos · {usd(totalPorCobrar)}</span>
+          </summary>
           {porCobrar.length === 0 ? (
-            <p className="text-sm text-gray-400 px-5 py-6">Nada pendiente de cobrar.</p>
+            <p className="text-sm text-gray-400 px-5 py-4 border-t border-gray-100">Nada pendiente de cobrar.</p>
           ) : (
-            <table className="w-full text-sm">
+            <table className="w-full text-sm border-t border-gray-100">
               <tbody className="divide-y divide-gray-50">
                 {porCobrar.map(p => (
                   <tr key={p.pedidoId} className={p.situacion === 'entregado' ? 'bg-red-50/50' : undefined}>
-                    <td className="px-5 py-2.5">
+                    <td className="px-5 py-2">
                       <Link href={`/presupuestos/${p.pedidoId}`} className="text-blue-600 hover:underline">
                         {p.clientName}
                       </Link>
@@ -256,36 +259,37 @@ export default async function ContabilidadPage({ searchParams }: Props) {
                         {SITUACION_LABELS[p.situacion]}
                       </span>
                     </td>
-                    <td className="px-5 py-2.5 text-right font-mono text-amber-700">{usd(p.falta)}</td>
-                    <td className="px-5 py-2.5 text-right text-xs text-gray-400">de {usd(p.total)}</td>
+                    <td className="px-5 py-2 text-right font-mono text-amber-700">{usd(p.falta)}</td>
+                    <td className="px-5 py-2 text-right text-xs text-gray-400">de {usd(p.total)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
-        </div>
+        </details>
 
-        {/* Cuentas por pagar */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide px-5 py-3 border-b border-gray-100">
-            Cuentas por pagar
-          </h2>
-          {porPagar.length === 0 ? (
-            <p className="text-sm text-gray-400 px-5 py-6">Nada pendiente de pagar.</p>
+        <details className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-gray-500 uppercase tracking-wide">
+            Gastos por venir <span className="normal-case font-normal text-gray-400">· {porVenir.cajas.length} cajas · {usd(totalPorVenir)}</span>
+          </summary>
+          {porVenir.cajas.length === 0 ? (
+            <p className="text-sm text-gray-400 px-5 py-4 border-t border-gray-100">Ninguna caja en curso con gastos pendientes.</p>
           ) : (
-            <table className="w-full text-sm">
+            <table className="w-full text-sm border-t border-gray-100">
               <tbody className="divide-y divide-gray-50">
-                {porPagar.map(e => (
-                  <tr key={e.envioId}>
-                    <td className="px-5 py-2.5">
-                      <Link href={`/envios/${e.envioId}`} className="text-blue-600 hover:underline">
-                        {e.nombre ?? `Envío #${e.envioId}`}
+                {porVenir.cajas.map(g => (
+                  <tr key={g.envioId}>
+                    <td className="px-5 py-2">
+                      <Link href={`/envios/${g.envioId}`} className="text-blue-600 hover:underline">
+                        {g.nombre ?? `Envío #${g.envioId}`}
                       </Link>
-                      <span className="text-xs text-gray-400 ml-1">· {e.supplierName}</span>
                     </td>
-                    <td className="px-5 py-2.5 text-right font-mono text-amber-700">{usd(Math.max(0, e.pendiente))}</td>
-                    <td className="px-5 py-2.5 text-right text-xs text-gray-400">
-                      {e.itemsSinCosto > 0 ? `${e.itemsSinCosto} sin costo real` : `de ${usd(e.debido)}`}
+                    <td className="px-5 py-2 text-right font-mono text-amber-700">
+                      {g.incompleto && <span className="text-gray-400" title="Estimado de piso: faltan pesos, medidas o costos">≥ </span>}
+                      {usd(g.totalUsd)}
+                    </td>
+                    <td className="px-5 py-2 text-right text-xs text-gray-400">
+                      {[g.fletePorPagarUsd > 0.005 && `flete ${usd(g.fletePorPagarUsd)} ${g.fleteEstimado ? 'estimado' : 'facturado'}`, g.proveedorPorPagarUsd > 0.005 && `proveedor ${usd(g.proveedorPorPagarUsd)}`].filter(Boolean).join(' · ')}
                     </td>
                   </tr>
                 ))}
@@ -297,19 +301,19 @@ export default async function ContabilidadPage({ searchParams }: Props) {
               pago al proveedor. Se muestra aparte para que no desaparezca del listado. */}
           {sobrepagadas.length > 0 && (
             <div className="border-t border-red-100 bg-red-50/40">
-              <p className="text-xs font-semibold text-red-700 px-5 pt-3">Pagado de más</p>
+              <p className="text-xs font-semibold text-red-700 px-5 pt-3">Pagado de más al proveedor</p>
               <table className="w-full text-sm">
                 <tbody className="divide-y divide-red-50">
                   {sobrepagadas.map(e => (
                     <tr key={e.envioId}>
-                      <td className="px-5 py-2.5">
+                      <td className="px-5 py-2">
                         <Link href={`/envios/${e.envioId}`} className="text-blue-600 hover:underline">
                           {e.nombre ?? `Envío #${e.envioId}`}
                         </Link>
                         <span className="text-xs text-gray-400 ml-1">· {e.supplierName}</span>
                       </td>
-                      <td className="px-5 py-2.5 text-right font-mono text-red-700">+{usd(-e.pendiente)}</td>
-                      <td className="px-5 py-2.5 text-right text-xs text-gray-400">
+                      <td className="px-5 py-2 text-right font-mono text-red-700">+{usd(-e.pendiente)}</td>
+                      <td className="px-5 py-2 text-right text-xs text-gray-400">
                         {usd(e.pagado)} pagado de {usd(e.debido)}
                       </td>
                     </tr>
@@ -318,7 +322,7 @@ export default async function ContabilidadPage({ searchParams }: Props) {
               </table>
             </div>
           )}
-        </div>
+        </details>
       </div>
 
       {/* Nuevo movimiento */}

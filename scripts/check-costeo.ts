@@ -25,7 +25,7 @@ import { parseListaSkus } from '../lib/lista-skus'
 import { cotizarTramoAereo, capacidadCajaKg } from '../lib/shipping-rates'
 import { repartirEnCentavos } from '../lib/reparto-compra'
 import { financiamientoEnvio } from '../lib/financiamiento-envio'
-import { estadoFlete, excedeFacturado, resumenFletes } from '../lib/flete-real'
+import { estadoFlete, excedeFacturado, porSalirDeCaja, resumenFletes } from '../lib/flete-real'
 import { motivoNoEliminable, type PedidoBorrable } from '../lib/pedido-eliminable'
 import { motivoProveedorEnUso } from '../lib/proveedor-en-uso'
 import { motivoProductoEnUso } from '../lib/producto-en-uso'
@@ -529,6 +529,11 @@ console.log('\nFLETE REAL (estado derivado del libro)')
   check('resumen: un tramo por pagar manda', uno(resumenFletes([
     { facturadoUsd: 316, pagadoUsd: 316 }, { facturadoUsd: 48, pagadoUsd: 0 },
   ]) === 'por_pagar'), 1)
+  const caja = { fleteAereoUsd: 316, pagadoAereoUsd: 0, fleteMaritimoUsd: 48, pagadoMaritimoUsd: 0, proveedorUsd: 20 }
+  check('por salir: los dos tramos y el proveedor', porSalirDeCaja(caja), 384)
+  check('por salir: lo pagado de un tramo se descuenta', porSalirDeCaja({ ...caja, pagadoAereoUsd: 316 }), 68)
+  check('por salir: pagar de más un tramo no descuenta el otro', porSalirDeCaja({ ...caja, pagadoAereoUsd: 400 }), 68)
+  check('por salir: proveedor sobrepagado no resta', porSalirDeCaja({ ...caja, proveedorUsd: -50 }), 364)
   check('resumen: todo pagado', uno(resumenFletes([
     { facturadoUsd: 316, pagadoUsd: 316 }, { facturadoUsd: 48, pagadoUsd: 48 },
   ]) === 'pagado'), 1)
