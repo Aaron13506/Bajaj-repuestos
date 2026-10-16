@@ -30,7 +30,7 @@ import { motivoNoEliminable, type PedidoBorrable } from '../lib/pedido-eliminabl
 import { motivoProveedorEnUso } from '../lib/proveedor-en-uso'
 import { motivoProductoEnUso } from '../lib/producto-en-uso'
 import { compatibleModelsFrom } from '../lib/modelo'
-import { diferenciaBrecha, realDeCobro, resumenCobro } from '../lib/cobro-bcv'
+import { realDeCobro, resumenCobro } from '../lib/cobro-bcv'
 import { construirResolver, piezasDeLinea } from '../lib/stock-piezas'
 import { cuentaDeMetodo, datosBs, leerCobroBs } from '../lib/cuentas'
 import { convertir, usdPorBsEnCuenta } from '../lib/conversion'
@@ -553,11 +553,6 @@ console.log('\nCOBRO A DÓLAR BCV (pedido confirmado)')
   check('pagar el saldo en divisas lo deja en cero', resumenCobro(lineas, adelanto + realDeCobro(40, false, r1), 15).saldoBcv, 0)
   check('pedido en dólares reales (sin escalón): el monto se guarda tal cual', realDeCobro(47.06, true, resumenCobro(lineas, 0, null)), 47.06)
   check('adelanto del total entero en BCV = total real exacto', realDeCobro(94.12, true, r0, { bcv: 94.12, real: 80 }), 80)
-  // La brecha del saldo la asume el negocio: el saldo de $47.06 BCV se acredita como $40 reales,
-  // pero si la brecha subió a 20% esos Bs valen 47.06 × 0.80 = $37.65: se perdieron $2.35.
-  check('brecha que subió: se anota lo perdido', diferenciaBrecha(47.06, 40, 20), 2.35)
-  check('brecha por debajo del escalón: se anota lo ganado (negativo)', diferenciaBrecha(47.06, 40, 12), -1.41)
-  check('brecha igual al escalón: no hay diferencia', diferenciaBrecha(47.06, 40, 15), 0)
 
   // Al azar: 50% en Bs (o en divisas) y después el saldo que muestra la pantalla, en Bs.
   // Tiene que quedar en cero exacto en las dos monedas, sin centavos sueltos del redondeo.
@@ -742,9 +737,6 @@ console.log('\nMARGEN REALIZADO')
   check('margen = venta − costo', a.margenUsd ?? -1, 34)
   check('margen % sobre la venta', Math.round((a.margenPct ?? 0) * 10) / 10, 34)
   check('entregado y todo real = realizado', si(a.estado === 'realizado'), 1)
-  const conBrecha = margenDePedido([linea(80, 52), linea(20, 14)], { perdidasUsd: 0, ultimaAt: null, brechaUsd: 2.35 })
-  check('la brecha perdida entra al costo del pedido', conBrecha.costoUsd, 68.35)
-  check('…y baja el margen', conBrecha.margenUsd ?? -1, 31.65)
   check('entregado con un costo estimado = estimado', si(margenDePedido([linea(80, 52), linea(20, 14, false)]).estado === 'estimado'), 1)
   check('una línea sin entregar = en curso (proyección)', si(margenDePedido([linea(80, 52), linea(20, 14, true, false)]).estado === 'en_curso'), 1)
   const sc = margenDePedido([linea(80, 52), linea(20, null)])

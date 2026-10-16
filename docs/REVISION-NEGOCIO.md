@@ -5,7 +5,7 @@ Revisión del 2026-10-12. Sale de leer el esquema, presupuestos, cobros, contabi
 > **Estado (2026-10-16): todo lo de abajo está atendido**, salvo lo que dice "queda". Las reglas viven en las skills `pedidos`, `dinero` y `envios`.
 >
 > - 1.1 Ventas del depósito (`/ventas`) y líneas de cliente servidas con lo del depósito (`PedidoItem.desdeStock`). Queda: servir un conjunto (hoy solo piezas sueltas).
-> - 1.2 La brecha del saldo la asume el negocio y queda a la vista: fila `diferencia_brecha` junto a cada cobro en Bs de un pedido a BCV, que entra al margen del pedido.
+> - 1.2 La brecha del saldo la asume el negocio. Se mide solo con lo que se anota (Bs cobrados y lo recibido al convertir), nunca con una tasa de mercado: aparece como costo de conversión en el resultado del mes.
 > - 1.3 Cuentas (banco Bs, efectivo, USDT, banco USD), Bs y tasa por movimiento, conversión Bs → USDT con su costo.
 > - 1.4 Un solo camino para cobrar (`cobrarPedido`), también desde Contabilidad.
 > - 1.5 `/resultados`: margen realizado por pedido y resultado por mes.

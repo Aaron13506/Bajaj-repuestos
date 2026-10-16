@@ -10,7 +10,7 @@ import { ok, fallo, ErrorDeNegocio, type ActionResult } from '@/lib/action-resul
 import { cobraEnBolivares } from '@/lib/pagos'
 import { CUENTAS, cuentaDeMetodo, datosBs, type Cuenta, type DatosBs } from '@/lib/cuentas'
 import { convertir, usdPorBsEnCuenta } from '@/lib/conversion'
-import { diferenciaBrecha, notaCobroBcv, realDeCobro, resumenCobro } from '@/lib/cobro-bcv'
+import { notaCobroBcv, realDeCobro, resumenCobro } from '@/lib/cobro-bcv'
 import { repartirEnCentavos } from '@/lib/reparto-compra'
 
 // Libro de movimientos: la fuente única de "cuánta plata tengo". Cada categoría fija su
@@ -47,17 +47,11 @@ export const CATEGORIAS_CONVERSION = ['conversion_salida', 'conversion_entrada']
 // dejaría el pedido diciendo que el cliente sigue pagado.
 export const CATEGORIAS_DEVOLUCION = ['devolucion_cliente'] as const
 
-// Lo que la brecha le quitó (+) o le dio (−) a un cobro en Bs de un pedido a dólar BCV (ver
-// diferenciaBrecha). Egreso con signo, en la cuenta en Bs y ligado al pedido: baja la caja a lo
-// que de verdad entró, y el pedido lo cuenta como costo. Va con su ingreso (mismo `grupo`) y se
-// borra con él; nunca se anota a mano.
-export const CATEGORIAS_BRECHA = ['diferencia_brecha'] as const
-
 export type CategoriaIngreso = (typeof CATEGORIAS_INGRESO)[number]
 export type CategoriaEgreso = (typeof CATEGORIAS_EGRESO)[number]
 export type CategoriaConversion = (typeof CATEGORIAS_CONVERSION)[number]
 export type CategoriaDevolucion = (typeof CATEGORIAS_DEVOLUCION)[number]
-export type Categoria = CategoriaIngreso | CategoriaEgreso | CategoriaConversion | CategoriaDevolucion | (typeof CATEGORIAS_BRECHA)[number]
+export type Categoria = CategoriaIngreso | CategoriaEgreso | CategoriaConversion | CategoriaDevolucion
 
 export const CATEGORIA_LABELS: Record<Categoria, string> = {
   adelanto_cliente: 'Adelanto de cliente',
@@ -72,7 +66,6 @@ export const CATEGORIA_LABELS: Record<Categoria, string> = {
   conversion_salida: 'Conversión · sale',
   conversion_entrada: 'Conversión · entra',
   devolucion_cliente: 'Devolución a cliente',
-  diferencia_brecha: 'Diferencia por brecha',
 }
 
 export function tipoDeCategoria(categoria: string): 'ingreso' | 'egreso' {
@@ -148,8 +141,6 @@ export interface IngresoPedido {
   supplierId?: number | null
   /** Los bolívares que entraron y a qué tasa, si el cobro fue en Bs (ver datosBs). */
   bs?: DatosBs | null
-  /** Lo liga a su diferencia por brecha (ver anotarDiferenciaBrecha). */
-  grupo?: string | null
 }
 
 // Un cobro de un pedido: el movimiento en el libro y el aumento del depósito, juntos.
@@ -169,34 +160,8 @@ export async function registrarIngresoPedido(tx: Tx, i: IngresoPedido) {
       cuenta: cuentaDeMetodo(i.metodoPago),
       montoBs: i.bs?.montoBs ?? null,
       tasaBs: i.bs?.tasaBs ?? null,
-      grupo: i.grupo ?? null,
     },
   })
-}
-
-// Anota al lado de un cobro en Bs de un pedido a BCV lo que la brecha le movió (ver
-// diferenciaBrecha). Devuelve el `grupo` que hay que ponerle al ingreso, o null si no hay nada
-// que anotar (sin brecha cargada en Config no se sabe: vacío no es cero).
-// shortcut: usa la brecha de HOY aunque el cobro tenga fecha pasada; si se cargan cobros viejos
-// seguido, pedir la tasa paralela de ese día en el formulario.
-export async function anotarDiferenciaBrecha(
-  tx: Tx,
-  d: { pedidoId: number; fecha: Date; montoBcv: number; acreditadoReal: number },
-): Promise<string | null> {
-  const fila = await tx.config.findUnique({ where: { key: 'bcv_brecha_pct' }, select: { value: true } })
-  const brecha = fila?.value?.trim() ? parseFloat(fila.value) : NaN
-  if (!Number.isFinite(brecha) || brecha < 0 || brecha >= 100) return null
-  const dif = diferenciaBrecha(d.montoBcv, d.acreditadoReal, brecha)
-  if (Math.abs(dif) < 0.005) return null
-  const grupo = randomUUID()
-  await tx.movimiento.create({
-    data: {
-      fecha: d.fecha, tipo: 'egreso', categoria: 'diferencia_brecha', monto: dif, cuenta: 'banco_bs',
-      pedidoId: d.pedidoId, grupo,
-      descripcion: `$${d.montoBcv.toFixed(2)} BCV acreditados como $${d.acreditadoReal.toFixed(2)}; con brecha ${brecha}% valen $${(d.acreditadoReal - dif).toFixed(2)}`,
-    },
-  })
-  return grupo
 }
 
 export interface DevolucionPedido {
@@ -275,11 +240,8 @@ export async function cobrarPedido(tx: Tx, i: CobroPedido): Promise<ActionResult
   const real = realDeCobro(i.monto, enBs, r, { bcv: r.saldoBcv, real: r.saldoReal })
   const nota = [i.descripcion, notaCobroBcv(i.monto, enBs, escalon)].filter(Boolean).join(' · ') || null
   const { tasaBs, montoBs, ...resto } = i
-  const grupo = enBs && escalon != null
-    ? await anotarDiferenciaBrecha(tx, { pedidoId: i.pedidoId, fecha: i.fecha, montoBcv: i.monto, acreditadoReal: real })
-    : null
   await registrarIngresoPedido(tx, {
-    ...resto, monto: real, descripcion: nota, grupo, bs: datosBs(i.metodoPago, i.monto, tasaBs ?? null, montoBs ?? null),
+    ...resto, monto: real, descripcion: nota, bs: datosBs(i.metodoPago, i.monto, tasaBs ?? null, montoBs ?? null),
   })
   return ok()
 }
@@ -297,19 +259,14 @@ export async function descontarIngresosPedido(tx: Tx, pedidoId: number, monto: n
   const ingresos = await tx.movimiento.findMany({
     where: { pedidoId, tipo: 'ingreso' },
     orderBy: [{ fecha: 'desc' }, { id: 'desc' }],
-    select: { id: true, monto: true, montoBs: true, grupo: true },
+    select: { id: true, monto: true, montoBs: true },
   })
   let resta = aCentavos(monto)
   let descontado = 0
   for (const m of ingresos) {
     if (resta < 0.005) break
     const v = num(m.monto)
-    // Su diferencia por brecha corre la misma suerte: se va con él o se achica con él.
-    const brecha = m.grupo != null
-      ? await tx.movimiento.findFirst({ where: { grupo: m.grupo, categoria: 'diferencia_brecha' }, select: { id: true, monto: true } })
-      : null
     if (v <= resta + 0.005) {
-      if (brecha) await tx.movimiento.delete({ where: { id: brecha.id } })
       await tx.movimiento.delete({ where: { id: m.id } })
       resta = aCentavos(resta - v)
       descontado += v
@@ -320,9 +277,6 @@ export async function descontarIngresosPedido(tx: Tx, pedidoId: number, monto: n
         where: { id: m.id },
         data: { monto: aCentavos(v - resta), ...(bs != null ? { montoBs: bs } : {}) },
       })
-      if (brecha) {
-        await tx.movimiento.update({ where: { id: brecha.id }, data: { monto: aCentavos(num(brecha.monto) * ((v - resta) / v)) } })
-      }
       descontado += resta
       resta = 0
     }
@@ -436,26 +390,19 @@ export async function saldosPorCuenta(rango?: RangoFechas): Promise<SaldoDeCuent
 }
 
 // Lo que vale hoy un bolívar del banco según el libro: el costo promedio de lo que QUEDA en la
-// cuenta (ver usdPorBsEnCuenta). Si según lo anotado no queda nada, se cae a la tasa de cobro
-// directo de Config: es una estimación y la pantalla lo dice.
-export async function valorBsEnLibro(
-  cfg: ConfigMap,
-): Promise<{ usdPorBs: number; fuente: 'libro' | 'config' } | null> {
-  const [filas, brecha] = await Promise.all([
-    db.movimiento.groupBy({
-      by: ['tipo'],
-      where: { cuenta: 'banco_bs', montoBs: { not: null } },
-      _sum: { monto: true, montoBs: true },
-    }),
-    db.movimiento.aggregate({ where: { categoria: 'diferencia_brecha' }, _sum: { monto: true } }),
-  ])
-  // La diferencia por brecha no mueve Bs, pero sí lo que valen: los que entraron valían eso menos.
-  const usd = filas.reduce((s, f) => s + (f.tipo === 'ingreso' ? 1 : -1) * num(f._sum.monto), 0) - num(brecha._sum.monto)
-  const bs = filas.reduce((s, f) => s + (f.tipo === 'ingreso' ? 1 : -1) * num(f._sum.montoBs), 0)
-  const promedio = usdPorBsEnCuenta([{ usd, bs }])
-  if (promedio != null) return { usdPorBs: promedio, fuente: 'libro' }
-  const tasa = cfgNum(cfg, 'bsd_usd_rate', 0)
-  return tasa > 0 ? { usdPorBs: 1 / tasa, fuente: 'config' } : null
+// cuenta (ver usdPorBsEnCuenta). Null = según lo anotado no queda nada. Nunca se estima con una
+// tasa de mercado: el P2P no es preciso, y lo único cierto es lo que se cobró y lo que se recibió.
+export async function valorBsEnLibro(): Promise<number | null> {
+  const filas = await db.movimiento.groupBy({
+    by: ['tipo'],
+    where: { cuenta: 'banco_bs', montoBs: { not: null } },
+    _sum: { monto: true, montoBs: true },
+  })
+  const promedio = usdPorBsEnCuenta(filas.map(f => {
+    const signo = f.tipo === 'ingreso' ? 1 : -1
+    return { usd: signo * num(f._sum.monto), bs: signo * num(f._sum.montoBs) }
+  }))
+  return promedio
 }
 
 export interface PedidoConversion {
@@ -469,19 +416,13 @@ export interface PedidoConversion {
 
 // Pasar Bs a USDT: dos movimientos con el mismo `grupo`. El banco pierde los Bs por lo que el
 // libro dice que valían; USDT gana lo que llegó. El costo de convertir es la diferencia (ver
-// lib/conversion.ts), y por eso no se anota aparte.
-export async function registrarConversion(
-  p: PedidoConversion,
-  cfg: ConfigMap,
-): Promise<ActionResult> {
+// lib/conversion.ts), y por eso no se anota aparte. Si el libro no tiene con qué valorar esos Bs
+// (cobros anteriores a anotar los Bs), salen por lo que se recibió: sin costo, antes que inventarlo.
+export async function registrarConversion(p: PedidoConversion): Promise<ActionResult> {
   if (!Number.isFinite(p.bs) || p.bs <= 0) return fallo('Escribí cuántos bolívares diste.')
   if (!Number.isFinite(p.usdt) || p.usdt <= 0) return fallo('Escribí cuántos USDT recibiste.')
 
-  const valor = await valorBsEnLibro(cfg)
-  if (!valor) {
-    return fallo('No hay ninguna tasa para valorar esos bolívares: cargá la tasa en /config o registrá primero un cobro en Bs.')
-  }
-  const c = convertir(p.bs, p.usdt, valor.usdPorBs)
+  const c = convertir(p.bs, p.usdt, (await valorBsEnLibro()) ?? p.usdt / p.bs)
   if (c.valorLibroUsd <= 0) return fallo('Esos bolívares valen menos de un centavo en el libro: revisá el monto.')
 
   const grupo = randomUUID()

@@ -14,7 +14,7 @@ import { ok, fallo, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from 
 import { motivoNoEliminable } from '@/lib/pedido-eliminable'
 import { isForeignKeyViolation } from '@/lib/prisma-errors'
 import { cuentaDeMetodo, datosBs, leerCobroBs, type CobroEnBs } from '@/lib/cuentas'
-import { anotarDiferenciaBrecha, bloquearPedido, cobrarPedido, descontarIngresosPedido } from '@/lib/movimientos'
+import { bloquearPedido, cobrarPedido, descontarIngresosPedido } from '@/lib/movimientos'
 import { escalonBcvVigente } from '@/lib/calc'
 import { toConfigMap } from '@/lib/config'
 import { bloquearDescontinuadas } from '@/lib/descontinuadas'
@@ -686,13 +686,9 @@ export async function aprobarPedido(id: number, formData: FormData): Promise<Act
       },
     })
     if (delta > 0.01) {
-      const grupo = enBs && escalon != null
-        ? await anotarDiferenciaBrecha(tx, { pedidoId: id, fecha: depositAt, montoBcv: Math.round((delta / total.factor) * 100) / 100, acreditadoReal: delta })
-        : null
       await tx.movimiento.create({
         data: {
           fecha: depositAt,
-          grupo,
           tipo: 'ingreso',
           categoria: eraPresupuesto ? 'adelanto_cliente' : 'pago_cliente',
           monto: delta,

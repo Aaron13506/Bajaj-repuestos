@@ -8,8 +8,8 @@ import { convertir } from '@/lib/conversion'
 
 interface Props {
   action: (formData: FormData) => Promise<ActionResult>
-  /** Lo que vale hoy un bolívar del banco según el libro (USD por Bs), y de dónde sale. */
-  valor: { usdPorBs: number; fuente: 'libro' | 'config' } | null
+  /** Lo que vale hoy un bolívar del banco según el libro (USD por Bs). null = el libro no tiene Bs anotados. */
+  valor: number | null
 }
 
 const usd = (n: number) => `$${n.toFixed(2)}`
@@ -25,7 +25,7 @@ export default function ConversionForm({ action, valor }: Props) {
 
   const b = parseFloat(bs)
   const u = parseFloat(usdt)
-  const c = valor && b > 0 && u > 0 ? convertir(b, u, valor.usdPorBs) : null
+  const c = b > 0 && u > 0 ? convertir(b, u, valor ?? u / b) : null
 
   return (
     <form
@@ -74,7 +74,7 @@ export default function ConversionForm({ action, valor }: Props) {
         <p className="text-xs text-gray-500 mt-3">
           A <span className="font-mono">{nf(c.tasaEfectiva)} Bs por USDT</span>. En el libro esos Bs valían{' '}
           <span className="font-mono">{usd(c.valorLibroUsd)}</span>
-          {valor?.fuente === 'config' && ' (estimado con la tasa de /config: todavía no hay cobros en Bs con sus Bs anotados)'}
+          {valor == null && ' (el libro no tiene Bs anotados para compararlos: se toman por lo que recibiste)'}
           {' → '}
           {Math.abs(c.costoUsd) < 0.005
             ? 'sin costo.'
@@ -84,9 +84,7 @@ export default function ConversionForm({ action, valor }: Props) {
         </p>
       ) : (
         <p className="text-xs text-gray-400 mt-3">
-          {valor
-            ? 'Escribí los dos montos y ves cuánto costó convertir contra lo que el libro decía que valían esos Bs.'
-            : 'No hay tasa para valorar los Bs: cargala en /config o registrá primero un cobro en Bs.'}
+          Escribí los dos montos y ves cuánto costó convertir contra lo que el libro decía que valían esos Bs.
         </p>
       )}
       {error && <p role="alert" className="text-xs text-red-600 mt-2">{error}</p>}

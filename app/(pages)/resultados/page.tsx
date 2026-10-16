@@ -191,7 +191,6 @@ export default async function ResultadosPage({ searchParams }: Props) {
                     <td className="px-4 py-2 text-right font-mono text-gray-500">
                       {usd(m.costoUsd)}{m.sinCosto > 0 && <span className="text-amber-700" title={`${m.sinCosto} línea(s) sin costo: es un piso`}> +?</span>}
                       {m.perdidasUsd > 0 && <span className="block text-[10px] text-red-600" title="Pagado por piezas que no se entregaron y se reembolsaron">{usd(m.perdidasUsd)} perdido</span>}
-                      {Math.abs(m.brechaUsd) >= 0.01 && <span className={`block text-[10px] ${m.brechaUsd > 0 ? 'text-red-600' : 'text-green-700'}`} title="Lo que la brecha movió entre lo acreditado al cliente y lo que valían sus Bs al cobrar">{m.brechaUsd > 0 ? `${usd(m.brechaUsd)} brecha` : `+${usd(-m.brechaUsd)} brecha`}</span>}
                     </td>
                     <td className={`px-4 py-2 text-right font-mono font-semibold ${m.margenUsd == null ? 'text-gray-400' : malo ? 'text-red-700' : 'text-gray-900'}`}>
                       {m.margenUsd == null ? '—' : usd(m.margenUsd)}

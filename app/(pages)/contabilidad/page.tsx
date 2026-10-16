@@ -91,7 +91,7 @@ export default async function ContabilidadPage({ searchParams }: Props) {
   const [caja, porCuenta, valorBs, movimientos] = await Promise.all([
     saldoCaja(rangoCaja),
     saldosPorCuenta(rangoCaja),
-    valorBsEnLibro(cfg),
+    valorBsEnLibro(),
     listarMovimientos(50, rangoLibro),
   ])
   const saldoTotal = (apertura?.saldoInicial ?? 0) + caja.saldo
@@ -399,9 +399,8 @@ export default async function ContabilidadPage({ searchParams }: Props) {
                     {m.envio && <Link href={`/envios/${m.envio.id}`} className="text-blue-600 hover:underline">{m.envio.nombre ?? `Envío #${m.envio.id}`}</Link>}
                     {!m.pedido && !m.envio && (m.supplier?.name ?? '—')}
                   </td>
-                  {/* Una diferencia por brecha es un egreso con signo: negativa es plata que se ganó. */}
-                  <td className={`px-4 py-2 text-right font-mono font-semibold ${(m.tipo === 'ingreso') === (m.monto >= 0) ? 'text-green-700' : 'text-red-700'}`}>
-                    {(m.tipo === 'ingreso') === (m.monto >= 0) ? '+' : '−'}{usd(Math.abs(m.monto))}
+                  <td className={`px-4 py-2 text-right font-mono font-semibold ${m.tipo === 'ingreso' ? 'text-green-700' : 'text-red-700'}`}>
+                    {m.tipo === 'ingreso' ? '+' : '−'}{usd(m.monto)}
                     {m.montoBs != null && (
                       <span className="block text-[10px] font-normal text-gray-400">
                         Bs {m.montoBs.toLocaleString('es-VE', { maximumFractionDigits: 2 })}

@@ -48,18 +48,14 @@ export async function cargarMargenes(pedidoIds?: number[]): Promise<FilaMargen[]
   })
 
   // Lo perdido en piezas reembolsadas: costo del pedido que ya no está en ninguna línea.
-  const ids = pedidos.map(p => p.id)
-  const [perdidasRows, brechas] = ids.length > 0
-    ? await Promise.all([
-        db.incidencia.groupBy({
-          by: ['pedidoId'],
-          where: { pedidoId: { in: ids }, resolucion: 'reembolso', perdidaUsd: { not: null } },
-          _sum: { perdidaUsd: true },
-          _max: { resueltaAt: true },
-        }),
-        brechaPorPedido(ids),
-      ])
-    : [[], new Map<number, number>()]
+  const perdidasRows = pedidos.length > 0
+    ? await db.incidencia.groupBy({
+        by: ['pedidoId'],
+        where: { pedidoId: { in: pedidos.map(p => p.id) }, resolucion: 'reembolso', perdidaUsd: { not: null } },
+        _sum: { perdidaUsd: true },
+        _max: { resueltaAt: true },
+      })
+    : []
   const perdidasDe = new Map(perdidasRows.map(r => [r.pedidoId, { perdidasUsd: dec(r._sum.perdidaUsd) ?? 0, ultimaAt: r._max.resueltaAt }]))
 
   const envioIds = [...new Set(pedidos.flatMap(p => p.items.flatMap(i => (i.envioId != null ? [i.envioId] : []))))]
@@ -106,10 +102,7 @@ export async function cargarMargenes(pedidoIds?: number[]): Promise<FilaMargen[]
         entregadaAt: i.shippingStatusAt,
       }
     })
-    const margen = margenDePedido(lineas, {
-      ...(perdidasDe.get(p.id) ?? { perdidasUsd: 0, ultimaAt: null }),
-      brechaUsd: brechas.get(p.id) ?? 0,
-    })
+    const margen = margenDePedido(lineas, perdidasDe.get(p.id))
     return {
       pedidoId: p.id,
       clientName: p.clientName,
@@ -120,16 +113,6 @@ export async function cargarMargenes(pedidoIds?: number[]): Promise<FilaMargen[]
       fecha: margen.entregadoAt ?? p.createdAt,
     }
   })
-}
-
-// Lo que la brecha movió en los cobros de cada pedido (Movimiento 'diferencia_brecha').
-async function brechaPorPedido(pedidoIds: number[]): Promise<Map<number, number>> {
-  const rows = await db.movimiento.groupBy({
-    by: ['pedidoId'],
-    where: { pedidoId: { in: pedidoIds }, categoria: 'diferencia_brecha' },
-    _sum: { monto: true },
-  })
-  return new Map(rows.map(r => [r.pedidoId!, dec(r._sum.monto) ?? 0]))
 }
 
 // El resultado de cada mes: margen de lo entregado menos los gastos propios del negocio y lo que
@@ -168,13 +151,11 @@ export async function cargarCancelaciones(): Promise<FilaCancelacion[]> {
     select: { id: true, clientName: true, clienteId: true, canceladoAt: true, canceladoMotivo: true, depositUsd: true },
     orderBy: { canceladoAt: 'desc' },
   })
-  // Lo retenido es lo acreditado; lo que de verdad quedó en caja es eso menos la brecha.
-  const brechas = rows.length > 0 ? await brechaPorPedido(rows.map(r => r.id)) : new Map<number, number>()
   return rows.flatMap(r =>
     r.canceladoAt
       ? [{
           pedidoId: r.id, clientName: r.clientName, clienteId: r.clienteId, fecha: r.canceladoAt,
-          motivo: r.canceladoMotivo, retenidoUsd: (dec(r.depositUsd) ?? 0) - (brechas.get(r.id) ?? 0),
+          motivo: r.canceladoMotivo, retenidoUsd: dec(r.depositUsd) ?? 0,
         }]
       : [],
   )
