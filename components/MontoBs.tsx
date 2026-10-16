@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 // Un cobro en bolívares se escribe como pasó: los Bs que entraron al banco y la tasa (Bs por
 // dólar) de ESE día. Los dólares salen de dividir —en un pedido a dólar BCV son dólares BCV; en
@@ -19,6 +19,10 @@ interface Props {
   requerido?: boolean
   autoFocus?: boolean
   etiqueta?: string
+  /** Para un segundo cobro en el mismo formulario: los campos van como montoBs2/tasaBs2. */
+  sufijo?: string
+  /** Avisa los dólares que van saliendo (null = incompleto). */
+  onDolares?: (n: number | null) => void
 }
 
 const usd = (n: number) => `$${n.toFixed(2)}`
@@ -26,7 +30,7 @@ const bsFmt = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 
 
 export default function MontoBs({
   tasaSugerida, etiquetaTasa, sugerido = null, inicial = false, unidad, requerido = false, autoFocus = false,
-  etiqueta = 'Bs recibidos',
+  etiqueta = 'Bs recibidos', sufijo = '', onDolares,
 }: Props) {
   const [tasa, setTasa] = useState(tasaSugerida > 0 ? tasaSugerida.toFixed(2) : '')
   const [bs, setBs] = useState(() =>
@@ -35,6 +39,7 @@ export default function MontoBs({
   const b = parseFloat(bs)
   const t = parseFloat(tasa)
   const dolares = b > 0 && t > 0 ? b / t : null
+  useEffect(() => onDolares?.(dolares), [dolares, onDolares])
   const completo = requerido || bs !== ''
   const cls = 'w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
 
@@ -45,7 +50,7 @@ export default function MontoBs({
         <div className="flex items-center">
           <span className="text-sm text-gray-400 mr-1">Bs</span>
           <input
-            type="number" name="montoBs" min={0.01} step="0.01" required={requerido} autoFocus={autoFocus}
+            type="number" name={`montoBs${sufijo}`} min={0.01} step="0.01" required={requerido} autoFocus={autoFocus}
             value={bs} onChange={e => setBs(e.target.value)} className={cls}
           />
         </div>
@@ -53,7 +58,7 @@ export default function MontoBs({
       <div>
         <label className="block text-xs font-medium text-gray-600 mb-1">{etiquetaTasa} (Bs por USD)</label>
         <input
-          type="number" name="tasaBs" min={0.0001} step="0.0001" required={completo}
+          type="number" name={`tasaBs${sufijo}`} min={0.0001} step="0.0001" required={completo}
           value={tasa} onChange={e => setTasa(e.target.value)} className={cls}
         />
       </div>

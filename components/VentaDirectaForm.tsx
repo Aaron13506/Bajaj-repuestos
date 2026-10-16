@@ -6,7 +6,7 @@ import MontoBs from '@/components/MontoBs'
 import { useEnviarAccion } from '@/components/useEnviarAccion'
 import type { ActionResult } from '@/lib/action-result'
 import { cobraEnBolivares } from '@/lib/pagos'
-import { resumenCobro } from '@/lib/cobro-bcv'
+import { resumenCobro, type ResumenCobro } from '@/lib/cobro-bcv'
 import { resumenVenta } from '@/lib/venta-stock'
 import { ALL_MODELS, formatModels, shortModel, type MotoModelId } from '@/lib/modelo'
 import { buscarEnStock, getComponentesEnStock, type PiezaEnStock } from '@/app/(pages)/ventas/actions'
@@ -74,8 +74,8 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
 
   const [lineas, setLineas] = useState<Linea[]>([])
   const [clienteId, setClienteId] = useState('')
-  const [metodo, setMetodo] = useState(metodos[0])
-  const [monto, setMonto] = useState('')
+  const [cobrado1, setCobrado1] = useState(0)
+  const [segundo, setSegundo] = useState(false)
   const { enviar, isPending, error } = useEnviarAccion(action, () => {})
 
   // ── Ensambles ──────────────────────────────────────────────────────────────
@@ -193,10 +193,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
     ? resumenCobro(parseadas.map(l => ({ salePrice: l.salePrice, quantity: l.quantity })), 0, escalon)
     : null
 
-  const enBs = cobraEnBolivares(metodo)
   const modoBcv = escalon != null
-  const sugerido = cobro ? (enBs ? cobro.totalBcv : cobro.totalReal) : null
-  const unidad = !modoBcv ? 'USD' : enBs ? 'USD a tasa BCV' : 'USD en divisas'
   const listo = hayLineas && !excedeStock && clienteId !== ''
 
   const motosVisibles = ALL_MODELS.filter(m => motos.includes(m.id))
@@ -447,42 +444,32 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
             <h2 className="font-semibold text-gray-900 mb-3">Cobro</h2>
             <div className="flex flex-wrap items-start gap-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Método de pago</label>
-                <select name="metodoPago" value={metodo} onChange={e => setMetodo(e.target.value)} className={campo}>
-                  {metodos.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-              </div>
-              {enBs ? (
-                <div className="w-48">
-                  <MontoBs
-                    key={modoBcv ? 'bcv' : 'directa'}
-                    etiqueta="Bs recibidos"
-                    tasaSugerida={modoBcv ? tasaBcv : tasaDirecta}
-                    etiquetaTasa={modoBcv ? 'Tasa BCV' : 'Tasa de cobro'}
-                    sugerido={sugerido}
-                    unidad={unidad}
-                  />
-                </div>
-              ) : (
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Cobrado ({unidad})</label>
-                  <input type="number" name="monto" min={0.01} step="0.01" value={monto} onChange={e => setMonto(e.target.value)} className={`w-36 font-mono ${campo}`} />
-                  {sugerido != null && (
-                    <button type="button" onClick={() => setMonto(sugerido.toFixed(2))} className="block text-[11px] text-blue-600 hover:underline mt-1">
-                      Cobrar todo ({usd(sugerido)})
-                    </button>
-                  )}
-                </div>
-              )}
+              <FilaCobro
+                sufijo="" metodos={metodos} metodoInicial={metodos[0]} cobro={cobro} yaCobrado={0}
+                modoBcv={modoBcv} tasaBcv={tasaBcv} tasaDirecta={tasaDirecta} onReal={setCobrado1}
+              />
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Fecha</label>
                 <CampoFecha name="fecha" className={campo} />
               </div>
             </div>
+            {segundo ? (
+              <div className="flex flex-wrap items-start gap-4 border-t border-gray-100 mt-4 pt-4">
+                <FilaCobro
+                  sufijo="2" metodos={metodos} metodoInicial={metodos[1] ?? metodos[0]} cobro={cobro} yaCobrado={cobrado1}
+                  modoBcv={modoBcv} tasaBcv={tasaBcv} tasaDirecta={tasaDirecta}
+                />
+                <button type="button" onClick={() => setSegundo(false)} className="text-xs text-gray-500 hover:text-red-600 mt-6">
+                  Quitar
+                </button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setSegundo(true)} className="text-xs text-blue-600 hover:underline mt-3">
+                + Pagó una parte con otro método
+              </button>
+            )}
             <p className="text-[11px] text-gray-400 mt-2">
               Dejá el monto vacío si todavía no pagó: queda por cobrar y lo registrás después desde el pedido.
-              {enBs && ' En Bs escribís los bolívares que recibiste y la tasa de ese día: los dólares salen de dividir.'}
             </p>
           </div>
 
@@ -506,5 +493,67 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
         </div>
       </div>
     </form>
+  )
+}
+
+// Un cobro de la venta: método y monto. Con `sufijo` '2' es el segundo método del mismo pago
+// (parte en Bs, parte en efectivo); su sugerido es lo que falta después del primero.
+function FilaCobro({ sufijo, metodos, metodoInicial, cobro, yaCobrado, modoBcv, tasaBcv, tasaDirecta, onReal }: {
+  sufijo: string
+  metodos: readonly string[]
+  metodoInicial: string
+  cobro: ResumenCobro | null
+  /** Dólares reales ya cubiertos por el otro método. */
+  yaCobrado: number
+  modoBcv: boolean
+  tasaBcv: number
+  tasaDirecta: number
+  /** Avisa cuántos dólares reales cubre esta fila. */
+  onReal?: (n: number) => void
+}) {
+  const [metodo, setMetodo] = useState(metodoInicial)
+  const [monto, setMonto] = useState('')
+  const [dolaresBs, setDolaresBs] = useState<number | null>(null)
+  const enBs = cobraEnBolivares(metodo)
+  const factor = cobro?.factor ?? 1
+  const resto = cobro ? Math.round((cobro.totalReal - yaCobrado) * 100) / 100 : 0
+  const sugerido = resto > 0 ? (enBs ? Math.round((resto / factor) * 100) / 100 : resto) : null
+  const unidad = !modoBcv ? 'USD' : enBs ? 'USD a tasa BCV' : 'USD en divisas'
+  const real = enBs ? (dolaresBs ?? 0) * factor : decimal(monto) || 0
+  useEffect(() => onReal?.(real), [real, onReal])
+
+  return (
+    <>
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">{sufijo ? 'Otro método' : 'Método de pago'}</label>
+        <select name={`metodoPago${sufijo}`} value={metodo} onChange={e => setMetodo(e.target.value)} className={campo}>
+          {metodos.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+      </div>
+      {enBs ? (
+        <div className="w-48">
+          <MontoBs
+            key={modoBcv ? 'bcv' : 'directa'}
+            sufijo={sufijo}
+            onDolares={setDolaresBs}
+            etiqueta="Bs recibidos"
+            tasaSugerida={modoBcv ? tasaBcv : tasaDirecta}
+            etiquetaTasa={modoBcv ? 'Tasa BCV' : 'Tasa de cobro'}
+            sugerido={sugerido}
+            unidad={unidad}
+          />
+        </div>
+      ) : (
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Cobrado ({unidad})</label>
+          <input type="number" name={`monto${sufijo}`} min={0.01} step="0.01" value={monto} onChange={e => setMonto(e.target.value)} className={`w-36 font-mono ${campo}`} />
+          {sugerido != null && (
+            <button type="button" onClick={() => setMonto(sugerido.toFixed(2))} className="block text-[11px] text-blue-600 hover:underline mt-1">
+              {sufijo ? 'Cobrar el resto' : 'Cobrar todo'} ({usd(sugerido)})
+            </button>
+          )}
+        </div>
+      )}
+    </>
   )
 }

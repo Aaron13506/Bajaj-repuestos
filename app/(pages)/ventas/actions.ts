@@ -114,6 +114,21 @@ async function resolverCliente(formData: FormData) {
   return Number.isNaN(id) ? null : db.cliente.findUnique({ where: { id } })
 }
 
+// Un cobro del formulario (`sufijo` '' o '2'). Vacío = todavía no pagó; un número ilegible o
+// negativo no es ninguna de las dos cosas. En Bs se escriben los bolívares y la tasa, y los
+// dólares salen de dividir.
+function leerCobro(formData: FormData, sufijo: string) {
+  const metodoPago = (formData.get(`metodoPago${sufijo}`) as string)?.trim() || null
+  const bs = leerCobroBs(formData, metodoPago, true, sufijo)
+  if (!bs.ok) throw new ErrorDeNegocio(bs.error)
+  if (bs.cobro) return { metodoPago, monto: bs.cobro.montoUsd, bs: bs.cobro }
+  const raw = (formData.get(`monto${sufijo}`) as string)?.trim()
+  if (!raw || cobraEnBolivares(metodoPago)) return null
+  const monto = parseFloat(raw)
+  if (!Number.isFinite(monto) || monto <= 0) throw new ErrorDeNegocio('El monto cobrado tiene que ser mayor que 0 (o dejalo vacío si todavía no pagó).')
+  return { metodoPago, monto, bs: null }
+}
+
 // Una venta del depósito: el pedido nace confirmado y entregado, el stock baja en la misma
 // transacción y, si el cliente pagó algo, el cobro entra al libro por la misma puerta que
 // cualquier otro (cobrarPedido: conversión BCV, Bs y tasa). Sin monto, queda por cobrar.
@@ -127,22 +142,10 @@ async function crearVenta(formData: FormData) {
   if (!cliente) throw new ErrorDeNegocio('Elegí un cliente, o escribí el nombre del nuevo.')
 
   const notas = (formData.get('notas') as string)?.trim() || null
-  const metodoPago = (formData.get('metodoPago') as string)?.trim() || null
   const rawFecha = (formData.get('fecha') as string)?.trim()
   const fecha = rawFecha ? new Date(`${rawFecha}T12:00:00`) : new Date()
-
-  // Vacío = todavía no pagó; un número ilegible o negativo no es ninguna de las dos cosas. En Bs
-  // se escriben los bolívares y la tasa, y los dólares salen de dividir.
-  const bs = leerCobroBs(formData, metodoPago, true)
-  if (!bs.ok) throw new ErrorDeNegocio(bs.error)
-  const rawMonto = (formData.get('monto') as string)?.trim()
-  let monto: number | null = null
-  if (bs.cobro) {
-    monto = bs.cobro.montoUsd
-  } else if (rawMonto && !cobraEnBolivares(metodoPago)) {
-    monto = parseFloat(rawMonto)
-    if (!Number.isFinite(monto) || monto <= 0) throw new ErrorDeNegocio('El monto cobrado tiene que ser mayor que 0 (o dejalo vacío si todavía no pagó).')
-  }
+  // Hasta dos cobros (parte en Bs y parte en efectivo): cada uno entra al libro por separado.
+  const cobros = ['', '2'].map(s => leerCobro(formData, s)).filter(c => c != null)
 
   const cfg = toConfigMap(await db.config.findMany())
   // Como un pedido de cliente: el escalón de hoy queda congelado y el cliente ve el total a BCV.
@@ -178,7 +181,7 @@ async function crearVenta(formData: FormData) {
         tipo: 'venta',
         status: 'pedido',
         brechaEscalonPct: escalon,
-        ...(monto != null ? { paymentMethod: metodoPago, depositAt: fecha } : {}),
+        ...(cobros.length > 0 ? { paymentMethod: cobros[0].metodoPago, depositAt: fecha } : {}),
         items: {
           create: lineas.map(l => ({
             productId: l.productId,
@@ -193,10 +196,10 @@ async function crearVenta(formData: FormData) {
       },
     })
 
-    if (monto != null) {
+    for (const c of cobros) {
       const r = await cobrarPedido(tx, {
-        pedidoId: creado.id, monto, categoria: 'pago_cliente', fecha, metodoPago,
-        descripcion: 'Venta directa', tasaBs: bs.cobro?.tasaBs, montoBs: bs.cobro?.montoBs,
+        pedidoId: creado.id, monto: c.monto, categoria: 'pago_cliente', fecha, metodoPago: c.metodoPago,
+        descripcion: 'Venta directa', tasaBs: c.bs?.tasaBs, montoBs: c.bs?.montoBs,
       })
       if (!r.ok) throw new ErrorDeNegocio(r.error)
     }

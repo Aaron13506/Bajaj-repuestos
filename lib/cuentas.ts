@@ -62,19 +62,21 @@ export interface CobroEnBs extends DatosBs {
 // Lee el cobro en Bs de un formulario. Con un método que no es en Bs devuelve `cobro: null` y
 // el llamador sigue con su monto en dólares. Con `opcional`, dejar los Bs vacíos también da
 // null ("todavía no pagó"); sin él, vacío se rechaza: no es cero, es un dato que falta.
+// `sufijo` lee un segundo cobro del mismo formulario (montoBs2/tasaBs2).
 export function leerCobroBs(
   fd: FormData,
   metodo: string | null | undefined,
   opcional = false,
+  sufijo = '',
 ): { ok: true; cobro: CobroEnBs | null } | { ok: false; error: string } {
   if (!cobraEnBolivares(metodo)) return { ok: true, cobro: null }
   const num = (k: string) => parseFloat(String(fd.get(k) ?? '').trim().replace(',', '.'))
-  const rawBs = String(fd.get('montoBs') ?? '').trim()
+  const rawBs = String(fd.get(`montoBs${sufijo}`) ?? '').trim()
   if (opcional && rawBs === '') return { ok: true, cobro: null }
 
-  const montoBs = num('montoBs')
+  const montoBs = num(`montoBs${sufijo}`)
   if (!Number.isFinite(montoBs) || montoBs <= 0) return { ok: false, error: 'Escribí cuántos bolívares recibiste.' }
-  const tasaBs = num('tasaBs')
+  const tasaBs = num(`tasaBs${sufijo}`)
   if (!Number.isFinite(tasaBs) || tasaBs <= 0) {
     return { ok: false, error: 'Escribí la tasa (Bs por dólar) de ese día: sin ella no se sabe cuántos dólares son.' }
   }
