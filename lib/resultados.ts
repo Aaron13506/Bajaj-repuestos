@@ -69,10 +69,11 @@ export async function cargarMargenes(pedidoIds?: number[]): Promise<FilaMargen[]
   for (const e of envios) {
     if (e.modo === 'maritimo_cbm') continue
     const { calc, itemIdDeLinea } = costearAereo(e, ctx)
-    // La caja está cerrada en números cuando se pesó, y cada carrier facturó su tramo. Sin eso
-    // el flete que se le reparte a las líneas es el de tabla.
+    // La caja está cerrada en números cuando cada carrier facturó su tramo: el facturado pisa al
+    // de tabla, así que el peso de la caja ya no cambia el total, solo el prorrateo entre líneas
+    // (tan prorrateo como el de la compra). Una pieza sin peso sí: se queda sin su parte del flete.
     const flete = calc.tramo ? calc.tramo.faltaCosto !== true : e.shippingCostRealAereo != null
-    const cajaReal = calc.caja.medido && flete && e.shippingCostRealMaritimo != null && !calc.lines.some(l => l.missingWeight)
+    const cajaReal = flete && e.shippingCostRealMaritimo != null && !calc.lines.some(l => l.missingWeight)
     const porItem = new Map<number, number>()
     calc.lines.forEach((l, k) => porItem.set(itemIdDeLinea[k], (porItem.get(itemIdDeLinea[k]) ?? 0) + l.landedUsd))
     for (const it of e.items) {

@@ -12,7 +12,7 @@ const nombreMes = (m: string) => {
 
 const ESTADOS: Record<EstadoMargen, { label: string; cls: string; ayuda: string }> = {
   realizado: { label: 'Realizado', cls: 'bg-green-100 text-green-700', ayuda: 'Entregado y con el costo que de verdad se pagó (compra, flete y caja facturados).' },
-  estimado: { label: 'Estimado', cls: 'bg-blue-100 text-blue-700', ayuda: 'Entregado, pero algún costo (compra, flete o peso de la caja) sigue siendo el de tabla.' },
+  estimado: { label: 'Estimado', cls: 'bg-blue-100 text-blue-700', ayuda: 'Entregado, pero algún costo (compra, flete facturado o peso de una pieza) falta cargarlo.' },
   sin_costo: { label: 'Sin costo', cls: 'bg-amber-100 text-amber-700', ayuda: 'Entregado y alguna línea no tiene costo (no está en ninguna caja ni tiene el costo real cargado).' },
   en_curso: { label: 'En curso', cls: 'bg-gray-100 text-gray-600', ayuda: 'Todavía falta entregar: el margen es una proyección.' },
 }

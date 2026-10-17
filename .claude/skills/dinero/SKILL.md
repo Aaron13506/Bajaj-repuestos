@@ -35,7 +35,7 @@ A `Pedido` with `tipo = 'venta'`, born `status = 'pedido'` with every line `entr
 
 ## Realised margin (`lib/margen.ts` · `lib/resultados.ts` · `/resultados`)
 
-Real dollars, recognised on **delivery**. A line's cost is the landed its box gives it (`costearAereo`, same numbers as the box page); a sale brings its frozen cost; a landed-supplier line outside a box costs what was paid. **Any line without cost makes the order's margin `null`** (`sin_costo`, excluded from the month). States: `realizado` (all real: purchase, both freights billed, box weighed), `estimado`, `sin_costo`, `en_curso`. Reimbursed incidents add `Incidencia.perdidaUsd` to the order's cost. Month cut in Venezuela time (UTC−4). **Monthly result = delivered margin + what cancelled orders kept − `gasto_operativo`/`otro_egreso` − cost of converting Bs**; freight, commissions and supplier payments are already inside each landed.
+Real dollars, recognised on **delivery**. A line's cost is the landed its box gives it (`costearAereo`, same numbers as the box page); a sale brings its frozen cost; a landed-supplier line outside a box costs what was paid. **Any line without cost makes the order's margin `null`** (`sin_costo`, excluded from the month). States: `realizado` (all real: purchase, both freights billed, no piece without weight; the box's weight only moves the split, not the total), `estimado`, `sin_costo`, `en_curso`. Reimbursed incidents add `Incidencia.perdidaUsd` to the order's cost. Month cut in Venezuela time (UTC−4). **Monthly result = delivered margin + what cancelled orders kept − `gasto_operativo`/`otro_egreso` − cost of converting Bs**; freight, commissions and supplier payments are already inside each landed.
 
 ## Inventory (`lib/inventario.ts`)
 

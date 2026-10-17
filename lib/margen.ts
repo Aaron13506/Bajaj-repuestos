@@ -31,7 +31,7 @@ export interface LineaMargen {
 }
 
 // realizado           entregado y costado con lo que de verdad se pagó.
-// estimado            entregado, pero algún costo (compra, flete, peso de la caja) sigue siendo
+// estimado            entregado, pero algún costo (compra, flete, pieza sin peso) sigue siendo
 //                     el de tabla: el margen es una buena aproximación, no un cierre.
 // sin_costo           entregado y alguna línea no tiene costo: no se puede decir cuánto se ganó.
 // en_curso            todavía le falta entregar: el margen es una proyección.
