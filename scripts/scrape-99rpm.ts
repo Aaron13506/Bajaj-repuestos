@@ -28,6 +28,7 @@ import path from 'node:path'
 const BASE = 'https://www.99rpm.com'
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
 const DELAY_MS = 700 // cortesía entre requests
+const CONCURRENCY = 4 // páginas de producto en paralelo, cada una con su pausa; más arriesgaría el bot-gate
 
 // vehicle_type ID → valor del enum MotoModel (Prisma)
 const MODELS: Record<number, string> = {
@@ -282,18 +283,30 @@ async function main() {
   let allUrls = [...urlModels.keys()]
   if (allUrls.length > maxProducts) allUrls = allUrls.slice(0, maxProducts)
   process.stderr.write(`\nDescargando ${allUrls.length} productos únicos...\n`)
-  const products: any[] = []
+  // Se guarda por índice para que el JSON salga en el mismo orden que antes.
+  const porIndice: any[] = new Array(allUrls.length)
+  let next = 0
   let n = 0
-  for (const url of allUrls) {
-    const prod = await scrapeProduct(url)
-    await sleep(DELAY_MS)
-    n++
-    if (!prod) { process.stderr.write(`  [${n}] SIN bundle: ${url}\n`); continue }
-    prod.models = [...urlModels.get(url)!]
-    products.push(prod)
-    const nls = prod.parts.filter((p: Part) => p.discontinued).length
-    process.stderr.write(`  [${n}/${allUrls.length}] ${prod.slug} · ${prod.parts.length} piezas · INR ${prod.totalInr} · ${prod.models.length} modelos${nls ? ` · ${nls} descontinuadas` : ''}\n`)
+  const worker = async () => {
+    while (next < allUrls.length) {
+      const i = next++
+      const url = allUrls[i]
+      // Una página que falla tras los reintentos no tira la corrida entera: se anota y se sigue.
+      const prod = await scrapeProduct(url).catch((e) => {
+        process.stderr.write(`  [error] ${url}: ${e instanceof Error ? e.message : e}\n`)
+        return null
+      })
+      await sleep(DELAY_MS)
+      n++
+      if (!prod) { process.stderr.write(`  [${n}] SIN bundle: ${url}\n`); continue }
+      prod.models = [...urlModels.get(url)!]
+      porIndice[i] = prod
+      const nls = prod.parts.filter((p: Part) => p.discontinued).length
+      process.stderr.write(`  [${n}/${allUrls.length}] ${prod.slug} · ${prod.parts.length} piezas · INR ${prod.totalInr} · ${prod.models.length} modelos${nls ? ` · ${nls} descontinuadas` : ''}\n`)
+    }
   }
+  await Promise.all(Array.from({ length: CONCURRENCY }, worker))
+  const products = porIndice.filter(Boolean)
 
   const outDir = path.join(process.cwd(), 'data', 'scrape')
   await mkdir(outDir, { recursive: true })
