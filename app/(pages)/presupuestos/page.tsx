@@ -12,7 +12,9 @@ import { embudo, estadoValidez, validezDias } from '@/lib/validez'
 
 export default async function PresupuestosPage() {
   const [todos, configRows] = await Promise.all([
+    // Las ventas del depósito tienen su propia sección (/ventas).
     db.pedido.findMany({
+      where: { tipo: { not: 'venta' } },
       include: { items: true, _count: { select: { movimientos: true } } },
       orderBy: { createdAt: 'desc' },
     }),
@@ -38,7 +40,6 @@ export default async function PresupuestosPage() {
 
   function Row({ p }: { p: (typeof todos)[0] }) {
     const isPropio = p.tipo === 'propio'
-    const isVenta = p.tipo === 'venta'
     const isPresupuesto = p.status === 'presupuesto'
     const isCancelado = p.status === 'cancelado'
     // Un presupuesto de cliente pasado de fecha no se confirma: se renueva (lib/validez.ts).
@@ -88,7 +89,7 @@ export default async function PresupuestosPage() {
                     ? 'bg-yellow-100 text-yellow-700'
                     : 'bg-green-100 text-green-700'
             }`}>
-              {isPropio ? 'Stock propio' : isVenta ? 'Venta del depósito' : isCancelado ? 'Cancelado' : perdido ? 'Perdido' : vencido ? 'Vencido' : isPresupuesto ? 'Presupuesto' : 'Pedido'}
+              {isPropio ? 'Stock propio' : isCancelado ? 'Cancelado' : perdido ? 'Perdido' : vencido ? 'Vencido' : isPresupuesto ? 'Presupuesto' : 'Pedido'}
             </span>
             {p.origenMotivo && (
               <span className="text-xs text-gray-400">{p.origenMotivo === 'reposicion' ? '↻ reposición' : '↩ sobrante'} de #{p.origenId}</span>
@@ -154,12 +155,6 @@ export default async function PresupuestosPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Presupuestos y Pedidos</h1>
         <div className="flex items-center gap-2">
-          <Link
-            href="/ventas/new"
-            className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
-          >
-            + Venta del depósito
-          </Link>
           <Link
             href="/presupuestos/new?tipo=propio"
             className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"

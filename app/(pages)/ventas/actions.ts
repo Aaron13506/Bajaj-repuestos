@@ -207,7 +207,7 @@ async function crearVenta(formData: FormData) {
   }, { maxWait: 10_000, timeout: 20_000 })
 
   revalidarVentas()
-  redirect(`/presupuestos/${pedido.id}`)
+  redirect(`/ventas/${pedido.id}`)
 }
 
 // Deshace una venta que no debió existir (se cargó mal, el cliente no se llevó nada): devuelve
@@ -218,7 +218,7 @@ export async function anularVenta(id: number): Promise<ActionResult> {
   const r = await conErrorDeNegocio(() => deshacerVenta(id))
   if (!r.ok) return r
   revalidarVentas()
-  redirect('/presupuestos')
+  redirect('/ventas')
 }
 
 async function deshacerVenta(id: number) {
@@ -247,7 +247,7 @@ async function deshacerVenta(id: number) {
 }
 
 function revalidarVentas() {
-  revalidatePath('/presupuestos')
+  revalidatePath('/ventas')
   revalidatePath('/inventario')
   revalidatePath('/products')
   revalidatePath('/contabilidad')

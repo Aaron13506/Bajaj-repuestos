@@ -34,7 +34,7 @@ const navItems = [
   },
   {
     // Vender lo que ya está en el depósito: baja el stock y deja el margen a la vista.
-    href: '/ventas/new',
+    href: '/ventas',
     label: 'Ventas',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
