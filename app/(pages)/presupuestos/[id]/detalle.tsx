@@ -33,7 +33,8 @@ import { modeloLabel, type MotoModelId, toModelIds } from '@/lib/modelo'
 import { pedidoLogistics } from '@/lib/pedido-logistics'
 import { num, toConfigMap } from '@/lib/config'
 import { motivoNoEliminable } from '@/lib/pedido-eliminable'
-import { cabeceraDeLinea } from '@/lib/linea-pedido'
+import { cabeceraDeLinea, claveLinea } from '@/lib/linea-pedido'
+import { costearCarrito } from '../builder-actions'
 import { cargarMargenes } from '@/lib/resultados'
 import { estadoValidez, escalonDelPresupuesto, validezDias } from '@/lib/validez'
 import { devolucionSugerida, motivoNoCancelable, resumenCancelacion } from '@/lib/pedido-cancelacion'
@@ -108,6 +109,15 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
   // está adentro del precio y el dato no le dice nada a nadie; en lo mío es la pregunta
   // (cuánto espacio y cuánto peso me como en la caja y después en el depósito).
   const logistica = isPropio ? (await pedidoLogistics([id])).porPedido.get(id) ?? null : null
+  // En lo mío el número que manda es el landed (con eso se costea); la venta con margen va aparte.
+  // Mismo costeo aéreo que el armador (costearCarrito), así detalle y armador dicen lo mismo.
+  const costoPropio = isPropio
+    ? await costearCarrito(presupuesto.items.map(it => ({
+        productId: it.productId, ensambleId: it.ensambleId, quantity: it.quantity, salePrice: 0,
+        bundleItems: it.bundleItems as BundlePiece[] | null,
+      })))
+    : null
+  const landedDe = new Map((costoPropio?.lineas ?? []).map(l => [claveLinea(l), l]))
   const total = presupuesto.items.reduce(
     (sum, item) => sum + parseFloat(item.salePrice.toString()) * item.quantity,
     0
@@ -718,10 +728,10 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                 Cant.
               </th>
               <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">
-                P. Unit.{modoBcv && ' (BCV)'}
+                {isPropio ? 'Landed unit.' : <>P. Unit.{modoBcv && ' (BCV)'}</>}
               </th>
               <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">
-                Subtotal
+                {isPropio ? 'Landed' : 'Subtotal'}
               </th>
             </tr>
           </thead>
@@ -731,6 +741,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
               const subtotal = unitPrice * item.quantity
               const bundlePieces = (item.bundleItems as BundlePiece[] | null) ?? []
               const modelo = modeloLabel(toModelIds(item.cab.compatibleModels))
+              const landed = isPropio ? landedDe.get(claveLinea(item)) : undefined
               return (
                 <tr key={item.id} className="hover:bg-gray-50">
                   <td className="px-3 py-3 align-top">
@@ -859,12 +870,29 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                     )}
                   </td>
                   <td className="px-4 py-3 text-center text-sm text-gray-700 align-top">{item.quantity}</td>
-                  <td className="px-4 py-3 text-right text-sm font-mono text-gray-700 align-top">
-                    ${unitPrice.toFixed(2)}
-                  </td>
-                  <td className="px-6 py-3 text-right text-sm font-mono font-semibold text-gray-900 align-top">
-                    ${subtotal.toFixed(2)}
-                  </td>
+                  {isPropio ? (
+                    <>
+                      <td className="px-4 py-3 text-right text-sm font-mono text-gray-700 align-top">
+                        {landed ? `$${(landed.landedUsd / item.quantity).toFixed(2)}` : '—'}
+                      </td>
+                      <td className="px-6 py-3 text-right text-sm font-mono align-top">
+                        <span className="font-semibold text-gray-900">{landed ? `$${landed.landedUsd.toFixed(2)}` : '—'}</span>
+                        {landed && landed.sinPeso > 0 && (
+                          <span className="text-amber-700" title={`${landed.sinPeso} pieza(s) sin peso: no entran al landed`}> +?</span>
+                        )}
+                        <p className="text-[11px] font-normal text-gray-400">venta ${subtotal.toFixed(2)}</p>
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="px-4 py-3 text-right text-sm font-mono text-gray-700 align-top">
+                        ${unitPrice.toFixed(2)}
+                      </td>
+                      <td className="px-6 py-3 text-right text-sm font-mono font-semibold text-gray-900 align-top">
+                        ${subtotal.toFixed(2)}
+                      </td>
+                    </>
+                  )}
                 </tr>
               )
             })}
@@ -875,9 +903,18 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
       {/* Totales */}
       <div className="flex justify-end mb-4">
         <div className="w-full sm:w-80 space-y-1.5">
-          <div className="flex justify-between items-baseline border-t-2 border-gray-200 pt-3">
-            <span className="font-bold text-gray-900">{modoBcv ? 'Total USD (BCV)' : 'Total USD'}</span>
-            <span className="font-bold text-2xl font-mono text-blue-700">${totalMostrado.toFixed(2)}</span>
+          {costoPropio && (
+            <div className="flex justify-between items-baseline border-t-2 border-gray-200 pt-3">
+              <span className="font-bold text-gray-900">Landed total</span>
+              <span className="font-bold text-2xl font-mono text-blue-700">
+                ${costoPropio.landedUsd.toFixed(2)}
+                {costoPropio.sinPeso > 0 && <span className="text-amber-700 text-base" title={`${costoPropio.sinPeso} pieza(s) sin peso: no entran al landed`}> +?</span>}
+              </span>
+            </div>
+          )}
+          <div className={costoPropio ? 'flex justify-between items-baseline text-sm text-gray-500' : 'flex justify-between items-baseline border-t-2 border-gray-200 pt-3'}>
+            <span className={costoPropio ? '' : 'font-bold text-gray-900'}>{costoPropio ? 'Con margen' : modoBcv ? 'Total USD (BCV)' : 'Total USD'}</span>
+            <span className={costoPropio ? 'font-mono' : 'font-bold text-2xl font-mono text-blue-700'}>${totalMostrado.toFixed(2)}</span>
           </div>
           {modoBcv && (
             <div className="text-xs text-gray-500 text-right">
