@@ -967,11 +967,10 @@ export default function PresupuestoBuilder({
                             const sugeridoUnit = c.sugeridoUnitUsd
                             return (
                               <p className="text-[11px] mt-0.5 flex items-center gap-1.5 flex-wrap">
-                                <span className="font-mono text-gray-500">{c.weightKg.toFixed(2)} kg</span>
-                                <span className="text-gray-300">·</span>
-                                {isPropio && (
+                                {/* En lo propio el peso y el tamaño van solo en el total: por línea, el landed. */}
+                                {!isPropio && (
                                   <>
-                                    <span className="font-mono text-gray-500">{c.ft3.toFixed(2)} ft³</span>
+                                    <span className="font-mono text-gray-500">{c.weightKg.toFixed(2)} kg</span>
                                     <span className="text-gray-300">·</span>
                                   </>
                                 )}
@@ -1162,17 +1161,29 @@ export default function PresupuestoBuilder({
                       )}
                     </div>
 
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className={`grid gap-3 ${isPropio ? 'grid-cols-2' : 'grid-cols-3'}`}>
                       <div>
-                        <p className="text-[11px] text-gray-400">Peso</p>
-                        <p className="text-base font-bold font-mono text-gray-900">{costo.weightKg.toFixed(2)} kg</p>
+                        <p className="text-[11px] text-gray-400">{isPropio ? 'Peso real' : 'Peso'}</p>
+                        <p className={`text-base font-bold font-mono ${isPropio && costo.weightKg >= costo.volKg ? 'text-green-700' : 'text-gray-900'}`}>{costo.weightKg.toFixed(2)} kg</p>
                       </div>
                       {isPropio ? (
-                        <div>
-                          <p className="text-[11px] text-gray-400">Volumen</p>
-                          <p className="text-base font-bold font-mono text-gray-900">{costo.ft3.toFixed(2)} ft³</p>
-                          <p className="text-[10px] text-gray-400 font-mono">{costo.cbm.toFixed(3)} CBM</p>
-                        </div>
+                        <>
+                          {/* Lo que rinde es que el peso real le gane al volumétrico (como en la caja, /envios). */}
+                          <div>
+                            <p className="text-[11px] text-gray-400">Volumétrico</p>
+                            <p className={`text-base font-bold font-mono ${costo.volKg > costo.weightKg ? 'text-red-700' : 'text-gray-900'}`}>{costo.volKg.toFixed(2)} kg</p>
+                            {costo.weightKg > 0 && (
+                              <p className="text-[10px] text-gray-400">
+                                V/W {((costo.volKg / costo.weightKg) * 100).toFixed(0)}% · {costo.weightKg >= costo.volKg ? 'atado por peso' : 'atado por volumen'}
+                              </p>
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-[11px] text-gray-400">Volumen</p>
+                            <p className="text-base font-bold font-mono text-gray-900">{costo.ft3.toFixed(2)} ft³</p>
+                            <p className="text-[10px] text-gray-400 font-mono">{costo.cbm.toFixed(3)} CBM</p>
+                          </div>
+                        </>
                       ) : (
                         <div>
                           <p className="text-[11px] text-gray-400">Landed</p>
