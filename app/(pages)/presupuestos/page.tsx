@@ -9,8 +9,6 @@ import { escalonBcvVigente } from '@/lib/calc'
 import { toConfigMap } from '@/lib/config'
 import { resumenCobro } from '@/lib/cobro-bcv'
 import { embudo, estadoValidez, validezDias } from '@/lib/validez'
-import type { BundlePiece } from '@/lib/bundle'
-import { costearCarrito } from './builder-actions'
 
 export default async function PresupuestosPage() {
   const [todos, configRows] = await Promise.all([
@@ -39,11 +37,6 @@ export default async function PresupuestosPage() {
   const { total: propiosTotal, porPedido: logPropios } = await pedidoLogistics(
     propios.map(p => p.id)
   )
-  // Lo propio se lista por su landed (con eso se costea), con el mismo costeo que el armador.
-  const landedPropios = new Map(await Promise.all(propios.map(async p => [p.id, await costearCarrito(p.items.map(it => ({
-    productId: it.productId, ensambleId: it.ensambleId, quantity: it.quantity, salePrice: 0,
-    bundleItems: it.bundleItems as BundlePiece[] | null,
-  })))] as const)))
 
   function Row({ p }: { p: (typeof todos)[0] }) {
     const isPropio = p.tipo === 'propio'
@@ -69,7 +62,6 @@ export default async function PresupuestosPage() {
     const saldo = depositUsd != null ? cobro.saldoBcv : null
     const compra = stageSummary(p.items)
     const log = isPropio ? logPropios.get(p.id) : undefined
-    const landed = isPropio ? landedPropios.get(p.id) : undefined
     // Un pedido con cobros, compras o piezas en una caja no se borra (ver motivoNoEliminable).
     const noEliminable = motivoNoEliminable({ ...p, movimientos: p._count.movimientos })
     return (
@@ -130,19 +122,8 @@ export default async function PresupuestosPage() {
         </div>
         <div className="flex items-center gap-4">
           <div className="text-right">
-            {landed ? (
-              <>
-                <span className="font-semibold text-gray-900">${landed.landedUsd.toFixed(2)}</span>
-                <span className="ml-1 text-[10px] font-semibold text-gray-400">LANDED</span>
-                {landed.sinPeso > 0 && <span className="text-amber-700" title={`${landed.sinPeso} pieza(s) sin peso: no entran al landed`}> +?</span>}
-                <p className="text-xs text-gray-400">con margen ${total.toFixed(2)}</p>
-              </>
-            ) : (
-              <>
-                <span className="font-semibold text-gray-900">${total.toFixed(2)}</span>
-                {escalon != null && <span className="ml-1 text-[10px] font-semibold text-gray-400">BCV</span>}
-              </>
-            )}
+            <span className="font-semibold text-gray-900">${total.toFixed(2)}</span>
+            {escalon != null && <span className="ml-1 text-[10px] font-semibold text-gray-400">BCV</span>}
             {!isCancelado && saldo != null && saldo > 0.005 && (
               <p className="text-xs text-amber-600">Saldo ${saldo.toFixed(2)}</p>
             )}
