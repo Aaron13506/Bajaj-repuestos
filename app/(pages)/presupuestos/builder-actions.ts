@@ -4,8 +4,8 @@ import { db } from '@/lib/db'
 import { toModelIds } from '@/lib/modelo'
 import { lookupDeConjuntos, expandCostPieces, type ProductCost } from '@/lib/envio-build'
 import type { BundlePiece } from '@/lib/bundle'
-import { calcLanded, type ConfigMap } from '@/lib/calc'
-import { toConfigMap, margenPorDefecto } from '@/lib/config'
+import { calcLanded, CM3_PER_FT3, CM3_PER_M3, type ConfigMap } from '@/lib/calc'
+import { toConfigMap, margenPorDefecto, num } from '@/lib/config'
 import type { RefLinea } from '@/lib/linea-pedido'
 
 // Componentes de UN ensamble, cargados on-demand cuando se selecciona (evita traer
@@ -79,6 +79,13 @@ export interface CostoCarrito {
   lineas: CostoLinea[]
   landedUsd: number
   weightKg: number
+  /** Peso volumétrico aéreo (kg), con el mismo divisor que calcEnvio. Solo como total. */
+  volKg: number
+  /** Espacio que ocupa (ft³ / CBM): lo que cobra el marítimo y lo que se guarda. */
+  ft3: number
+  cbm: number
+  /** Piezas sin las tres medidas: no suman volumen. */
+  sinMedidas: number
   costoOrigenUsd: number
   fleteUsd: number
   sinPeso: number
@@ -88,7 +95,7 @@ export interface CostoCarrito {
 
 export async function costearCarrito(lineas: CarritoLineaInput[]): Promise<CostoCarrito> {
   const vacio: CostoCarrito = {
-    lineas: [], landedUsd: 0, weightKg: 0, costoOrigenUsd: 0, fleteUsd: 0, sinPeso: 0, proveedor: '99rpm',
+    lineas: [], landedUsd: 0, weightKg: 0, volKg: 0, ft3: 0, cbm: 0, sinMedidas: 0, costoOrigenUsd: 0, fleteUsd: 0, sinPeso: 0, proveedor: '99rpm',
   }
   if (lineas.length === 0) return vacio
 
@@ -107,6 +114,9 @@ export async function costearCarrito(lineas: CarritoLineaInput[]): Promise<Costo
   const cfg = toConfigMap(configRows)
   const porId = new Map<number, ProductCost>(productos.map(p => [p.id, p]))
   const defaultMargin = margenPorDefecto(cfg)
+  const divisor = num(cfg, 'air_volumetric_divisor', 5000)
+  let cm3Total = 0
+  let sinMedidas = 0
 
   // Margen de cada pieza que puede aparecer (las de conjuntos incluidas), para sugerir precio.
   const piezasIds = new Set<number>(lineas.flatMap(l => (l.productId != null ? [l.productId] : [])))
@@ -150,6 +160,11 @@ export async function costearCarrito(lineas: CarritoLineaInput[]): Promise<Costo
 
       linea.totalPiezas++
       linea.weightKg += ((pieza.weightGrams ?? 0) / 1000) * pieza.quantity
+      if (pieza.dimL != null && pieza.dimA != null && pieza.dimH != null) {
+        cm3Total += pieza.dimL * pieza.dimA * pieza.dimH * pieza.quantity
+      } else {
+        sinMedidas++
+      }
       // Sin peso el aéreo no se puede costear: la pieza queda marcada, no estimada.
       if (b == null) { linea.sinPeso++; continue }
 
@@ -174,6 +189,10 @@ export async function costearCarrito(lineas: CarritoLineaInput[]): Promise<Costo
     lineas: out,
     landedUsd: sum(l => l.landedUsd),
     weightKg: sum(l => l.weightKg),
+    volKg: cm3Total / divisor,
+    ft3: cm3Total / CM3_PER_FT3,
+    cbm: cm3Total / CM3_PER_M3,
+    sinMedidas,
     costoOrigenUsd: 0,
     fleteUsd: 0,
     sinPeso: sum(l => l.sinPeso),
