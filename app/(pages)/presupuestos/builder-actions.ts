@@ -4,7 +4,7 @@ import { db } from '@/lib/db'
 import { toModelIds } from '@/lib/modelo'
 import { lookupDeConjuntos, expandCostPieces, type ProductCost } from '@/lib/envio-build'
 import type { BundlePiece } from '@/lib/bundle'
-import { calcLanded, type ConfigMap } from '@/lib/calc'
+import { calcLanded, CM3_PER_FT3, CM3_PER_M3, type ConfigMap } from '@/lib/calc'
 import { toConfigMap, margenPorDefecto } from '@/lib/config'
 import type { RefLinea } from '@/lib/linea-pedido'
 
@@ -67,6 +67,10 @@ export interface CostoLinea extends RefLinea {
   landedUsd: number
   /** Peso cobrable de la línea (kg). Es lo que factura el aéreo. */
   weightKg: number
+  /** Espacio que ocupa la línea (ft³): lo que cobra el marítimo y lo que se guarda. */
+  ft3: number
+  /** Piezas sin las tres medidas: no suman volumen. */
+  sinMedidas: number
   /** Precio de venta de la LÍNEA entera, aplicando el margen sobre el landed. */
   sugeridoUsd: number | null
   /** El mismo sugerido por unidad (o por conjunto) — la unidad en la que se cotiza. */
@@ -79,6 +83,9 @@ export interface CostoCarrito {
   lineas: CostoLinea[]
   landedUsd: number
   weightKg: number
+  ft3: number
+  cbm: number
+  sinMedidas: number
   costoOrigenUsd: number
   fleteUsd: number
   sinPeso: number
@@ -88,7 +95,7 @@ export interface CostoCarrito {
 
 export async function costearCarrito(lineas: CarritoLineaInput[]): Promise<CostoCarrito> {
   const vacio: CostoCarrito = {
-    lineas: [], landedUsd: 0, weightKg: 0, costoOrigenUsd: 0, fleteUsd: 0, sinPeso: 0, proveedor: '99rpm',
+    lineas: [], landedUsd: 0, weightKg: 0, ft3: 0, cbm: 0, sinMedidas: 0, costoOrigenUsd: 0, fleteUsd: 0, sinPeso: 0, proveedor: '99rpm',
   }
   if (lineas.length === 0) return vacio
 
@@ -132,7 +139,7 @@ export async function costearCarrito(lineas: CarritoLineaInput[]): Promise<Costo
     if (esConjunto ? !(l.bundleItems && l.bundleItems.length > 0) : !product) continue
 
     const linea: CostoLinea = {
-      productId: l.productId, ensambleId: l.ensambleId, quantity: l.quantity, landedUsd: 0, weightKg: 0,
+      productId: l.productId, ensambleId: l.ensambleId, quantity: l.quantity, landedUsd: 0, weightKg: 0, ft3: 0, sinMedidas: 0,
       sugeridoUsd: 0, sugeridoUnitUsd: null, sinPeso: 0, totalPiezas: 0,
     }
 
@@ -150,6 +157,11 @@ export async function costearCarrito(lineas: CarritoLineaInput[]): Promise<Costo
 
       linea.totalPiezas++
       linea.weightKg += ((pieza.weightGrams ?? 0) / 1000) * pieza.quantity
+      if (pieza.dimL != null && pieza.dimA != null && pieza.dimH != null) {
+        linea.ft3 += (pieza.dimL * pieza.dimA * pieza.dimH * pieza.quantity) / CM3_PER_FT3
+      } else {
+        linea.sinMedidas++
+      }
       // Sin peso el aéreo no se puede costear: la pieza queda marcada, no estimada.
       if (b == null) { linea.sinPeso++; continue }
 
@@ -174,6 +186,9 @@ export async function costearCarrito(lineas: CarritoLineaInput[]): Promise<Costo
     lineas: out,
     landedUsd: sum(l => l.landedUsd),
     weightKg: sum(l => l.weightKg),
+    ft3: sum(l => l.ft3),
+    cbm: (sum(l => l.ft3) * CM3_PER_FT3) / CM3_PER_M3,
+    sinMedidas: sum(l => l.sinMedidas),
     costoOrigenUsd: 0,
     fleteUsd: 0,
     sinPeso: sum(l => l.sinPeso),
