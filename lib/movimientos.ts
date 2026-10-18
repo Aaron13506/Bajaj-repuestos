@@ -761,9 +761,13 @@ async function itemsConEstimado(where: Prisma.PedidoItemWhereInput): Promise<Ite
 
 
 // Lo que está en una caja en BORRADOR no se compra: la caja todavía no es una compra (ver
-// confirmarCajaAerea). Lo que no está en ninguna caja sí, como siempre.
+// confirmarCajaAerea). Lo de un cliente que no está en ninguna caja sí, como siempre; el stock
+// propio sin caja no: es una lista de deseos hasta que entra en una caja.
 const FUERA_DE_BORRADOR: Prisma.PedidoItemWhereInput = {
-  OR: [{ envioId: null }, { envio: { estado: { not: 'borrador' } } }],
+  OR: [
+    { envioId: null, pedido: { tipo: { not: 'propio' } } },
+    { envio: { estado: { not: 'borrador' } } },
+  ],
 }
 
 // La lista para el picker: todo lo que todavía no tiene costo real cargado, de pedidos ya
