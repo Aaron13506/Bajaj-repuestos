@@ -11,6 +11,8 @@ import SelectorProveedorEmbarque from '@/components/SelectorProveedorEmbarque'
 import CopiarEmbarqueJson from '@/components/CopiarEmbarqueJson'
 import CompraPorEnsambleLista from '@/components/CompraPorEnsambleLista'
 import ChipDescontinuada from '@/components/ChipDescontinuada'
+import ConteoCaja, { BotonConteo } from '@/components/ConteoCaja'
+import { piezasAContar } from '@/lib/conteo'
 import { armarCompraPropia } from '@/lib/compra-99rpm'
 import { asignarPorCobertura } from '@/lib/asignar-ensamble'
 import { compararProveedores } from '@/lib/comparar-proveedores'
@@ -343,6 +345,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {!esBorrador && lineas.length > 0 && <BotonConteo yaRecibida={esEntregado} />}
           {esBorrador ? (
             <FormConResultado action={cerrarEmbarque.bind(null, envio.id)}>
               <PendingButton
@@ -366,15 +369,6 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
             </FormConResultado>
           ) : (
             <>
-              <FormConResultado action={recibirEmbarque.bind(null, envio.id)}>
-                <PendingButton
-                  confirmMessage="¿Marcar el embarque como recibido? Se suman sus piezas al stock."
-                  pendingLabel="Recibiendo…"
-                  className="px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-medium"
-                >
-                  Marcar recibido
-                </PendingButton>
-              </FormConResultado>
               <FormConResultado action={reabrirEmbarque.bind(null, envio.id)}>
                 <PendingButton
                   confirmMessage="¿Reabrir el embarque? Vuelve a borrador y se puede editar su contenido."
@@ -396,6 +390,22 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
           )}
         </div>
       </div>
+
+      {/* "Marcar recibido" vive al final del conteo: primero se verifica, después se suma a stock. */}
+      {!esBorrador && lineas.length > 0 && (
+        <ConteoCaja
+          envioId={envio.id}
+          piezas={piezasAContar(envio.lineas.map(l => ({ nombre: l.product.nameEs, codigo: l.product.bajajCode, quantity: l.quantity, piezas: [] })))
+            .map(p => {
+              // Una línea por producto: la clave (código o nombre) lleva de vuelta a su producto.
+              const x = envio.lineas.find(l => (l.product.bajajCode ?? l.product.nameEs) === p.clave)?.product
+              return { ...p, estimada: x && x.medidoAt == null ? { productId: x.id, weightGrams: x.weightGrams, dimL: x.dimL, dimA: x.dimA, dimH: x.dimH } : null }
+            })}
+          recibir={recibirEmbarque.bind(null, envio.id)}
+          yaRecibida={esEntregado}
+          aviso={`${esEntregado ? 'Ya se sumaron al stock' : 'Se suman al stock'} las cantidades del embarque, no las contadas: lo que falte, corregilo en el stock de esa pieza.`}
+        />
+      )}
 
       {/* Costo del embarque */}
       {lineas.length > 0 && (

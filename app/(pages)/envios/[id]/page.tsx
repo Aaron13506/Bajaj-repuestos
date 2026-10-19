@@ -21,6 +21,9 @@ import EnvioMaritimo from './maritimo'
 import { lookupDeConjuntos, expandCostPieces, repartirCostoReal } from '@/lib/envio-build'
 import { financiamientoEnvio, type FinanciamientoEnvio } from '@/lib/financiamiento-envio'
 import FleteRealCard, { type FilaFlete } from '@/components/FleteRealCard'
+import ConteoCaja, { BotonConteo } from '@/components/ConteoCaja'
+import { piezasAContar } from '@/lib/conteo'
+import { statusIndex } from '@/lib/shipping-status'
 import { TRAMOS_FLETE, CATEGORIAS_FLETE, estadoFlete } from '@/lib/flete-real'
 import { itemsSinCostoRealDeEnvio, CATEGORIAS_PAGO_PROVEEDOR } from '@/lib/movimientos'
 import type { BundlePiece } from '@/lib/bundle'
@@ -540,6 +543,35 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     sinMedidas: faltantesByItem.get(it.id)?.sinMedidas ?? 0,
   }))
 
+  // Lo comprado que viaja en la caja, esté en la etapa que esté: la caja se cuenta cuando se
+  // abre, aunque ya la hayas marcado en Venezuela (o entregado). Recibir pasa a "en Venezuela"
+  // solo lo que todavía no llegó a esa etapa.
+  const enCaja = envio.items.filter(it => !it.isLanded && it.shippingStatus !== 'pendiente')
+  const porRecibir = enCaja.filter(it => statusIndex(it.shippingStatus) < statusIndex('en_venezuela'))
+  const aContar = piezasAContar(enCaja.map(it => ({
+    nombre: cabeceraDeLinea(it).nameEs,
+    codigo: cabeceraDeLinea(it).bajajCode,
+    quantity: it.quantity,
+    piezas: (it.bundleItems as BundlePiece[] | null) ?? [],
+  })))
+  // Las de peso estimado se ofrecen pesar al contarlas. Un conjunto solo guarda códigos, así
+  // que se resuelve por código, y un código que comparten dos productos no se ofrece.
+  // Solo corre con una caja en camino a Venezuela: el resto del tiempo no cruza la red.
+  const codigosAContar = aContar.flatMap(p => (p.codigo ? [p.codigo] : []))
+  if (codigosAContar.length > 0) {
+    const prods = await db.product.findMany({
+      where: { bajajCode: { in: codigosAContar } },
+      select: { id: true, bajajCode: true, medidoAt: true, weightGrams: true, dimL: true, dimA: true, dimH: true },
+    })
+    for (const p of aContar) {
+      const mismos = prods.filter(x => x.bajajCode === p.codigo)
+      const x = mismos.length === 1 ? mismos[0] : null
+      p.estimada = x && x.medidoAt == null
+        ? { productId: x.id, weightGrams: x.weightGrams, dimL: x.dimL, dimA: x.dimA, dimH: x.dimH }
+        : null
+    }
+  }
+
   // Lo confirmado (status='pedido') es lo que hay que comprar sí o sí; los
   // presupuestos sin aprobar todavía pueden caerse, así que se separan y nunca
   // entran al agregado masivo.
@@ -736,6 +768,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {!esBorrador && aContar.length > 0 && <BotonConteo yaRecibida={porRecibir.length === 0} />}
           {/* El flete ya no se "guarda": la lista de envíos lo calcula en vivo con el mismo
               costeo que esta ficha (lib/costo-envios). Una copia guardada quedaba vieja en
               cuanto se cargaba un peso, un precio real o se movía una tasa. */}
@@ -1352,6 +1385,16 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
           {/* La plata va primero: antes de mirar cuánto cuesta la caja, la pregunta es
               cuánta de esa plata ya está en la mano. */}
           <QuienPonePlata f={financiamiento} />
+
+          {!esBorrador && aContar.length > 0 && (
+            <ConteoCaja
+              envioId={envio.id}
+              piezas={aContar}
+              recibir={saveItemChanges.bind(null, envio.id, porRecibir.map(it => ({ id: it.id, shippingStatus: 'en_venezuela' })))}
+              yaRecibida={porRecibir.length === 0}
+              aviso={`${porRecibir.length > 0 ? `Pasa ${porRecibir.length} ${porRecibir.length === 1 ? 'línea' : 'líneas'} a "En Venezuela". ` : ''}Lo que falte, reportalo como incidencia "faltante" en su pedido.`}
+            />
+          )}
 
           {/* Ítems del envío: los cambios se pintan al instante y se guardan por detrás
               (la base es remota, esperar cada round-trip mata el uso). */}

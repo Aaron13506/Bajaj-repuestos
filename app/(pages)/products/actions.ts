@@ -9,7 +9,7 @@ import type { Prisma } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { getConfig } from '@/lib/config-db'
-import { toNum } from '@/lib/parse'
+import { toInt, toNum } from '@/lib/parse'
 import { ErrorDeNegocio, fallo, ok, type ActionResult } from '@/lib/action-result'
 import { copiarImagenAlBucket } from '@/lib/imagen-producto'
 import { motivoProductoEnUso } from '@/lib/producto-en-uso'
@@ -279,6 +279,41 @@ export async function quickUpdateProduct(
   }
 
   revalidatePath('/products')
+  revalidatePath('/envios')
+  revalidatePath('/groups')
+  return ok()
+}
+
+// Pesada y medida con la pieza en la mano, al contar una caja (ConteoCaja). Es una medición a
+// mano igual que la del formulario: los cuatro números o nada, queda marcada como medida y se
+// recostea con reprice.
+export async function medirPieza(id: number, formData: FormData): Promise<ActionResult> {
+  const m = {
+    weightGrams: toInt(formData.get('weightGrams')),
+    dimL: toNum(formData.get('dimL')),
+    dimA: toNum(formData.get('dimA')),
+    dimH: toNum(formData.get('dimH')),
+  }
+  if ([m.weightGrams, m.dimL, m.dimA, m.dimH].some(v => v == null)) return fallo('Cargá el peso y las tres medidas.')
+  const motivo = motivoMedidas(m, null)
+  if (motivo) return fallo(motivo)
+
+  const actual = await db.product.findUnique({
+    where: { id },
+    select: { priceInr: true, margin: true, price: true, priceLocked: true },
+  })
+  if (!actual) return fallo('Esa pieza ya no existe. Recargá la página.')
+
+  const cfg = await getConfig()
+  const rp = reprice(
+    { ...actual, ...m, price: Number(actual.price) },
+    cfg,
+    margenPorDefecto(cfg),
+  )
+  await db.product.update({ where: { id }, data: { ...m, medidoAt: new Date(), ...rp.data } })
+
+  revalidatePath('/products')
+  revalidatePath('/envios/[id]', 'page')
   revalidatePath('/envios')
   revalidatePath('/groups')
   return ok()

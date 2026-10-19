@@ -32,6 +32,7 @@ import { motivoProductoEnUso } from '../lib/producto-en-uso'
 import { compatibleModelsFrom } from '../lib/modelo'
 import { realDeCobro, resumenCobro } from '../lib/cobro-bcv'
 import { construirResolver, piezasDeLinea } from '../lib/stock-piezas'
+import { piezasAContar } from '../lib/conteo'
 import { cuentaDeMetodo, datosBs, leerCobroBs } from '../lib/cuentas'
 import { convertir, usdPorBsEnCuenta } from '../lib/conversion'
 import { costoDeLinea, motivoNoServible, motivoNoVendible, resumenVenta } from '../lib/venta-stock'
@@ -1144,6 +1145,21 @@ console.log('\nSERVIR CON LO DEL DEPÓSITO')
   check('servida: el precio sí cambia', si(precio.error === null && precio.ops[0]?.op === 'precio'), 1)
   check('servida: la pantalla no deja quitarla', si(permisoDeLinea(servida).puedeQuitar === false), 1)
   check('con una línea servida el pedido no se cancela', si(motivoNoCancelable({ tipo: 'cliente', status: 'pedido', items: [servida] }) !== null), 1)
+}
+
+console.log('\nCONTEO DE LA CAJA')
+// Se cuenta por código, no por línea: un conjunto se abre en sus piezas (× la cantidad de la
+// línea) y la misma pieza en dos pedidos queda en una sola fila.
+{
+  const bp = (bajajCode: string | null, nameEs: string, quantity: number) => ({ nameEs, bajajCode, quantity, groupName: 'G' })
+  const c = piezasAContar([
+    { nombre: 'Bujía', codigo: 'B1', quantity: 2, piezas: [] },
+    { nombre: 'Kit', codigo: null, quantity: 3, piezas: [bp('B1', 'Bujía', 1), bp(null, 'Arandela', 2)] },
+  ])
+  const de = (k: string) => c.find(p => p.clave === k)?.esperado ?? -1
+  check('suelta + dentro de un conjunto se suman por código', de('B1'), 5)
+  check('sin código se cuenta por nombre × cantidad del conjunto', de('Arandela'), 6)
+  check('el conjunto en sí no es una fila', c.length, 2)
 }
 
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)
