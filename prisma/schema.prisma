@@ -45,7 +45,7 @@ model Product {
   // lib/modelo.ts traduce este texto a las motos tipadas para mostrarlo (`toModelIds`),
   // así la presentación sigue siendo consistente sin atar la columna al enum.
   compatibleModels String?
-  weightGrams      Int?
+  weightGrams      Float? // hasta la décima de gramo (lib/parse.ts toGramos)
   dimL             Float?
   dimA             Float?
   dimH             Float?

@@ -28,6 +28,12 @@ export function toInt(v: unknown): number | null {
   return n == null ? null : Math.round(n)
 }
 
+/** Peso en gramos, hasta la décima: una arandela pesa 1,5 g y redondearla es un 33%. */
+export function toGramos(v: unknown): number | null {
+  const n = toNum(v)
+  return n == null ? null : Math.round(n * 10) / 10
+}
+
 /** Texto podado. `null` para vacío, para que caiga limpio en una columna nullable. */
 export function toStr(v: unknown): string | null {
   if (v == null) return null

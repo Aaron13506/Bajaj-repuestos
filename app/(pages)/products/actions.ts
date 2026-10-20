@@ -9,7 +9,7 @@ import type { Prisma } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { getConfig } from '@/lib/config-db'
-import { toInt, toNum } from '@/lib/parse'
+import { toGramos, toNum } from '@/lib/parse'
 import { ErrorDeNegocio, fallo, ok, type ActionResult } from '@/lib/action-result'
 import { copiarImagenAlBucket } from '@/lib/imagen-producto'
 import { motivoProductoEnUso } from '@/lib/producto-en-uso'
@@ -74,7 +74,7 @@ function parseProductForm(formData: FormData, modelosActuales: string | null = n
     description:      (formData.get('description') as string) || null,
     notes:            (formData.get('notes') as string) || null,
     compatibleModels: compatibleModelsFrom(formData.getAll('models'), modelosActuales),
-    weightGrams:      weightGrams ? parseInt(weightGrams) : null,
+    weightGrams:      toGramos(weightGrams),
     dimL:             dimL ? parseFloat(dimL) : null,
     dimA:             dimA ? parseFloat(dimA) : null,
     dimH:             dimH ? parseFloat(dimH) : null,
@@ -226,7 +226,7 @@ export async function quickUpdateProduct(
     nameEn:           str('nameEn') || null,
     bajajCode:        str('bajajCode') || null,
     compatibleModels: compatibleModelsFrom(formData.getAll('models'), actual.compatibleModels),
-    weightGrams:      intOrNull('weightGrams'),
+    weightGrams:      toGramos(str('weightGrams')),
     dimL:             floatOrNull('dimL'),
     dimA:             floatOrNull('dimA'),
     dimH:             floatOrNull('dimH'),
@@ -290,7 +290,7 @@ export async function quickUpdateProduct(
 // recostea con reprice.
 export async function medirPieza(id: number, formData: FormData): Promise<ActionResult> {
   const m = {
-    weightGrams: toInt(formData.get('weightGrams')),
+    weightGrams: toGramos(formData.get('weightGrams')),
     dimL: toNum(formData.get('dimL')),
     dimA: toNum(formData.get('dimA')),
     dimH: toNum(formData.get('dimH')),

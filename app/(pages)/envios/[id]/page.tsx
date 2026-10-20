@@ -1148,7 +1148,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                       <div key={f} className="flex items-center gap-1">
                         {i > 0 && <span className="text-gray-300 text-sm">×</span>}
                         <input
-                          type="number" step="0.1" min="0" name={f}
+                          type="number" step="0.01" min="0" name={f}
                           defaultValue={envio[f] ?? ''}
                           placeholder="0"
                           className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"

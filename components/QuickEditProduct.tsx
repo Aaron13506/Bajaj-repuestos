@@ -231,7 +231,7 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, onError, packQty, a
       priceInr:         isSupplierMode ? d.priceInr : fdInt('priceInr'),
       priceUsd:         isSupplierMode ? fdFloat('priceUsd') : (d.priceUsd ?? null),
       priceIsLanded:    isSupplierMode ? isLanded : (d.priceIsLanded ?? false),
-      weightGrams:      fdInt('weightGrams'),
+      weightGrams:      fdFloat('weightGrams'),
       dimL:             fdFloat('dimL'),
       dimA:             fdFloat('dimA'),
       dimH:             fdFloat('dimH'),
@@ -412,22 +412,22 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, onError, packQty, a
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
               <div>
                 <label className={label} title="Peso del bulto: la pieza con su empaque, como se despacha">Peso bulto (g)</label>
-                <input ref={weightRef} name="weightGrams" type="number" min="0" step="1"
+                <input ref={weightRef} name="weightGrams" type="number" min="0" step="0.1"
                   defaultValue={d.weightGrams ?? ''} onChange={recalcFromCost} className={input} />
               </div>
               <div>
                 <label className={label}>Largo (cm)</label>
-                <input ref={dimLRef} name="dimL" type="number" min="0" step="0.1"
+                <input ref={dimLRef} name="dimL" type="number" min="0" step="0.01"
                   defaultValue={d.dimL ?? ''} onChange={recalcFromCost} className={input} />
               </div>
               <div>
                 <label className={label}>Ancho (cm)</label>
-                <input ref={dimARef} name="dimA" type="number" min="0" step="0.1"
+                <input ref={dimARef} name="dimA" type="number" min="0" step="0.01"
                   defaultValue={d.dimA ?? ''} onChange={recalcFromCost} className={input} />
               </div>
               <div>
                 <label className={label}>Alto (cm)</label>
-                <input ref={dimHRef} name="dimH" type="number" min="0" step="0.1"
+                <input ref={dimHRef} name="dimH" type="number" min="0" step="0.01"
                   defaultValue={d.dimH ?? ''} onChange={recalcFromCost} className={input} />
               </div>
               <div>

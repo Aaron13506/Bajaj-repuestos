@@ -87,7 +87,7 @@ export function leerFichaProducto(raw: string): LecturaFicha {
     dimA: positivo(o.dimA),
     dimH: positivo(o.dimH),
   }
-  if (medidas.weightGrams != null) medidas.weightGrams = Math.round(medidas.weightGrams)
+  if (medidas.weightGrams != null) medidas.weightGrams = Math.round(medidas.weightGrams * 10) / 10
   const completas = Object.values(medidas).every(v => v != null)
   if (!completas && Object.values(medidas).some(v => v != null)) {
     avisos.push('Peso y medidas vinieron incompletos: se cargan juntos, así que no se llenó ninguno.')

@@ -5,7 +5,7 @@ import { chequearMedidas, hayError } from './measures-check'
 import { extractJson } from './json-ia'
 import { getConfig } from './config-db'
 import { margenPorDefecto } from './config'
-import { msg, toInt, toNum, toStr } from './parse'
+import { msg, toGramos, toInt, toNum, toStr } from './parse'
 import { textoMedido } from './medido'
 
 // Se re-exporta porque era parte de la API de este módulo antes de mudarse a lib/json-ia.
@@ -117,7 +117,7 @@ export async function applyMeasures(raw: string): Promise<MeasuresResult> {
 
     // Solo los campos presentes se actualizan; los omitidos conservan su valor.
     const patch: FilaLista['patch'] = {}
-    if ('weightGrams' in r || 'weight' in r) patch.weightGrams = toInt(r.weightGrams ?? r.weight)
+    if ('weightGrams' in r || 'weight' in r) patch.weightGrams = toGramos(r.weightGrams ?? r.weight)
     if ('dimL' in r) patch.dimL = toNum(r.dimL)
     if ('dimA' in r) patch.dimA = toNum(r.dimA)
     if ('dimH' in r) patch.dimH = toNum(r.dimH)

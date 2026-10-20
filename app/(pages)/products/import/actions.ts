@@ -6,7 +6,7 @@ import { calcLanded, type ConfigMap } from '@/lib/calc'
 import { revalidatePath } from 'next/cache'
 import { getConfig } from '@/lib/config-db'
 import { margenPorDefecto } from '@/lib/config'
-import { msg, round2, toInt, toNum, toStr } from '@/lib/parse'
+import { msg, round2, toGramos, toInt, toNum, toStr } from '@/lib/parse'
 import { equivalenciasDe } from '@/lib/alt-sku'
 import { chequearMedidas, hayError } from '@/lib/measures-check'
 
@@ -72,7 +72,7 @@ function buildProductData(it: RawProduct, cfg: ConfigMap, defaultMargin: number)
 
   const priceInr = toInt(it.priceInr)
   const medidasJson = {
-    weightGrams: toInt(it.weightGrams),
+    weightGrams: toGramos(it.weightGrams),
     dimL: toNum(it.dimL),
     dimA: toNum(it.dimA),
     dimH: toNum(it.dimH),
