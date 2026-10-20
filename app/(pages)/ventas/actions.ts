@@ -13,6 +13,7 @@ import { bloquearPedido, cobrarPedido } from '@/lib/movimientos'
 import { costoDeLinea, motivoNoVendible, type LineaVenta } from '@/lib/venta-stock'
 import { toModelIds, type MotoModelId } from '@/lib/modelo'
 import { whereModel } from '@/lib/catalog'
+import { codigoContiene } from '@/lib/alt-sku'
 
 // Una pieza del depósito tal como la ve el formulario de venta.
 export interface PiezaEnStock {
@@ -61,7 +62,7 @@ export async function buscarEnStock(term: string, modelo?: string) {
       ...whereModel(modelo),
       OR: [
         { nameEs: { contains: q, mode: 'insensitive' } },
-        { bajajCode: { contains: q, mode: 'insensitive' } },
+        ...codigoContiene(q),
       ],
     },
     select: SELECT_EN_STOCK,

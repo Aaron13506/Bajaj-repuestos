@@ -5,6 +5,7 @@ import { formatModels, toModelIds } from '@/lib/modelo'
 import CatalogFilters from '@/components/CatalogFilters'
 import { toInt } from '@/lib/parse'
 import { nombreEnsamble } from '@/lib/linea-pedido'
+import { codigoContiene } from '@/lib/alt-sku'
 
 interface SearchParams {
   model?: string
@@ -39,7 +40,7 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
                       OR: [
                         { nameEs: { contains: search, mode: 'insensitive' as const } },
                         { nameEn: { contains: search, mode: 'insensitive' as const } },
-                        { bajajCode: { contains: search, mode: 'insensitive' as const } },
+                        ...codigoContiene(search),
                       ],
                     },
                   },

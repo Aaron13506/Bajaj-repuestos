@@ -4,8 +4,9 @@ import { db } from './db'
 // Doble SKU
 //
 // Bajaj publica muchas piezas con dos números ("Decal Wheel Rh| JR233035| JR233069") y
-// cada proveedor elige uno. Mi catálogo guarda UNO en Product.bajajCode; el par completo
-// vive en ScrapedPart (sku, altSku), que es de donde salió el catálogo.
+// cada proveedor elige uno. Mi catálogo guarda UNO en Product.bajajCode; el par sale de dos
+// lados: Product.altSku (cargado a mano, o copiado del scrape) y ScrapedPart (sku, altSku),
+// que es de donde salió el catálogo. Cuando los dos dicen algo, manda Product.altSku.
 //
 // Sin esto, buscar por el código que usa el proveedor no encuentra nada: la pieza está,
 // pero registrada con el otro número. Es exactamente el momento en que uno tiene la
@@ -19,6 +20,20 @@ import { db } from './db'
 
 const norm = (s: string) => s.trim().toUpperCase()
 
+/** Los dos códigos de una pieza para el `OR` de un buscador: tipear cualquiera la encuentra. */
+export const codigoContiene = (q: string) => [
+  { bajajCode: { contains: q, mode: 'insensitive' as const } },
+  { altSku: { contains: q, mode: 'insensitive' as const } },
+]
+
+// Pares (bajajCode, altSku) cargados en el catálogo que tocan alguno de estos códigos.
+function paresDelCatalogo(codigos: string[]) {
+  return db.$queryRaw<{ sku: string; altSku: string }[]>`
+    SELECT "bajajCode" AS "sku", "altSku" FROM "Product"
+    WHERE "bajajCode" IS NOT NULL AND "altSku" IS NOT NULL
+      AND (UPPER(TRIM("bajajCode")) = ANY(${codigos}) OR UPPER(TRIM("altSku")) = ANY(${codigos}))`
+}
+
 /**
  * Código tipeado → todos sus equivalentes, él mismo incluido.
  *
@@ -31,10 +46,14 @@ export async function equivalenciasDe(codigos: string[]): Promise<Map<string, st
   const out = new Map(base.map(c => [c, [c]]))
   if (base.length === 0) return out
 
-  const pares = await db.scrapedPart.findMany({
-    where: { OR: [{ sku: { in: base } }, { altSku: { in: base } }] },
-    select: { sku: true, altSku: true },
-  })
+  const [scrape, catalogo] = await Promise.all([
+    db.scrapedPart.findMany({
+      where: { OR: [{ sku: { in: base } }, { altSku: { in: base } }] },
+      select: { sku: true, altSku: true },
+    }),
+    paresDelCatalogo(base),
+  ])
+  const pares = [...scrape, ...catalogo]
 
   for (const p of pares) {
     const a = norm(p.sku)
@@ -59,11 +78,11 @@ export async function alternosDe(productIds: number[]): Promise<Map<number, stri
 
   const productos = await db.product.findMany({
     where: { id: { in: productIds }, bajajCode: { not: null } },
-    select: { id: true, bajajCode: true },
+    select: { id: true, bajajCode: true, altSku: true },
   })
   if (productos.length === 0) return new Map()
 
-  const codigos = productos.map(p => norm(p.bajajCode!))
+  const codigos = productos.filter(p => !p.altSku).map(p => norm(p.bajajCode!))
   const pares = await db.scrapedPart.findMany({
     where: { AND: [{ altSku: { not: null } }, { OR: [{ sku: { in: codigos } }, { altSku: { in: codigos } }] }] },
     select: { sku: true, altSku: true },
@@ -86,7 +105,7 @@ export async function alternosDe(productIds: number[]): Promise<Map<number, stri
 
   const out = new Map<number, string>()
   for (const p of productos) {
-    const alt = porCodigo.get(norm(p.bajajCode!))
+    const alt = p.altSku ?? porCodigo.get(norm(p.bajajCode!))
     if (alt) out.set(p.id, alt)
   }
   return out

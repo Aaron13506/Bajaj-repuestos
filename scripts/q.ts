@@ -14,6 +14,7 @@
 import { db } from '@/lib/db'
 import { quoteMetrics, resolveSkus, volumeOf, type SkuLine } from '@/lib/quote-metrics'
 import { getConfig } from '@/lib/config-db'
+import { codigoContiene } from '@/lib/alt-sku'
 
 // ── formato ──────────────────────────────────────────────────────────────────
 const n = (v: number, d = 2) => v.toLocaleString('es-VE', { minimumFractionDigits: d, maximumFractionDigits: d })
@@ -167,7 +168,7 @@ async function cmdSearch(args: string[]) {
       OR: [
         { nameEs: { contains: q, mode: 'insensitive' } },
         { nameEn: { contains: q, mode: 'insensitive' } },
-        { bajajCode: { contains: q, mode: 'insensitive' } },
+        ...codigoContiene(q),
       ],
     },
     select: {

@@ -4,6 +4,7 @@ import { db } from '@/lib/db'
 import { revalidatePath } from 'next/cache'
 import { fallo, ok, type ActionResult } from '@/lib/action-result'
 import { nombreEnsamble } from '@/lib/linea-pedido'
+import { codigoContiene } from '@/lib/alt-sku'
 
 // Búsqueda de piezas para el selector de "agregar componente", server-side, en vez de mandar
 // los ~4.2k productos con cada ficha.
@@ -14,7 +15,7 @@ export async function buscarPiezas(term: string) {
     where: {
       OR: [
         { nameEs: { contains: q, mode: 'insensitive' } },
-        { bajajCode: { contains: q, mode: 'insensitive' } },
+        ...codigoContiene(q),
       ],
     },
     select: { id: true, nameEs: true, bajajCode: true },

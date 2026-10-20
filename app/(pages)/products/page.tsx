@@ -10,6 +10,7 @@ import { getSupplierPriceMap } from '@/lib/suppliers'
 import { toConfigMap } from '@/lib/config'
 import { toInt } from '@/lib/parse'
 import { nombreEnsamble } from '@/lib/linea-pedido'
+import { codigoContiene } from '@/lib/alt-sku'
 
 interface SearchParams {
   search?: string
@@ -65,7 +66,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
         OR: [
           { nameEs: { contains: search, mode: 'insensitive' as const } },
           { nameEn: { contains: search, mode: 'insensitive' as const } },
-          { bajajCode: { contains: search, mode: 'insensitive' as const } },
+          ...codigoContiene(search),
           ...modelSearchLabels.map(label => ({ compatibleModels: { contains: label, mode: 'insensitive' as const } })),
         ]
       } : {},

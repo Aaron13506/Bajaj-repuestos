@@ -49,13 +49,14 @@ const norm = (s: string | null | undefined) => (s ?? '').toString().trim().toUpp
 // ETIQUETAS legibles. fullModel (lib/modelo.ts) hace la traducción, que es la misma
 // tabla que usa la UI para mostrarlas — así lo materializado y lo que se ve coinciden.
 
-function partData(pt: { name: string; sku: string | null; priceInr: number | null; models?: MotoModel[]; discontinued?: boolean }) {
+function partData(pt: { name: string; sku: string | null; altSku?: string | null; priceInr: number | null; models?: MotoModel[]; discontinued?: boolean }) {
   const etiquetas = (pt.models ?? []).map(fullModel).join(', ') || null
   // sin peso ⇒ sin costo landed ⇒ price 0 y margin null (se completa al cargar peso por SKU)
   return {
     nameEs: pt.name || '(sin nombre)',
     nameEn: pt.name || null,
     bajajCode: pt.sku && pt.sku.trim() ? pt.sku.trim() : null,
+    altSku: pt.altSku?.trim().toUpperCase() || null,
     compatibleModels: etiquetas,
     priceInr: pt.priceInr ?? null,
     margin: null,
@@ -98,7 +99,7 @@ async function main() {
   // ── PASS 1: crear un Product por SKU distinto ──
   // skuInfo = 1ª aparición por SKU · modelsBySku = unión de modelos de TODOS los ensambles
   // que usan ese SKU (para que la ficha de la pieza diga con qué modelos es compatible)
-  const skuInfo = new Map<string, { name: string; sku: string; priceInr: number | null; sourceUrl: string }>()
+  const skuInfo = new Map<string, { name: string; sku: string; altSku: string | null; priceInr: number | null; sourceUrl: string }>()
   const modelsBySku = new Map<string, Set<MotoModel>>()
   // Discontinuado se acumula por OR sobre TODAS las apariciones del SKU: la misma pieza
   // está en varios ensambles y 99rpm no siempre la rotula en todos. Que la fábrica dejó de
@@ -109,7 +110,7 @@ async function main() {
     for (const g of sp.groups) for (const pt of g.parts) {
       const k = norm(pt.sku)
       if (!k) continue
-      if (!skuInfo.has(k)) skuInfo.set(k, { name: pt.name, sku: pt.sku.trim(), priceInr: pt.priceInr, sourceUrl: sp.sourceUrl })
+      if (!skuInfo.has(k)) skuInfo.set(k, { name: pt.name, sku: pt.sku.trim(), altSku: pt.altSku, priceInr: pt.priceInr, sourceUrl: sp.sourceUrl })
       if (pt.discontinued) nlsBySku.add(k)
       if (!modelsBySku.has(k)) modelsBySku.set(k, new Set())
       modelsBySku.get(k)!.add(pm)

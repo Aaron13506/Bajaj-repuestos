@@ -11,7 +11,7 @@ description: Catálogo de piezas, ensambles y proveedores (Product, Ensamble, En
 - **Price, cost and margin come from `reprice` (`lib/reprice.ts`)** — the full form, the quick-edit modal, `applyMeasures` and the 99rpm price script all use it. Always via the air chain. Without `priceLocked` the price derives from cost and margin; with it the price is given and the margin is derived. An empty margin stays empty (= use `default_margin_pct`).
 - `discontinuedAt` = Bajaj stopped manufacturing it: a fact of the factory, not of a supplier. **Hard block** on quoting and on the sea builder; selling existing stock is fine. Marked in bulk on `/products/discontinued` (pasted codes, matched through the alternate SKU).
 - `compatibleModels` is **text**: comma-separated labels. A loose part lists every bike it fits (that is the cross-compatibility); an assembly has exactly one. The `MotoModel` enum column `Product.models` **does not exist** (reverted in e2ff02d) — the enum survives only for `ScrapedProduct.model`; writing `models` fails the build. `lib/modelo.ts` is the only translation to display (`formatModels` collapses by family); `whereModel()` filters with `contains`; `compatibleModelsFrom` keeps labels the picker cannot show.
-- Two Bajaj SKUs per part are common and each supplier uses one: resolve through `lib/alt-sku.ts` (`ScrapedPart.altSku`).
+- Two Bajaj SKUs per part are common and each supplier uses one: `Product.altSku` (typed in the product form, backfilled/materialized from `ScrapedPart.altSku`) wins over the scrape pair. Every product search ORs `codigoContiene(q)` and every code match goes through `lib/alt-sku.ts` — don't search `bajajCode` alone.
 
 ## Ensamble / EnsambleComponente
 

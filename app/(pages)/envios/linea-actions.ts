@@ -3,7 +3,7 @@
 import { db } from '@/lib/db'
 import { revalidatePath } from 'next/cache'
 import { getSupplierPriceMap } from '@/lib/suppliers'
-import { alternosDe, buscarPorAlterno } from '@/lib/alt-sku'
+import { alternosDe, buscarPorAlterno, codigoContiene } from '@/lib/alt-sku'
 import { CM3_PER_M3, type ConfigMap } from '@/lib/calc'
 import { toConfigMap } from '@/lib/config'
 import { fallo, ok, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
@@ -375,7 +375,7 @@ export async function buscarProductos(term: string, envioId: number) {
     where: {
       OR: [
         { nameEs: { contains: q, mode: 'insensitive' } },
-        { bajajCode: { contains: q, mode: 'insensitive' } },
+        ...codigoContiene(q),
       ],
     },
     select: CAMPOS_BUSQUEDA,

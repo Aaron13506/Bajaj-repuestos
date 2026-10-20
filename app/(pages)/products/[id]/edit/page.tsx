@@ -40,6 +40,7 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
         submitLabel="Guardar Cambios"
         defaultValues={{
           bajajCode:        product.bajajCode,
+          altSku:           product.altSku,
           sourceUrl:        product.sourceUrl,
           imageUrl:         product.imageUrl,
           nameEs:           product.nameEs,

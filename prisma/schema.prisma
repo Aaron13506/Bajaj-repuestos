@@ -21,6 +21,9 @@ datasource db {
 model Product {
   id               Int       @id @default(autoincrement())
   bajajCode        String?
+  // El otro número Bajaj de la misma pieza (lib/alt-sku.ts). Se carga a mano o sale del
+  // par de 99rpm; las búsquedas y los cruces por código miran los dos.
+  altSku           String?
   sourceUrl        String?
   imageUrl         String? // imagen de la pieza, si hay (las del ensamble viven en Ensamble.imageUrl)
   nameEs           String

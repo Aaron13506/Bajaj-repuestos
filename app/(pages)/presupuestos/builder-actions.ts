@@ -7,6 +7,7 @@ import type { BundlePiece } from '@/lib/bundle'
 import { calcLanded, CM3_PER_FT3, CM3_PER_M3, type ConfigMap } from '@/lib/calc'
 import { toConfigMap, margenPorDefecto, num } from '@/lib/config'
 import type { RefLinea } from '@/lib/linea-pedido'
+import { codigoContiene } from '@/lib/alt-sku'
 
 // Componentes de UN ensamble, cargados on-demand cuando se selecciona (evita traer
 // los ~14k componentes de todo el catálogo al abrir el armador de presupuestos).
@@ -209,7 +210,7 @@ export async function searchAssembliesByPiece(term: string) {
   const q = term.trim()
   if (q.length < 2) return []
   const comps = await db.ensambleComponente.findMany({
-    where: { product: { bajajCode: { contains: q, mode: 'insensitive' } } },
+    where: { product: { OR: codigoContiene(q) } },
     select: { ensambleId: true, product: { select: { nameEs: true, bajajCode: true } } },
     // Una pieza genérica (un tornillo) vive en cientos de ensambles; el tope evita
     // traer esa cola entera para una lista que igual no se puede recorrer a mano.
@@ -239,7 +240,7 @@ export async function searchProducts(term: string) {
     where: {
       OR: [
         { nameEs: { contains: q, mode: 'insensitive' } },
-        { bajajCode: { contains: q, mode: 'insensitive' } },
+        ...codigoContiene(q),
       ],
     },
     select: {

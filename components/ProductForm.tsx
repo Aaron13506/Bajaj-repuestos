@@ -23,6 +23,7 @@ interface Group {
 
 interface ProductFormValues {
   bajajCode?: string | null
+  altSku?: string | null
   sourceUrl?: string | null
   imageUrl?: string | null
   nameEs?: string
@@ -207,6 +208,12 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
             <label className="block text-sm font-medium text-gray-700 mb-1">Código Bajaj</label>
             <input name="bajajCode" defaultValue={d.bajajCode ?? ''} placeholder="Ej: JR161036"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Código alterno</label>
+            <input name="altSku" defaultValue={d.altSku ?? ''} placeholder="Ej: JR233069"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+            <p className="text-xs text-gray-400 mt-1">El otro número con que la cotiza algún proveedor; se busca por los dos</p>
           </div>
           <div className="sm:col-span-2">
             <label className="block text-sm font-medium text-gray-700 mb-1">Motos</label>

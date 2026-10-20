@@ -7,6 +7,7 @@ export interface SimProduct {
   id: number
   nameEs: string
   bajajCode: string | null
+  altSku: string | null
   weightGrams: number | null
   dimL: number | null
   dimA: number | null
@@ -149,7 +150,7 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
     return products
       .filter(
         p =>
-          (p.nameEs.toLowerCase().includes(q) || p.bajajCode?.toLowerCase().includes(q)) &&
+          (p.nameEs.toLowerCase().includes(q) || p.bajajCode?.toLowerCase().includes(q) || p.altSku?.toLowerCase().includes(q)) &&
           !manual.find(c => c.product.id === p.id)
       )
       .slice(0, 8)

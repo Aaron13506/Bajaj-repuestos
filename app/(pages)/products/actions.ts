@@ -66,6 +66,7 @@ function parseProductForm(formData: FormData, modelosActuales: string | null = n
 
   return {
     bajajCode:        (formData.get('bajajCode') as string) || null,
+    altSku:           ((formData.get('altSku') as string | null) ?? '').trim().toUpperCase() || null,
     sourceUrl:        (formData.get('sourceUrl') as string) || null,
     imageUrl:         ((formData.get('imageUrl') as string | null) ?? '').trim() || null,
     nameEs:           ((formData.get('nameEs') as string | null) ?? '').trim(),

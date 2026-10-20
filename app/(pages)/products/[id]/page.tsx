@@ -115,7 +115,9 @@ export default async function ProductDetailPage({
             <p className="text-sm text-gray-500 mt-0.5">{product.nameEn}</p>
           )}
           {product.bajajCode && (
-            <p className="text-sm font-mono text-gray-500 mt-0.5">{product.bajajCode}</p>
+            <p className="text-sm font-mono text-gray-500 mt-0.5">
+              {product.bajajCode}{product.altSku && <span className="text-gray-400"> · alt {product.altSku}</span>}
+            </p>
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
