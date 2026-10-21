@@ -245,6 +245,19 @@ export default function PresupuestoBuilder({
     return map
   }, [selectedComponents])
 
+  // Cuántas unidades de una pieza hay ya en la lista: sueltas y dentro de conjuntos (cada pieza
+  // del conjunto por la cantidad de conjuntos). El desglose de un conjunto solo guarda el código,
+  // así que ahí se cruza por SKU.
+  function cuantoLlevo(productId: number, codigo: string | null) {
+    let n = 0
+    for (const c of cart) {
+      if (c.bundleItems) {
+        if (codigo) for (const p of c.bundleItems) if (p.bajajCode === codigo) n += p.quantity * c.quantity
+      } else if (c.productId === productId) n += c.quantity
+    }
+    return n
+  }
+
   function addSelectedToCart() {
     if (!selectedAssembly) return
     // Una misma pieza puede estar marcada en varios subgrupos: sumamos cantidades por pieza.
@@ -384,7 +397,15 @@ export default function PresupuestoBuilder({
   }
 
   function addProductToCart(product: Product) {
-    if (cart.find(c => c.ensambleId == null && c.productId === product.id)) return
+    const suelta = cart.find(c => c.ensambleId == null && c.productId === product.id)
+    if (suelta) {
+      // En stock propio buscarla otra vez suma una unidad; una línea ya comprada no admite más.
+      if (isPropio && !suelta.restriccion) {
+        setCart(prev => prev.map(c => (c === suelta ? { ...c, quantity: c.quantity + 1 } : c)))
+        setSearch('')
+      }
+      return
+    }
     // No se cotiza lo que no se puede comprar. El botón ya está deshabilitado; esto cubre
     // el caso de que la pieza se marque con la búsqueda abierta.
     if (product.descontinuada) return
@@ -710,7 +731,7 @@ export default function PresupuestoBuilder({
                           // En stock propio la misma pieza vuelve a aparecer al recorrer otra moto (el
                           // filtro de aceite de la N160 es el de la N250): se muestra cuánto ya llevás y
                           // se deja sumar. En un presupuesto de cliente sigue bloqueada.
-                          const yaLlevas = isPropio ? (enCarrito?.quantity ?? 0) : 0
+                          const yaLlevas = isPropio ? cuantoLlevo(comp.product.id, comp.product.bajajCode) : 0
                           const alreadyInCart = !!enCarrito && !isPropio
                           const nls = !!comp.product.descontinuada
                           const bloqueada = alreadyInCart || nls
@@ -879,6 +900,9 @@ export default function PresupuestoBuilder({
                           {p.bajajCode && (p.models?.length ?? 0) > 0 && ' · '}
                           {formatModels(p.models ?? [])}
                         </p>
+                        {isPropio && cuantoLlevo(p.id, p.bajajCode) > 0 && (
+                          <span className="mr-2 text-xs font-medium text-cyan-700">ya llevás {cuantoLlevo(p.id, p.bajajCode)}</span>
+                        )}
                         <StockBadge productId={p.id} posiciones={posiciones} />
                       </div>
                       <span className="text-sm font-mono text-gray-600 shrink-0">${p.price.toFixed(2)}</span>
