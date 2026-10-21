@@ -9,7 +9,7 @@ import type { BundlePiece } from '@/lib/bundle'
 import { ok, fallo, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
 import { cobraEnBolivares } from '@/lib/pagos'
 import { CUENTAS, cuentaDeMetodo, datosBs, type Cuenta, type DatosBs } from '@/lib/cuentas'
-import { convertir, usdPorBsEnCuenta } from '@/lib/conversion'
+import { convertir, usdPorBsAlConvertir, usdPorBsEnCuenta } from '@/lib/conversion'
 import { notaCobroBcv, realDeCobro, resumenCobro } from '@/lib/cobro-bcv'
 import { repartirEnCentavos } from '@/lib/reparto-compra'
 
@@ -402,16 +402,19 @@ export async function saldosPorCuenta(rango?: RangoFechas): Promise<SaldoDeCuent
 // cuenta (ver usdPorBsEnCuenta). Null = según lo anotado no queda nada. Nunca se estima con una
 // tasa de mercado: el P2P no es preciso, y lo único cierto es lo que se cobró y lo que se recibió.
 export async function valorBsEnLibro(): Promise<number | null> {
+  return usdPorBsEnCuenta(await bsEnLibro())
+}
+
+async function bsEnLibro(): Promise<{ usd: number; bs: number }[]> {
   const filas = await db.movimiento.groupBy({
     by: ['tipo'],
     where: { cuenta: 'banco_bs', montoBs: { not: null } },
     _sum: { monto: true, montoBs: true },
   })
-  const promedio = usdPorBsEnCuenta(filas.map(f => {
+  return filas.map(f => {
     const signo = f.tipo === 'ingreso' ? 1 : -1
     return { usd: signo * num(f._sum.monto), bs: signo * num(f._sum.montoBs) }
-  }))
-  return promedio
+  })
 }
 
 export interface PedidoConversion {
@@ -436,7 +439,7 @@ export async function registrarConversion(p: PedidoConversion): Promise<ActionRe
   if (!Number.isFinite(p.dado) || p.dado <= 0) return fallo(enBs ? 'Escribí cuántos bolívares diste.' : 'Escribí cuántos dólares en efectivo diste.')
   if (!Number.isFinite(p.usdt) || p.usdt <= 0) return fallo('Escribí cuántos USDT recibiste.')
 
-  const usdPorUnidad = enBs ? ((await valorBsEnLibro()) ?? p.usdt / p.dado) : 1
+  const usdPorUnidad = enBs ? (usdPorBsAlConvertir(p.dado, await bsEnLibro()) ?? p.usdt / p.dado) : 1
   const c = convertir(p.dado, p.usdt, usdPorUnidad)
   if (c.valorLibroUsd <= 0) return fallo('Eso vale menos de un centavo en el libro: revisá el monto.')
 

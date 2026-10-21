@@ -158,7 +158,9 @@ export default async function ContabilidadPage({ searchParams }: Props) {
             {apertura
               ? `${usd(apertura.saldoInicial)} apertura (${fechaCorta(apertura.desde)}) + ${usd(caja.ingresos)} ingresos − ${usd(caja.egresos)} egresos`
               : `${usd(caja.ingresos)} ingresos − ${usd(caja.egresos)} egresos`}
-            {Math.abs(caja.costoConversion) >= 0.005 && ` ${caja.costoConversion > 0 ? '−' : '+'} ${usd(Math.abs(caja.costoConversion))} por convertir a USDT`}
+            {Math.abs(caja.costoConversion) >= 0.005 && (caja.costoConversion > 0
+              ? ` − ${usd(caja.costoConversion)} que costó convertir a USDT`
+              : ` + ${usd(-caja.costoConversion)} ganados al convertir a USDT`)}
           </p>
           {/* Dónde está: lo que suman las cuentas, más la apertura, es el saldo de arriba. */}
           <ul className="mt-2 pt-2 border-t border-gray-100 space-y-0.5">
@@ -167,7 +169,7 @@ export default async function ContabilidadPage({ searchParams }: Props) {
                 <span>{c.cuenta ? CUENTA_LABELS[c.cuenta] : 'Sin cuenta'}</span>
                 <span className="font-mono">
                   {usd(c.usd)}
-                  {c.bs != null && c.bs > 0 && (
+                  {c.bs != null && Math.abs(c.bs) >= 0.5 && (
                     <span className="text-gray-400">
                       {' '}· Bs {c.bs.toLocaleString('es-VE', { maximumFractionDigits: 0 })}{c.sinBs > 0 ? '+' : ''}
                     </span>

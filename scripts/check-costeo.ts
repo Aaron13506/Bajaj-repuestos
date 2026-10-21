@@ -34,7 +34,7 @@ import { realDeCobro, resumenCobro } from '../lib/cobro-bcv'
 import { construirResolver, piezasDeLinea } from '../lib/stock-piezas'
 import { piezasAContar } from '../lib/conteo'
 import { cuentaDeMetodo, datosBs, leerCobroBs } from '../lib/cuentas'
-import { convertir, usdPorBsEnCuenta } from '../lib/conversion'
+import { convertir, usdPorBsAlConvertir, usdPorBsEnCuenta } from '../lib/conversion'
 import { costoDeLinea, motivoNoServible, motivoNoVendible, resumenVenta } from '../lib/venta-stock'
 import { margenDePedido, mesDe, resultadoPorMes, type LineaMargen, type MargenPedido } from '../lib/margen'
 import { cierreDe, embudo, estadoValidez, escalonDelPresupuesto, motivoNoAprobable, validezDias } from '../lib/validez'
@@ -646,6 +646,11 @@ console.log('\nCUENTAS Y CONVERSIÓN Bs → USDT')
   check('devaluación: los Bs de hoy valen lo que entraron hoy', convertir(200000, 990, valorOct).valorLibroUsd, 1000)
   check('devaluación: convertir cuesta lo que costó, no lo que se devaluó antes', convertir(200000, 990, valorOct).costoUsd, 10)
   check('cuenta vacía según lo anotado: sin promedio', si(usdPorBsEnCuenta([enero, salidaFeb]) === null), 1)
+  // Quedan $100.03 en Bs 11200 y doy Bs 11250 (unos Bs que no estaban anotados): sale todo lo que
+  // hay en dólares, la cuenta queda en $0 y no en −$0.42. Dar una parte sigue usando el promedio.
+  const quedan = [{ usd: 100.03, bs: 11200 }]
+  check('vaciar la cuenta saca todos sus dólares', convertir(11250, 99, usdPorBsAlConvertir(11250, quedan) ?? 0).valorLibroUsd, 100.03)
+  check('dar una parte usa el promedio', convertir(5600, 49, usdPorBsAlConvertir(5600, quedan) ?? 0).valorLibroUsd, 50.02)
 
   // Doy Bs 11200, que el libro valora en $100, y recibo 92 USDT: costó $8 (8%).
   const c = convertir(11200, 92, 100 / 11200)
