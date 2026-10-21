@@ -1221,11 +1221,16 @@ console.log('\nREENVÍO POR KILO  (₹/kg cotizado por caja + gastos fijos, sin 
 
 console.log('\nCAMBIAR EL REENVÍO DE UNA CAJA')
 {
-  const base = { modo: 'aereo', despachaProveedor: false, lineas: [{ shippingStatus: 'pendiente', comprada: false }], fleteAereoFacturado: false, fleteAereoPagado: false }
+  const base = { modo: 'aereo', despachaProveedor: false, lineas: [{ shippingStatus: 'pendiente', isLanded: false }], fleteAereoFacturado: false, fleteAereoPagado: false }
   const no = (c: Partial<typeof base>) => (motivoNoCambiaReenvio({ ...base, ...c }) != null ? 1 : 0)
-  check('nada comprado ni facturado: se puede', no({}), 0)
-  check('una línea con costo real: no', no({ lineas: [{ shippingStatus: 'pendiente', comprada: true }] }), 1)
-  check('una línea camino al depósito: no', no({ lineas: [{ shippingStatus: 'camino_shoppre', comprada: false }] }), 1)
+  const linea = (shippingStatus: string, isLanded = false) => [{ shippingStatus: 'pendiente', isLanded: false }, { shippingStatus, isLanded }]
+  check('nada movido ni facturado: se puede', no({}), 0)
+  // Comprar no decide el depósito: lo decide la dirección que se le dio al proveedor.
+  check('camino al depósito (ya comprada): se puede', no({ lineas: linea('camino_shoppre') }), 0)
+  check('en el depósito: se puede', no({ lineas: linea('en_shoppre') }), 0)
+  check('una línea camino a USA: no', no({ lineas: linea('camino_usa') }), 1)
+  check('una línea ya en Venezuela: no', no({ lineas: linea('en_venezuela') }), 1)
+  check('una línea landed en Venezuela no cuenta (no pasa por depósito)', no({ lineas: linea('en_venezuela', true) }), 0)
   check('flete aéreo facturado: no', no({ fleteAereoFacturado: true }), 1)
   check('flete aéreo pagado: no', no({ fleteAereoPagado: true }), 1)
   check('proveedor que despacha él: no', no({ despachaProveedor: true }), 1)
