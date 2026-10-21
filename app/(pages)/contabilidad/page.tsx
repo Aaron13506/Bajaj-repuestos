@@ -158,20 +158,20 @@ export default async function ContabilidadPage({ searchParams }: Props) {
             {apertura
               ? `${usd(apertura.saldoInicial)} apertura (${fechaCorta(apertura.desde)}) + ${usd(caja.ingresos)} ingresos − ${usd(caja.egresos)} egresos`
               : `${usd(caja.ingresos)} ingresos − ${usd(caja.egresos)} egresos`}
-            {Math.abs(caja.costoConversion) >= 0.005 && ` ${caja.costoConversion > 0 ? '−' : '+'} ${usd(Math.abs(caja.costoConversion))} por convertir a USDT`}
+            {Math.abs(caja.costoConversion) >= 0.005 && (caja.costoConversion > 0
+              ? ` − ${usd(caja.costoConversion)} que costó convertir a USDT`
+              : ` + ${usd(-caja.costoConversion)} ganados al convertir a USDT`)}
           </p>
           {/* Dónde está: lo que suman las cuentas, más la apertura, es el saldo de arriba. */}
           <ul className="mt-2 pt-2 border-t border-gray-100 space-y-0.5">
             {porCuenta.map(c => ({ ...c, usd: c.usd + (apertura && c.cuenta === apertura.cuenta ? apertura.saldoInicial : 0) })).map(c => (
               <li key={c.cuenta ?? 'sin'} className="flex justify-between text-[11px] text-gray-500">
                 <span>{c.cuenta ? CUENTA_LABELS[c.cuenta] : 'Sin cuenta'}</span>
+                {/* El banco se ve en bolívares: sus dólares son solo el valor en libro que suma arriba. */}
                 <span className="font-mono">
-                  {usd(c.usd)}
-                  {c.bs != null && c.bs > 0 && (
-                    <span className="text-gray-400">
-                      {' '}· Bs {c.bs.toLocaleString('es-VE', { maximumFractionDigits: 0 })}{c.sinBs > 0 ? '+' : ''}
-                    </span>
-                  )}
+                  {c.bs != null
+                    ? `Bs ${c.bs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${c.sinBs > 0 ? '+' : ''}`
+                    : usd(c.usd)}
                 </span>
               </li>
             ))}
@@ -407,11 +407,10 @@ export default async function ContabilidadPage({ searchParams }: Props) {
                     {!m.pedido && !m.envio && (m.supplier?.name ?? '—')}
                   </td>
                   <td className={`px-4 py-2 text-right font-mono font-semibold ${m.tipo === 'ingreso' ? 'text-green-700' : 'text-red-700'}`}>
-                    {m.tipo === 'ingreso' ? '+' : '−'}{usd(m.monto)}
+                    {/* En Bs manda lo que pasó por el banco; los dólares son lo que abonó, de referencia. */}
+                    {m.tipo === 'ingreso' ? '+' : '−'}{m.montoBs != null ? `Bs ${m.montoBs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : usd(m.monto)}
                     {m.montoBs != null && (
-                      <span className="block text-[10px] font-normal text-gray-400">
-                        Bs {m.montoBs.toLocaleString('es-VE', { maximumFractionDigits: 2 })}
-                      </span>
+                      <span className="block text-[10px] font-normal text-gray-400">{usd(m.monto)}</span>
                     )}
                   </td>
                   <td className="px-4 py-2 text-right">

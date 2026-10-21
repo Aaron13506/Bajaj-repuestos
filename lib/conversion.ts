@@ -32,6 +32,18 @@ export function usdPorBsEnCuenta(movs: { usd: number; bs: number }[]): number | 
   return bs > 0.005 && usd > 0.005 ? usd / bs : null
 }
 
+// El valor por Bs con el que salen `bsDados` del banco. Si se dan todos los Bs anotados (o más),
+// sale todo lo que el libro tiene en dólares: con el promedio, dar unos Bs de más dejaba la
+// cuenta en centavos negativos con 0 Bs, y ese residuo no se iba nunca.
+export function usdPorBsAlConvertir(bsDados: number, movs: { usd: number; bs: number }[]): number | null {
+  const promedio = usdPorBsEnCuenta(movs)
+  if (promedio == null) return null
+  const conBs = movs.filter(m => m.bs !== 0)
+  const bs = conBs.reduce((s, m) => s + m.bs, 0)
+  const usd = conBs.reduce((s, m) => s + m.usd, 0)
+  return bsDados >= bs - 0.005 ? usd / bsDados : promedio
+}
+
 export interface Conversion {
   /** Lo que el libro dice que valían los Bs que salieron del banco, en dólares reales. */
   valorLibroUsd: number
