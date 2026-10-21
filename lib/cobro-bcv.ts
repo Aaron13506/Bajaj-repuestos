@@ -3,7 +3,8 @@
 // Todo lo guardado está en dólares REALES: PedidoItem.salePrice, Pedido.depositUsd y
 // Movimiento.monto. Es la unidad de la caja, de los costos y del margen, y no se mezcla.
 // El dólar BCV es solo cómo se le PRESENTA y se le COBRA al cliente: el real dividido entre
-// (1 − escalón de brecha), ver calcPrecioBcv. Quien paga en divisas paga el real (ese es
+// (1 − escalón de brecha), ver calcPrecioBcv; el escalón es la brecha llevada a descuento y
+// redondeada hacia arriba (brechaEscalon en lib/calc.ts). Quien paga en divisas paga el real (ese es
 // el "descuento por pago en divisas"); quien paga en Bs paga el monto BCV a la tasa BCV del
 // día, y eso vale en reales el monto BCV × (1 − escalón).
 //
