@@ -11,7 +11,7 @@ import { CAMPO_CARGADO, FIELD_META } from './campos'
 const GRUPOS: { titulo: string; keys: string[]; ancho?: boolean }[] = [
   { titulo: 'Tasas de cambio', keys: ['inr_usd_rate', 'bsd_usd_rate', 'bcv_usd_rate', 'bcv_brecha_pct'] },
   { titulo: 'Ventas y presupuestos', keys: ['default_margin_pct', 'presupuesto_validez_dias', 'reclamo_horas'] },
-  { titulo: 'Flete aéreo (Shoppre → Miami → CCS)', keys: ['shoppre_member', 'shoppre_carrier', 'shoppre_insurance_pct', 'shoppre_processing_inr', 'reference_weight_kg', 'air_volumetric_divisor', 'caja_sin_pesar_tolerancia_pct', 'miami_caracas_per_ft3'] },
+  { titulo: 'Flete aéreo (Shoppre → Miami → CCS)', keys: ['shoppre_member', 'shoppre_carrier', 'shoppre_insurance_pct', 'shoppre_processing_inr', 'reenvio_kilo_gastos_inr', 'reference_weight_kg', 'air_volumetric_divisor', 'caja_sin_pesar_tolerancia_pct', 'miami_caracas_per_ft3'] },
   { titulo: 'Marítimo CBM (stock propio)', keys: ['cbm_rate_usd', 'cbm_fob_india_usd', 'cbm_min_m3', 'cbm_referencia_m3', 'ensambles_columnas_maritimas'] },
   { titulo: 'Marítimo directo (solo /simular)', keys: ['maritimo_directo_per_ft3', 'maritimo_min_ft3', 'maritimo_fee_usd', 'maritimo_insurance_pct'] },
   { titulo: 'Términos y condiciones', keys: ['terminos_presupuesto', 'terminos_pedido'], ancho: true },

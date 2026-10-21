@@ -9,6 +9,7 @@ import { bloqueaCompra, bloqueaEntrega } from '@/lib/incidencias'
 import { seEntregaDesdeElPedido } from '@/lib/saldo-entrega'
 import { inboundDe } from '@/lib/inbound'
 import { isModoApp } from '@/lib/modo'
+import { isReenvio } from '@/lib/reenvio'
 import { fallo, ok, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
 import { isForeignKeyViolation } from '@/lib/prisma-errors'
 import { CATEGORIAS_EGRESO } from '@/lib/movimientos'
@@ -48,9 +49,19 @@ export async function createEnvio(formData: FormData): Promise<ActionResult> {
   const supplierRaw = parseInt((formData.get('supplierId') as string) ?? '')
   const supplierId = Number.isFinite(supplierRaw) ? supplierRaw : null
 
+  // El reenvío (Shoppre o por kilo) también se congela acá. Solo cuenta en el aéreo y solo
+  // para lo que pasa por un depósito: si el proveedor despacha él, se ignora.
+  const reenvioRaw = formData.get('reenvio') as string | null
+  if (reenvioRaw != null && reenvioRaw !== '' && !isReenvio(reenvioRaw)) return fallo('Ese reenvío no existe.')
+  let reenvio = modo === 'aereo' && isReenvio(reenvioRaw) ? reenvioRaw : 'shoppre'
+  if (reenvio !== 'shoppre' && supplierId != null) {
+    const sp = await db.supplier.findUnique({ where: { id: supplierId }, select: { origen: true, inbound: true } })
+    if (sp && inboundDe(sp.origen, sp.inbound) === 'cotizado') reenvio = 'shoppre'
+  }
+
   let envio
   try {
-    envio = await db.envio.create({ data: { nombre, notas, modo, estado, supplierId } })
+    envio = await db.envio.create({ data: { nombre, notas, modo, estado, supplierId, reenvio } })
   } catch (e) {
     // El proveedor se borró desde otra pestaña después de armar el selector.
     if (isForeignKeyViolation(e)) return fallo('Ese proveedor ya no existe. Recargá la página.')
@@ -333,6 +344,25 @@ export async function saveMedidasCaja(envioId: number, formData: FormData): Prom
 
   const r = await db.envio.updateMany({ where: { id: envioId }, data })
   if (r.count === 0) return fallo('Ese envío ya no existe.')
+  revalidatePath('/envios')
+  revalidatePath(`/envios/${envioId}`)
+  return ok()
+}
+
+// La tarifa ₹/kg que cotizó el reenvío por kilo para ESTA caja (ver lib/reenvio.ts). Vacío =
+// todavía no cotizaron, y la caja queda subcosteada; un número ilegible se rechaza, no se
+// guarda como vacío (borraría la tarifa ya cargada). Solo en cajas 'por_kilo': la guarda va en
+// el WHERE, así que en una caja de Shoppre no escribe nada.
+export async function guardarTarifaKg(envioId: number, formData: FormData): Promise<ActionResult> {
+  const raw = (formData.get('tarifaKgInr') as string)?.trim()
+  let tarifaKgInr: number | null = null
+  if (raw) {
+    const v = parseFloat(raw.replace(',', '.'))
+    if (!Number.isFinite(v) || v < 0) return fallo('Revisá la tarifa: no es un número válido.')
+    tarifaKgInr = v
+  }
+  const r = await db.envio.updateMany({ where: { id: envioId, modo: 'aereo', reenvio: 'por_kilo' }, data: { tarifaKgInr } })
+  if (r.count === 0) return fallo('Esta caja no va por el reenvío por kilo (o ya no existe).')
   revalidatePath('/envios')
   revalidatePath(`/envios/${envioId}`)
   return ok()

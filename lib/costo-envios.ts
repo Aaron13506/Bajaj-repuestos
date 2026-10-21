@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client'
 import { db } from './db'
 import { calcEnvio, type ConfigMap, type EnvioBreakdown, type EnvioItemInput, type ProveedorEnvio } from './calc'
 import { toConfigMap } from './config'
+import { reenvioDe } from './reenvio'
 import { resumirCbm, costoEmbarque, type CbmResumen, type CostoEmbarque } from './cbm'
 import { inboundDe } from './inbound'
 import { modoDeEnvio } from './modo'
@@ -155,6 +156,7 @@ export function costearAereo(e: EnvioCosteo, ctx: ContextoCosteo): CosteoAereo {
   const calc = calcEnvio(piezas, ctx.cfg, {
     proveedor,
     modo: modoDeEnvio(e.modo),
+    reenvio: { tipo: reenvioDe(e.reenvio), tarifaKgInr: dec(e.tarifaKgInr) },
     medidas: {
       pesoKg: dec(e.pesoRealKg),
       dimL: e.cajaL, dimA: e.cajaA, dimH: e.cajaH,

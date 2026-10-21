@@ -15,6 +15,9 @@
 //   'cotizado' el proveedor despacha él mismo y pasa un número. No hay nada que calcular:
 //              se carga lo que facturó (Envio.tramoUsd) y se reparte entre las piezas.
 //
+// Cuál depósito (Shoppre o el reenvío por kilo) no lo dice el proveedor sino la caja:
+// Envio.reenvio, ver lib/reenvio.ts. 'shoppre' acá significa "pasa por un depósito en India".
+//
 // De acá para adelante los dos tramos son idénticos: la caja consolida en USA y cruza a
 // Venezuela por mar a $/ft³, que es la parte que Garuda no cambia.
 // ─────────────────────────────────────────────────────────────────────────────

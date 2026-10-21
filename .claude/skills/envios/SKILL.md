@@ -17,6 +17,7 @@ description: Cajas y logística (Envio, EnvioLinea, app/(pages)/envios/, lib/shi
 ## Amounts nothing can derive (all nullable — empty is "not loaded", never zero)
 
 - `tramoUsd` — the flat total a `cotizado` supplier billed to reach the USA. Missing ⇒ the box is flagged under-costed.
+- `reenvio` (`shoppre` | `por_kilo`, frozen at creation, forced to `shoppre` for a `cotizado` supplier) + `tarifaKgInr` — which depot carries the box to the USA; the per-kilo one quotes ₹/kg per box (`guardarTarifaKg`). Same route and stages as Shoppre (labels say "depósito").
 - `comisionSalienteUsd` (my bank, known the same day) and `comisionEntranteUsd` (correspondent/supplier bank on arrival — shows up as the supplier saying he got less). Two columns because they arrive at different times; both are my cost and both enter the landed. An explicit `0` is a finding. `giro.cargada` = both recorded. **No commission rule on the supplier**: a stored percentage would be an invented number flowing into prices. The sea lane uses the same columns and form.
 - `pesoRealKg` + `cajaL/A/H` — the box as the carrier weighed it; they **replace** the summed pieces in the costing (see the `costeo` skill). `saveMedidasCaja` touches only these four.
 - `guia` / `transportista` — just written down, shown on each line of the order.

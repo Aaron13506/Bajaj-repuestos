@@ -43,6 +43,7 @@ export const FIELD_META: Record<string, FieldMeta> = {
   caja_sin_pesar_tolerancia_pct: { label: 'Tolerancia de una caja sin pesar (%)', hint: 'En una caja que todavía no se pesó y midió, "ata el volumen" sale de comparar dos sumas de piezas. Si el volumétrico supera al real por menos de este %, el flete aéreo se reparte entre pedidos de forma gradual (peso → volumen) y no todo por volumen. Con la caja pesada y medida no aplica. Default 10', rango: [0, 100] },
   shoppre_insurance_pct:  { label: 'Seguro Shoppre (fracción)',    hint: 'P.ej. 0.03 = 3% sobre el valor declarado', rango: FRACCION },
   shoppre_processing_inr: { label: 'Processing fee Shoppre (INR)', hint: 'Cargo fijo por paquete en rupias', rango: NO_NEGATIVO },
+  reenvio_kilo_gastos_inr: { label: 'Gastos fijos reenvío por kilo (INR)', hint: 'Repack y demás cargos fijos por caja de las cajas que van por el reenvío por kilo. El ₹/kg se carga en cada caja. Vacío = sin configurar (la caja lo avisa). La factura real los reemplaza', rango: NO_NEGATIVO },
   // ── Escenario marítimo directo (India → Venezuela por mar, sin aéreo ni escala en USA).
   // Solo lo usa el simulador (/simular, modo Marítimo). No afecta ningún costo actual.
   maritimo_directo_per_ft3: { label: 'Marítimo directo India → VEN (USD/ft³)', hint: 'Flete completo por mar, por pie cúbico. Reemplaza al aéreo + Miami→CCS. Vacío = usa la tarifa Miami→CCS como respaldo', rango: NO_NEGATIVO },

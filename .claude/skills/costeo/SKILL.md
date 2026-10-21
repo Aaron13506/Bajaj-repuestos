@@ -22,6 +22,7 @@ The inbound leg is priced **by how it is billed, not by country** (`inbound`):
 - `cotizado` lines: the flat total the supplier invoiced (`breakdown.tramo`; `faltaCosto` when `Envio.tramoUsd` is null — the box is under-costed, not free).
 - Both pay the maritime leg. `isLanded` lines are out of weight, volume, insurance and freight.
 - The split is per line, not per box: old boxes can mix both kinds.
+- **Which depot carries `shoppre` lines is the box's `reenvio`** (`lib/reenvio.ts`, `opts.reenvio`), not the supplier's: `shoppre` (the table) or `por_kilo` — chargeable kg × `Envio.tarifaKgInr` (₹/kg quoted per box) ÷ `inr_usd_rate`, one box, no cap, **no insurance**, plus `Config.reenvio_kilo_gastos_inr` as the fixed charge (in `processingUsd`, no default). Missing rate/fixed charge ⇒ `reenvio.faltaTarifa/faltaGastos` (under-costed, not free). The billed air freight replaces both; with no rate loaded it is split directly by the binding dimension (a 0 estimate would split it evenly). Without `opts.reenvio` everything is Shoppre: catalog, quotes and sale prices never use the per-kilo lane.
 
 Charges attach to what generated them (spreading them wrecks the per-piece landed used to choose suppliers):
 - Shoppre insurance and processing → only `shoppre` lines. A DDP supplier declares nothing to Shoppre.
