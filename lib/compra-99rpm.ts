@@ -52,6 +52,8 @@ export interface EnsambleCompra {
   sku: string | null
   // Las motos del ensamble ya colapsadas por familia (formatModels); '' si no tiene.
   modelo: string
+  // La página del ensamble en 99rpm, para entrar directo sin buscarlo.
+  sourceUrl: string | null
   bloques: BloqueCompra[]
   // De qué presupuestos salió, para saber a quién le estás comprando. Vacío en un
   // embarque de mercancía propia, que no tiene cliente.
@@ -79,6 +81,7 @@ export interface LineaPendiente99 {
   assemblyName: string
   assemblySku: string | null
   compatibleModels: string | null
+  sourceUrl: string | null
   // PedidoItem.quantity: cuántas veces se pidió el conjunto entero.
   quantity: number
   bundleItems: BundlePiece[] | null
@@ -247,6 +250,7 @@ export function armarCompra99rpm(
       nombre: limpiarNombre(e.linea.assemblyName),
       sku: e.linea.assemblySku,
       modelo,
+      sourceUrl: e.linea.sourceUrl,
       bloques,
       pedidos: Array.from(e.pedidos).sort(),
       unidades: bloques.reduce((s, b) => s + b.unidades, 0),
@@ -278,6 +282,7 @@ export interface EnlaceDespiece {
   ensambleId: number
   ensambleNombre: string
   ensambleModelos: string | null
+  ensambleUrl: string | null
   productId: number
   quantity: number
   groupName: string
@@ -315,7 +320,7 @@ export function armarCompraPropia(lineas: LineaPropia[], enlaces: EnlaceDespiece
     if (ens == null) {
       pendientes.push({
         ensambleId: null, assemblyName: l.nameEs, assemblySku: l.bajajCode,
-        compatibleModels: null, quantity: l.quantity, bundleItems: null, clientName: '',
+        compatibleModels: null, sourceUrl: null, quantity: l.quantity, bundleItems: null, clientName: '',
       })
       continue
     }
@@ -330,6 +335,7 @@ export function armarCompraPropia(lineas: LineaPropia[], enlaces: EnlaceDespiece
       assemblyName: info.ensambleNombre,
       assemblySku: null,
       compatibleModels: info.ensambleModelos,
+      sourceUrl: info.ensambleUrl,
       quantity: 1,
       bundleItems: ls.map(l => ({
         nameEs: l.nameEs,

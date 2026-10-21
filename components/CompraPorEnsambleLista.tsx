@@ -1,4 +1,5 @@
 import type { CompraPorEnsamble } from '@/lib/compra-99rpm'
+import { MARCADOR_99RPM, urlTildar } from '@/lib/marcador-99rpm'
 
 // Sin estado ni hooks: la usan el carril aéreo (dentro del botón de pendientes) y el
 // embarque marítimo, tanto en el armador (cliente) como con la caja cerrada (server).
@@ -9,6 +10,16 @@ import type { CompraPorEnsamble } from '@/lib/compra-99rpm'
 export default function CompraPorEnsambleLista({ datos }: { datos: CompraPorEnsamble }) {
   return (
     <div className="divide-y divide-gray-100">
+      {datos.ensambles.length > 0 && (
+        <p className="px-6 py-2 text-xs text-gray-400">
+          Arrastrá{' '}
+          {/* Por innerHTML: React 19 bloquea los href javascript:, y un marcador es justo eso. */}
+          <span dangerouslySetInnerHTML={{ __html:
+            `<a href="${MARCADOR_99RPM}" class="px-2 py-0.5 rounded border border-blue-300 bg-blue-50 text-blue-700 font-medium">Tildar Motokira</a>`,
+          }} />{' '}
+          a la barra de marcadores (una vez). Después: «Abrir en 99rpm», clic en el marcador, revisás y Add to cart.
+        </p>
+      )}
       {datos.ensambles.map(e => (
         <div key={e.ensambleId} className="px-6 py-3">
           <div className="flex items-baseline justify-between gap-3 flex-wrap">
@@ -33,8 +44,17 @@ export default function CompraPorEnsambleLista({ datos }: { datos: CompraPorEnsa
                     Qty <span className="font-mono text-sm text-blue-700">{b.qty}</span>
                     <span className="ml-2 font-normal text-gray-400">→ Add to cart</span>
                   </span>
-                  <span className="font-mono text-gray-400">
-                    {b.piezas.length} {b.piezas.length === 1 ? 'pieza' : 'piezas'} · {b.unidades} u.
+                  <span className="flex items-center gap-3">
+                    <span className="font-mono text-gray-400">
+                      {b.piezas.length} {b.piezas.length === 1 ? 'pieza' : 'piezas'} · {b.unidades} u.
+                    </span>
+                    {e.sourceUrl && (
+                      <a href={urlTildar(e.sourceUrl, b.piezas.map(p => p.sku), b.qty)}
+                        target="_blank" rel="noopener noreferrer"
+                        className="px-2.5 py-1 font-medium border border-gray-300 rounded-lg bg-white text-gray-700 hover:bg-gray-50">
+                        Abrir en 99rpm ↗
+                      </a>
+                    )}
                   </span>
                 </div>
                 <ul className="divide-y divide-gray-50">

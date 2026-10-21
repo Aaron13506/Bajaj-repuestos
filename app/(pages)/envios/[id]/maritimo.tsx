@@ -212,7 +212,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
         where: { productId: { in: envio.lineas.map(l => l.productId) } },
         select: {
           productId: true, ensambleId: true, quantity: true, groupName: true, sortOrder: true,
-          ensamble: { select: { nameEs: true, nameEn: true, compatibleModels: true } },
+          ensamble: { select: { nameEs: true, nameEn: true, compatibleModels: true, sourceUrl: true } },
         },
       })
     : []
@@ -292,6 +292,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
       ensambleId: e.ensambleId,
       ensambleNombre: nombreEnsamble(e.ensamble),
       ensambleModelos: e.ensamble.compatibleModels,
+      ensambleUrl: e.ensamble.sourceUrl,
       productId: e.productId,
       quantity: e.quantity,
       groupName: e.groupName,

@@ -451,6 +451,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
           assemblyName: cab.nameEs,
           assemblySku: cab.bajajCode,
           compatibleModels: cab.compatibleModels,
+          sourceUrl: it.ensamble?.sourceUrl ?? null,
           quantity: it.quantity,
           bundleItems: it.bundleItems as BundlePiece[] | null,
           clientName: it.pedido.clientName,
