@@ -706,7 +706,12 @@ export default function PresupuestoBuilder({
                       </p>
                       <div className="space-y-0.5">
                         {items.map(comp => {
-                          const alreadyInCart = !!cart.find(c => c.ensambleId == null && c.productId === comp.product.id)
+                          const enCarrito = cart.find(c => c.ensambleId == null && c.productId === comp.product.id)
+                          // En stock propio la misma pieza vuelve a aparecer al recorrer otra moto (el
+                          // filtro de aceite de la N160 es el de la N250): se muestra cuánto ya llevás y
+                          // se deja sumar. En un presupuesto de cliente sigue bloqueada.
+                          const yaLlevas = isPropio ? (enCarrito?.quantity ?? 0) : 0
+                          const alreadyInCart = !!enCarrito && !isPropio
                           const nls = !!comp.product.descontinuada
                           const bloqueada = alreadyInCart || nls
                           const compat = compatBadge(comp.product.models, currentModel)
@@ -744,6 +749,12 @@ export default function PresupuestoBuilder({
                                 )}
                                 {alreadyInCart && !nls && (
                                   <span className="ml-2 text-xs text-blue-500">ya agregado</span>
+                                )}
+                                {yaLlevas > 0 && !nls && (
+                                  <span className="ml-2 text-xs font-medium text-cyan-700">
+                                    ya llevás {yaLlevas}
+                                    {checked[comp.id] && ` → ${yaLlevas + (quantities[comp.id] ?? comp.quantity)}`}
+                                  </span>
                                 )}
                                 <StockBadge productId={comp.product.id} posiciones={posiciones} className="ml-2" />
                                 {/* Compatibilidad cruzada: la misma pieza que le sirve a otra moto.
