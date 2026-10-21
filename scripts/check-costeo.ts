@@ -478,7 +478,7 @@ console.log('\nPRECIO FIJO Y PRECIO BCV')
   check('brecha 20 (descuento 16.7) → escalón 20, no 25', escalonDe(20), 20)
   check('brecha 40 (descuento 28.6) → escalón 30, no 45', escalonDe(40), 30)
   // Para toda brecha, el Bs cobrado a BCV vale en el paralelo al menos el precio en divisas
-  // (1 / (1 − escalón) ≥ 1 + brecha), y el escalón queda entre 0.5 y 5.5 puntos por encima
+  // (1 / (1 − escalón) ≥ 1 + brecha), y el escalón queda entre 1 y 6 puntos por encima
   // del descuento real: el colchón del redondeo, nunca el error de escala.
   let bajoParidad = 0
   let fueraDeRango = 0
@@ -487,10 +487,13 @@ console.log('\nPRECIO FIJO Y PRECIO BCV')
     const escalon = escalonDe(brecha)
     if (1 / (1 - escalon / 100) < 1 + brecha / 100) bajoParidad++
     const sobre = escalon - (brecha / (100 + brecha)) * 100
-    if (sobre < 0.5 - 1e-9 || sobre > 5.5 + 1e-9) fueraDeRango++
+    if (sobre < 1 - 1e-9 || sobre > 6 + 1e-9) fueraDeRango++
   }
   check('ninguna brecha (0 a 95) deja menos que el precio en divisas', bajoParidad, 0)
-  check('el escalón queda entre 0.5 y 5.5 puntos sobre el descuento real (brecha 0 a 95)', fueraDeRango, 0)
+  check('el escalón queda entre 1 y 6 puntos sobre el descuento real (brecha 0 a 95)', fueraDeRango, 0)
+  // El borde: brecha 16.28 es descuento 14.0, y con 1 punto de colchón ya paga el escalón 20.
+  check('brecha 16.3 (descuento 14.02) → escalón 20', escalonDe(16.3), 20)
+  check('brecha 16.2 (descuento 13.94) → escalón 15', escalonDe(16.2), 15)
 
   // 2) Un precio fijo manda: no se recompone desde landed y margen.
   const cfgP: ConfigMap = { inr_usd_rate: '95', bcv_usd_rate: '100', bcv_brecha_pct: '9', default_margin_pct: '33' }
