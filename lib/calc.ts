@@ -63,19 +63,32 @@ export interface PrecioBcv {
   brechaEscalonPct: number
 }
 
-// Redondea la brecha hacia ARRIBA al escalón de 5% más cercano — pero cada escalón arranca
-// medio punto ANTES de su múltiplo: no hace falta que la brecha LLEGUE a 15 para pagar el
-// escalón de 15, alcanza con pasar de 9.5, y en el límite exacto (14.5, 19.5, ...) ya
-// corresponde el escalón de ARRIBA. Por eso no alcanza con `Math.ceil` (que a un valor que
-// cae justo sobre el múltiplo lo deja ahí): a 14.5 hay que subirla igual a 20, así que se
-// resuelve con floor()+1, que siempre sube un escalón entero.
+// El escalón es un DESCUENTO sobre el precio BCV (el precio BCV es real / (1 − escalón), y el
+// "descuento por pago en divisas" del PDF es este mismo número), pero la brecha llega como
+// RECARGO del paralelo sobre el BCV (paralelo / BCV − 1, usdt.com.ve). Son la misma diferencia
+// medida sobre bases distintas: BCV 100 y paralelo 140 es brecha 40% pero descuento 28.6%
+// (40 / 140). Por eso se pasa a descuento antes de redondear: descuento = brecha / (1 + brecha).
+// Redondear la brecha tal cual inflaba el colchón a medida que subía: con brecha 40 cobraba
+// escalón 45, y el que pagaba en Bs dejaba un 30% más que el que pagaba en divisas.
+//
+// Después se redondea ese descuento hacia ARRIBA al escalón de 5% más cercano, pero cada escalón
+// arranca un punto ANTES de su múltiplo: no hace falta que el descuento LLEGUE a 15 para
+// pagar el escalón de 15, alcanza con llegar a 9, y en el límite exacto (14, 19, ...) ya
+// corresponde el escalón de ARRIBA. Por eso no alcanza con `Math.ceil` (que a un valor que cae
+// justo sobre el múltiplo lo deja ahí): a 14 hay que subirlo igual a 20, así que se resuelve
+// con floor()+1, que siempre sube un escalón entero.
 //
 // Cobrar en escalones (en vez de la brecha exacta) evita repreciar cada vez que se mueve un
-// punto — se mueve seguido —, y redondear hacia arriba deja el margen de error del lado del
-// vendedor y no del comprador.
+// punto (se mueve seguido), y redondear hacia arriba deja el margen de error del lado del
+// vendedor y no del comprador: el escalón queda entre 1 y 6 puntos sobre el descuento real,
+// así que quien paga en Bs deja algo más que el precio en divisas (de ~1% a ~7.5% con brecha
+// hasta 20, hasta ~8.5% con brecha 40), nunca menos (check:costeo lo verifica de 0 a 95).
 function brechaEscalon(brechaPct: number): number {
-  const EPS = 1e-9 // por si (brecha + 0.5) da p.ej. 2.9999999998 en vez de 3 exacto
-  const step = Math.floor((Math.max(brechaPct, 0) + 0.5) / 5 + EPS) + 1
+  const COLCHON_PTS = 1 // puntos mínimos del escalón sobre el descuento real
+  const EPS = 1e-9 // por si (descuento + 1) da p.ej. 2.9999999998 en vez de 3 exacto
+  const g = Math.max(brechaPct, 0) / 100
+  const descuentoPct = (g / (1 + g)) * 100
+  const step = Math.floor((descuentoPct + COLCHON_PTS) / 5 + EPS) + 1
   return step * 5
 }
 

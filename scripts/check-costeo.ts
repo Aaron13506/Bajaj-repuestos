@@ -469,6 +469,32 @@ console.log('\nPRECIO FIJO Y PRECIO BCV')
   check('el BCV con el descuento aplicado vuelve al precio exacto (8 brechas × 100000 precios)', malos, 0)
   if (ejemplos.length) console.log('   ' + ejemplos.join(' | '))
 
+  // 1b) La brecha llega como recargo sobre el BCV (paralelo / BCV − 1) y el escalón es un
+  //     descuento sobre el precio BCV: se convierte antes de redondear. Brecha 40 es descuento
+  //     28.6 → escalón 30, no 45 (con 45 el que paga en Bs dejaba un 30% de más).
+  const escalonDe = (brecha: number) => calcPrecioBcv(1, { bcv_usd_rate: '100', bcv_brecha_pct: String(brecha) })!.brechaEscalonPct
+  check('brecha 14.1 (descuento 12.4) → escalón 15', escalonDe(14.1), 15)
+  check('brecha 16 (descuento 13.8) → escalón 15, no 20', escalonDe(16), 15)
+  check('brecha 20 (descuento 16.7) → escalón 20, no 25', escalonDe(20), 20)
+  check('brecha 40 (descuento 28.6) → escalón 30, no 45', escalonDe(40), 30)
+  // Para toda brecha, el Bs cobrado a BCV vale en el paralelo al menos el precio en divisas
+  // (1 / (1 − escalón) ≥ 1 + brecha), y el escalón queda entre 1 y 6 puntos por encima
+  // del descuento real: el colchón del redondeo, nunca el error de escala.
+  let bajoParidad = 0
+  let fueraDeRango = 0
+  for (let i = 0; i <= 950; i++) {
+    const brecha = i / 10
+    const escalon = escalonDe(brecha)
+    if (1 / (1 - escalon / 100) < 1 + brecha / 100) bajoParidad++
+    const sobre = escalon - (brecha / (100 + brecha)) * 100
+    if (sobre < 1 - 1e-9 || sobre > 6 + 1e-9) fueraDeRango++
+  }
+  check('ninguna brecha (0 a 95) deja menos que el precio en divisas', bajoParidad, 0)
+  check('el escalón queda entre 1 y 6 puntos sobre el descuento real (brecha 0 a 95)', fueraDeRango, 0)
+  // El borde: brecha 16.28 es descuento 14.0, y con 1 punto de colchón ya paga el escalón 20.
+  check('brecha 16.3 (descuento 14.02) → escalón 20', escalonDe(16.3), 20)
+  check('brecha 16.2 (descuento 13.94) → escalón 15', escalonDe(16.2), 15)
+
   // 2) Un precio fijo manda: no se recompone desde landed y margen.
   const cfgP: ConfigMap = { inr_usd_rate: '95', bcv_usd_rate: '100', bcv_brecha_pct: '9', default_margin_pct: '33' }
   const base = { priceInr: 260, weightGrams: 120, dimL: 10, dimA: 8, dimH: 6, margin: 0.3163 }
