@@ -9,7 +9,7 @@ import { bloqueaCompra, bloqueaEntrega } from '@/lib/incidencias'
 import { seEntregaDesdeElPedido } from '@/lib/saldo-entrega'
 import { inboundDe } from '@/lib/inbound'
 import { isModoApp } from '@/lib/modo'
-import { isReenvio, motivoNoCambiaReenvio } from '@/lib/reenvio'
+import { isReenvio, motivoNoCambiaReenvio, ETAPAS_FUERA_DEL_DEPOSITO } from '@/lib/reenvio'
 import { fallo, ok, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
 import { isForeignKeyViolation } from '@/lib/prisma-errors'
 import { CATEGORIAS_EGRESO } from '@/lib/movimientos'
@@ -349,10 +349,11 @@ export async function saveMedidasCaja(envioId: number, formData: FormData): Prom
   return ok()
 }
 
-// Cambia el reenvío de una caja (Shoppre ↔ por kilo) mientras sigue siendo solo una idea: nada
-// comprado, sin flete aéreo facturado ni pagado (motivoNoCambiaReenvio). La tarifa ₹/kg se
-// conserva, así ir y volver para comparar no la borra. El WHERE repite la regla, así que una
-// compra hecha en otra pestaña entre la pantalla y el click no se saltea.
+// Cambia el reenvío de una caja (Shoppre ↔ por kilo) mientras la mercancía no salió del
+// depósito hacia USA y el flete aéreo no está facturado ni pagado (motivoNoCambiaReenvio).
+// Las piezas pueden estar compradas: la dirección del depósito la decide el dueño al comprar.
+// La tarifa ₹/kg se conserva, así ir y volver para comparar no la borra. El WHERE repite la
+// regla, así que un avance o un pago hecho en otra pestaña no se saltea.
 export async function cambiarReenvio(envioId: number, formData: FormData): Promise<ActionResult> {
   const reenvio = formData.get('reenvio') as string | null
   if (!isReenvio(reenvio)) return fallo('Ese reenvío no existe.')
@@ -363,7 +364,7 @@ export async function cambiarReenvio(envioId: number, formData: FormData): Promi
       modo: true,
       shippingCostRealAereo: true,
       supplier: { select: { origen: true, inbound: true } },
-      items: { select: { shippingStatus: true, costRealUsd: true } },
+      items: { select: { shippingStatus: true, isLanded: true } },
       movimientos: { where: { categoria: TRAMOS_FLETE.aereo.categoria }, select: { id: true } },
     },
   })
@@ -371,7 +372,7 @@ export async function cambiarReenvio(envioId: number, formData: FormData): Promi
   const motivo = motivoNoCambiaReenvio({
     modo: e.modo,
     despachaProveedor: inboundDe(e.supplier?.origen, e.supplier?.inbound) === 'cotizado',
-    lineas: e.items.map(i => ({ shippingStatus: i.shippingStatus, comprada: i.costRealUsd != null })),
+    lineas: e.items,
     fleteAereoFacturado: e.shippingCostRealAereo != null,
     fleteAereoPagado: e.movimientos.length > 0,
   })
@@ -382,12 +383,12 @@ export async function cambiarReenvio(envioId: number, formData: FormData): Promi
       id: envioId,
       modo: 'aereo',
       shippingCostRealAereo: null,
-      items: { none: { OR: [{ shippingStatus: { not: 'pendiente' } }, { costRealUsd: { not: null } }] } },
+      items: { none: { isLanded: false, shippingStatus: { in: ETAPAS_FUERA_DEL_DEPOSITO } } },
       movimientos: { none: { categoria: TRAMOS_FLETE.aereo.categoria } },
     },
     data: { reenvio },
   })
-  if (r.count === 0) return fallo('La caja cambió mientras tanto (se compró algo o se cargó el flete). Recargá la página.')
+  if (r.count === 0) return fallo('La caja cambió mientras tanto (salió hacia USA o se cargó el flete). Recargá la página.')
   revalidarCaja(envioId)
   return ok()
 }

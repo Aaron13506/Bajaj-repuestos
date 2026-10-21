@@ -653,12 +653,13 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
         inrUsd,
       })
     : null
-  // Cambiar el reenvío: solo mientras no se compró nada ni se facturó o pagó el flete aéreo.
+  // Cambiar el reenvío: mientras la mercancía no salió del depósito hacia USA y el flete aéreo
+  // no está facturado ni pagado. Comprada sí puede estar (ver motivoNoCambiaReenvio).
   const otroReenvio = porKilo ? 'shoppre' : 'por_kilo'
   const motivoCambio = motivoNoCambiaReenvio({
     modo: envio.modo,
     despachaProveedor: inboundCaja === 'cotizado',
-    lineas: envio.items.map(it => ({ shippingStatus: it.shippingStatus, comprada: it.costRealUsd != null })),
+    lineas: envio.items.map(it => ({ shippingStatus: it.shippingStatus, isLanded: it.isLanded })),
     fleteAereoFacturado: costoRealAereo != null,
     fleteAereoPagado: pagosFlete.some(m => m.categoria === TRAMOS_FLETE.aereo.categoria),
   })

@@ -16,6 +16,8 @@
 // abarata la caja real, nunca lo que se le cobra al cliente.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { SHIPPING_STATUSES, statusIndex } from './shipping-status'
+
 export type Reenvio = 'shoppre' | 'por_kilo'
 
 export const REENVIOS: { value: Reenvio; label: string; hint: string }[] = [
@@ -46,17 +48,23 @@ export function reenvioMeta(r: Reenvio) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Cambiar el reenvío de una caja ya creada
 //
-// Se congela al crear la caja porque, una vez comprada la mercancía, el proveedor ya la
-// despachó a la dirección de UN depósito: cambiarlo después sería re-costear con un camino
-// que no existe. Mientras no se compró nada ni se facturó o pagó el flete aéreo, en cambio,
-// es solo una decisión que todavía no se tomó, y cambiarlo sirve para comparar.
+// Comprar NO decide el depósito: lo decide la dirección que se le da al proveedor, y eso lo
+// sabe el dueño, no la app. Lo que sí lo fija es que la caja haya salido del depósito hacia
+// USA (ese tramo ya lo hizo alguien) o que su flete aéreo esté facturado o pagado. Hasta ahí,
+// cambiarlo es corregir un dato o comparar. Las líneas landed no pasan por ningún depósito y
+// no cuentan.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** Etapas desde las que la mercancía ya dejó el depósito rumbo a USA. */
+export const ETAPAS_FUERA_DEL_DEPOSITO = SHIPPING_STATUSES
+  .filter(s => statusIndex(s.value) >= statusIndex('camino_usa'))
+  .map(s => s.value as string)
 
 export interface CajaParaReenvio {
   modo: string
   /** El proveedor de la caja despacha él mismo (inbound 'cotizado'): no hay depósito. */
   despachaProveedor: boolean
-  lineas: { shippingStatus: string; comprada: boolean }[]
+  lineas: { shippingStatus: string; isLanded: boolean }[]
   fleteAereoFacturado: boolean
   fleteAereoPagado: boolean
 }
@@ -65,8 +73,8 @@ export interface CajaParaReenvio {
 export function motivoNoCambiaReenvio(c: CajaParaReenvio): string | null {
   if (c.modo !== 'aereo') return 'Solo las cajas aéreas tienen reenvío.'
   if (c.despachaProveedor) return 'El proveedor de esta caja despacha él mismo a USA: no pasa por ningún depósito.'
-  if (c.lineas.some(l => l.comprada || l.shippingStatus !== 'pendiente')) {
-    return 'Ya hay piezas compradas: la mercancía ya salió hacia un depósito y el reenvío quedó decidido.'
+  if (c.lineas.some(l => !l.isLanded && ETAPAS_FUERA_DEL_DEPOSITO.includes(l.shippingStatus))) {
+    return 'La mercancía ya salió del depósito hacia USA: ese tramo ya lo hizo un reenvío.'
   }
   if (c.fleteAereoFacturado || c.fleteAereoPagado) return 'El flete aéreo ya está facturado o pagado.'
   return null
