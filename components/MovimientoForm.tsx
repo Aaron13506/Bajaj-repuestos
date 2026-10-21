@@ -40,6 +40,8 @@ interface Props {
   /** Tasas (Bs por USD) a proponer en un ingreso en bolívares: la de cobro directo, y la BCV si es de un pedido. */
   tasaBsSugerida: number
   tasaBcvSugerida: number
+  /** Bs por USD a los que el libro tiene los Bs del banco: la tasa a proponer en un egreso en Bs. */
+  tasaLibroBs: number
 }
 
 // Ingreso y egreso son dos formularios distintos que comparten fecha/monto/nota: un
@@ -58,6 +60,7 @@ export default function MovimientoForm({
   suppliers,
   tasaBsSugerida,
   tasaBcvSugerida,
+  tasaLibroBs,
 }: Props) {
   const [categoria, setCategoria] = useState(categoriasIngreso[0]?.value ?? '')
   const [metodo, setMetodo] = useState('')
@@ -74,8 +77,8 @@ export default function MovimientoForm({
   const esEgreso = categoriasEgreso.some(c => c.value === categoria)
   const metodos = esEgreso ? metodosEgreso : metodosIngreso
   // Un cobro en Bs de un pedido se escribe en dólares BCV (el servidor guarda su valor real).
-  const enBsIngreso = !esEgreso && cobraEnBolivares(metodo)
-  const enBsDePedido = enBsIngreso && pedidoId !== ''
+  const enBs = cobraEnBolivares(metodo)
+  const enBsDePedido = enBs && !esEgreso && pedidoId !== ''
 
   return (
     <form
@@ -107,14 +110,15 @@ export default function MovimientoForm({
           </optgroup>
         </select>
       </div>
-      {/* Un ingreso en Bs se escribe en bolívares y tasa: los dólares salen de dividir. */}
-      {enBsIngreso ? (
+      {/* Un movimiento en Bs se escribe en bolívares y tasa: los dólares salen de dividir. */}
+      {enBs ? (
         <div className="w-44">
-          {/* key: al elegir o quitar el pedido cambia la tasa que corresponde (BCV o directa). */}
+          {/* key: al elegir o quitar el pedido, o pasar a egreso, cambia la tasa que corresponde. */}
           <MontoBs
-            key={enBsDePedido ? 'bcv' : 'directa'}
-            tasaSugerida={enBsDePedido ? tasaBcvSugerida : tasaBsSugerida}
-            etiquetaTasa={enBsDePedido ? 'Tasa BCV' : 'Tasa'}
+            key={esEgreso ? 'libro' : enBsDePedido ? 'bcv' : 'directa'}
+            tasaSugerida={esEgreso ? tasaLibroBs : enBsDePedido ? tasaBcvSugerida : tasaBsSugerida}
+            etiquetaTasa={esEgreso ? 'Tasa del libro' : enBsDePedido ? 'Tasa BCV' : 'Tasa'}
+            etiqueta={esEgreso ? 'Bs pagados' : undefined}
             unidad={enBsDePedido ? 'USD BCV' : 'USD'}
             requerido
           />

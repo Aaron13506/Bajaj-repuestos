@@ -16,7 +16,9 @@ import { repartirEnCentavos } from '@/lib/reparto-compra'
 // Libro de movimientos: la fuente única de "cuánta plata tengo". Cada categoría fija su
 // tipo (ver tipoDeCategoria) para que un ingreso no pueda anotarse con categoría de egreso
 // ni viceversa — el formulario solo pide la categoría.
-export const CATEGORIAS_INGRESO = ['adelanto_cliente', 'pago_cliente', 'otro_ingreso'] as const
+// Aporte y retiro del dueño mueven la caja pero no son ganancia ni gasto: no entran al
+// resultado del mes (ver CATEGORIAS_GASTO en lib/margen.ts).
+export const CATEGORIAS_INGRESO = ['adelanto_cliente', 'pago_cliente', 'aporte_propio', 'otro_ingreso'] as const
 // Flete separado por carril (ver lib/modo.ts): son dos costos que no se pagan al mismo
 // transportista ni en el mismo momento — mezclarlos en una sola "Flete" no decía cuál caja
 // lo generó cuando el egreso no queda linkeado a un envío puntual.
@@ -26,6 +28,7 @@ export const CATEGORIAS_EGRESO = [
   'flete_aereo',
   'flete_maritimo',
   'gasto_operativo',
+  'retiro_propio',
   'otro_egreso',
 ] as const
 
@@ -56,12 +59,14 @@ export type Categoria = CategoriaIngreso | CategoriaEgreso | CategoriaConversion
 export const CATEGORIA_LABELS: Record<Categoria, string> = {
   adelanto_cliente: 'Adelanto de cliente',
   pago_cliente: 'Pago de cliente',
+  aporte_propio: 'Aporte propio',
   otro_ingreso: 'Otro ingreso',
   pago_proveedor: 'Pago a proveedor',
   comision_giro: 'Comisión de giro',
   flete_aereo: 'Flete aéreo',
   flete_maritimo: 'Flete marítimo',
   gasto_operativo: 'Gasto operativo',
+  retiro_propio: 'Retiro para mí',
   otro_egreso: 'Otro egreso',
   conversion_salida: 'Conversión · sale',
   conversion_entrada: 'Conversión · entra',

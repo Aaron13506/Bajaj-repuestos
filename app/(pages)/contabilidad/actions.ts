@@ -40,8 +40,8 @@ export async function crearMovimiento(formData: FormData): Promise<ActionResult>
 
   const metodoPago = (formData.get('metodoPago') as string)?.trim() || null
   const tipo = tipoDeCategoria(categoria)
-  // Un ingreso en Bs se escribe en bolívares y tasa; los dólares salen de dividir.
-  const bs = leerCobroBs(formData, tipo === 'ingreso' ? metodoPago : null)
+  // Un movimiento en Bs (ingreso o egreso) se escribe en bolívares y tasa; los dólares salen de dividir.
+  const bs = leerCobroBs(formData, metodoPago)
   if (!bs.ok) return fallo(bs.error)
   const monto = bs.cobro ? bs.cobro.montoUsd : parseFloat((formData.get('monto') as string)?.trim() ?? '')
   if (!Number.isFinite(monto) || monto <= 0) return fallo('El monto tiene que ser mayor que 0.')

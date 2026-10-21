@@ -331,12 +331,15 @@ export default async function ContabilidadPage({ searchParams }: Props) {
         categoriasIngreso={CATEGORIAS_INGRESO.map(c => ({ value: c, label: CATEGORIA_LABELS[c] }))}
         categoriasEgreso={CATEGORIAS_EGRESO.map(c => ({ value: c, label: CATEGORIA_LABELS[c] }))}
         metodosIngreso={METODOS_PAGO_INGRESO}
-        metodosEgreso={METODOS_PAGO_EGRESO}
+        // Pagar en Bs solo desde acá: a un proveedor de afuera no se le paga en bolívares.
+        metodosEgreso={[...METODOS_PAGO_EGRESO, METODOS_PAGO_INGRESO[0]]}
         pedidos={pedidosConfirmados.map(p => ({ id: p.id, clientName: p.clientName }))}
         envios={envios}
         suppliers={suppliers}
         tasaBsSugerida={num(cfg, 'bsd_usd_rate', 0)}
         tasaBcvSugerida={num(cfg, 'bcv_usd_rate', 0)}
+        // Un egreso en Bs sale a lo que valen en el libro (costo promedio), como una conversión.
+        tasaLibroBs={valorBs ? 1 / valorBs : num(cfg, 'bsd_usd_rate', 0)}
       />
 
       <ConversionForm action={crearConversion} valor={valorBs} />
