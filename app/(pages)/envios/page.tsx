@@ -5,6 +5,7 @@ import PendingButton from '@/components/PendingButton'
 import FormConResultado from '@/components/FormConResultado'
 import { stageSummary, SHIPPING_STATUSES } from '@/lib/shipping-status'
 import { inboundDe, inboundMeta } from '@/lib/inbound'
+import { REENVIOS } from '@/lib/reenvio'
 import { costearEnvios } from '@/lib/costo-envios'
 import { CATEGORIAS_FLETE, resumenFletes } from '@/lib/flete-real'
 import { tiempoDeCompraA, tiemposPorTramo } from '@/lib/etapas'
@@ -167,14 +168,14 @@ export default async function EnviosPage() {
                 defaultValue=""
                 className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
-                <option value="">99rpm · precio base ₹{r.modo === 'aereo' ? ' · por Shoppre' : ''}</option>
+                <option value="">99rpm · precio base ₹{r.modo === 'aereo' ? ' · por depósito' : ''}</option>
                 {suppliers.map(sp => {
                   const meta = inboundMeta(inboundDe(sp.origen, sp.inbound))
                   return (
                     <option key={sp.id} value={sp.id}>
                       {sp.name}
                       {r.modo === 'aereo'
-                        ? ` · ${meta.label}`
+                        ? (meta.value === 'shoppre' ? ' · por depósito' : ` · ${meta.label}`)
                         : sp.fobUsd != null
                           ? ` · FOB $${parseFloat(sp.fobUsd.toString()).toFixed(0)}`
                           : ' · FOB por defecto'}
@@ -183,6 +184,25 @@ export default async function EnviosPage() {
                 })}
               </select>
             </label>
+            {/* Quién la lleva a USA cuando pasa por un depósito en India. Es de la caja, no del
+                proveedor, y también queda congelado. No aplica si el proveedor despacha él. */}
+            {r.modo === 'aereo' && (
+              <label className="block">
+                <span className="text-xs text-gray-500">Reenvío a USA (si no despacha el proveedor)</span>
+                <select
+                  name="reenvio"
+                  defaultValue="shoppre"
+                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  {REENVIOS.map(rv => (
+                    <option key={rv.value} value={rv.value}>{rv.label}</option>
+                  ))}
+                </select>
+                <span className="block text-[11px] text-gray-400 mt-1">
+                  {REENVIOS.map(rv => `${rv.label}: ${rv.hint}`).join(' · ')}
+                </span>
+              </label>
+            )}
             <PendingButton
               pendingLabel="Creando…"
               className={`text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors ${r.btn}`}

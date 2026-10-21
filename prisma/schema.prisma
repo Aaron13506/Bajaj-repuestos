@@ -294,6 +294,15 @@ model Envio {
   // —de India, despachando por India Post— lo desmintió, así que se renombró en vez de
   // agregar una segunda columna que significara lo mismo.
   tramoUsd         Decimal?     @db.Decimal(10, 2)
+  // Qué reenvío lleva la caja de India a USA cuando la mercancía pasa por un depósito
+  // (inbound 'shoppre'): 'shoppre' (tabla escalón de ShipGlobal) o 'por_kilo' (cotizan
+  // ₹/kg en el momento). Es de la caja y no del proveedor: la misma compra a 99rpm puede ir
+  // por cualquiera de los dos. Se congela al crearla. Ver lib/reenvio.ts.
+  reenvio          String       @default("shoppre")
+  // La tarifa que cotizó el reenvío 'por_kilo' para ESTA caja, en rupias por kg cobrable.
+  // Null = todavía no cotizaron: la caja queda subcosteada (no gratis). La factura real
+  // (shippingCostRealAereo) la reemplaza, gastos fijos incluidos.
+  tarifaKgInr      Decimal?     @db.Decimal(10, 2)
   // Lo que costó la transferencia con la que se le pagó al proveedor de esta caja. Son DOS
   // montos porque un giro internacional se cobra en las dos puntas, y no son el mismo dato:
   //

@@ -25,8 +25,8 @@ import type { Inbound } from './inbound'
 // Colores: dot = punto del stepper, badge = pill de estado.
 export const SHIPPING_STATUSES = [
   { value: 'pendiente',        short: 'Por comprar', label: 'Pendiente de comprar',  icon: '🛒', bought: false, dot: 'bg-gray-300',   badge: 'bg-gray-100 text-gray-700' },
-  { value: 'camino_shoppre',   short: 'A Shoppre',   label: 'Camino a Shoppre',      icon: '📦', bought: true,  dot: 'bg-sky-400',    badge: 'bg-sky-50 text-sky-600' },
-  { value: 'en_shoppre',       short: 'En Shoppre',  label: 'En Shoppre (India)',    icon: '🇮🇳', bought: true,  dot: 'bg-sky-500',    badge: 'bg-sky-100 text-sky-700' },
+  { value: 'camino_shoppre',   short: 'Al depósito', label: 'Camino al depósito (India)', icon: '📦', bought: true,  dot: 'bg-sky-400',    badge: 'bg-sky-50 text-sky-600' },
+  { value: 'en_shoppre',       short: 'En depósito', label: 'En el depósito (India)',     icon: '🇮🇳', bought: true,  dot: 'bg-sky-500',    badge: 'bg-sky-100 text-sky-700' },
   { value: 'camino_usa',       short: 'A USA',       label: 'Camino a USA',          icon: '✈️', bought: true,  dot: 'bg-indigo-400', badge: 'bg-indigo-50 text-indigo-600' },
   { value: 'en_usa',           short: 'En USA',      label: 'En USA',                icon: '🇺🇸', bought: true,  dot: 'bg-indigo-500', badge: 'bg-indigo-100 text-indigo-700' },
   { value: 'camino_venezuela', short: 'A Venezuela', label: 'Camino a Venezuela',    icon: '🚢', bought: true,  dot: 'bg-amber-400',  badge: 'bg-amber-50 text-amber-600' },

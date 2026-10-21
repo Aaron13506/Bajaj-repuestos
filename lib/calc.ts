@@ -1,5 +1,6 @@
 import { cotizarTramoAereo } from './shipping-rates'
 import { inboundDe, type Inbound } from './inbound'
+import type { Reenvio } from './reenvio'
 import { num, flag, margenPorDefecto, type ConfigMap } from './config'
 import { aDolarBcv } from './cobro-bcv'
 
@@ -482,7 +483,8 @@ export interface EnvioBreakdown {
   // Tramos a USA, medidos por separado porque cotizan distinto. En modo marítimo todos
   // cuestan 0 (la caja no pasa por USA) pero se siguen midiendo en kg, para poder comparar
   // contra el escenario aéreo sin recalcular.
-  air: LegBreakdown                     // lo que pasa por Shoppre (tabla escalón de ShipGlobal, en USD)
+  air: LegBreakdown                     // lo que pasa por un depósito: tabla de ShipGlobal (USD) o ₹/kg cotizado
+  reenvio: ReenvioBreakdown             // cuál reenvío cobra `air` y con qué datos
   tramo: TramoCotizado | null           // el total que facturó el proveedor, si despacha él
   // Totales de la caja que cruza a Venezuela (todos los tramos juntos; los isLanded no viajan).
   // Van EMPAQUETADOS: es lo que va a leer la balanza y la cinta métrica del transportista,
@@ -556,6 +558,25 @@ export interface EnvioBreakdown {
   lines: EnvioItemLine[]
 }
 
+// El reenvío que cobra el tramo `air` (ver lib/reenvio.ts) y, si es 'por_kilo', lo que se
+// le carga a ESTA caja.
+export interface ReenvioCaja {
+  tipo: Reenvio
+  /** ₹ por kg cobrable que cotizaron para esta caja. null = no cotizaron todavía (≠ 0). */
+  tarifaKgInr?: number | null
+}
+
+export interface ReenvioBreakdown {
+  tipo: Reenvio
+  tarifaKgInr: number | null
+  /** Gastos fijos por caja en ₹ (Config reenvio_kilo_gastos_inr). null = no configurados. */
+  gastosFijosInr: number | null
+  /** 'por_kilo' con piezas que lo usan, sin tarifa ni factura: el tramo cuenta 0 y la caja queda subcosteada. */
+  faltaTarifa: boolean
+  /** 'por_kilo' sin gastos fijos en /config ni factura: se cuentan 0, que no es lo mismo que saberlo. */
+  faltaGastos: boolean
+}
+
 // Lo que el costeo necesita saber del proveedor de la caja. Viene de afuera (Supplier +
 // las dos columnas de Envio) porque lib/calc no toca la base.
 export interface ProveedorEnvio {
@@ -586,6 +607,10 @@ export interface EnvioOptions {
   // cotizan el tramo completo como tal, sin una segunda factura que reconciliar.
   // null/ausente = seguir usando el estimado.
   fleteFacturado?: FleteFacturado | null
+  // Qué reenvío lleva lo que pasa por un depósito (Envio.reenvio + tarifaKgInr). Ausente =
+  // Shoppre, que es como se costea todo lo que no es una caja real (catálogo, presupuestos,
+  // simulador): los precios de venta salen siempre de la tabla de Shoppre.
+  reenvio?: ReenvioCaja | null
 }
 
 export interface FleteFacturado {
@@ -745,12 +770,19 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   // Seguro sobre el costo de producto. El escenario marítimo en ft³ va al 6% (la carga por
   // mar viaja meses y la prima es más cara que la del aéreo, que está en 3%). En CBM el
   // seguro NO se suma aparte: la tarifa plana ya lo incluye todo.
+  // El reenvío por kilo no cobra seguro.
+  const porKilo       = opts.reenvio?.tipo === 'por_kilo'
   const insurancePct  = esCbm
     ? 0
     : modo === 'maritimo'
       ? num(cfg, 'maritimo_insurance_pct', 0.06)
-      : num(cfg, 'shoppre_insurance_pct', 0.03)
-  const processingInr = num(cfg, 'shoppre_processing_inr', 500)
+      : porKilo ? 0 : num(cfg, 'shoppre_insurance_pct', 0.03)
+  // Cargo fijo por caja del reenvío, en ₹: el processing de Shoppre, o los gastos fijos
+  // (repack y demás) del reenvío por kilo. Este último no tiene default: vacío es "no lo
+  // configuraste", y `reenvio.faltaGastos` lo dice en vez de cobrar un número inventado.
+  const gastosFijosRaw = cfg.reenvio_kilo_gastos_inr?.trim()
+  const gastosFijosInr = gastosFijosRaw && Number.isFinite(parseFloat(gastosFijosRaw)) ? parseFloat(gastosFijosRaw) : null
+  const processingInr = porKilo ? (gastosFijosInr ?? 0) : num(cfg, 'shoppre_processing_inr', 500)
 
   // Primera pasada: peso real, volumétrico, volumen en ft³ y costo de producto por línea.
   // Los ítems landed (ya puestos en Venezuela) no viajan: van con peso y volumen en
@@ -837,14 +869,36 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   // simple— cobraba 24 kg al precio de 22 y 44 kg también al de 22, y el error crece con
   // el peso justo en el sentido peligroso: el aéreo se abarata al juntar kilos, así que
   // subcostear el exceso premiaba amontonar en una caja que ya no se puede despachar.
-  const airQuote = !esMaritimo && shoppreChargeable > 0
-    ? cotizarTramoAereo(shoppreChargeable, carrier, isMember, cfg)
-    : { costUsd: 0, cajas: 0, pesosKg: [] as number[], capKg: null as number | null }
+  //
+  // El reenvío por kilo no tiene tabla ni tope: es kg cobrables × la tarifa en ₹ que cotizaron
+  // para esta caja, convertida con inr_usd_rate (es lo único de este tramo que está en rupias).
+  const tarifaKgInr = porKilo ? (opts.reenvio?.tarifaKgInr ?? null) : null
+  const viajaPorDeposito = !esMaritimo && shoppreChargeable > 0
+  const airQuote = !viajaPorDeposito
+    ? { costUsd: 0, cajas: 0, pesosKg: [] as number[], capKg: null as number | null }
+    : porKilo
+      ? {
+          costUsd: tarifaKgInr != null ? (shoppreChargeable * tarifaKgInr) / inrUsd : 0,
+          cajas: 1,
+          pesosKg: [Number(shoppreChargeable.toFixed(2))],
+          capKg: null,
+        }
+      : cotizarTramoAereo(shoppreChargeable, carrier, isMember, cfg)
   // La banda de error solo rige mientras la caja no se pesó Y midió: con las dos cosas cargadas
   // el volumétrico deja de ser una suma de pisos y vale la regla exacta.
   const cajaCompleta = caja.pesoKg != null && caja.cm3 != null
   const tolerancia = cajaCompleta ? 0 : num(cfg, 'caja_sin_pesar_tolerancia_pct', 10) / 100
-  const airLeg = repartirTramo(shoppreLines, airQuote.costUsd, escala, airQuote, tolerancia)
+  // Lo que Shoppre/el reenvío facturó de verdad, si ya se cargó, pisa al estimado.
+  const airFacturadoUsd = modo === 'aereo' ? (opts.fleteFacturado?.aereoUsd ?? null) : null
+  // Sin tarifa cotizada el estimado es 0, y pisar un 0 con la factura la repartiría en partes
+  // iguales por línea (no hay proporción de la cual escalar). Se reparte la factura directo,
+  // por la misma dimensión que ata: es lo que haría la tarifa si se hubiera cargado.
+  const sinEstimado = porKilo && tarifaKgInr == null
+  const airLeg = repartirTramo(
+    shoppreLines,
+    sinEstimado ? (airFacturadoUsd ?? 0) : airQuote.costUsd,
+    escala, airQuote, tolerancia,
+  )
 
   // Tramo cotizado: no hay tabla, es el total que facturó el proveedor de la caja.
   const prov = opts.proveedor ?? null
@@ -867,9 +921,8 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
 
   // Lo que Shoppre/ShipGlobal facturó de verdad, si ya se cargó, pisa al estimado de tabla —
   // el tramo cotizado (arriba) ya es real por sí solo y no se toca acá.
-  const airCalculadoUsd = airLeg.costUsd
-  const airFacturadoUsd = modo === 'aereo' ? (opts.fleteFacturado?.aereoUsd ?? null) : null
-  airLeg.costUsd = aplicarFacturado(shoppreLines, 'airUsd', airCalculadoUsd, airFacturadoUsd)
+  const airCalculadoUsd = airQuote.costUsd
+  airLeg.costUsd = aplicarFacturado(shoppreLines, 'airUsd', airLeg.costUsd, airFacturadoUsd)
   airLeg.costPerKgUsd = airLeg.chargeableKg > 0 ? airLeg.costUsd / airLeg.chargeableKg : 0
   const airUsd = airLeg.costUsd + cotizadoUsd
 
@@ -1019,9 +1072,19 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
     l.landedUsd = base + l.comisionUsd + suOverhead
   }
 
+  const usaReenvio = !esMaritimo && shoppreLines.length > 0
+  const reenvio: ReenvioBreakdown = {
+    tipo: porKilo ? 'por_kilo' : 'shoppre',
+    tarifaKgInr,
+    gastosFijosInr: porKilo ? gastosFijosInr : null,
+    faltaTarifa: porKilo && usaReenvio && tarifaKgInr == null && airFacturadoUsd == null,
+    faltaGastos: porKilo && usaReenvio && gastosFijosInr == null && airFacturadoUsd == null,
+  }
+
   return {
     modo,
     air: airLeg,
+    reenvio,
     tramo,
     realKg: W,
     volKg: V,

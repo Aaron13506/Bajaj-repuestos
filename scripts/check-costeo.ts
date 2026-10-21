@@ -1168,5 +1168,46 @@ console.log('\nCONTEO DE LA CAJA')
   check('el conjunto en sí no es una fila', c.length, 2)
 }
 
+console.log('\nREENVÍO POR KILO  (₹/kg cotizado por caja + gastos fijos, sin seguro)')
+// Las mismas piezas de la caja de Shoppre, por el otro reenvío: el tramo deja de salir de la
+// tabla y pasa a ser kg cobrables × ₹/kg, y los cargos de Shoppre no aparecen.
+{
+  const cfgK: ConfigMap = { ...cfg, reenvio_kilo_gastos_inr: '1200' }
+  const TARIFA = 850
+  const k = calcEnvio(itemsShoppre, cfgK, { proveedor: provOemship, reenvio: { tipo: 'por_kilo', tarifaKgInr: TARIFA } })
+  const tramoUsd = (5.5 * TARIFA) / 94.95
+  check('tramo = kg cobrables × ₹/kg ÷ tasa', k.air.costUsd, tramoUsd)
+  check('no toca la tabla de Shoppre', k.air.costUsd !== sh.air.costUsd ? 1 : 0, 1)
+  check('una sola caja, sin tope de 22 kg', k.air.cajas, 1)
+  check('sin seguro', k.insuranceUsd, 0)
+  check('gastos fijos = ₹ de config ÷ tasa', k.processingUsd, 1200 / 94.95)
+  check('no falta tarifa ni gastos', (k.reenvio.faltaTarifa ? 1 : 0) + (k.reenvio.faltaGastos ? 1 : 0), 0)
+  check('tramo repartido por peso entre sus piezas (B pesa 3.5/5.5)', k.lines[1].airUsd, tramoUsd * 3.5 / 5.5)
+  check('Σ landed por línea = landed total', k.lines.reduce((s, l) => s + l.landedUsd, 0), k.landedUsd)
+
+  // Sin tarifa: la caja queda subcosteada y lo dice, no la cuenta gratis en silencio.
+  const sinTarifa = calcEnvio(itemsShoppre, cfgK, { proveedor: provOemship, reenvio: { tipo: 'por_kilo', tarifaKgInr: null } })
+  check('sin tarifa: tramo 0', sinTarifa.air.costUsd, 0)
+  check('sin tarifa: faltaTarifa', sinTarifa.reenvio.faltaTarifa ? 1 : 0, 1)
+  // Sin gastos en config: no se inventa un default.
+  const sinGastos = calcEnvio(itemsShoppre, cfg, { proveedor: provOemship, reenvio: { tipo: 'por_kilo', tarifaKgInr: TARIFA } })
+  check('sin gastos en config: 0 y faltaGastos', sinGastos.processingUsd + (sinGastos.reenvio.faltaGastos ? 1 : 0), 1)
+
+  // La factura real reemplaza tarifa y gastos fijos, repartida por la misma dimensión que ata,
+  // aunque nunca se haya cargado la tarifa (pisar un estimado 0 la repartía en partes iguales).
+  const FACT = 70
+  for (const [nombre, tarifa] of [['con tarifa', TARIFA], ['sin tarifa', null]] as const) {
+    const f = calcEnvio(itemsShoppre, cfgK, {
+      proveedor: provOemship, reenvio: { tipo: 'por_kilo', tarifaKgInr: tarifa }, fleteFacturado: { aereoUsd: FACT },
+    })
+    check(`facturado (${nombre}) pisa el tramo`, f.air.costUsd, FACT)
+    check(`facturado (${nombre}) incluye los gastos fijos`, f.processingUsd, 0)
+    check(`facturado (${nombre}) se reparte por peso`, f.lines[1].airUsd, FACT * 3.5 / 5.5)
+    check(`facturado (${nombre}) ya no falta nada`, (f.reenvio.faltaTarifa ? 1 : 0) + (f.reenvio.faltaGastos ? 1 : 0), 0)
+  }
+  // Sin `reenvio` (catálogo, presupuestos, simulador) todo sigue siendo Shoppre.
+  check('sin reenvío = Shoppre de siempre', sh.reenvio.tipo === 'shoppre' && sh.insuranceUsd > 0 ? 1 : 0, 1)
+}
+
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)
 process.exit(fallos === 0 ? 0 : 1)
