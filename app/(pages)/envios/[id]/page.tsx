@@ -16,7 +16,7 @@ import { METODOS_PAGO_EGRESO } from '@/lib/pagos'
 import { limpiarNombre } from '@/lib/utils'
 import { calcEnvio, type EnvioItemInput, type ConfigMap, type ProveedorEnvio } from '@/lib/calc'
 import { inboundDe, inboundMeta } from '@/lib/inbound'
-import { reenvioDe, reenvioMeta } from '@/lib/reenvio'
+import { reenvioDe, reenvioMeta, motivoNoCambiaReenvio, tarifaEquilibrioKgInr } from '@/lib/reenvio'
 import { modoDeEnvio, MODOS } from '@/lib/modo'
 import EnvioMaritimo from './maritimo'
 import { lookupDeConjuntos, expandCostPieces, repartirCostoReal } from '@/lib/envio-build'
@@ -41,6 +41,7 @@ import {
   deleteEnvio,
   saveCostosProveedor,
   guardarTarifaKg,
+  cambiarReenvio,
   saveMedidasCaja,
   guardarGuia,
   guardarFleteReal,
@@ -634,6 +635,34 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
 
   const meta = inboundMeta(inboundCaja)
 
+  // Shoppre contra el reenvío por kilo, para ESTA caja y estimado contra estimado (sin facturas):
+  // es para decidir antes de comprar. La tarifa de equilibrio es el ₹/kg máximo que conviene
+  // aceptar. Solo tiene sentido si algo pasa por un depósito.
+  const comparaReenvio = !esCbm && calc.air.items > 0
+  const calcPorShoppre = comparaReenvio ? calcEnvio(items, cfg, { proveedor, modo: modoEnvio, medidas }) : null
+  const calcPorKilo = comparaReenvio
+    ? calcEnvio(items, cfg, { proveedor, modo: modoEnvio, medidas, reenvio: { tipo: 'por_kilo', tarifaKgInr: reenvioCaja.tarifaKgInr } })
+    : null
+  const shoppreTramoUsd = calcPorShoppre ? calcPorShoppre.air.costUsd + calcPorShoppre.insuranceUsd + calcPorShoppre.processingUsd : 0
+  const kiloTramoUsd = calcPorKilo && reenvioCaja.tarifaKgInr != null ? calcPorKilo.air.costUsd + calcPorKilo.processingUsd : null
+  const equilibrioInr = calcPorShoppre && calcPorKilo
+    ? tarifaEquilibrioKgInr({
+        shoppreUsd: shoppreTramoUsd,
+        chargeableKg: calcPorShoppre.air.chargeableKg,
+        gastosFijosInr: calcPorKilo.reenvio.gastosFijosInr,
+        inrUsd,
+      })
+    : null
+  // Cambiar el reenvío: solo mientras no se compró nada ni se facturó o pagó el flete aéreo.
+  const otroReenvio = porKilo ? 'shoppre' : 'por_kilo'
+  const motivoCambio = motivoNoCambiaReenvio({
+    modo: envio.modo,
+    despachaProveedor: inboundCaja === 'cotizado',
+    lineas: envio.items.map(it => ({ shippingStatus: it.shippingStatus, comprada: it.costRealUsd != null })),
+    fleteAereoFacturado: costoRealAereo != null,
+    fleteAereoPagado: pagosFlete.some(m => m.categoria === TRAMOS_FLETE.aereo.categoria),
+  })
+
   // Una fila por tramo que existe en ESTA caja. En una caja que despacha el proveedor no hay
   // flete aéreo que cargar: ese tramo es `tramoUsd` y se le paga a él dentro del giro.
   const pagosDe = (categoria: string) =>
@@ -994,6 +1023,46 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                   <p className={`text-xs mt-3 px-3 py-2 rounded-lg ${tierHint.tone === 'good' ? 'bg-green-50 text-green-700' : tierHint.tone === 'warn' ? 'bg-amber-50 text-amber-800' : 'bg-blue-50 text-blue-700'}`}>
                     {tierHint.text}
                   </p>
+                )}
+
+                {/* Shoppre contra por kilo, y el botón para cambiar mientras no se compró nada. */}
+                {comparaReenvio && calcPorShoppre && (
+                  <div className="mt-4 rounded-lg bg-violet-50 px-3 py-2.5 text-xs text-violet-900 space-y-1">
+                    <p>
+                      Por <strong>Shoppre</strong> el tramo a USA saldría{' '}
+                      <span className="font-mono font-semibold">{usd(shoppreTramoUsd)}</span>
+                      {' '}(tabla {usd(calcPorShoppre.air.costUsd)} + seguro {usd(calcPorShoppre.insuranceUsd)} + processing {usd(calcPorShoppre.processingUsd)}).
+                      {kiloTramoUsd != null && (
+                        <>
+                          {' '}Por <strong>kilo</strong> con ₹{reenvioCaja.tarifaKgInr!.toFixed(2)}/kg:{' '}
+                          <span className="font-mono font-semibold">{usd(kiloTramoUsd)}</span>
+                          {' '}({kiloTramoUsd < shoppreTramoUsd
+                            ? `ahorrás ${usd(shoppreTramoUsd - kiloTramoUsd)}`
+                            : `cuesta ${usd(kiloTramoUsd - shoppreTramoUsd)} más`}).
+                        </>
+                      )}
+                    </p>
+                    {equilibrioInr != null && (
+                      <p>
+                        El reenvío por kilo conviene si te cotizan menos de{' '}
+                        <span className="font-mono font-semibold">₹{equilibrioInr.toFixed(0)}/kg</span>
+                        {calcPorKilo?.reenvio.gastosFijosInr != null
+                          ? ` (ya descontados ₹${calcPorKilo.reenvio.gastosFijosInr.toFixed(0)} de gastos fijos).`
+                          : ' (sin gastos fijos: no están configurados en /config).'}
+                        {' '}Estimado contra estimado{calc.caja.medido ? ', sobre la caja pesada' : ', sobre la suma de las piezas'}.
+                      </p>
+                    )}
+                    {motivoCambio == null ? (
+                      <FormConResultado action={cambiarReenvio.bind(null, envio.id)} className="pt-1">
+                        <input type="hidden" name="reenvio" value={otroReenvio} />
+                        <PendingButton className="px-3 py-1 rounded-lg border border-violet-300 bg-white text-violet-800 font-medium hover:bg-violet-100 disabled:opacity-50">
+                          Cambiar esta caja a {reenvioMeta(otroReenvio).label}
+                        </PendingButton>
+                      </FormConResultado>
+                    ) : (
+                      <p className="text-violet-700/70">Reenvío fijo. {motivoCambio}</p>
+                    )}
+                  </div>
                 )}
 
                 {/* Reenvío por kilo: no hay tabla, la tarifa la cotizan para esta caja según su

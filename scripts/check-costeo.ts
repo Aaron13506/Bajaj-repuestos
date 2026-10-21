@@ -47,6 +47,7 @@ import {
 import { debeSaldo, motivoNoEntregable, saldoReal, seEntregaDesdeElPedido, situacionDeCobro } from '../lib/saldo-entrega'
 import { diasSinMoverse, tiempoDeCompraA, tiemposPorTramo } from '../lib/etapas'
 import { leerDevolucion } from '../lib/devolucion'
+import { motivoNoCambiaReenvio, tarifaEquilibrioKgInr } from '../lib/reenvio'
 
 const cfg: ConfigMap = {
   inr_usd_rate: '94.95',
@@ -1207,6 +1208,28 @@ console.log('\nREENVÍO POR KILO  (₹/kg cotizado por caja + gastos fijos, sin 
   }
   // Sin `reenvio` (catálogo, presupuestos, simulador) todo sigue siendo Shoppre.
   check('sin reenvío = Shoppre de siempre', sh.reenvio.tipo === 'shoppre' && sh.insuranceUsd > 0 ? 1 : 0, 1)
+
+  // Tarifa de equilibrio: cotizada justo en ella, las dos rutas cuestan lo mismo.
+  const shoppreUsd = sh.air.costUsd + sh.insuranceUsd + sh.processingUsd
+  const eq = tarifaEquilibrioKgInr({ shoppreUsd, chargeableKg: sh.air.chargeableKg, gastosFijosInr: 1200, inrUsd: 94.95 })!
+  const enEq = calcEnvio(itemsShoppre, cfgK, { proveedor: provOemship, reenvio: { tipo: 'por_kilo', tarifaKgInr: eq } })
+  check('en la tarifa de equilibrio, por kilo = Shoppre', enEq.air.costUsd + enEq.processingUsd, shoppreUsd)
+  check('gastos fijos más caros que Shoppre: equilibrio 0, no negativo',
+    tarifaEquilibrioKgInr({ shoppreUsd: 10, chargeableKg: 5, gastosFijosInr: 5000, inrUsd: 94.95 })!, 0)
+  check('caja sin kilos: sin equilibrio', tarifaEquilibrioKgInr({ shoppreUsd: 10, chargeableKg: 0, gastosFijosInr: 0, inrUsd: 94.95 }) == null ? 1 : 0, 1)
+}
+
+console.log('\nCAMBIAR EL REENVÍO DE UNA CAJA')
+{
+  const base = { modo: 'aereo', despachaProveedor: false, lineas: [{ shippingStatus: 'pendiente', comprada: false }], fleteAereoFacturado: false, fleteAereoPagado: false }
+  const no = (c: Partial<typeof base>) => (motivoNoCambiaReenvio({ ...base, ...c }) != null ? 1 : 0)
+  check('nada comprado ni facturado: se puede', no({}), 0)
+  check('una línea con costo real: no', no({ lineas: [{ shippingStatus: 'pendiente', comprada: true }] }), 1)
+  check('una línea camino al depósito: no', no({ lineas: [{ shippingStatus: 'camino_shoppre', comprada: false }] }), 1)
+  check('flete aéreo facturado: no', no({ fleteAereoFacturado: true }), 1)
+  check('flete aéreo pagado: no', no({ fleteAereoPagado: true }), 1)
+  check('proveedor que despacha él: no', no({ despachaProveedor: true }), 1)
+  check('caja marítima: no', no({ modo: 'maritimo_cbm' }), 1)
 }
 
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)

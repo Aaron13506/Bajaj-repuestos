@@ -9,7 +9,7 @@ import { bloqueaCompra, bloqueaEntrega } from '@/lib/incidencias'
 import { seEntregaDesdeElPedido } from '@/lib/saldo-entrega'
 import { inboundDe } from '@/lib/inbound'
 import { isModoApp } from '@/lib/modo'
-import { isReenvio } from '@/lib/reenvio'
+import { isReenvio, motivoNoCambiaReenvio } from '@/lib/reenvio'
 import { fallo, ok, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
 import { isForeignKeyViolation } from '@/lib/prisma-errors'
 import { CATEGORIAS_EGRESO } from '@/lib/movimientos'
@@ -346,6 +346,49 @@ export async function saveMedidasCaja(envioId: number, formData: FormData): Prom
   if (r.count === 0) return fallo('Ese envío ya no existe.')
   revalidatePath('/envios')
   revalidatePath(`/envios/${envioId}`)
+  return ok()
+}
+
+// Cambia el reenvío de una caja (Shoppre ↔ por kilo) mientras sigue siendo solo una idea: nada
+// comprado, sin flete aéreo facturado ni pagado (motivoNoCambiaReenvio). La tarifa ₹/kg se
+// conserva, así ir y volver para comparar no la borra. El WHERE repite la regla, así que una
+// compra hecha en otra pestaña entre la pantalla y el click no se saltea.
+export async function cambiarReenvio(envioId: number, formData: FormData): Promise<ActionResult> {
+  const reenvio = formData.get('reenvio') as string | null
+  if (!isReenvio(reenvio)) return fallo('Ese reenvío no existe.')
+
+  const e = await db.envio.findUnique({
+    where: { id: envioId },
+    select: {
+      modo: true,
+      shippingCostRealAereo: true,
+      supplier: { select: { origen: true, inbound: true } },
+      items: { select: { shippingStatus: true, costRealUsd: true } },
+      movimientos: { where: { categoria: TRAMOS_FLETE.aereo.categoria }, select: { id: true } },
+    },
+  })
+  if (!e) return fallo('Ese envío ya no existe.')
+  const motivo = motivoNoCambiaReenvio({
+    modo: e.modo,
+    despachaProveedor: inboundDe(e.supplier?.origen, e.supplier?.inbound) === 'cotizado',
+    lineas: e.items.map(i => ({ shippingStatus: i.shippingStatus, comprada: i.costRealUsd != null })),
+    fleteAereoFacturado: e.shippingCostRealAereo != null,
+    fleteAereoPagado: e.movimientos.length > 0,
+  })
+  if (motivo) return fallo(motivo)
+
+  const r = await db.envio.updateMany({
+    where: {
+      id: envioId,
+      modo: 'aereo',
+      shippingCostRealAereo: null,
+      items: { none: { OR: [{ shippingStatus: { not: 'pendiente' } }, { costRealUsd: { not: null } }] } },
+      movimientos: { none: { categoria: TRAMOS_FLETE.aereo.categoria } },
+    },
+    data: { reenvio },
+  })
+  if (r.count === 0) return fallo('La caja cambió mientras tanto (se compró algo o se cargó el flete). Recargá la página.')
+  revalidarCaja(envioId)
   return ok()
 }
 
