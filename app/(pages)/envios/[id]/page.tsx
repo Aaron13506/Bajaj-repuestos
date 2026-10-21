@@ -24,6 +24,7 @@ import FleteRealCard, { type FilaFlete } from '@/components/FleteRealCard'
 import ConteoCaja, { BotonConteo } from '@/components/ConteoCaja'
 import { piezasAContar } from '@/lib/conteo'
 import { statusIndex } from '@/lib/shipping-status'
+import { seEntregaDesdeElPedido } from '@/lib/saldo-entrega'
 import { TRAMOS_FLETE, CATEGORIAS_FLETE, estadoFlete } from '@/lib/flete-real'
 import { itemsSinCostoRealDeEnvio, CATEGORIAS_PAGO_PROVEEDOR } from '@/lib/movimientos'
 import type { BundlePiece } from '@/lib/bundle'
@@ -539,6 +540,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
       : it.productId != null
         ? it.quantity
         : ((it.bundleItems as BundlePiece[] | null) ?? []).reduce((s, p) => s + p.quantity, 0) * it.quantity,
+    esCliente: seEntregaDesdeElPedido(it.pedido.tipo),
     sinPeso: faltantesByItem.get(it.id)?.sinPeso ?? 0,
     sinMedidas: faltantesByItem.get(it.id)?.sinMedidas ?? 0,
   }))
@@ -1392,7 +1394,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               piezas={aContar}
               recibir={saveItemChanges.bind(null, envio.id, porRecibir.map(it => ({ id: it.id, shippingStatus: 'en_venezuela' })))}
               yaRecibida={porRecibir.length === 0}
-              aviso={`${porRecibir.length > 0 ? `Pasa ${porRecibir.length} ${porRecibir.length === 1 ? 'línea' : 'líneas'} a "En Venezuela". ` : ''}Lo que falte, reportalo como incidencia "faltante" en su pedido.`}
+              aviso={`${porRecibir.length > 0 ? `Pasa ${porRecibir.length} ${porRecibir.length === 1 ? 'línea' : 'líneas'} a "Recibido". ` : ''}Lo que falte, reportalo como incidencia "faltante" en su pedido.`}
             />
           )}
 

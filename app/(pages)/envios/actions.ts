@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { isDelivered, isPending, isValidStatus, normalizeToRoute, routeFor } from '@/lib/shipping-status'
 import { bloqueaCompra, bloqueaEntrega } from '@/lib/incidencias'
-import { debeSaldo, mensajeEntregaConSaldo, saldoReal } from '@/lib/saldo-entrega'
+import { seEntregaDesdeElPedido } from '@/lib/saldo-entrega'
 import { inboundDe } from '@/lib/inbound'
 import { isModoApp } from '@/lib/modo'
 import { fallo, ok, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
@@ -555,17 +555,12 @@ export interface CambioItem {
 // nada, y el estado se normaliza a la ruta de cada uno: un ítem que despacha el proveedor
 // no puede quedar "en Shoppre".
 //
-// Entregar es el momento en que el cliente se lleva la mercancía, y los términos dicen que el saldo
-// se cancela contra entrega: entregar una línea de un pedido que todavía debe saldo se rechaza con
-// `codigo: 'saldo_pendiente'`, y solo pasa si quien lo pide lo confirma (`entregarConSaldo`) — queda
-// anotado en el historial del pedido. Una línea con un problema abierto (dañada, incompleta…) no se
-// entrega, y una "no disponible" no se compra; esas no se saltean. Cada cambio de etapa deja su fila
-// en `PedidoItemEtapa`, de donde salen los tiempos reales (lib/etapas.ts).
-export async function saveItemChanges(
-  envioId: number,
-  cambios: CambioItem[],
-  opciones: { entregarConSaldo?: boolean } = {},
-): Promise<ActionResult> {
+// Una línea de cliente llega hasta "Recibido": se entrega desde su pedido (confirmarEntrega), que
+// es donde se cobra el saldo (ver seEntregaDesdeElPedido). Sacarla de entregado sí se puede acá,
+// para corregir un error. Una línea con un problema abierto (dañada, incompleta…) no se entrega, y
+// una "no disponible" no se compra; esas no se saltean. Cada cambio de etapa deja su fila en
+// `PedidoItemEtapa`, de donde salen los tiempos reales (lib/etapas.ts).
+export async function saveItemChanges(envioId: number, cambios: CambioItem[]): Promise<ActionResult> {
   if (cambios.length === 0) return ok()
 
   // Una caja en borrador no es una compra todavía: sus líneas no se compran ni viajan.
@@ -577,12 +572,7 @@ export async function saveItemChanges(
     select: {
       id: true, shippingStatus: true, origen: true, inbound: true, isLanded: true,
       productId: true, quantity: true, bundleItems: true,
-      pedido: {
-        select: {
-          id: true, tipo: true, status: true, clientName: true, depositUsd: true,
-          items: { select: { salePrice: true, quantity: true } },
-        },
-      },
+      pedido: { select: { id: true, tipo: true, status: true, clientName: true } },
       incidencias: { select: { tipo: true, estado: true } },
     },
   })
@@ -601,7 +591,6 @@ export async function saveItemChanges(
   // estaba entregado antes de este cambio, ya se sumó, y si deja de estarlo hay que restarlo.
   const filas: FilaEtapa[] = []
   const conStock: (typeof items)[number][] = []
-  const conSaldo = new Map<number, { pedidoId: number; clientName: string; saldoUsd: number }>()
   for (const it of items) {
     const c = pedido.get(it.id)
     if (!c) continue
@@ -621,14 +610,11 @@ export async function saveItemChanges(
     if (isDelivered(status) && bloqueaEntrega(it.incidencias)) {
       return fallo(`Una pieza del pedido #${it.pedido.id} tiene un problema sin resolver (dañada, incompleta…): resolvelo antes de entregarla.`)
     }
-    if (isDelivered(status) && it.pedido.tipo === 'cliente' && !isDelivered(it.shippingStatus)) {
-      const saldo = saldoReal(
-        it.pedido.items.map(i => ({ salePrice: Number(i.salePrice), quantity: i.quantity })),
-        it.pedido.depositUsd != null ? Number(it.pedido.depositUsd) : null,
+    if (isDelivered(status) && seEntregaDesdeElPedido(it.pedido.tipo)) {
+      return fallo(
+        `Lo del pedido #${it.pedido.id} (${it.pedido.clientName}) se entrega desde el pedido, con "Confirmar entrega": ` +
+        `ahí se cobra el saldo. Desde la caja llega hasta "Recibido".`,
       )
-      if (debeSaldo(saldo) && !conSaldo.has(it.pedido.id)) {
-        conSaldo.set(it.pedido.id, { pedidoId: it.pedido.id, clientName: it.pedido.clientName, saldoUsd: saldo })
-      }
     }
 
     let signo = 0
@@ -641,11 +627,6 @@ export async function saveItemChanges(
     filas.push({ id: it.id, desde: it.shippingStatus, hacia: status, signo })
   }
   if (filas.length === 0) return ok()
-
-  // El saldo se cobra contra entrega: sin confirmación expresa no se entrega con plata pendiente.
-  if (conSaldo.size > 0 && !opciones.entregarConSaldo) {
-    return fallo(mensajeEntregaConSaldo([...conSaldo.values()]), 'saldo_pendiente')
-  }
 
   // Qué piezas del catálogo mueve cada línea: la pieza suelta, o las piezas del conjunto (ver
   // lib/stock-piezas). Si alguna pieza de un conjunto no se puede identificar no se entrega
@@ -668,18 +649,6 @@ export async function saveItemChanges(
 
   const r = await conErrorDeNegocio(() => moverEtapas(envioId, filas, piezas))
   if (!r.ok) return r
-
-  if (conSaldo.size > 0) {
-    await db.pedidoEvento.createMany({
-      data: [...conSaldo.values()].map(c => ({
-        pedidoId: c.pedidoId,
-        tipo: 'entrega_con_saldo',
-        detalle: `Se entregó con saldo pendiente de $${c.saldoUsd.toFixed(2)} (confirmado al marcar la entrega)`,
-      })),
-    })
-    for (const c of conSaldo.values()) revalidatePath(`/presupuestos/${c.pedidoId}`)
-    revalidatePath('/contabilidad')
-  }
 
   revalidatePath(`/envios/${envioId}`)
   revalidatePath('/envios')

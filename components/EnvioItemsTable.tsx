@@ -38,6 +38,8 @@ export interface EnvioItemRow {
   // Unidades de stock propio que esta línea mueve al entregarse (0 si es de un cliente; un
   // conjunto cuenta sus piezas). Sirve para avisar antes de un movimiento masivo.
   stockUnidades: number
+  // Línea de un cliente: llega hasta "Recibido" y se entrega desde su pedido (seEntregaDesdeElPedido).
+  esCliente: boolean
   // Piezas de la línea sin peso / sin medidas cargados: el cálculo del flete las subestima.
   sinPeso: number
   sinMedidas: number
@@ -50,7 +52,7 @@ interface Props {
   // define las etapas que ofrece el select de estado: una caja que despacha directo no
   // pasa por Shoppre, y ofrecer esas etapas sería prometer un estado que no va a llegar.
   inbound: Inbound
-  guardar: (envioId: number, cambios: CambioItem[], opciones?: { entregarConSaldo?: boolean }) => Promise<ActionResult>
+  guardar: (envioId: number, cambios: CambioItem[]) => Promise<ActionResult>
   // La caja está en borrador: todavía no es una compra, así que sus líneas no se mueven de
   // etapa (el server lo rechaza igual; esto evita ofrecerlo).
   bloqueada?: boolean
@@ -170,6 +172,11 @@ export default function EnvioItemsTable({
   // proveedor manda puesta en Venezuela no viaja adentro, así que salta el pipeline.
   const rutaDe = (it: EnvioItemRow) => routeFor(inbound, it.isLanded)
 
+  // Lo de un cliente se entrega desde su pedido: mientras no esté entregado, "Entregado" no se ofrece.
+  const entregaEnElPedido = (it: EnvioItemRow) => it.esCliente && !isDelivered(valorDe(it).shippingStatus)
+  const etapasPara = (etapas: ReturnType<typeof routeStages>, filas: EnvioItemRow[]) =>
+    filas.some(entregaEnElPedido) ? etapas.filter(s => !isDelivered(s.value)) : etapas
+
   const visibles = items.filter(it => !quitados.includes(it.pedidoId))
   // Las etapas de la ruta de la caja (la de sus líneas que sí viajan).
   const etapasCaja = routeStages(routeFor(inbound, false))
@@ -191,12 +198,7 @@ export default function EnvioItemsTable({
         setError(msg)
       }
       try {
-        let r = await guardar(envioId, cambios)
-        // Los términos dicen que el saldo se cancela contra entrega: entregar con plata pendiente es
-        // posible, pero solo si se confirma a propósito (queda anotado en el historial del pedido).
-        if (!r.ok && r.codigo === 'saldo_pendiente' && confirm(`${r.error}\n\n¿Entregar igual, con el saldo pendiente?`)) {
-          r = await guardar(envioId, cambios, { entregarConSaldo: true })
-        }
+        const r = await guardar(envioId, cambios)
         if (r.ok) setGuardadoOk(true)
         else revertir(r.error)
       } catch {
@@ -246,12 +248,14 @@ export default function EnvioItemsTable({
     const pares: { it: EnvioItemRow; destino: string }[] = []
     let sinEtapa = 0
     let sinComprar = 0
+    let delPedido = 0
     for (const it of visibles) {
       const actual = valorDe(it).shippingStatus
       const ruta = rutaDe(it)
       const hacia = destino ?? nextStatus(actual, ruta)
       if (hacia == null) continue
       if (!routeStages(ruta).some(s => s.value === hacia)) { sinEtapa++; continue }
+      if (isDelivered(hacia) && entregaEnElPedido(it)) { delPedido++; continue }
       if (actual === 'pendiente' && !incluirNoCompradas && hacia !== 'pendiente') { sinComprar++; continue }
       if (hacia === actual) continue
       pares.push({ it, destino: hacia })
@@ -261,7 +265,9 @@ export default function EnvioItemsTable({
       setError(
         sinComprar > 0
           ? 'Todo lo que se podía mover está sin comprar. Tildá "incluir no compradas" si es a propósito.'
-          : 'No hay líneas para mover a esa etapa.',
+          : delPedido > 0
+            ? 'Lo de los clientes se entrega desde cada pedido, con "Confirmar entrega".'
+            : 'No hay líneas para mover a esa etapa.',
       )
       return
     }
@@ -284,6 +290,7 @@ export default function EnvioItemsTable({
     const notas: string[] = []
     if (sinEtapa > 0) notas.push(`${sinEtapa} ${sinEtapa === 1 ? 'línea no tiene' : 'líneas no tienen'} esa etapa y quedaron como estaban`)
     if (sinComprar > 0) notas.push(`${sinComprar} sin comprar no se movieron`)
+    if (delPedido > 0) notas.push(`${delPedido} de clientes se entregan desde su pedido ("Confirmar entrega")`)
     setAviso(notas.length > 0 ? notas.join(' · ') : null)
   }
 
@@ -509,7 +516,7 @@ export default function EnvioItemsTable({
                       }`}
                     >
                       {statusComun === undefined && <option value={MIXTO}>— mixto —</option>}
-                      {(rutaGrupo ? routeStages(rutaGrupo) : SHIPPING_STATUSES).map(s => (
+                      {etapasPara(rutaGrupo ? routeStages(rutaGrupo) : [...SHIPPING_STATUSES], its).map(s => (
                         <option key={s.value} value={s.value}>{s.icon} {s.label}</option>
                       ))}
                     </select>
@@ -590,7 +597,7 @@ export default function EnvioItemsTable({
                           onChange={e => aplicarA([it], { shippingStatus: e.target.value })}
                           className={`w-full text-xs font-semibold rounded-full pl-2.5 pr-6 py-1 border-0 cursor-pointer focus:ring-2 focus:ring-blue-500 ${shippingStatusMeta(v.shippingStatus).badge}`}
                         >
-                          {routeStages(ruta).map(s => (
+                          {etapasPara(routeStages(ruta), [it]).map(s => (
                             <option key={s.value} value={s.value}>{s.icon} {s.label}</option>
                           ))}
                         </select>

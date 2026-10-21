@@ -5,6 +5,7 @@
 // apareciendo en "por cobrar" mezclado con lo que todavía viaja, que es lo normal. Lo que sí es
 // un riesgo es lo que ya se entregó y no se pagó, y eso no se distinguía.
 import { isDelivered } from '@/lib/shipping-status'
+import { bloqueaEntrega, type IncidenciaAbierta } from '@/lib/incidencias'
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 
@@ -37,6 +38,21 @@ export const SITUACION_LABELS: Record<SituacionCobro, string> = {
   entregado: 'Entregado sin pagar',
   parcial: 'Entregado en parte',
   en_transito: 'En tránsito',
+}
+
+// Una línea de cliente se entrega desde su pedido (confirmarEntrega), que es donde se cobra el
+// saldo: /envios la lleva hasta "Recibido". Cuando se podía en los dos lados, entregar y cobrar
+// eran dos pantallas. El stock propio no tiene a quién cobrarle y se sigue cerrando en la caja.
+export function seEntregaDesdeElPedido(tipo: string): boolean {
+  return tipo === 'cliente'
+}
+
+// Qué impide entregar una línea desde el pedido (null = se puede): tiene que estar recibida
+// (en mis manos) y sin un problema abierto.
+export function motivoNoEntregable(l: { shippingStatus: string; incidencias: IncidenciaAbierta[] }): string | null {
+  if (l.shippingStatus !== 'en_venezuela') return isDelivered(l.shippingStatus) ? 'ya está entregada' : 'todavía no está recibida'
+  if (bloqueaEntrega(l.incidencias)) return 'tiene un problema sin resolver'
+  return null
 }
 
 export function mensajeEntregaConSaldo(pedidos: { pedidoId: number; clientName: string; saldoUsd: number }[]): string {

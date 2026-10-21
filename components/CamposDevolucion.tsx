@@ -14,17 +14,19 @@ import { METODOS_DEVOLUCION } from '@/lib/devolucion'
 interface Props {
   /** Lo que se propone devolver. */
   sugerido: number
-  /** Lo máximo que se puede devolver (lo cobrado). */
-  maximo: number
+  /** Lo máximo que se puede devolver (lo cobrado). Sin él, lo controla el server (el vuelto de una entrega). */
+  maximo?: number
   /** Tasa de cobro directo, para proponer en los Bs. */
   tasaSugerida: number
   /** Texto del campo de monto. */
   etiqueta?: string
+  /** Texto de ayuda bajo el monto (por defecto, lo cobrado). */
+  ayuda?: string
 }
 
 const cls = 'w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
 
-export default function CamposDevolucion({ sugerido, maximo, tasaSugerida, etiqueta = 'Devolver al cliente (USD reales)' }: Props) {
+export default function CamposDevolucion({ sugerido, maximo, tasaSugerida, etiqueta = 'Devolver al cliente (USD reales)', ayuda }: Props) {
   const [monto, setMonto] = useState(sugerido > 0 ? sugerido.toFixed(2) : '')
   const [metodo, setMetodo] = useState<string>(METODOS_DEVOLUCION[0])
   const [tasa, setTasa] = useState(tasaSugerida > 0 ? tasaSugerida.toFixed(2) : '')
@@ -45,7 +47,7 @@ export default function CamposDevolucion({ sugerido, maximo, tasaSugerida, etiqu
           />
         </div>
         <p className="text-[11px] text-gray-400 mt-1">
-          Tiene cobrado ${maximo.toFixed(2)}. Vacío o 0 = no se devuelve nada.
+          {ayuda ?? `Tiene cobrado $${(maximo ?? 0).toFixed(2)}. Vacío o 0 = no se devuelve nada.`}
         </p>
       </div>
 

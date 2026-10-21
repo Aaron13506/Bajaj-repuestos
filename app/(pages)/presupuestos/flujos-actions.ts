@@ -11,7 +11,8 @@ import { revalidateClientes } from '@/lib/clientes'
 import { ok, fallo, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
 import { escalonBcvVigente } from '@/lib/calc'
 import { toConfigMap, num } from '@/lib/config'
-import { bloquearPedido, devolverACliente } from '@/lib/movimientos'
+import { bloquearPedido, cobrarPedido, devolverACliente } from '@/lib/movimientos'
+import { leerCobroBs } from '@/lib/cuentas'
 import { leerDevolucion } from '@/lib/devolucion'
 import { bloquearDescontinuadas } from '@/lib/descontinuadas'
 import { estadoLinea } from '@/lib/pedido-edicion'
@@ -24,7 +25,7 @@ import {
 } from '@/lib/incidencias'
 import { nombreEnsamble } from '@/lib/linea-pedido'
 import type { BundlePiece } from '@/lib/bundle'
-import { debeSaldo, mensajeEntregaConSaldo, saldoReal } from '@/lib/saldo-entrega'
+import { debeSaldo, mensajeEntregaConSaldo, motivoNoEntregable, saldoReal, seEntregaDesdeElPedido } from '@/lib/saldo-entrega'
 import { costoDeLinea, motivoNoServible } from '@/lib/venta-stock'
 
 const dec = (v: { toString(): string } | null | undefined) => (v != null ? parseFloat(v.toString()) : null)
@@ -307,38 +308,106 @@ export async function devolverAlDeposito(itemId: number): Promise<ActionResult> 
   return r
 }
 
+// ── Confirmar la entrega ─────────────────────────────────────────────────────────────────────
+
 /**
- * Entrega al cliente una línea servida con lo del depósito (no está en ninguna caja, así que no
- * pasa por la tabla de etapas de /envios). Mismas reglas que entregar desde una caja: con saldo
- * pendiente pide confirmación (`saldo_pendiente`) y con un problema abierto no se entrega.
+ * El cliente se lleva lo recibido: en UN paso se cobra lo que pagó en ese momento (cobrarPedido),
+ * se anota el vuelto si se le dio (sale como devolución del saldo a favor que dejó el pago, ver
+ * devolverACliente) y las líneas elegidas pasan a entregado, vengan de una caja o del depósito.
+ * Todo o nada bajo el cerrojo del pedido: si queda saldo y no se marcó "entregar igual", no se
+ * guarda ni el cobro. Las reglas de qué se entrega viven en lib/saldo-entrega.ts.
  */
-export async function entregarDesdeStock(itemId: number, entregarConSaldo = false): Promise<ActionResult> {
-  let pedidoId = 0
+export async function confirmarEntrega(pedidoId: number, formData: FormData): Promise<ActionResult> {
+  const ids = [...new Set(formData.getAll('itemId').map(v => parseInt(String(v), 10)))]
+  if (ids.length === 0 || ids.some(n => !Number.isInteger(n))) return fallo('Marcá qué piezas se lleva.')
+
+  const metodoPago = (formData.get('metodoPago') as string)?.trim() || null
+  const bs = leerCobroBs(formData, metodoPago, true)
+  if (!bs.ok) return fallo(bs.error)
+  const crudo = String(formData.get('monto') ?? '').trim()
+  // Vacío = no pagó nada en la entrega (ya estaba pago, o se lo lleva debiendo). Ilegible se rechaza.
+  const monto = bs.cobro ? bs.cobro.montoUsd : crudo === '' ? 0 : parseFloat(crudo.replace(',', '.'))
+  if (!Number.isFinite(monto) || monto < 0) return fallo('Lo que pagó no es un número válido.')
+  if (monto > 0 && !metodoPago) return fallo('Elegí cómo pagó.')
+  const vuelto = leerDevolucion(formData)
+  if (!vuelto.ok) return fallo(vuelto.error)
+  if (vuelto.devolucion && monto === 0) return fallo('Hay vuelto sin pago: anotá lo que entregó el cliente.')
+  const conSaldo = formData.get('entregarConSaldo') === 'on'
+  const nota = (formData.get('descripcion') as string)?.trim() || null
+  const rawFecha = (formData.get('fecha') as string)?.trim()
+  const fecha = rawFecha ? new Date(`${rawFecha}T12:00:00`) : new Date()
+
   const r = await conErrorDeNegocio(() => db.$transaction(async tx => {
-    const it = await tx.pedidoItem.findUnique({ where: { id: itemId }, select: { pedidoId: true } })
-    if (!it) throw new ErrorDeNegocio('Esa línea ya no existe. Recargá la página.')
-    pedidoId = it.pedidoId
-    await bloquearPedido(tx, pedidoId)
-    const l = await tx.pedidoItem.findUniqueOrThrow({
-      where: { id: itemId },
+    if (!(await bloquearPedido(tx, pedidoId))) throw new ErrorDeNegocio('Ese pedido ya no existe. Recargá la página.')
+    const p = await tx.pedido.findUniqueOrThrow({
+      where: { id: pedidoId },
       select: {
-        desdeStock: true, shippingStatus: true, quantity: true, product: { select: { nameEs: true } },
-        incidencias: { select: { tipo: true, estado: true } },
-        pedido: { select: { id: true, clientName: true, depositUsd: true, items: { select: { salePrice: true, quantity: true } } } },
+        tipo: true, status: true, clientName: true,
+        items: {
+          select: {
+            id: true, salePrice: true, quantity: true, shippingStatus: true,
+            incidencias: { select: { tipo: true, estado: true } },
+            product: { select: { nameEs: true } },
+            ensamble: { select: { nameEs: true, nameEn: true } },
+          },
+        },
       },
     })
-    if (!l.desdeStock || l.shippingStatus !== 'en_venezuela') throw new ErrorDeNegocio('Esta línea no está lista para entregar desde el depósito. Recargá la página.')
-    if (bloqueaEntrega(l.incidencias)) throw new ErrorDeNegocio('La línea tiene un problema sin resolver: resolvelo antes de entregarla.')
-    const saldo = saldoReal(l.pedido.items.map(i => ({ salePrice: Number(i.salePrice), quantity: i.quantity })), dec(l.pedido.depositUsd))
-    if (debeSaldo(saldo) && !entregarConSaldo) {
-      throw new ErrorDeNegocio(mensajeEntregaConSaldo([{ pedidoId, clientName: l.pedido.clientName, saldoUsd: saldo }]), 'saldo_pendiente')
+    if (!seEntregaDesdeElPedido(p.tipo) || p.status !== 'pedido') {
+      throw new ErrorDeNegocio('Solo se confirma la entrega de un pedido de cliente confirmado.')
     }
+    const lineas = p.items.filter(i => ids.includes(i.id))
+    if (lineas.length !== ids.length) throw new ErrorDeNegocio('Alguna pieza ya no está en el pedido. Recargá la página.')
+    for (const l of lineas) {
+      const no = motivoNoEntregable(l)
+      if (no) throw new ErrorDeNegocio(`${nombreDeLinea(l)} ${no}. Recargá la página.`)
+    }
+    const valores = p.items.map(i => ({ salePrice: Number(i.salePrice), quantity: i.quantity }))
+    const depositoAhora = async () => (await bloquearPedido(tx, pedidoId))!.depositUsd
+
+    // Primero la plata, después las piezas.
+    if (monto > 0) {
+      const c = await cobrarPedido(tx, {
+        pedidoId, monto, categoria: 'pago_cliente', fecha, metodoPago,
+        descripcion: ['Pago en la entrega', nota].filter(Boolean).join(' · '),
+        tasaBs: bs.cobro?.tasaBs, montoBs: bs.cobro?.montoBs,
+      })
+      if (!c.ok) throw new ErrorDeNegocio(c.error)
+    }
+    if (vuelto.devolucion) {
+      const v = vuelto.devolucion
+      const sobra = -saldoReal(valores, await depositoAhora())
+      if (v.monto > sobra + 0.005) {
+        throw new ErrorDeNegocio(
+          sobra > 0.005
+            ? `El vuelto no puede pasar de ${usd(sobra)}: es lo que pagó de más.`
+            : 'Con lo que pagó no sobra nada: no hay vuelto que dar.',
+        )
+      }
+      await devolverACliente(tx, { pedidoId, monto: v.monto, fecha: v.fecha, metodoPago: v.metodoPago, descripcion: 'Vuelto de la entrega', bs: v.bs })
+    }
+    const saldo = saldoReal(valores, await depositoAhora())
+    if (debeSaldo(saldo) && !conSaldo) {
+      throw new ErrorDeNegocio(
+        `${mensajeEntregaConSaldo([{ pedidoId, clientName: p.clientName, saldoUsd: saldo }])} Si se lo lleva debiendo, marcá "entregar igual".`,
+        'saldo_pendiente',
+      )
+    }
+
     const hecho = await tx.pedidoItem.updateMany({
-      where: { id: itemId, desdeStock: true, shippingStatus: 'en_venezuela' },
+      where: { id: { in: ids }, pedidoId, shippingStatus: 'en_venezuela' },
       data: { shippingStatus: 'entregado', shippingStatusAt: new Date() },
     })
-    if (hecho.count === 0) throw new ErrorDeNegocio('La línea cambió mientras tanto. Recargá la página.')
-    await tx.pedidoItemEtapa.create({ data: { itemId, desde: 'en_venezuela', hacia: 'entregado' } })
+    if (hecho.count !== ids.length) throw new ErrorDeNegocio('Alguna pieza cambió mientras tanto. Recargá la página.')
+    await tx.pedidoItemEtapa.createMany({ data: ids.map(itemId => ({ itemId, desde: 'en_venezuela', hacia: 'entregado' })) })
+
+    const partes = [
+      `Entregado: ${lineas.map(l => `${l.quantity} × ${nombreDeLinea(l)}`).join(', ')}`,
+      monto > 0 ? `Pagó en la entrega (${metodoPago})` : null,
+      vuelto.devolucion ? `Vuelto ${usd(vuelto.devolucion.monto)} (${vuelto.devolucion.metodoPago})` : null,
+      nota,
+    ].filter(Boolean)
+    await registrarEvento(tx, pedidoId, 'entrega', partes.join('\n'))
     if (debeSaldo(saldo)) {
       await registrarEvento(tx, pedidoId, 'entrega_con_saldo', `Se entregó con saldo pendiente de ${usd(saldo)} (confirmado al marcar la entrega)`)
     }

@@ -44,7 +44,7 @@ import {
   bloqueaCompra, bloqueaEntrega, cerradosPorEdicion, dentroDePlazo, etiquetaPieza, motivoResolucionInvalida, origenPara, perdidaSugerida, planReembolso,
   resolucionesPara, tiposPara, type Resolucion,
 } from '../lib/incidencias'
-import { debeSaldo, saldoReal, situacionDeCobro } from '../lib/saldo-entrega'
+import { debeSaldo, motivoNoEntregable, saldoReal, seEntregaDesdeElPedido, situacionDeCobro } from '../lib/saldo-entrega'
 import { diasSinMoverse, tiempoDeCompraA, tiemposPorTramo } from '../lib/etapas'
 import { leerDevolucion } from '../lib/devolucion'
 
@@ -1038,6 +1038,12 @@ console.log('\nENTREGAR CONTRA EL SALDO')
   check('todo entregado = entregado sin pagar', si(situacionDeCobro([{ shippingStatus: 'entregado' }, { shippingStatus: 'entregado' }]) === 'entregado'), 1)
   check('algo entregado = parcial', si(situacionDeCobro([{ shippingStatus: 'entregado' }, { shippingStatus: 'camino_usa' }]) === 'parcial'), 1)
   check('nada entregado = en tránsito (lo normal)', si(situacionDeCobro([{ shippingStatus: 'camino_usa' }]) === 'en_transito'), 1)
+  check('lo de un cliente se entrega desde su pedido', si(seEntregaDesdeElPedido('cliente')), 1)
+  check('el stock propio se cierra en la caja', si(seEntregaDesdeElPedido('propio')), 0)
+  check('recibida y sin problemas: se entrega', si(motivoNoEntregable({ shippingStatus: 'en_venezuela', incidencias: [] }) === null), 1)
+  check('en camino no se entrega', si(motivoNoEntregable({ shippingStatus: 'camino_venezuela', incidencias: [] }) === null), 0)
+  check('con un problema abierto no se entrega', si(motivoNoEntregable({ shippingStatus: 'en_venezuela', incidencias: [{ tipo: 'danada', estado: 'abierta' }] }) === null), 0)
+  check('un problema ya resuelto no frena', si(motivoNoEntregable({ shippingStatus: 'en_venezuela', incidencias: [{ tipo: 'danada', estado: 'resuelta' }] }) === null), 1)
 }
 
 console.log('\nTIEMPOS REALES POR ETAPA')

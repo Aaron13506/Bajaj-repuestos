@@ -30,7 +30,7 @@ export const SHIPPING_STATUSES = [
   { value: 'camino_usa',       short: 'A USA',       label: 'Camino a USA',          icon: '✈️', bought: true,  dot: 'bg-indigo-400', badge: 'bg-indigo-50 text-indigo-600' },
   { value: 'en_usa',           short: 'En USA',      label: 'En USA',                icon: '🇺🇸', bought: true,  dot: 'bg-indigo-500', badge: 'bg-indigo-100 text-indigo-700' },
   { value: 'camino_venezuela', short: 'A Venezuela', label: 'Camino a Venezuela',    icon: '🚢', bought: true,  dot: 'bg-amber-400',  badge: 'bg-amber-50 text-amber-600' },
-  { value: 'en_venezuela',     short: 'En Venezuela',label: 'En Venezuela',          icon: '🇻🇪', bought: true,  dot: 'bg-amber-500',  badge: 'bg-amber-100 text-amber-700' },
+  { value: 'en_venezuela',     short: 'Recibido',    label: 'Recibido (lo tengo yo)', icon: '📥', bought: true,  dot: 'bg-amber-500',  badge: 'bg-amber-100 text-amber-700' },
   { value: 'entregado',        short: 'Entregado',   label: 'Entregado',             icon: '✅', bought: true,  dot: 'bg-green-500',  badge: 'bg-green-100 text-green-700' },
 ] as const
 

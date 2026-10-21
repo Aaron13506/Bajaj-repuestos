@@ -11,10 +11,11 @@ import DevolverClienteForm from '@/components/DevolverClienteForm'
 import RenovarPresupuestoButton from '@/components/RenovarPresupuestoButton'
 import IncidenciasLinea, { type IncidenciaVista } from '@/components/IncidenciasLinea'
 import LineaDeposito from '@/components/LineaDeposito'
+import ConfirmarEntregaForm, { type LineaEntrega } from '@/components/ConfirmarEntregaForm'
 import { motivoNoServible } from '@/lib/venta-stock'
 import { deletePresupuesto, aprobarPedido, registrarPagoPedido } from '../actions'
 import {
-  cancelarPedido, devolverAlCliente, devolverAlDeposito, entregarDesdeStock, marcarPerdido, servirDesdeStock, reabrirPresupuesto, renovarPresupuesto, reportarIncidencia,
+  cancelarPedido, confirmarEntrega, devolverAlCliente, devolverAlDeposito, marcarPerdido, servirDesdeStock, reabrirPresupuesto, renovarPresupuesto, reportarIncidencia,
   resolverIncidencia,
 } from '../flujos-actions'
 import FormConResultado from '@/components/FormConResultado'
@@ -28,7 +29,7 @@ import { getTerminos } from '@/lib/terminos'
 import { METODOS_PAGO_INGRESO } from '@/lib/pagos'
 import { compararNombre, toFileName } from '@/lib/utils'
 import type { PresupuestoPdfData } from '@/lib/pdf/presupuesto-pdf'
-import { stageSummary, shippingStatusMeta, SHIPPING_STATUSES } from '@/lib/shipping-status'
+import { isDelivered, stageSummary, shippingStatusMeta, SHIPPING_STATUSES } from '@/lib/shipping-status'
 import { modeloLabel, type MotoModelId, toModelIds } from '@/lib/modelo'
 import { pedidoLogistics } from '@/lib/pedido-logistics'
 import { num, toConfigMap } from '@/lib/config'
@@ -39,7 +40,7 @@ import { estadoValidez, escalonDelPresupuesto, validezDias } from '@/lib/validez
 import { devolucionSugerida, motivoNoCancelable, resumenCancelacion } from '@/lib/pedido-cancelacion'
 import { estadoLinea } from '@/lib/pedido-edicion'
 import { etiquetaPieza, tiposPara, TIPO_LABELS } from '@/lib/incidencias'
-import { saldoReal } from '@/lib/saldo-entrega'
+import { motivoNoEntregable, saldoReal } from '@/lib/saldo-entrega'
 
 // El detalle de un pedido, sea presupuesto/pedido (/presupuestos/[id]) o venta del depósito
 // (/ventas/[id]): la venta vive aparte en la navegación, pero es el mismo Pedido por dentro.
@@ -216,6 +217,13 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
     depositUsd,
   )) : 0
   const tasaDevolucion = num(cfg, 'bsd_usd_rate', 0)
+  // Lo que falta entregar, con por qué no se puede todavía (las mismas reglas que confirmarEntrega).
+  const porEntregar: LineaEntrega[] = isConfirmadoCliente
+    ? items.filter(it => !isDelivered(it.shippingStatus)).map(it => ({
+        id: it.id, nombre: it.cab.nameEs, quantity: it.quantity,
+        motivo: motivoNoEntregable({ shippingStatus: it.shippingStatus, incidencias: presupuesto.incidencias.filter(i => i.itemId === it.id) }),
+      }))
+    : []
   const resumenCancel = resumenCancelacion(presupuesto.items.map(it => ({
     shippingStatus: it.shippingStatus, costRealUsd: it.costRealUsd != null ? Number(it.costRealUsd) : null,
   })))
@@ -386,6 +394,17 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
           )}
           {isConfirmadoCliente && (
             <>
+              {porEntregar.some(l => !l.motivo) && (
+                <ConfirmarEntregaForm
+                  action={confirmarEntrega.bind(null, id)}
+                  lineas={porEntregar}
+                  methods={METODOS_PAGO_INGRESO}
+                  modoBcv={modoBcv}
+                  saldo={{ bs: cobro.saldoBcv, divisas: cobro.saldoReal }}
+                  tasaBs={tasaBsCobro}
+                  tasaDevolucion={tasaDevolucion}
+                />
+              )}
               <Link
                 href={`/presupuestos/${id}/edit`}
                 className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
@@ -800,7 +819,6 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                         enDeposito={item.product?.stock}
                         servir={servirDesdeStock.bind(null, item.id)}
                         devolver={devolverAlDeposito.bind(null, item.id)}
-                        entregar={entregarDesdeStock.bind(null, item.id)}
                       />
                     )}
                     {isConfirmadoCliente && (
