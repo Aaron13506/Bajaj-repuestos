@@ -41,10 +41,9 @@ export function leerDevolucion(
   let bs: DatosBs | null = null
   if (cobraEnBolivares(metodoPago)) {
     const montoBs = numero('devolverBs')
-    const tasaBs = numero('devolverTasa')
     if (!Number.isFinite(montoBs) || montoBs <= 0) return { ok: false, error: 'Escribí cuántos bolívares se le entregaron.' }
-    if (!Number.isFinite(tasaBs) || tasaBs <= 0) return { ok: false, error: 'Escribí la tasa (Bs por dólar) de ese día.' }
-    bs = { montoBs: round2(montoBs), tasaBs }
+    // La tasa no se pide: los dólares que salen ya están escritos, así que es la que resulta.
+    bs = { montoBs: round2(montoBs), tasaBs: montoBs / monto }
   }
   return { ok: true, devolucion: { monto: round2(monto), metodoPago, fecha, bs } }
 }

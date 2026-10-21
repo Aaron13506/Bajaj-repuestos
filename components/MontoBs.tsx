@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react'
 
-// Un cobro en bolívares se escribe como pasó: los Bs que entraron al banco y la tasa (Bs por
-// dólar) de ESE día. Los dólares salen de dividir —en un pedido a dólar BCV son dólares BCV; en
-// el resto, reales— y se muestran para que se vea lo que va a quedar. Lo que se guarda en el
-// libro son los Bs exactos: es lo que se puede cuadrar contra el estado de cuenta.
+// Un cobro en bolívares se escribe como pasó: los Bs que entraron al banco. La tasa no se pide:
+// es la interna (la BCV en un pedido a BCV, la de cobro directo en el resto, la del libro en un
+// egreso) y solo sirve para saber cuántos dólares abona; lo que valen esos Bs de verdad se sabe
+// al convertirlos a USDT. Solo si no hay ninguna tasa cargada se escribe a mano. Lo que se guarda
+// en el libro son los Bs exactos: es lo que se puede cuadrar contra el estado de cuenta.
 interface Props {
   /** Tasa a proponer: la del BCV en un pedido a BCV, la de cobro directo en el resto. */
   tasaSugerida: number
@@ -32,7 +33,8 @@ export default function MontoBs({
   tasaSugerida, etiquetaTasa, sugerido = null, inicial = false, unidad, requerido = false, autoFocus = false,
   etiqueta = 'Bs recibidos', sufijo = '', onDolares,
 }: Props) {
-  const [tasa, setTasa] = useState(tasaSugerida > 0 ? tasaSugerida.toFixed(2) : '')
+  const interna = tasaSugerida > 0
+  const [tasa, setTasa] = useState(interna ? String(tasaSugerida) : '')
   const [bs, setBs] = useState(() =>
     inicial && sugerido != null && tasaSugerida > 0 ? (Math.round(sugerido * tasaSugerida * 100) / 100).toFixed(2) : '',
   )
@@ -55,15 +57,20 @@ export default function MontoBs({
           />
         </div>
       </div>
-      <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">{etiquetaTasa} (Bs por USD)</label>
-        <input
-          type="number" name={`tasaBs${sufijo}`} min={0.0001} step="0.0001" required={completo}
-          value={tasa} onChange={e => setTasa(e.target.value)} className={cls}
-        />
-      </div>
+      {interna ? (
+        <input type="hidden" name={`tasaBs${sufijo}`} value={tasa} />
+      ) : (
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">{etiquetaTasa} (Bs por USD)</label>
+          <input
+            type="number" name={`tasaBs${sufijo}`} min={0.0001} step="0.0001" required={completo}
+            value={tasa} onChange={e => setTasa(e.target.value)} className={cls}
+          />
+        </div>
+      )}
       <p className="text-[11px] text-gray-500">
         {dolares != null ? <>= <span className="font-mono font-semibold text-gray-700">{usd(dolares)}</span> {unidad}</> : 'Los dólares salen de dividir los Bs entre la tasa.'}
+        {interna && <span className="text-gray-400"> · {etiquetaTasa.toLowerCase()} {bsFmt(tasaSugerida)}</span>}
       </p>
       {sugerido != null && sugerido > 0 && t > 0 && (
         <button

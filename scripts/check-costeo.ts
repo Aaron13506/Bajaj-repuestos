@@ -1094,9 +1094,9 @@ console.log('\nDEVOLUCIÓN AL CLIENTE (lo que se lee del formulario)')
   check('…sin Bs', si(efectivo.ok && efectivo.devolucion?.bs === null), 1)
   check('sin método no se devuelve', si(!leerDevolucion(fd({ devolverUsd: '10' })).ok), 1)
   check('en Bs piden los bolívares', si(!leerDevolucion(fd({ devolverUsd: '10', devolverMetodo: 'Pago móvil / Transferencia Bs' })).ok), 1)
-  const enBs = leerDevolucion(fd({ devolverUsd: '10', devolverMetodo: 'Pago móvil / Transferencia Bs', devolverBs: '1000', devolverTasa: '100' }))
+  const enBs = leerDevolucion(fd({ devolverUsd: '10', devolverMetodo: 'Pago móvil / Transferencia Bs', devolverBs: '1000' }))
   check('en Bs se anotan los entregados tal cual', enBs.ok && enBs.devolucion?.bs ? enBs.devolucion.bs.montoBs : -1, 1000)
-  check('…y la tasa', enBs.ok && enBs.devolucion?.bs ? enBs.devolucion.bs.tasaBs : -1, 100)
+  check('…y la tasa sale de Bs ÷ dólares, no se pide', enBs.ok && enBs.devolucion?.bs ? enBs.devolucion.bs.tasaBs : -1, 100)
 }
 
 console.log('\nEMBUDO DE PRESUPUESTOS')

@@ -9,14 +9,14 @@ import { METODOS_DEVOLUCION } from '@/lib/devolucion'
 // devolver un saldo a favor, reembolsar una pieza). Los nombres son los que lee `leerDevolucion`.
 //
 // El monto se escribe en dólares REALES —lo que sale de caja—. Si se le devuelve en Bs, además se
-// anotan los bolívares que se entregaron y la tasa de ese día: se cargan tal cual, sin derivar uno
-// del otro, porque lo que se entregó en el banco es lo que se cuadra contra el estado de cuenta.
+// anotan los bolívares que se entregaron, tal cual, porque es lo que se cuadra contra el estado de
+// cuenta. La tasa no se pide: es Bs ÷ dólares (leerDevolucion).
 interface Props {
   /** Lo que se propone devolver. */
   sugerido: number
   /** Lo máximo que se puede devolver (lo cobrado). Sin él, lo controla el server (el vuelto de una entrega). */
   maximo?: number
-  /** Tasa de cobro directo, para proponer en los Bs. */
+  /** Tasa de cobro directo, para proponer los Bs. */
   tasaSugerida: number
   /** Texto del campo de monto. */
   etiqueta?: string
@@ -29,7 +29,6 @@ const cls = 'w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:
 export default function CamposDevolucion({ sugerido, maximo, tasaSugerida, etiqueta = 'Devolver al cliente (USD reales)', ayuda }: Props) {
   const [monto, setMonto] = useState(sugerido > 0 ? sugerido.toFixed(2) : '')
   const [metodo, setMetodo] = useState<string>(METODOS_DEVOLUCION[0])
-  const [tasa, setTasa] = useState(tasaSugerida > 0 ? tasaSugerida.toFixed(2) : '')
   const [bs, setBs] = useState('')
   const hay = parseFloat(monto) > 0
   const enBs = hay && cobraEnBolivares(metodo)
@@ -60,21 +59,13 @@ export default function CamposDevolucion({ sugerido, maximo, tasaSugerida, etiqu
             </select>
           </div>
           {enBs && (
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Bs entregados</label>
-                <input
-                  type="number" name="devolverBs" min={0.01} step="0.01" required
-                  value={bs} onChange={e => setBs(e.target.value)} className={`${cls} font-mono`}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Tasa (Bs/USD)</label>
-                <input
-                  type="number" name="devolverTasa" min={0.0001} step="0.0001" required
-                  value={tasa} onChange={e => setTasa(e.target.value)} className={`${cls} font-mono`}
-                />
-              </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Bs entregados</label>
+              <input
+                type="number" name="devolverBs" min={0.01} step="0.01" required
+                placeholder={tasaSugerida > 0 ? (parseFloat(monto) * tasaSugerida).toFixed(2) : undefined}
+                value={bs} onChange={e => setBs(e.target.value)} className={`${cls} font-mono`}
+              />
             </div>
           )}
           <div>
