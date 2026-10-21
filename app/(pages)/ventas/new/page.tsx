@@ -16,7 +16,10 @@ export default async function NuevaVentaPage() {
     // vender, y listarlos solo esconde los que sí.
     db.ensamble.findMany({
       where: { componentes: { some: enStock } },
-      select: { id: true, nameEs: true, nameEn: true, imageUrl: true, compatibleModels: true },
+      select: {
+        id: true, nameEs: true, nameEn: true, imageUrl: true, compatibleModels: true,
+        componentes: { where: enStock, select: { product: { select: { id: true, nameEs: true, stock: true } } } },
+      },
       orderBy: [{ nameEs: 'asc' }, { compatibleModels: 'asc' }],
     }),
     db.product.findMany({ where: { stock: { gt: 0 } }, select: { compatibleModels: true } }),
@@ -28,6 +31,7 @@ export default async function NuevaVentaPage() {
     nameEs: nombreEnsamble(a),
     imageUrl: a.imageUrl,
     models: toModelIds(a.compatibleModels),
+    piezas: a.componentes.map(c => c.product),
   }))
 
   // Las motos de las que tengo algo: las de los ensambles con stock y las de las piezas con

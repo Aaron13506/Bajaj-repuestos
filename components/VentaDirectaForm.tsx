@@ -17,6 +17,20 @@ interface Ensamble {
   nameEs: string
   imageUrl: string | null
   models: readonly MotoModelId[]
+  /** Lo que hay en el depósito de este ensamble. */
+  piezas: { id: number; nameEs: string; stock: number }[]
+}
+
+// Una fila de la lista: todas las variantes por moto de un mismo ensamble ("Tank Fairing" de la
+// N160 y de la N250 son el mismo despiece). Listadas una por variante, una sola pieza en stock
+// llenaba la lista con el mismo ensamble repetido.
+interface Fila {
+  nombre: string
+  ids: number[]
+  imageUrl: string | null
+  models: MotoModelId[]
+  piezas: Ensamble['piezas']
+  match?: { pieceName: string; pieceCode: string }
 }
 
 interface Componente {
@@ -62,8 +76,8 @@ const campo = 'border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 
 export default function VentaDirectaForm({ action, clientes, ensambles, motos, metodos, escalon, tasaBcv, tasaDirecta }: Props) {
   const [modelFilter, setModelFilter] = useState('')
   const [asmSearch, setAsmSearch] = useState('')
-  const [selectedId, setSelectedId] = useState<number | null>(null)
-  const [compCache, setCompCache] = useState<Record<number, Componente[]>>({})
+  const [selectedNombre, setSelectedNombre] = useState<string | null>(null)
+  const [compCache, setCompCache] = useState<Record<string, Componente[]>>({})
   const [cargando, setCargando] = useState(false)
   const [checked, setChecked] = useState<Record<number, boolean>>({})
   const [cantidades, setCantidades] = useState<Record<number, number>>({})
@@ -82,48 +96,71 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
   // El texto también busca el SKU de una pieza de adentro (el cliente llega con el código de la
   // pieza, no con el del ensamble). Se guarda junto con el término al que contesta, así
   // "buscando" se deriva al renderizar y no se prende y apaga desde el efecto.
-  const [piezasHechas, setPiezasHechas] = useState<{ q: string; matches: Coincidencias }>({ q: '', matches: sinCoincidencias })
+  // De paso trae las piezas en stock que coinciden: si el cliente llegó con el código, lo que
+  // busca es la pieza, y se agrega directo sin pasar por sus ensambles.
+  const [piezasHechas, setPiezasHechas] = useState<{ q: string; matches: Coincidencias; piezas: PiezaEnStock[] }>({ q: '', matches: sinCoincidencias, piezas: [] })
   const termino = asmSearch.trim()
+  const clave = `${termino}|${modelFilter}`
   const piezasActivo = termino.length >= 2
   const coincidencias = piezasActivo ? piezasHechas.matches : sinCoincidencias
-  const buscandoPiezas = piezasActivo && piezasHechas.q !== termino
+  const piezasCoinciden = piezasActivo && piezasHechas.q === clave ? piezasHechas.piezas : []
+  const buscandoPiezas = piezasActivo && piezasHechas.q !== clave
 
   useEffect(() => {
     if (termino.length < 2) return
     let cancelado = false
     const t = setTimeout(async () => {
       let matches: Coincidencias = new Map()
+      let piezas: PiezaEnStock[] = []
       try {
-        const rows = await searchAssembliesByPiece(termino)
+        const [rows, enStock] = await Promise.all([searchAssembliesByPiece(termino), buscarEnStock(termino, modelFilter || undefined)])
         matches = new Map(rows.map(r => [r.ensambleId, { pieceName: r.pieceName, pieceCode: r.pieceCode }]))
+        piezas = enStock
       } catch {
         // Sin resultados para este término: igual se marca como respondido.
       }
-      if (!cancelado) setPiezasHechas({ q: termino, matches })
+      if (!cancelado) setPiezasHechas({ q: `${termino}|${modelFilter}`, matches, piezas })
     }, 250)
     return () => { cancelado = true; clearTimeout(t) }
-  }, [termino])
+  }, [termino, modelFilter])
 
-  const filtrados = useMemo(() => {
+  // Las variantes que pasan el filtro, juntadas por nombre. Primero los ensambles de los que
+  // tengo más piezas: el que solo comparte un tornillo queda al fondo.
+  const filas = useMemo(() => {
     const q = asmSearch.trim().toLowerCase()
-    return ensambles.filter(a => {
-      if (modelFilter && !a.models.includes(modelFilter as MotoModelId)) return false
-      return !q || a.nameEs.toLowerCase().includes(q) || coincidencias.has(a.id)
-    })
+    const porNombre = new Map<string, Fila>()
+    for (const a of ensambles) {
+      if (modelFilter && !a.models.includes(modelFilter as MotoModelId)) continue
+      if (q && !a.nameEs.toLowerCase().includes(q) && !coincidencias.has(a.id)) continue
+      const f = porNombre.get(a.nameEs) ?? { nombre: a.nameEs, ids: [], imageUrl: null, models: [], piezas: [] }
+      f.ids.push(a.id)
+      f.imageUrl ??= a.imageUrl
+      f.models = [...new Set([...f.models, ...a.models])]
+      for (const p of a.piezas) if (!f.piezas.some(x => x.id === p.id)) f.piezas.push(p)
+      f.match ??= coincidencias.get(a.id)
+      porNombre.set(a.nameEs, f)
+    }
+    return [...porNombre.values()].sort((x, y) => y.piezas.length - x.piezas.length || x.nombre.localeCompare(y.nombre))
   }, [ensambles, modelFilter, asmSearch, coincidencias])
 
-  const seleccionado = ensambles.find(a => a.id === selectedId) ?? null
-  const componentes = selectedId != null ? compCache[selectedId] : undefined
+  const seleccionado = filas.find(f => f.nombre === selectedNombre) ?? null
+  const componentes = seleccionado ? compCache[seleccionado.ids.join(',')] : undefined
 
-  async function seleccionar(id: number | null) {
-    setSelectedId(id)
+  async function seleccionar(f: Fila | null) {
+    setSelectedNombre(f?.nombre ?? null)
     setChecked({})
     setCantidades({})
-    if (id != null && !compCache[id]) {
+    const k = f?.ids.join(',') ?? ''
+    if (f && !compCache[k]) {
       setCargando(true)
       try {
-        const comps = await getComponentesEnStock(id)
-        setCompCache(prev => ({ ...prev, [id]: comps }))
+        // Las variantes comparten piezas: cada una va una vez por subgrupo.
+        const vistos = new Set<string>()
+        const comps = (await getComponentesEnStock(f.ids)).filter(c => {
+          const id = `${c.groupName}|${c.product.id}`
+          return !vistos.has(id) && !!vistos.add(id)
+        })
+        setCompCache(prev => ({ ...prev, [k]: comps }))
       } finally {
         setCargando(false)
       }
@@ -213,7 +250,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
               <select
                 className={`w-full ${campo}`}
                 value={modelFilter}
-                onChange={e => { setModelFilter(e.target.value); setSelectedId(null); setChecked({}); setCantidades({}); buscar(busqueda, e.target.value) }}
+                onChange={e => { setModelFilter(e.target.value); setSelectedNombre(null); setChecked({}); setCantidades({}); buscar(busqueda, e.target.value) }}
               >
                 <option value="">— Todas las motos —</option>
                 {motosVisibles.map(m => <option key={m.id} value={m.id}>{shortModel(m.id)}</option>)}
@@ -225,42 +262,70 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
               />
             </div>
 
+            {piezasCoinciden.length > 0 && (
+              <div className="border border-emerald-200 bg-emerald-50/40 rounded-lg mb-2 divide-y divide-emerald-100">
+                <p className="px-3 pt-2 pb-1 text-[11px] font-semibold text-emerald-800 uppercase tracking-wide">Piezas en stock que coinciden</p>
+                {piezasCoinciden.map(p => (
+                  <div key={p.id} className="flex items-center gap-3 px-3 py-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{p.nameEs}</p>
+                      <p className="text-xs text-gray-400 truncate">
+                        {p.bajajCode && <span className="font-mono">{p.bajajCode} · </span>}hay {p.stock} · {usd(p.price)}
+                      </p>
+                    </div>
+                    <button
+                      type="button" disabled={enCarrito(p.id)} onClick={() => agregarPieza(p)}
+                      className="shrink-0 text-xs font-medium px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {enCarrito(p.id) ? 'Agregada' : 'Agregar'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="border border-gray-300 rounded-lg mb-1 max-h-72 overflow-y-auto divide-y divide-gray-50">
-              {filtrados.length === 0 ? (
+              {filas.length === 0 ? (
                 <p className="text-sm text-gray-400 text-center py-6">
                   {buscandoPiezas ? 'Buscando…' : ensambles.length === 0 ? 'No hay ninguna pieza en el depósito.' : 'Sin resultados'}
                 </p>
               ) : (
-                filtrados.map(a => {
-                  const match = coincidencias.get(a.id)
+                filas.map(a => {
+                  const match = a.match
                   return (
                     <button
-                      key={a.id} type="button" onClick={() => seleccionar(a.id === selectedId ? null : a.id)}
-                      className={`w-full flex items-center gap-3 px-3 py-2 text-left transition-colors ${a.id === selectedId ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
+                      key={a.nombre} type="button" onClick={() => seleccionar(a.nombre === selectedNombre ? null : a)}
+                      className={`w-full flex items-center gap-3 px-3 py-2 text-left transition-colors ${a.nombre === selectedNombre ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
                     >
                       {a.imageUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={a.imageUrl} alt={a.nameEs} loading="lazy" className="w-10 h-10 object-contain rounded border border-gray-100 bg-white shrink-0" />
+                        <img src={a.imageUrl} alt={a.nombre} loading="lazy" className="w-10 h-10 object-contain rounded border border-gray-100 bg-white shrink-0" />
                       ) : (
                         <div className="w-10 h-10 rounded border border-gray-100 bg-gray-50 shrink-0" />
                       )}
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">{a.nameEs}</p>
+                        <p className="text-sm font-medium text-gray-900 truncate">{a.nombre}</p>
                         <p className="text-xs text-gray-400 truncate">{formatModels(a.models)}</p>
+                        <p className="text-[11px] text-emerald-700 truncate">
+                          tenés: {a.piezas.map(p => `${p.nameEs} (${p.stock})`).join(', ')}
+                        </p>
                         {match && (
                           <p className="text-[11px] text-amber-700 truncate">
                             contiene <span className="font-mono">{match.pieceCode}</span> · {match.pieceName}
                           </p>
                         )}
                       </div>
+                      <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                        {a.piezas.length} pieza{a.piezas.length === 1 ? '' : 's'}
+                      </span>
                     </button>
                   )
                 })
               )}
             </div>
             <p className="text-xs text-gray-400 mb-4">
-              {filtrados.length} ensamble{filtrados.length === 1 ? '' : 's'} con piezas en el depósito
-              {modelFilter || asmSearch ? ' (filtrado)' : ''} de {ensambles.length}.
+              {filas.length} ensamble{filas.length === 1 ? '' : 's'} con piezas en el depósito
+              {modelFilter || asmSearch ? ' (filtrado)' : ''}.
             </p>
 
             {seleccionado && (
@@ -268,10 +333,10 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                 <div className="flex items-center gap-3 mb-3 pb-3 border-b border-gray-100">
                   {seleccionado.imageUrl && (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={seleccionado.imageUrl} alt={seleccionado.nameEs} className="w-16 h-16 object-contain rounded-lg border border-gray-100 bg-white shrink-0" />
+                    <img src={seleccionado.imageUrl} alt={seleccionado.nombre} className="w-16 h-16 object-contain rounded-lg border border-gray-100 bg-white shrink-0" />
                   )}
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-gray-900 truncate">{seleccionado.nameEs}</p>
+                    <p className="text-sm font-semibold text-gray-900 truncate">{seleccionado.nombre}</p>
                     <p className="text-xs text-gray-400">Solo las piezas que tenés en el depósito.</p>
                   </div>
                 </div>

@@ -72,12 +72,12 @@ export async function buscarEnStock(term: string, modelo?: string) {
   return rows.map(aPiezaEnStock)
 }
 
-// Las piezas de UN ensamble que están en el depósito, agrupadas como en el despiece. Las que
-// no tienen stock no se listan: no se pueden vender. Se cargan al abrir el ensamble, igual que
-// en el armador de presupuestos.
-export async function getComponentesEnStock(ensambleId: number) {
+// Las piezas de un ensamble (todas sus variantes por moto) que están en el depósito, agrupadas
+// como en el despiece. Las que no tienen stock no se listan: no se pueden vender. Se cargan al
+// abrir el ensamble, igual que en el armador de presupuestos.
+export async function getComponentesEnStock(ensambleIds: number[]) {
   const comps = await db.ensambleComponente.findMany({
-    where: { ensambleId, product: { stock: { gt: 0 } } },
+    where: { ensambleId: { in: ensambleIds }, product: { stock: { gt: 0 } } },
     select: { id: true, groupName: true, sortOrder: true, product: { select: SELECT_EN_STOCK } },
     orderBy: [{ groupName: 'asc' }, { sortOrder: 'asc' }, { id: 'asc' }],
   })
