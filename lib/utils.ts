@@ -56,3 +56,17 @@ export function haceTiempo(d: Date): string {
   const dias = Math.floor(horas / 24)
   return `hace ${dias} d`
 }
+
+// Teléfono en formato internacional sin signos, para wa.me y para comparar números escritos
+// distinto ("0414-123.45.67" = "+58 414 1234567"). Sin prefijo se asume Venezuela.
+// Null si no parece un número completo.
+export function telefonoIntl(tel: string | null | undefined): string | null {
+  if (!tel) return null
+  let d = tel.replace(/\D/g, '')
+  if (d.startsWith('00')) d = d.slice(2)
+  else if (!tel.trim().startsWith('+')) {
+    if (d.length === 11 && d.startsWith('0')) d = '58' + d.slice(1)
+    else if (d.length === 10) d = '58' + d
+  }
+  return d.length >= 11 ? d : null
+}

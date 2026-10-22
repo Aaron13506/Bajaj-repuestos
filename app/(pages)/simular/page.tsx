@@ -8,6 +8,8 @@ import { makeProductLookup, expandCostPieces, type ProductCost } from '@/lib/env
 import type { BundlePiece } from '@/lib/bundle'
 import { toConfigMap } from '@/lib/config'
 
+export const metadata = { title: 'Simular aéreo' }
+
 export default async function SimularPage() {
   const [products, pedidos, cfgRows, suppliers] = await Promise.all([
     db.product.findMany({

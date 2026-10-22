@@ -2,6 +2,8 @@ import Link from 'next/link'
 import { cargarCancelaciones, cargarMargenes, resultadosMensuales } from '@/lib/resultados'
 import { mesDe, type EstadoMargen } from '@/lib/margen'
 
+export const metadata = { title: 'Resultados' }
+
 const usd = (n: number) => `${n < 0 ? '−' : ''}$${Math.abs(n).toFixed(2)}`
 const pct = (n: number | null) => (n == null ? '—' : `${n.toFixed(1)}%`)
 const fecha = (d: Date) => d.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' })

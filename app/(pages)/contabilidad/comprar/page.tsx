@@ -4,6 +4,8 @@ import { registrarCompra } from '../actions'
 import { METODOS_PAGO_EGRESO } from '@/lib/pagos'
 import RegistrarCompraPicker from '@/components/RegistrarCompraPicker'
 
+export const metadata = { title: 'Registrar compras' }
+
 export default async function ComprarPage() {
   const items = await itemsSinCostoReal()
 

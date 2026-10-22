@@ -6,6 +6,14 @@ import PendingButton from '@/components/PendingButton'
 import FormConResultado from '@/components/FormConResultado'
 import { updateCliente, deleteCliente } from '../actions'
 import { clienteTotales, pedidoTotal } from '@/lib/clientes'
+import { telefonoIntl } from '@/lib/utils'
+import { CATEGORIA_LABELS, listarMovimientos } from '@/lib/movimientos'
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
+  const id = parseInt((await params).id)
+  const c = isNaN(id) ? null : await db.cliente.findUnique({ where: { id }, select: { nombre: true } })
+  return { title: c?.nombre ?? 'Cliente' }
+}
 
 export default async function ClienteDetailPage({
   params,
@@ -18,20 +26,25 @@ export default async function ClienteDetailPage({
   if (isNaN(id)) notFound()
   const nombreTomado = (await searchParams).nombreTomado
 
-  const cliente = await db.cliente.findUnique({
-    where: { id },
-    include: {
-      pedidos: {
-        include: { items: true },
-        orderBy: { createdAt: 'desc' },
+  const [cliente, movimientos] = await Promise.all([
+    db.cliente.findUnique({
+      where: { id },
+      include: {
+        pedidos: {
+          include: { items: true },
+          orderBy: { createdAt: 'desc' },
+        },
       },
-    },
-  })
+    }),
+    // Estado de cuenta: lo que pagó y lo que se le devolvió, del libro (la verdad de la plata).
+    listarMovimientos(500, undefined, { clienteId: id }),
+  ])
   if (!cliente) notFound()
 
   // Solo cuentan los pedidos confirmados (ver clienteTotales): un presupuesto sin
   // aprobar no es una venta todavía.
   const { vendido, adelantado, saldo } = clienteTotales(cliente.pedidos)
+  const wa = telefonoIntl(cliente.telefono)
 
   return (
     <div className="max-w-3xl">
@@ -39,6 +52,24 @@ export default async function ClienteDetailPage({
         <Link href="/clientes" className="text-gray-400 hover:text-gray-600 text-sm">Clientes</Link>
         <span className="text-gray-300">/</span>
         <span className="text-sm text-gray-600">{cliente.nombre}</span>
+        <span className="ml-auto flex items-center gap-2">
+          {wa && (
+            <a
+              href={`https://wa.me/${wa}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 text-sm border border-green-300 text-green-700 rounded-lg hover:bg-green-50"
+            >
+              WhatsApp
+            </a>
+          )}
+          <Link
+            href={`/presupuestos/new?cliente=${cliente.id}`}
+            className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-700"
+          >
+            + Presupuesto
+          </Link>
+        </span>
       </div>
 
       {nombreTomado && (
@@ -157,6 +188,45 @@ export default async function ClienteDetailPage({
               )
             })}
           </div>
+        )}
+      </div>
+
+      {/* Estado de cuenta */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mt-6">
+        <div className="px-6 py-3 border-b border-gray-100 bg-gray-50">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+            Pagos y devoluciones ({movimientos.length})
+          </h2>
+        </div>
+        {movimientos.length === 0 ? (
+          <p className="px-6 py-6 text-sm text-gray-400">Todavía no hay pagos registrados de este cliente.</p>
+        ) : (
+          <table className="w-full text-sm">
+            <tbody className="divide-y divide-gray-50">
+              {movimientos.map(m => (
+                <tr key={m.id}>
+                  <td className="px-6 py-2 text-gray-500 whitespace-nowrap">{m.fecha.toISOString().slice(0, 10)}</td>
+                  <td className="px-2 py-2">
+                    {m.pedido && (
+                      <Link href={`/presupuestos/${m.pedido.id}`} className="text-blue-600 hover:underline">#{m.pedido.id}</Link>
+                    )}
+                  </td>
+                  <td className="px-2 py-2 text-gray-700">
+                    {CATEGORIA_LABELS[m.categoria as keyof typeof CATEGORIA_LABELS] ?? m.categoria}
+                    {m.metodoPago && <span className="text-xs text-gray-400"> · {m.metodoPago}</span>}
+                  </td>
+                  <td className={`px-6 py-2 text-right font-mono font-semibold ${m.tipo === 'ingreso' ? 'text-green-700' : 'text-red-700'}`}>
+                    {m.tipo === 'ingreso' ? '+' : '−'}${m.monto.toFixed(2)}
+                    {m.montoBs != null && (
+                      <span className="block text-[10px] font-normal text-gray-400">
+                        Bs {m.montoBs.toLocaleString('es-VE', { maximumFractionDigits: 2 })}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </div>

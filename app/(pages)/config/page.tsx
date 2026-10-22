@@ -7,6 +7,8 @@ import { haceTiempo } from '@/lib/utils'
 import PendingButton from '@/components/PendingButton'
 import { CAMPO_CARGADO, FIELD_META } from './campos'
 
+export const metadata = { title: 'Configuración' }
+
 // Secciones de la pantalla. Una key de FIELD_META que nadie ubicó acá cae en "Otros", no desaparece.
 const GRUPOS: { titulo: string; keys: string[]; ancho?: boolean }[] = [
   { titulo: 'Tasas de cambio', keys: ['inr_usd_rate', 'bsd_usd_rate', 'bcv_usd_rate', 'bcv_brecha_pct'] },

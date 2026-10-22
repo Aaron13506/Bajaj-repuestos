@@ -7,6 +7,8 @@ import { METODOS_PAGO_INGRESO } from '@/lib/pagos'
 import { nombreEnsamble } from '@/lib/linea-pedido'
 import { toModelIds, type MotoModelId } from '@/lib/modelo'
 
+export const metadata = { title: 'Nueva venta' }
+
 export default async function NuevaVentaPage() {
   const enStock = { product: { stock: { gt: 0 } } }
   const [clientes, cfgRows, ensambles, sueltas] = await Promise.all([

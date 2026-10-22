@@ -3,9 +3,13 @@ import Link from 'next/link'
 import { resumenCobro } from '@/lib/cobro-bcv'
 import { margenDePedido, mesDe } from '@/lib/margen'
 
+export const metadata = { title: 'Ventas' }
+
 // Las ventas del depósito, aparte de los presupuestos: lo que ya tenía y se vendió en el momento.
 // Por dentro son un Pedido tipo 'venta' (lib/venta-stock.ts); acá no se mezclan con los encargos.
-export default async function VentasPage() {
+export default async function VentasPage({ searchParams }: { searchParams: Promise<{ q?: string; mes?: string }> }) {
+  const sp = await searchParams
+  const q = sp.q?.trim() ?? ''
   const ventas = await db.pedido.findMany({
     where: { tipo: 'venta' },
     include: { items: { select: { salePrice: true, quantity: true, costRealUsd: true, shippingStatusAt: true } } },
@@ -27,8 +31,13 @@ export default async function VentasPage() {
     return { v, cobro, margen }
   })
 
-  const mes = mesDe(new Date())
+  // El resumen es del mes elegido (o el actual); la lista, de ese mes si se eligió uno.
+  const meses = [...new Set(filas.map(f => mesDe(f.v.createdAt)))]
+  const mes = sp.mes && meses.includes(sp.mes) ? sp.mes : mesDe(new Date())
   const delMes = filas.filter(f => mesDe(f.v.createdAt) === mes)
+  const visibles = filas.filter(f =>
+    (!sp.mes || mesDe(f.v.createdAt) === mes) &&
+    (!q || f.v.clientName.toLowerCase().includes(q.toLowerCase()) || String(f.v.id) === q.replace(/^#/, '')))
   const vendidoMes = delMes.reduce((s, f) => s + f.margen.ventaUsd, 0)
   const margenMes = delMes.reduce((s, f) => s + (f.margen.margenUsd ?? 0), 0)
 
@@ -49,19 +58,39 @@ export default async function VentasPage() {
 
       {delMes.length > 0 && (
         <p className="text-xs text-gray-500 mb-4">
-          Este mes: {delMes.length} {delMes.length === 1 ? 'venta' : 'ventas'} · ${vendidoMes.toFixed(2)} vendido ·{' '}
+          {mes === mesDe(new Date()) ? 'Este mes' : mes}: {delMes.length} {delMes.length === 1 ? 'venta' : 'ventas'} · ${vendidoMes.toFixed(2)} vendido ·{' '}
           <span className="font-semibold text-gray-700">${margenMes.toFixed(2)} de margen</span> (dólares reales)
         </p>
       )}
 
-      {filas.length === 0 ? (
+      {filas.length > 0 && (
+        <form className="flex flex-wrap items-center gap-2 mb-4">
+          <input
+            type="search"
+            name="q"
+            defaultValue={q}
+            placeholder="Cliente o #número…"
+            className="w-56 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+          <select name="mes" defaultValue={sp.mes ?? ''} className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
+            <option value="">Todos los meses</option>
+            {meses.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+          <button className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">Filtrar</button>
+          {(q || sp.mes) && <Link href="/ventas" className="text-sm text-gray-500 hover:text-gray-700">Limpiar</Link>}
+        </form>
+      )}
+
+      {filas.length > 0 && visibles.length === 0 ? (
+        <p className="text-sm text-gray-400 py-6 text-center">Ninguna venta coincide con el filtro.</p>
+      ) : filas.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-400">
           <p className="text-lg">Sin ventas</p>
           <p className="text-sm mt-1">Cuando vendas algo que ya tenés en el depósito, aparece acá.</p>
         </div>
       ) : (
         <div className="space-y-3">
-          {filas.map(({ v, cobro, margen }) => (
+          {visibles.map(({ v, cobro, margen }) => (
             <div key={v.id} className="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-4 flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-3">

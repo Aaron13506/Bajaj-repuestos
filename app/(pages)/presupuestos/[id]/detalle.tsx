@@ -27,7 +27,7 @@ import { escalonBcvVigente, type ConfigMap } from '@/lib/calc'
 import { aDolarBcv, resumenCobro } from '@/lib/cobro-bcv'
 import { getTerminos } from '@/lib/terminos'
 import { METODOS_PAGO_INGRESO } from '@/lib/pagos'
-import { compararNombre, toFileName } from '@/lib/utils'
+import { compararNombre, telefonoIntl, toFileName } from '@/lib/utils'
 import type { PresupuestoPdfData } from '@/lib/pdf/presupuesto-pdf'
 import { isDelivered, stageSummary, shippingStatusMeta, SHIPPING_STATUSES } from '@/lib/shipping-status'
 import { modeloLabel, type MotoModelId, toModelIds } from '@/lib/modelo'
@@ -41,6 +41,14 @@ import { devolucionSugerida, motivoNoCancelable, resumenCancelacion } from '@/li
 import { estadoLinea } from '@/lib/pedido-edicion'
 import { etiquetaPieza, tiposPara, TIPO_LABELS } from '@/lib/incidencias'
 import { motivoNoEntregable, saldoReal } from '@/lib/saldo-entrega'
+import { mensajeEstado } from '@/lib/mensajes-cliente'
+
+// "#123 Andry" en la pestaña del navegador; lo reexportan las dos rutas del detalle.
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
+  const id = parseInt((await params).id)
+  const p = isNaN(id) ? null : await db.pedido.findUnique({ where: { id }, select: { clientName: true } })
+  return { title: p ? `#${id} ${p.clientName}` : `#${id}` }
+}
 
 // El detalle de un pedido, sea presupuesto/pedido (/presupuestos/[id]) o venta del depósito
 // (/ventas/[id]): la venta vive aparte en la navegación, pero es el mismo Pedido por dentro.
@@ -74,6 +82,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
         incidencias: { orderBy: { id: 'asc' } },
         eventos: { orderBy: { createdAt: 'desc' } },
         origen: { select: { id: true, clientName: true } },
+        cliente: { select: { telefono: true } },
         derivados: { select: { id: true, origenMotivo: true }, orderBy: { id: 'asc' } },
         _count: { select: { movimientos: true } },
       },
@@ -217,6 +226,17 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
     depositUsd,
   )) : 0
   const tasaDevolucion = num(cfg, 'bsd_usd_rate', 0)
+  // Pedido de cliente en curso: el WhatsApp lleva escrito cómo va, y al llegar, lo que falta pagar.
+  const tel = telefonoIntl(presupuesto.cliente?.telefono)
+  const avisoEstado = isConfirmadoCliente && compra
+    ? mensajeEstado({
+        nombre: presupuesto.clientName,
+        pedidoId: id,
+        etapa: compra.lead.value,
+        porComprar: compra.pendientes,
+        porPagar: { usd: cobro.saldoBcv, bcv: modoBcv, bs: modoBcv && tasaBcv > 0 ? cobro.saldoBcv * tasaBcv : null, divisas: cobro.saldoReal },
+      })
+    : null
   // Lo que falta entregar, con por qué no se puede todavía (las mismas reglas que confirmarEntrega).
   const porEntregar: LineaEntrega[] = isConfirmadoCliente
     ? items.filter(it => !isDelivered(it.shippingStatus)).map(it => ({
@@ -323,6 +343,27 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
               <Link href={`/clientes/${presupuesto.clienteId}`} className="text-sm text-blue-600 hover:text-blue-800">
                 Ver cliente →
               </Link>
+            )}
+            {avisoEstado ? (
+              // Sin teléfono, wa.me deja elegir el contacto en WhatsApp.
+              <a
+                href={`https://wa.me/${tel ?? ''}?text=${encodeURIComponent(avisoEstado)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={avisoEstado}
+                className="text-sm text-green-600 hover:text-green-800"
+              >
+                Avisar por WhatsApp · {compra!.lead.short}
+              </a>
+            ) : tel && (
+              <a
+                href={`https://wa.me/${tel}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-green-600 hover:text-green-800"
+              >
+                WhatsApp
+              </a>
             )}
             <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
               isPropio
@@ -475,6 +516,12 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                 className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 Para proveedor
+              </Link>
+              <Link
+                href={`/presupuestos/new?desde=${id}`}
+                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Duplicar
               </Link>
             </>
           )}

@@ -7,6 +7,8 @@ import { toInt } from '@/lib/parse'
 import { nombreEnsamble } from '@/lib/linea-pedido'
 import { codigoContiene } from '@/lib/alt-sku'
 
+export const metadata = { title: 'Ensambles' }
+
 interface SearchParams {
   model?: string
   category?: string

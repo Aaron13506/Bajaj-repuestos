@@ -7,6 +7,8 @@ import { INBOUNDS, inboundDe, inboundMeta } from '@/lib/inbound'
 import { createSupplier, renameSupplier, deleteSupplier } from './actions'
 import { motivoProveedorEnUso } from '@/lib/proveedor-en-uso'
 
+export const metadata = { title: 'Proveedores' }
+
 export default async function SuppliersPage() {
   const suppliers = await db.supplier.findMany({
     orderBy: { name: 'asc' },

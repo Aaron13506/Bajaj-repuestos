@@ -2,6 +2,8 @@ import Link from 'next/link'
 import { resumenInventario, type FilaInventario } from '@/lib/inventario'
 import { formatModels, toModelIds } from '@/lib/modelo'
 
+export const metadata = { title: 'Inventario' }
+
 // Inventario propio pieza por pieza: lo que tengo y lo que viene en cajas confirmadas. Las
 // reglas viven en lib/inventario.ts.
 

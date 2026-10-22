@@ -3,14 +3,17 @@ import Link from 'next/link'
 import { createEnvio } from './actions'
 import PendingButton from '@/components/PendingButton'
 import FormConResultado from '@/components/FormConResultado'
-import { stageSummary, SHIPPING_STATUSES } from '@/lib/shipping-status'
+import { stageSummary, statusIndex, SHIPPING_STATUSES } from '@/lib/shipping-status'
 import { inboundDe, inboundMeta } from '@/lib/inbound'
 import { REENVIOS } from '@/lib/reenvio'
 import { costearEnvios } from '@/lib/costo-envios'
 import { CATEGORIAS_FLETE, resumenFletes } from '@/lib/flete-real'
 import { tiempoDeCompraA, tiemposPorTramo } from '@/lib/etapas'
 
-export default async function EnviosPage() {
+export const metadata = { title: 'Envíos' }
+
+export default async function EnviosPage({ searchParams }: { searchParams: Promise<{ ver?: string }> }) {
+  const verLlegaron = (await searchParams).ver === 'llegaron'
   // Una sola tanda: ninguna de las tres depende de las otras y encadenarlas costaba
   // tres veces la latencia hasta la base.
   const [envios, sinAsignar, suppliers, costos, pagosFlete, etapas] = await Promise.all([
@@ -52,6 +55,14 @@ export default async function EnviosPage() {
     pagosFlete.map(p => [`${p.envioId}:${p.categoria}`, parseFloat((p._sum.monto ?? 0).toString())]),
   )
   const borradores = envios.filter(e => e.modo === 'maritimo_cbm' && e.estado === 'borrador')
+  // Llegó: el marítimo cuando se recibió; el aéreo cuando todas sus líneas están en Venezuela o entregadas.
+  const llego = (e: (typeof envios)[0]) =>
+    e.modo === 'maritimo_cbm'
+      ? e.estado === 'entregado'
+      : e.items.length > 0 && e.items.every(i => statusIndex(i.shippingStatus) >= statusIndex('en_venezuela'))
+  const llegaron = envios.filter(llego)
+  const enCurso = envios.filter(e => !llego(e))
+  const lista = verLlegaron ? llegaron : enCurso
 
   return (
     <div className="max-w-5xl">
@@ -217,14 +228,33 @@ export default async function EnviosPage() {
         {sinAsignar} {sinAsignar === 1 ? 'ítem sin asignar' : 'ítems sin asignar'} a un envío.
       </p>
 
+      <div className="flex gap-2 mb-4 border-b border-gray-200">
+        {[
+          { href: '/envios', label: 'En curso', n: enCurso.length, activa: !verLlegaron },
+          { href: '/envios?ver=llegaron', label: 'Llegaron', n: llegaron.length, activa: verLlegaron },
+        ].map(t => (
+          <Link
+            key={t.href}
+            href={t.href}
+            className={`px-3 py-2 text-sm -mb-px border-b-2 ${
+              t.activa ? 'border-blue-600 text-blue-700 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {t.label} <span className="text-xs text-gray-400">({t.n})</span>
+          </Link>
+        ))}
+      </div>
+
       {envios.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-400">
           <p className="text-lg">Sin envíos</p>
           <p className="text-sm mt-1">Elegí arriba la ruta con la que querés traer la mercancía.</p>
         </div>
+      ) : lista.length === 0 ? (
+        <p className="text-sm text-gray-400 py-6 text-center">{verLlegaron ? 'Todavía no llegó ninguna caja.' : 'No hay cajas en curso.'}</p>
       ) : (
         <div className="space-y-3">
-          {envios.map(e => {
+          {lista.map(e => {
             const esMar = e.modo === 'maritimo_cbm'
             const costo = costos.get(e.id)
             const esBorrador = e.estado === 'borrador'

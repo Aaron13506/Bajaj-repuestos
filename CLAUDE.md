@@ -37,7 +37,7 @@ Copy `.env.example` to `.env`. `DATABASE_URL`/`DIRECT_URL` point at the local Do
 
 - Next.js 16 App Router · React 19 · Prisma 5 (PostgreSQL, driver adapter `pg`) · Tailwind · TypeScript · pnpm. This Next has breaking changes: check `node_modules/next/dist/docs/` before relying on memory.
 - Auth: `proxy.ts` (Next 16's `middleware.ts`) enforces Basic Auth with a lockout; in production `oauth2-proxy` + Tailscale Funnel sit in front, so the lockout is one shared counter.
-- UI under `app/(pages)/`; pages are Server Components querying `lib/db.ts` (singleton on `globalThis`). Mutations are Server Actions (`actions.ts`, `component-actions.ts`) that `revalidatePath` and often `redirect`; no client fetch. `app/api/health` is the only API route.
+- UI under `app/(pages)/`; pages are Server Components querying `lib/db.ts` (singleton on `globalThis`). Mutations are Server Actions (`actions.ts`, `component-actions.ts`) that `revalidatePath` and often `redirect`; no client fetch. Route handlers: `app/api/health` and `contabilidad/csv` (ledger export).
 
 ## Conventions that apply everywhere
 

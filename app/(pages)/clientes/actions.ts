@@ -4,6 +4,7 @@ import { db } from '@/lib/db'
 import { redirect } from 'next/navigation'
 import { findOrCreateCliente, isUniqueViolation, revalidateClientes } from '@/lib/clientes'
 import { fallo, ok, type ActionResult } from '@/lib/action-result'
+import { telefonoIntl } from '@/lib/utils'
 
 export async function createCliente(formData: FormData): Promise<ActionResult> {
   const nombre = (formData.get('nombre') as string)?.trim()
@@ -15,6 +16,14 @@ export async function createCliente(formData: FormData): Promise<ActionResult> {
   // Si ya existía no se crea un duplicado, pero hay que decirlo: antes el form se
   // limpiaba y parecía que había agregado algo.
   if (!created) redirect(`/clientes?existe=${cliente.id}`)
+  // Mismo número con otro nombre suele ser la misma persona cargada dos veces: se crea igual
+  // (puede ser un familiar), pero se avisa.
+  const intl = telefonoIntl(telefono)
+  if (intl) {
+    const otros = await db.cliente.findMany({ where: { id: { not: cliente.id }, telefono: { not: null } }, select: { id: true, telefono: true } })
+    const mismo = otros.find(o => telefonoIntl(o.telefono) === intl)
+    if (mismo) redirect(`/clientes?mismoTel=${mismo.id}`)
+  }
   return ok()
 }
 

@@ -11,7 +11,7 @@ const inter = Inter({ subsets: ['latin'] })
 export const dynamic = 'force-dynamic'
 
 export const metadata: Metadata = {
-  title: 'Motokira',
+  title: { template: '%s · Motokira', default: 'Motokira' },
   description: 'Sistema de gestión de repuestos Motokira',
 }
 

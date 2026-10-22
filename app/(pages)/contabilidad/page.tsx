@@ -10,6 +10,7 @@ import {
   saldosPorCuenta,
   valorBsEnLibro,
   listarMovimientos,
+  leerFiltroLibro,
   itemsSinCostoReal,
   aperturaCaja,
   CATEGORIAS_INGRESO,
@@ -18,26 +19,20 @@ import {
   type RangoFechas,
 } from '@/lib/movimientos'
 import { toConfigMap, num } from '@/lib/config'
-import { CUENTA_LABELS } from '@/lib/cuentas'
+import { CUENTAS, CUENTA_LABELS } from '@/lib/cuentas'
 import { resumenInventario } from '@/lib/inventario'
 import { gastosPorVenir } from '@/lib/costo-envios'
 import { VENTA_STATUS, pedidoTotal } from '@/lib/clientes'
 import { METODOS_PAGO_INGRESO, METODOS_PAGO_EGRESO } from '@/lib/pagos'
 import { SITUACION_LABELS, situacionDeCobro, type SituacionCobro } from '@/lib/saldo-entrega'
 
+export const metadata = { title: 'Contabilidad' }
+
 const usd = (n: number) => `$${n.toFixed(2)}`
 const ORDEN_SITUACION: Record<SituacionCobro, number> = { entregado: 0, parcial: 1, en_transito: 2 }
 const fechaCorta = (d: Date) => d.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' })
-// Fin de día EXCLUSIVO para el filtro "hasta": el input <input type=date> da la fecha a
-// las 00:00, y sin este +1 día el propio día elegido quedaría afuera del rango.
-const finDiaExclusivo = (s: string) => {
-  const d = new Date(`${s}T00:00:00`)
-  d.setDate(d.getDate() + 1)
-  return d
-}
-
 interface Props {
-  searchParams: Promise<{ desde?: string; hasta?: string }>
+  searchParams: Promise<{ desde?: string; hasta?: string; cuenta?: string; categoria?: string; pedido?: string; n?: string }>
 }
 
 export default async function ContabilidadPage({ searchParams }: Props) {
@@ -75,16 +70,13 @@ export default async function ContabilidadPage({ searchParams }: Props) {
   // de este filtro: es siempre el corrido completo desde la apertura, nunca lo que se esté
   // mirando en la tabla de abajo.
   const sp = await searchParams
-  const filtroDesde = sp.desde?.trim() || null
-  const filtroHasta = sp.hasta?.trim() || null
-  const hayFiltro = filtroDesde != null || filtroHasta != null
-
-  const rangoLibro: RangoFechas | undefined = hayFiltro
-    ? {
-        desde: filtroDesde ? new Date(`${filtroDesde}T00:00:00`) : new Date(0),
-        hasta: filtroHasta ? finDiaExclusivo(filtroHasta) : null,
-      }
-    : undefined
+  const { desde: filtroDesde, hasta: filtroHasta, rango: rangoLibro, filtro, hayFiltro } = leerFiltroLibro(sp)
+  // "Ver más" de a 50; el CSV trae todo lo filtrado.
+  const limite = Math.min(Math.max(parseInt(sp.n ?? '') || 50, 50), 5000)
+  const qsLibro = new URLSearchParams(
+    Object.entries({ desde: sp.desde, hasta: sp.hasta, cuenta: sp.cuenta, categoria: sp.categoria, pedido: sp.pedido })
+      .filter((e): e is [string, string] => !!e[1]),
+  )
   const rangoCaja: RangoFechas | undefined = apertura ? { desde: apertura.desde, hasta: null } : undefined
 
   const cfg = toConfigMap(cfgRows)
@@ -92,7 +84,7 @@ export default async function ContabilidadPage({ searchParams }: Props) {
     saldoCaja(rangoCaja),
     saldosPorCuenta(rangoCaja),
     valorBsEnLibro(),
-    listarMovimientos(50, rangoLibro),
+    listarMovimientos(limite, rangoLibro, filtro),
   ])
   const saldoTotal = (apertura?.saldoInicial ?? 0) + caja.saldo
 
@@ -367,6 +359,27 @@ export default async function ContabilidadPage({ searchParams }: Props) {
                 className="border border-gray-300 rounded-lg px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
+            <div>
+              <label className="block text-[10px] text-gray-400 mb-0.5">Cuenta</label>
+              <select name="cuenta" defaultValue={sp.cuenta ?? ''} className="border border-gray-300 rounded-lg px-2 py-1 text-xs">
+                <option value="">Todas</option>
+                {CUENTAS.map(c => <option key={c} value={c}>{CUENTA_LABELS[c]}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] text-gray-400 mb-0.5">Categoría</label>
+              <select name="categoria" defaultValue={sp.categoria ?? ''} className="border border-gray-300 rounded-lg px-2 py-1 text-xs">
+                <option value="">Todas</option>
+                {Object.entries(CATEGORIA_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] text-gray-400 mb-0.5">Pedido</label>
+              <input
+                name="pedido" defaultValue={sp.pedido ?? ''} placeholder="#"
+                className="w-16 border border-gray-300 rounded-lg px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
             <button type="submit" className="px-3 py-1 text-xs border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
               Filtrar
             </button>
@@ -375,11 +388,14 @@ export default async function ContabilidadPage({ searchParams }: Props) {
                 Ver todo
               </Link>
             )}
+            <a href={`/contabilidad/csv?${qsLibro}`} className="text-xs text-blue-600 hover:underline px-1 pb-1.5">
+              Exportar CSV
+            </a>
           </form>
         </div>
         {movimientos.length === 0 ? (
           <p className="text-sm text-gray-400 px-5 py-6">
-            {hayFiltro ? 'Nada en ese rango de fechas.' : 'Todavía no hay movimientos cargados.'}
+            {hayFiltro ? 'Nada con esos filtros.' : 'Todavía no hay movimientos cargados.'}
           </p>
         ) : (
           <table className="w-full text-sm whitespace-nowrap">
@@ -423,6 +439,17 @@ export default async function ContabilidadPage({ searchParams }: Props) {
               ))}
             </tbody>
           </table>
+        )}
+        {movimientos.length === limite && (
+          <div className="px-5 py-3 border-t border-gray-100 text-center">
+            <Link
+              href={`/contabilidad?${new URLSearchParams([...qsLibro, ['n', String(limite + 50)]])}`}
+              scroll={false}
+              className="text-xs text-blue-600 hover:underline"
+            >
+              Ver 50 más
+            </Link>
+          </div>
         )}
       </div>
     </div>

@@ -8,6 +8,8 @@ import { estadoValidez, validezDias } from '@/lib/validez'
 import { DIAS_CAJA_PARADA, diasSinMoverse } from '@/lib/etapas'
 import { VENTA_STATUS } from '@/lib/clientes'
 
+export const metadata = { title: 'Inicio' }
+
 // Panel de acción: lo que hay que hacer hoy, no conteos del catálogo (revisión de negocio 3.2).
 // "Stock bajo" sobre miles de piezas en cero en un negocio por encargo era ruido.
 

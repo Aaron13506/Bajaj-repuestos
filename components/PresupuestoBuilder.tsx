@@ -118,6 +118,8 @@ interface Props {
   initialClienteId?: number | null
   /** Editando un pedido confirmado: el cliente no se cambia (el adelanto y el escalón ya son suyos). */
   clienteFijo?: boolean
+  /** Si guarda sobre un pedido existente. Un duplicado trae líneas pero es nuevo. */
+  editando?: boolean
   /** Lo que ya tengo de cada pieza (aquí / en camino / en borrador). Solo informativo. */
   posiciones?: PosicionesStock
 }
@@ -138,6 +140,7 @@ export default function PresupuestoBuilder({
   clientes = [],
   initialClienteId = null,
   clienteFijo = false,
+  editando = initialItems.length > 0,
   posiciones,
 }: Props) {
   const isPropio = tipo === 'propio'
@@ -152,8 +155,11 @@ export default function PresupuestoBuilder({
   const [modelFilter, setModelFilter] = useState('')
   const [asmSearch, setAsmSearch] = useState('')
   const [clientName, setClientName] = useState(initialClientName)
-  const [clienteId, setClienteId] = useState(initialClienteId != null ? String(initialClienteId) : '')
-  const [nuevoNombre, setNuevoNombre] = useState('')
+  // Un solo campo para buscar o crear: si el texto es el nombre de un cliente, es ese; si no, uno nuevo.
+  const [clienteTexto, setClienteTexto] = useState(() => clientes.find(c => c.id === initialClienteId)?.nombre ?? '')
+  const nuevoNombre = clienteTexto.trim()
+  const clienteElegido = clientes.find(c => c.nombre.toLowerCase() === nuevoNombre.toLowerCase())
+  const clienteId = clienteElegido ? String(clienteElegido.id) : nuevoNombre ? '__new__' : ''
   const [nuevoTelefono, setNuevoTelefono] = useState('')
   const [notas, setNotas] = useState(initialNotas)
   const [submitting, setSubmitting] = useState(false)
@@ -548,13 +554,13 @@ export default function PresupuestoBuilder({
 
   const anyChecked = Object.values(checked).some(Boolean)
   const assemblyInCart = !!selectedAssembly && !!cart.find(c => c.ensambleId === selectedAssembly.id)
-  const isEditing = initialItems.length > 0
+  const isEditing = editando
 
   // 'propio' sigue con etiqueta de texto libre; 'cliente' requiere elegir un
   // cliente existente o completar el nombre del nuevo.
   const clienteValid = isPropio
     ? clientName.trim().length > 0
-    : clienteId !== '' && (clienteId !== '__new__' || nuevoNombre.trim().length > 0)
+    : clienteId !== ''
 
   // Descontinuadas que YA están en el carrito. Solo pueden venir de un presupuesto guardado
   // antes de que se marcara el SKU (agregarlas está bloqueado). El servidor también corta
@@ -583,7 +589,7 @@ export default function PresupuestoBuilder({
     } else {
       fd.set('clienteId', clienteId)
       if (clienteId === '__new__') {
-        fd.set('nuevoClienteNombre', nuevoNombre.trim())
+        fd.set('nuevoClienteNombre', nuevoNombre)
         fd.set('nuevoClienteTelefono', nuevoTelefono.trim())
       }
     }
@@ -1343,41 +1349,37 @@ export default function PresupuestoBuilder({
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Cliente <span className="text-red-500">*</span>
                   </label>
-                  <select
-                    value={clienteId}
-                    onChange={e => setClienteId(e.target.value)}
+                  <input
+                    type="text"
+                    list="clientes-lista"
+                    value={clienteTexto}
+                    onChange={e => setClienteTexto(e.target.value)}
                     disabled={clienteFijo}
+                    placeholder="Buscá por nombre o teléfono, o escribí uno nuevo"
+                    autoComplete="off"
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
                     required
-                  >
-                    <option value="">Elegí un cliente…</option>
+                  />
+                  <datalist id="clientes-lista">
                     {clientes.map(c => (
-                      <option key={c.id} value={c.id}>{c.nombre}</option>
+                      <option key={c.id} value={c.nombre}>{c.telefono ?? ''}</option>
                     ))}
-                    {!clienteFijo && <option value="__new__">+ Nuevo cliente</option>}
-                  </select>
+                  </datalist>
                   {clienteFijo && (
                     <p className="text-[11px] text-gray-400 mt-1">El pedido ya está confirmado: el cliente no se cambia.</p>
                   )}
+                  {clienteId === '__new__' && (
+                    <p className="text-[11px] text-amber-700 mt-1">No hay un cliente con ese nombre: se crea uno nuevo al guardar.</p>
+                  )}
                 </div>
                 {clienteId === '__new__' && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <input
-                      type="text"
-                      value={nuevoNombre}
-                      onChange={e => setNuevoNombre(e.target.value)}
-                      placeholder="Nombre del cliente"
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      required
-                    />
-                    <input
-                      type="text"
-                      value={nuevoTelefono}
-                      onChange={e => setNuevoTelefono(e.target.value)}
-                      placeholder="Teléfono (opcional)"
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
+                  <input
+                    type="text"
+                    value={nuevoTelefono}
+                    onChange={e => setNuevoTelefono(e.target.value)}
+                    placeholder="Teléfono del cliente nuevo (opcional)"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
                 )}
               </div>
             )}

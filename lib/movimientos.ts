@@ -622,17 +622,52 @@ export interface MovimientoRow {
   grupo: string | null
   /** Bs que pasaron por la cuenta, si se anotaron. */
   montoBs: number | null
+  tasaBs: number | null
   pedido: { id: number; clientName: string } | null
   envio: { id: number; nombre: string | null } | null
   supplier: { id: number; name: string } | null
 }
 
-export async function listarMovimientos(limit = 50, rango?: RangoFechas): Promise<MovimientoRow[]> {
-  const where = rango
-    ? { fecha: { gte: rango.desde, ...(rango.hasta ? { lt: rango.hasta } : {}) } }
-    : {}
+export interface FiltroLibro {
+  cuenta?: string
+  categoria?: string
+  pedidoId?: number
+  clienteId?: number
+}
+
+// Los filtros del libro desde la URL (?desde, ?hasta, ?cuenta, ?categoria, ?pedido): los usan la
+// página de contabilidad y su exportación a CSV, para que el archivo sea exactamente lo que se ve.
+export function leerFiltroLibro(sp: { desde?: string; hasta?: string; cuenta?: string; categoria?: string; pedido?: string }) {
+  const desde = sp.desde?.trim() || null
+  const hasta = sp.hasta?.trim() || null
+  // Fin de día EXCLUSIVO para "hasta": el input date da las 00:00 y sin el +1 el propio día quedaría afuera.
+  const finDia = (s: string) => {
+    const d = new Date(`${s}T00:00:00`)
+    d.setDate(d.getDate() + 1)
+    return d
+  }
+  const rango: RangoFechas | undefined = desde || hasta
+    ? { desde: desde ? new Date(`${desde}T00:00:00`) : new Date(0), hasta: hasta ? finDia(hasta) : null }
+    : undefined
+  const pedidoId = parseInt((sp.pedido ?? '').replace(/^#/, ''))
+  const filtro: FiltroLibro = {
+    cuenta: sp.cuenta || undefined,
+    categoria: sp.categoria || undefined,
+    pedidoId: isNaN(pedidoId) ? undefined : pedidoId,
+  }
+  const hayFiltro = rango != null || Object.values(filtro).some(v => v != null)
+  return { desde, hasta, rango, filtro, hayFiltro }
+}
+
+export async function listarMovimientos(limit = 50, rango?: RangoFechas, filtro: FiltroLibro = {}): Promise<MovimientoRow[]> {
   const rows = await db.movimiento.findMany({
-    where,
+    where: {
+      ...(rango ? { fecha: { gte: rango.desde, ...(rango.hasta ? { lt: rango.hasta } : {}) } } : {}),
+      ...(filtro.cuenta ? { cuenta: filtro.cuenta } : {}),
+      ...(filtro.categoria ? { categoria: filtro.categoria } : {}),
+      ...(filtro.pedidoId != null ? { pedidoId: filtro.pedidoId } : {}),
+      ...(filtro.clienteId != null ? { pedido: { clienteId: filtro.clienteId } } : {}),
+    },
     orderBy: [{ fecha: 'desc' }, { id: 'desc' }],
     take: limit,
     include: {
@@ -652,6 +687,7 @@ export async function listarMovimientos(limit = 50, rango?: RangoFechas): Promis
     cuenta: r.cuenta,
     grupo: r.grupo,
     montoBs: r.montoBs != null ? num(r.montoBs) : null,
+    tasaBs: r.tasaBs != null ? num(r.tasaBs) : null,
     pedido: r.pedido,
     envio: r.envio,
     supplier: r.supplier,

@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useEffect, useRef } from 'react'
 
 const navItems = [
   {
@@ -137,6 +138,20 @@ const navItems = [
 // re-costeaba lo que estabas mirando, cuando la caja ya tenía el suyo congelado.
 export default function Sidebar() {
   const pathname = usePathname()
+  const buscar = useRef<HTMLInputElement>(null)
+
+  // Ctrl+K (⌘K en Mac) lleva al buscador desde cualquier página.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        buscar.current?.focus()
+        buscar.current?.select()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   return (
     <aside className="w-64 bg-gray-900 text-white flex flex-col shrink-0 print:hidden">
@@ -144,6 +159,16 @@ export default function Sidebar() {
         <h1 className="text-xl font-bold text-white">Motokira</h1>
         <p className="text-gray-400 text-sm mt-1">Panel de Administracion</p>
       </div>
+      <form action="/buscar" className="px-4 pt-4">
+        <input
+          ref={buscar}
+          type="search"
+          name="q"
+          aria-label="Buscar en todo el panel"
+          placeholder="Buscar…  (Ctrl+K)"
+          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        />
+      </form>
       <nav className="flex-1 p-4 space-y-1">
         {navItems.map((item) => {
           // Gana el prefijo MÁS LARGO que matchee, para que una entrada con subruta propia

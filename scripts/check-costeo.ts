@@ -17,6 +17,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { calcEnvio, calcLanded, calcPrecioBcv, type ConfigMap, type EnvioItemInput, type ProveedorEnvio } from '../lib/calc'
+import { telefonoIntl } from '../lib/utils'
+import { mensajeEstado } from '../lib/mensajes-cliente'
 import {
   compararCompra, MONTOS_VACIOS,
   type MontosProveedor, type PiezaCompra, type ProveedorOpcion,
@@ -1266,6 +1268,28 @@ console.log('\nCAMBIAR EL REENVÍO DE UNA CAJA')
   check('flete aéreo pagado: no', no({ fleteAereoPagado: true }), 1)
   check('proveedor que despacha él: no', no({ despachaProveedor: true }), 1)
   check('caja marítima: no', no({ modo: 'maritimo_cbm' }), 1)
+}
+
+console.log('\nTELÉFONO PARA WHATSAPP')
+{
+  const tel = (t: string | null) => Number(telefonoIntl(t) ?? 0)
+  check('0414-123.45.67 → 58414…', tel('0414-123.45.67'), 584141234567)
+  check('+58 414 1234567 igual', tel('+58 414 1234567'), 584141234567)
+  check('414 1234567 sin el 0 igual', tel('414 1234567'), 584141234567)
+  check('+1 305 555 1234 se respeta', tel('+1 305 555 1234'), 13055551234)
+  check('incompleto → nada', tel('1234567'), 0)
+}
+
+console.log('\nMENSAJE AL CLIENTE')
+{
+  const si = (b: boolean) => (b ? 1 : 0)
+  const base = { nombre: 'Ana', pedidoId: 7, porComprar: 0, porPagar: { usd: 0, bcv: false, bs: null, divisas: 0 } }
+  const llego = mensajeEstado({ ...base, etapa: 'en_venezuela', porPagar: { usd: 120, bcv: true, bs: 24000, divisas: 100 } })
+  check('llegó: dice el monto BCV, los Bs y las divisas', si(llego.includes('$120.00') && llego.includes('Bs 24.000,00') && llego.includes('$100.00')), 1)
+  check('nunca dice "saldo"', si(/saldo/i.test(llego)), 0)
+  check('llegó y pagado: no pide plata', si(mensajeEstado({ ...base, etapa: 'en_venezuela' }).includes('pagado en su totalidad')), 1)
+  check('en camino no habla de plata', si(mensajeEstado({ ...base, etapa: 'camino_usa', porPagar: { usd: 50, bcv: false, bs: null, divisas: 50 } }).includes('$')), 0)
+  check('avisa lo que falta comprar', si(mensajeEstado({ ...base, etapa: 'en_venezuela', porComprar: 2 }).includes('Quedan 2 piezas')), 1)
 }
 
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)

@@ -10,8 +10,24 @@ import { toConfigMap } from '@/lib/config'
 import { resumenCobro } from '@/lib/cobro-bcv'
 import { embudo, estadoValidez, validezDias } from '@/lib/validez'
 
-export default async function PresupuestosPage() {
-  const [todos, configRows] = await Promise.all([
+export const metadata = { title: 'Presupuestos' }
+
+const PESTANAS = [
+  { id: 'abiertos', label: 'Presupuestos abiertos' },
+  { id: 'pedidos', label: 'Pedidos confirmados' },
+  { id: 'propio', label: 'Stock propio' },
+  { id: 'cerrados', label: 'Cancelados y perdidos' },
+] as const
+type Pestana = (typeof PESTANAS)[number]['id']
+
+export default async function PresupuestosPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ ver?: string; q?: string }>
+}) {
+  const sp = await searchParams
+  const q = sp.q?.trim() ?? ''
+  const [todosSinFiltro, configRows] = await Promise.all([
     // Las ventas del depósito tienen su propia sección (/ventas).
     db.pedido.findMany({
       where: { tipo: { not: 'venta' } },
@@ -23,19 +39,37 @@ export default async function PresupuestosPage() {
   const cfg = toConfigMap(configRows)
   const escalonHoy = escalonBcvVigente(cfg)
   const diasValidez = validezDias(cfg)
+  // Busca por cliente o por número ("123" o "#123"); la conversión de abajo usa todos igual.
+  const qNum = parseInt(q.replace(/^#/, ''))
+  const todos = q
+    ? todosSinFiltro.filter(p => p.id === qNum || p.clientName.toLowerCase().includes(q.toLowerCase()))
+    : todosSinFiltro
 
   const presupuestos = todos.filter(p => p.tipo !== 'propio' && p.status === 'presupuesto' && !p.perdidoAt)
   const perdidos = todos.filter(p => p.status === 'presupuesto' && p.perdidoAt)
   // Conversión de los presupuestos de cliente de los últimos 90 días (lib/validez.ts, embudo).
-  const conversion = embudo(todos.filter(p => p.tipo === 'cliente'), diasValidez, undefined, 90)
-  const pedidos = todos.filter(p => p.tipo !== 'propio' && p.status === 'pedido')
+  const conversion = embudo(todosSinFiltro.filter(p => p.tipo === 'cliente'), diasValidez, undefined, 90)
+  // Lo que falta entregar arriba, el más viejo primero (es el que más espera); lo entregado al fondo.
+  const pedidos = todos
+    .filter(p => p.tipo !== 'propio' && p.status === 'pedido')
+    .map(p => ({ p, entregado: stageSummary(p.items)?.allDelivered ?? false }))
+    .sort((a, b) => Number(a.entregado) - Number(b.entregado) || a.p.createdAt.getTime() - b.p.createdAt.getTime())
+    .map(x => x.p)
   const cancelados = todos.filter(p => p.status === 'cancelado')
   const propios = todos.filter(p => p.tipo === 'propio')
+  const conteo: Record<Pestana, number> = {
+    abiertos: presupuestos.length,
+    pedidos: pedidos.length,
+    propio: propios.length,
+    cerrados: cancelados.length + perdidos.length,
+  }
+  // Sin pestaña elegida: la primera que tenga algo (buscando, la que tenga resultados).
+  const ver: Pestana = PESTANAS.find(t => t.id === sp.ver)?.id ?? PESTANAS.find(t => conteo[t.id] > 0)?.id ?? 'abiertos'
 
   // Peso y volumen de lo propio, medido en una sola pasada (ver pedido-logistics):
   // por pedido para cada fila, y el total de todo lo que traigo por mi cuenta.
   const { total: propiosTotal, porPedido: logPropios } = await pedidoLogistics(
-    propios.map(p => p.id)
+    ver === 'propio' ? propios.map(p => p.id) : []
   )
 
   function Row({ p }: { p: (typeof todos)[0] }) {
@@ -44,7 +78,8 @@ export default async function PresupuestosPage() {
     const isCancelado = p.status === 'cancelado'
     // Un presupuesto de cliente pasado de fecha no se confirma: se renueva (lib/validez.ts).
     const perdido = isPresupuesto && p.perdidoAt != null
-    const vencido = isPresupuesto && !isPropio && !perdido && estadoValidez(p, diasValidez).vencido
+    const validez = isPresupuesto && !isPropio && !perdido ? estadoValidez(p, diasValidez) : null
+    const vencido = validez?.vencido ?? false
     const depositUsd = p.depositUsd != null ? parseFloat(p.depositUsd.toString()) : null
     // Los mismos montos que el detalle y el PDF: a dólar BCV con el escalón de hoy (presupuesto)
     // o el congelado al confirmar (pedido). Ver lib/cobro-bcv.ts.
@@ -109,6 +144,11 @@ export default async function PresupuestosPage() {
               month: 'short',
               year: 'numeric',
             })}
+            {validez && !validez.vencido && (
+              <span className={validez.diasRestantes <= 2 ? 'text-amber-600 font-medium' : ''}>
+                {' · '}{validez.diasRestantes === 0 ? 'vence hoy' : `vence en ${validez.diasRestantes} día${validez.diasRestantes === 1 ? '' : 's'}`}
+              </span>
+            )}
             {p.notas && ` · ${p.notas}`}
           </p>
           {log && log.piezas > 0 && (
@@ -180,84 +220,75 @@ export default async function PresupuestosPage() {
         </p>
       )}
 
-      {todos.length === 0 ? (
+      <div className="flex flex-wrap items-center gap-2 mb-4 border-b border-gray-200">
+        {PESTANAS.map(t => (
+          <Link
+            key={t.id}
+            href={`/presupuestos?ver=${t.id}${q ? `&q=${encodeURIComponent(q)}` : ''}`}
+            className={`px-3 py-2 text-sm -mb-px border-b-2 ${
+              ver === t.id ? 'border-blue-600 text-blue-700 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {t.label} <span className="text-xs text-gray-400">({conteo[t.id]})</span>
+          </Link>
+        ))}
+        <form className="ml-auto flex items-center gap-2 pb-2">
+          <input type="hidden" name="ver" value={ver} />
+          <input
+            type="search"
+            name="q"
+            defaultValue={q}
+            placeholder="Cliente o #número…"
+            className="w-48 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+          {q && <Link href={`/presupuestos?ver=${ver}`} className="text-sm text-gray-500 hover:text-gray-700">Limpiar</Link>}
+        </form>
+      </div>
+
+      {todosSinFiltro.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-400">
           <p className="text-lg">Sin presupuestos</p>
           <p className="text-sm mt-1">Creá tu primer presupuesto para un cliente.</p>
         </div>
-      ) : (
+      ) : conteo[ver] === 0 ? (
+        <p className="text-sm text-gray-400 py-6 text-center">{q ? `Nada coincide con "${q}" acá.` : 'No hay nada en esta pestaña.'}</p>
+      ) : ver === 'abiertos' ? (
+        <div className="space-y-3">{presupuestos.map(p => <Row key={p.id} p={p} />)}</div>
+      ) : ver === 'pedidos' ? (
+        <div className="space-y-3">{pedidos.map(p => <Row key={p.id} p={p} />)}</div>
+      ) : ver === 'cerrados' ? (
         <div className="space-y-8">
-          {presupuestos.length > 0 && (
-            <div>
-              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                Presupuestos abiertos ({presupuestos.length})
-              </h2>
-              <div className="space-y-3">
-                {presupuestos.map(p => <Row key={p.id} p={p} />)}
-              </div>
-            </div>
-          )}
-
-          {pedidos.length > 0 && (
-            <div>
-              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                Pedidos confirmados ({pedidos.length})
-              </h2>
-              <div className="space-y-3">
-                {pedidos.map(p => <Row key={p.id} p={p} />)}
-              </div>
-            </div>
-          )}
-
           {cancelados.length > 0 && (
             <div>
-              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                Cancelados ({cancelados.length})
-              </h2>
-              <div className="space-y-3">
-                {cancelados.map(p => <Row key={p.id} p={p} />)}
-              </div>
+              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Cancelados ({cancelados.length})</h2>
+              <div className="space-y-3">{cancelados.map(p => <Row key={p.id} p={p} />)}</div>
             </div>
           )}
-
           {perdidos.length > 0 && (
             <div>
-              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                Perdidos ({perdidos.length})
-              </h2>
-              <div className="space-y-3">
-                {perdidos.map(p => <Row key={p.id} p={p} />)}
-              </div>
+              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Perdidos ({perdidos.length})</h2>
+              <div className="space-y-3">{perdidos.map(p => <Row key={p.id} p={p} />)}</div>
             </div>
           )}
-
-          {propios.length > 0 && (
-            <div>
-              <div className="flex items-baseline justify-between gap-3 mb-3 flex-wrap">
-                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-                  Stock propio ({propios.length})
-                </h2>
-                {propiosTotal.piezas > 0 && (
-                  <p className="text-xs text-gray-500">
-                    <span className="font-mono font-semibold text-gray-700">
-                      {propiosTotal.chargeableKg.toFixed(2)} kg
-                    </span>
-                    <span className="text-gray-400"> cobrables · </span>
-                    <span className="font-mono font-semibold text-gray-700">
-                      {propiosTotal.ft3.toFixed(2)} ft³
-                    </span>
-                    <span className="text-gray-400">
-                      {' '}({propiosTotal.realKg.toFixed(2)} kg reales
-                      {propiosTotal.incompletas > 0 && `, ${propiosTotal.incompletas} piezas sin medir`})
-                    </span>
-                  </p>
-                )}
-              </div>
-              <div className="space-y-3">
-                {propios.map(p => <Row key={p.id} p={p} />)}
-              </div>
-            </div>
+        </div>
+      ) : (
+        <div>
+          {propiosTotal.piezas > 0 && (
+            <p className="text-xs text-gray-500 mb-3">
+              <span className="font-mono font-semibold text-gray-700">
+                {propiosTotal.chargeableKg.toFixed(2)} kg
+              </span>
+              <span className="text-gray-400"> cobrables · </span>
+              <span className="font-mono font-semibold text-gray-700">
+                {propiosTotal.ft3.toFixed(2)} ft³
+              </span>
+              <span className="text-gray-400">
+                {' '}({propiosTotal.realKg.toFixed(2)} kg reales
+                {propiosTotal.incompletas > 0 && `, ${propiosTotal.incompletas} piezas sin medir`})
+              </span>
+            </p>
           )}
+          <div className="space-y-3">{propios.map(p => <Row key={p.id} p={p} />)}</div>
         </div>
       )}
     </div>
