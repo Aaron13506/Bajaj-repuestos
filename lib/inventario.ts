@@ -1,5 +1,6 @@
 import { db } from './db'
 import type { BundlePiece } from './bundle'
+import { nombreEnsamble } from './linea-pedido'
 import { construirResolver, piezasDeLinea, type LineaStock, type ResolverPieza } from './stock-piezas'
 import { ENVIO_COSTEO_INCLUDE, contextoCosteo, costearAereo, costearMaritimo } from './costo-envios'
 
@@ -138,10 +139,20 @@ export async function posicionesParaArmador(): Promise<PosicionesStock> {
   return out
 }
 
+// Cada nombre una vez, el más repetido primero: el ensamble de la pieza en casi todas las motos
+// ("Rear Axle") va antes que el que aparece en una sola ("Service Kit").
+function porFrecuencia(nombres: string[]): string[] {
+  const n = new Map<string, number>()
+  for (const x of nombres) n.set(x, (n.get(x) ?? 0) + 1)
+  return [...n.keys()].sort((a, b) => n.get(b)! - n.get(a)! || a.localeCompare(b))
+}
+
 export interface FilaInventario extends PosicionPieza {
   nameEs: string
   bajajCode: string | null
   compatibleModels: string | null
+  /** Dónde va la pieza: los ensambles que la llevan, sin repetir por moto, primero el que está en más motos. */
+  ensambles: string[]
   /** aquí × costo de reposición. null = hay stock pero la pieza no tiene costo cargado. */
   valorAquiUsd: number | null
   /** Lo que cuesta lo que viene, puesto en Venezuela, según el costeo de su caja. */
@@ -236,7 +247,10 @@ export async function resumenInventario(): Promise<ResumenInventario> {
   const productos = ids.length > 0
     ? await db.product.findMany({
         where: { id: { in: ids } },
-        select: { id: true, nameEs: true, bajajCode: true, compatibleModels: true, landedCostUsd: true },
+        select: {
+          id: true, nameEs: true, bajajCode: true, compatibleModels: true, landedCostUsd: true,
+          assemblies: { select: { ensamble: { select: { nameEs: true, nameEn: true } } } },
+        },
       })
     : []
 
@@ -269,6 +283,7 @@ export async function resumenInventario(): Promise<ResumenInventario> {
       nameEs: pr.nameEs,
       bajajCode: pr.bajajCode,
       compatibleModels: pr.compatibleModels,
+      ensambles: porFrecuencia(pr.assemblies.map(a => nombreEnsamble(a.ensamble))),
       valorAquiUsd,
       valorCaminoUsd: valorCamino.get(pr.id) ?? 0,
     })

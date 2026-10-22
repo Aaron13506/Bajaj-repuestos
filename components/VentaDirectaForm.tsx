@@ -154,12 +154,18 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
     if (f && !compCache[k]) {
       setCargando(true)
       try {
-        // Las variantes comparten piezas: cada una va una vez por subgrupo.
+        // Cada moto nombra distinto el subgrupo de la misma pieza ("Bearings", "Wheel Bearing",
+        // "Coupling"): con varias variantes juntas los subgrupos no significan nada, así que va
+        // una lista sola con cada pieza una vez.
         const vistos = new Set<string>()
-        const comps = (await getComponentesEnStock(f.ids)).filter(c => {
-          const id = `${c.groupName}|${c.product.id}`
-          return !vistos.has(id) && !!vistos.add(id)
-        })
+        const varias = f.ids.length > 1
+        const comps = (await getComponentesEnStock(f.ids))
+          .map(c => (varias ? { ...c, groupName: '' } : c))
+          .filter(c => {
+            const id = `${c.groupName}|${c.product.id}`
+            return !vistos.has(id) && !!vistos.add(id)
+          })
+        if (varias) comps.sort((a, b) => a.product.nameEs.localeCompare(b.product.nameEs))
         setCompCache(prev => ({ ...prev, [k]: comps }))
       } finally {
         setCargando(false)
@@ -340,13 +346,39 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                     <p className="text-xs text-gray-400">Solo las piezas que tenés en el depósito.</p>
                   </div>
                 </div>
+                {seleccionado.ids.length > 1 && (
+                  // Juntas, las motos mezclan las piezas: se elige la del cliente y se ve el despiece de esa.
+                  <div className="mb-3 pb-3 border-b border-gray-100">
+                    <p className="text-xs font-semibold text-gray-500 mb-2">¿Para qué moto? Cuántas de tus {seleccionado.piezas.length} piezas lleva cada una:</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {ensambles.filter(a => seleccionado.ids.includes(a.id)).map(a => {
+                        const moto = a.models[0]
+                        const lleva = new Set(a.piezas.map(p => p.id)).size
+                        return (
+                          <button
+                            key={a.id} type="button"
+                            onClick={() => {
+                              if (!moto) return
+                              setModelFilter(moto)
+                              buscar(busqueda, moto)
+                              seleccionar({ ...seleccionado, ids: seleccionado.ids.filter(id => ensambles.find(x => x.id === id)?.models.includes(moto)) })
+                            }}
+                            className="text-xs px-2.5 py-1 rounded-lg border border-gray-200 hover:border-blue-400 hover:bg-blue-50"
+                          >
+                            {moto ? shortModel(moto) : a.nameEs} <span className="font-semibold text-emerald-700">· {lleva}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
                 {cargando && !componentes ? (
                   <p className="text-sm text-gray-400 py-6 text-center">Cargando piezas…</p>
                 ) : (
                   <div className="space-y-4 max-h-80 overflow-y-auto pr-1">
                     {Array.from(grupos.entries()).map(([nombre, items]) => (
                       <div key={nombre}>
-                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{nombre}</p>
+                        {nombre !== '—' && <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{nombre}</p>}
                         <div className="space-y-0.5">
                           {items.map(c => {
                             const ya = enCarrito(c.product.id)
@@ -362,6 +394,9 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                                   {c.product.bajajCode && <span className="ml-2 text-xs font-mono text-gray-400">{c.product.bajajCode}</span>}
                                   {ya && <span className="ml-2 text-xs text-blue-500">ya agregado</span>}
                                   <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">hay {c.product.stock}</span>
+                                  {c.product.models.length > 0 && (
+                                    <span className="block text-[11px] text-gray-400">sirve en {formatModels(c.product.models)}</span>
+                                  )}
                                 </span>
                                 <input
                                   type="number" min={1} max={c.product.stock} value={cantidades[c.id] ?? 1}

@@ -34,7 +34,8 @@ export default async function InventarioPage({ searchParams }: Props) {
     !termino ||
     f.nameEs.toLowerCase().includes(termino) ||
     (f.bajajCode ?? '').toLowerCase().includes(termino) ||
-    (f.compatibleModels ?? '').toLowerCase().includes(termino)
+    (f.compatibleModels ?? '').toLowerCase().includes(termino) ||
+    f.ensambles.some(e => e.toLowerCase().includes(termino))
 
   // Lo que más plata representa arriba.
   const filas = inv.filas
@@ -54,7 +55,7 @@ export default async function InventarioPage({ searchParams }: Props) {
   }
 
   return (
-    <div className="max-w-6xl">
+    <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Inventario</h1>
         <p className="text-sm text-gray-500 mt-1">
@@ -113,8 +114,8 @@ export default async function InventarioPage({ searchParams }: Props) {
           <input
             name="q"
             defaultValue={q}
-            placeholder="Buscar pieza, SKU o moto…"
-            className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-64"
+            placeholder="Buscar pieza, SKU, moto o ensamble…"
+            className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-80"
           />
         </form>
       </div>
@@ -135,7 +136,7 @@ export default async function InventarioPage({ searchParams }: Props) {
               <tr>
                 <th className="text-left px-4 py-2 font-semibold">Pieza</th>
                 <th className="text-right px-3 py-2 font-semibold">Aquí</th>
-                <th className="text-right px-3 py-2 font-semibold">En camino</th>
+                <th className="text-right px-3 py-2 font-semibold whitespace-nowrap">En camino</th>
                 <th className="text-right px-3 py-2 font-semibold">Valor</th>
                 <th className="text-left px-4 py-2 font-semibold">Cajas</th>
               </tr>
@@ -155,6 +156,12 @@ export default async function InventarioPage({ searchParams }: Props) {
                         <span className="font-mono">{f.bajajCode ?? 'sin SKU'}</span>
                         {modelos.length > 0 && <> · {formatModels(modelos)}</>}
                       </div>
+                      {f.ensambles.length > 0 && (
+                        <div className="text-xs text-gray-500" title={f.ensambles.join(', ')}>
+                          va en {f.ensambles.slice(0, 2).join(', ')}
+                          {f.ensambles.length > 2 && <span className="text-gray-400"> +{f.ensambles.length - 2}</span>}
+                        </div>
+                      )}
                     </td>
                     <td className={`px-3 py-2 text-right font-mono ${f.aqui > 0 ? 'text-gray-900 font-semibold' : f.aqui < 0 ? 'text-red-600' : 'text-gray-300'}`}>
                       {f.aqui}
@@ -174,7 +181,7 @@ export default async function InventarioPage({ searchParams }: Props) {
                           <Link
                             key={c.envioId}
                             href={`/envios/${c.envioId}`}
-                            className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 hover:underline"
+                            className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 hover:underline whitespace-nowrap"
                           >
                             {c.modo === 'maritimo_cbm' ? '🚢' : '✈️'} {c.nombre} · {c.unidades}
                           </Link>
