@@ -31,7 +31,7 @@ Quotes and orders are **presented** in BCV dollars (real ÷ (1 − escalón), `c
 
 ## Selling from the warehouse (`lib/venta-stock.ts` · `/ventas`)
 
-A `Pedido` with `tipo = 'venta'`, born `status = 'pedido'` with every line `entregado`; reuses `cobrarPedido`, BCV escalón and client totals. Loose pieces only (a bundle has no stock). Each line freezes its cost in `costRealUsd` (prefilled from `landedCostUsd`, **required**). Stock drops with `UPDATE … WHERE stock >= qty` in the same transaction. Never assigned to boxes. Not editable; `anularVenta` returns pieces, removes its incomes and deletes the order (not a refund).
+A `Pedido` with `tipo = 'venta'`, born `status = 'pedido'` with every line `entregado`; reuses `cobrarPedido`, BCV escalón and client totals. Loose pieces only (a bundle has no stock). Each line freezes its cost in `costRealUsd` (prefilled from `landedCostUsd`, **required**). Stock drops with `UPDATE … WHERE stock >= qty` in the same transaction. Never assigned to boxes. Change given (*vuelto*, same or other method) is a `devolverACliente` of what was overpaid, as at a delivery. Not editable; `anularVenta` returns pieces, removes its incomes and vuelto and deletes the order (not a refund).
 
 ## Realised margin (`lib/margen.ts` · `lib/resultados.ts` · `/resultados`)
 
