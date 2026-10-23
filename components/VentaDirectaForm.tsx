@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import CampoFecha from '@/components/CampoFecha'
 import MontoBs from '@/components/MontoBs'
+import CamposDevolucion from '@/components/CamposDevolucion'
 import { useEnviarAccion } from '@/components/useEnviarAccion'
 import type { ActionResult } from '@/lib/action-result'
 import { cobraEnBolivares } from '@/lib/pagos'
@@ -89,7 +90,9 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
   const [lineas, setLineas] = useState<Linea[]>([])
   const [clienteId, setClienteId] = useState('')
   const [cobrado1, setCobrado1] = useState(0)
+  const [cobrado2, setCobrado2] = useState(0)
   const [segundo, setSegundo] = useState(false)
+  const [conVuelto, setConVuelto] = useState(false)
   const { enviar, isPending, error } = useEnviarAccion(action, () => {})
 
   // ── Ensambles ──────────────────────────────────────────────────────────────
@@ -237,6 +240,9 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
     : null
 
   const modoBcv = escalon != null
+  // Lo que pagó de más (dólares reales): es el vuelto que se propone.
+  const pagado = cobrado1 + (segundo ? cobrado2 : 0)
+  const sobra = cobro ? Math.max(0, Math.round((pagado - cobro.totalReal) * 100) / 100) : 0
   const listo = hayLineas && !excedeStock && clienteId !== ''
 
   const motosVisibles = ALL_MODELS.filter(m => motos.includes(m.id))
@@ -557,7 +563,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
               <div className="flex flex-wrap items-start gap-4 border-t border-gray-100 mt-4 pt-4">
                 <FilaCobro
                   sufijo="2" metodos={metodos} metodoInicial={metodos[1] ?? metodos[0]} cobro={cobro} yaCobrado={cobrado1}
-                  modoBcv={modoBcv} tasaBcv={tasaBcv} tasaDirecta={tasaDirecta}
+                  modoBcv={modoBcv} tasaBcv={tasaBcv} tasaDirecta={tasaDirecta} onReal={setCobrado2}
                 />
                 <button type="button" onClick={() => setSegundo(false)} className="text-xs text-gray-500 hover:text-red-600 mt-6">
                   Quitar
@@ -568,6 +574,23 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                 + Pagó una parte con otro método
               </button>
             )}
+            <div className="border-t border-gray-100 mt-4 pt-3 space-y-2">
+              <label className="flex items-center gap-2 text-xs text-gray-600">
+                <input type="checkbox" checked={conVuelto} onChange={e => setConVuelto(e.target.checked)} className="rounded border-gray-300" />
+                Le di vuelto{sobra > 0 && <span className="text-gray-400">(pagó {usd(sobra)} de más)</span>}
+              </label>
+              {conVuelto && (
+                <div className="w-64">
+                  <CamposDevolucion
+                    key={sobra.toFixed(2)}
+                    sugerido={sobra}
+                    tasaSugerida={tasaDirecta}
+                    etiqueta="Vuelto (USD reales)"
+                    ayuda="Lo que le devolviste porque pagó de más. Puede ser por otro medio que el pago."
+                  />
+                </div>
+              )}
+            </div>
             <p className="text-[11px] text-gray-400 mt-2">
               Dejá el monto vacío si todavía no pagó: queda por cobrar y lo registrás después desde el pedido.
             </p>

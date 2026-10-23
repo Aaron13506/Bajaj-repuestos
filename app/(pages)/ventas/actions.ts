@@ -9,7 +9,9 @@ import { escalonBcvVigente } from '@/lib/calc'
 import { toConfigMap } from '@/lib/config'
 import { cobraEnBolivares } from '@/lib/pagos'
 import { leerCobroBs } from '@/lib/cuentas'
-import { bloquearPedido, cobrarPedido } from '@/lib/movimientos'
+import { bloquearPedido, cobrarPedido, devolverACliente } from '@/lib/movimientos'
+import { leerDevolucion } from '@/lib/devolucion'
+import { saldoReal } from '@/lib/saldo-entrega'
 import { costoDeLinea, motivoNoVendible, type LineaVenta } from '@/lib/venta-stock'
 import { toModelIds, type MotoModelId } from '@/lib/modelo'
 import { whereModel } from '@/lib/catalog'
@@ -147,6 +149,12 @@ async function crearVenta(formData: FormData) {
   const fecha = rawFecha ? new Date(`${rawFecha}T12:00:00`) : new Date()
   // Hasta dos cobros (parte en Bs y parte en efectivo): cada uno entra al libro por separado.
   const cobros = ['', '2'].map(s => leerCobro(formData, s)).filter(c => c != null)
+  // El vuelto: pagó con un billete más grande y se le devolvió la diferencia, por el mismo medio
+  // o por otro (pagó $20 y el vuelto fue en Bs). Sale como en la entrega de un pedido: una
+  // devolución del saldo a favor que dejó el pago, así el libro tiene lo que entró y lo que salió.
+  const vuelto = leerDevolucion(formData)
+  if (!vuelto.ok) throw new ErrorDeNegocio(vuelto.error)
+  if (vuelto.devolucion && cobros.length === 0) throw new ErrorDeNegocio('Hay vuelto sin pago: anotá lo que entregó el cliente.')
 
   const cfg = toConfigMap(await db.config.findMany())
   // Como un pedido de cliente: el escalón de hoy queda congelado y el cliente ve el total a BCV.
@@ -204,6 +212,20 @@ async function crearVenta(formData: FormData) {
       })
       if (!r.ok) throw new ErrorDeNegocio(r.error)
     }
+    if (vuelto.devolucion) {
+      const v = vuelto.devolucion
+      const sobra = -saldoReal(lineas, (await bloquearPedido(tx, creado.id))!.depositUsd)
+      if (v.monto > sobra + 0.005) {
+        throw new ErrorDeNegocio(
+          sobra > 0.005
+            ? `El vuelto no puede pasar de $${sobra.toFixed(2)}: es lo que pagó de más.`
+            : 'Con lo que pagó no sobra nada: no hay vuelto que dar.',
+        )
+      }
+      await devolverACliente(tx, {
+        pedidoId: creado.id, monto: v.monto, fecha: v.fecha, metodoPago: v.metodoPago, descripcion: 'Vuelto de la venta', bs: v.bs,
+      })
+    }
     return creado
   }, { maxWait: 10_000, timeout: 20_000 })
 
@@ -214,7 +236,8 @@ async function crearVenta(formData: FormData) {
 // Deshace una venta que no debió existir (se cargó mal, el cliente no se llevó nada): devuelve
 // las piezas al depósito, saca sus cobros del libro y borra el pedido. NO es una devolución:
 // plata que el cliente ya se llevó con la mercancía y vuelve es un egreso aparte, igual que
-// corregir un adelanto no es reembolsarlo.
+// corregir un adelanto no es reembolsarlo. El vuelto de la venta (`devolucion_cliente`) es parte
+// del mismo cobro y se va con él.
 export async function anularVenta(id: number): Promise<ActionResult> {
   const r = await conErrorDeNegocio(() => deshacerVenta(id))
   if (!r.ok) return r
@@ -234,7 +257,7 @@ async function deshacerVenta(id: number) {
     if (!p) return
     if (p.tipo !== 'venta') throw new ErrorDeNegocio('Solo una venta directa se puede anular así.')
 
-    const otros = await tx.movimiento.count({ where: { pedidoId: id, tipo: { not: 'ingreso' } } })
+    const otros = await tx.movimiento.count({ where: { pedidoId: id, tipo: { not: 'ingreso' }, categoria: { not: 'devolucion_cliente' } } })
     if (otros > 0) throw new ErrorDeNegocio('Tiene egresos en el libro: sacalos primero.')
 
     for (const it of p.items) {
