@@ -80,7 +80,11 @@ export function leerCobroBs(
   if (!Number.isFinite(tasaBs) || tasaBs <= 0) {
     return { ok: false, error: 'Escribí la tasa (Bs por dólar) de ese día: sin ella no se sabe cuántos dólares son.' }
   }
-  const montoUsd = round2(montoBs / tasaBs)
+  // "Me dieron 15.000 Bs por los $15": el equivalente manda sobre la división (MontoBs). Vacío = la división.
+  const rawEquiv = String(fd.get(`equivalenteUsd${sufijo}`) ?? '').trim()
+  const equiv = num(`equivalenteUsd${sufijo}`)
+  if (rawEquiv !== '' && !(Number.isFinite(equiv) && equiv > 0)) return { ok: false, error: 'El equivalente en dólares no se entiende: revisalo o dejalo vacío.' }
+  const montoUsd = rawEquiv !== '' ? round2(equiv) : round2(montoBs / tasaBs)
   if (montoUsd <= 0) return { ok: false, error: 'Esos bolívares no llegan a un centavo a esa tasa: revisá los montos.' }
   return { ok: true, cobro: { montoBs: round2(montoBs), tasaBs, montoUsd } }
 }

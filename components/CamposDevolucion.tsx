@@ -50,14 +50,16 @@ export default function CamposDevolucion({ sugerido, maximo, tasaSugerida, etiqu
         </p>
       </div>
 
+      {/* El método va siempre a la vista: escondido hasta escribir el monto, un vuelto (que arranca
+          vacío) parecía no tener por dónde darse. Sin monto, leerDevolucion lo ignora. */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Se le devuelve por</label>
+        <select name="devolverMetodo" value={metodo} onChange={e => setMetodo(e.target.value)} className={cls}>
+          {METODOS_DEVOLUCION.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+      </div>
       {hay && (
         <>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Se le devuelve por</label>
-            <select name="devolverMetodo" value={metodo} onChange={e => setMetodo(e.target.value)} className={cls}>
-              {METODOS_DEVOLUCION.map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
-          </div>
           {enBs && (
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Bs entregados</label>

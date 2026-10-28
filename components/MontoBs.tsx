@@ -38,9 +38,14 @@ export default function MontoBs({
   const [bs, setBs] = useState(() =>
     inicial && sugerido != null && tasaSugerida > 0 ? (Math.round(sugerido * tasaSugerida * 100) / 100).toFixed(2) : '',
   )
+  // "Me dieron 15.000 Bs por los $15": el equivalente solo dice cuánto se le acredita al cliente.
+  // La tasa (y los Bs) quedan como referencia; lo que valen los Bs se mide a tasa USDT.
+  const [equiv, setEquiv] = useState('')
   const b = parseFloat(bs)
   const t = parseFloat(tasa)
-  const dolares = b > 0 && t > 0 ? b / t : null
+  const eq = parseFloat(equiv)
+  const conEquiv = eq > 0 && b > 0
+  const dolares = conEquiv ? eq : b > 0 && t > 0 ? b / t : null
   useEffect(() => onDolares?.(dolares), [dolares, onDolares])
   const completo = requerido || bs !== ''
   const cls = 'w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
@@ -68,13 +73,24 @@ export default function MontoBs({
           />
         </div>
       )}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Equivale a ({unidad}) <span className="font-normal text-gray-400">opcional</span></label>
+        <input
+          type="number" name={`equivalenteUsd${sufijo}`} min={0.01} step="0.01" value={equiv} onChange={e => setEquiv(e.target.value)} className={cls}
+          placeholder={b > 0 && t > 0 ? (b / t).toFixed(2) : 'Si te lo dieron por un monto redondo'}
+        />
+      </div>
       <p className="text-[11px] text-gray-500">
         {dolares != null ? <>= <span className="font-mono font-semibold text-gray-700">{usd(dolares)}</span> {unidad}</> : 'Los dólares salen de dividir los Bs entre la tasa.'}
-        {interna && <span className="text-gray-400"> · {etiquetaTasa.toLowerCase()} {bsFmt(tasaSugerida)}</span>}
+        {conEquiv && t > 0 && (
+          // Que se vea cuánto se aparta de la tasa: un typo en el equivalente le acredita de más.
+          <span className="text-amber-700"> · a la tasa eran Bs {bsFmt(eq * t)} ({bsFmt(b - eq * t)} Bs de diferencia)</span>
+        )}
+        {interna && !conEquiv && <span className="text-gray-400"> · {etiquetaTasa.toLowerCase()} {bsFmt(tasaSugerida)}</span>}
       </p>
       {sugerido != null && sugerido > 0 && t > 0 && (
         <button
-          type="button" onClick={() => setBs((Math.round(sugerido * t * 100) / 100).toFixed(2))}
+          type="button" onClick={() => { setBs((Math.round(sugerido * t * 100) / 100).toFixed(2)); setEquiv('') }}
           className="text-[11px] text-blue-600 hover:underline"
         >
           Poner {usd(sugerido)} = Bs {bsFmt(sugerido * t)}

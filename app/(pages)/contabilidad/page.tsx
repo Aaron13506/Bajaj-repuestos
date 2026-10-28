@@ -86,7 +86,16 @@ export default async function ContabilidadPage({ searchParams }: Props) {
     valorBsEnLibro(),
     listarMovimientos(limite, rangoLibro, filtro),
   ])
-  const saldoTotal = (apertura?.saldoInicial ?? 0) + caja.saldo
+  // Los Bs del banco valen lo que darían hoy en USDT (bsd_usd_rate), no lo que se le acreditó al cliente.
+  // shortcut: con movimientos del banco sin Bs anotados o la apertura en el banco no se sabe cuántos Bs
+  // hay, y queda el valor en libro; se arregla anotando esos Bs.
+  const tasaUsdt = num(cfg, 'bsd_usd_rate', 0)
+  const banco = porCuenta.find(c => c.cuenta === 'banco_bs')
+  const bancoUsdt = banco?.bs != null && banco.sinBs === 0 && apertura?.cuenta !== 'banco_bs' && tasaUsdt > 0
+    ? Math.round((banco.bs / tasaUsdt) * 100) / 100
+    : null
+  const ajusteUsdt = bancoUsdt != null ? bancoUsdt - banco!.usd : 0
+  const saldoTotal = (apertura?.saldoInicial ?? 0) + caja.saldo + ajusteUsdt
 
   // Cuentas por cobrar: mismo cálculo que clienteTotales/cobranzaEnvio (total del pedido
   // menos depositUsd), pero mirando TODOS los pedidos confirmados a la vez, no uno por caja.
@@ -153,16 +162,17 @@ export default async function ContabilidadPage({ searchParams }: Props) {
             {Math.abs(caja.costoConversion) >= 0.005 && (caja.costoConversion > 0
               ? ` − ${usd(caja.costoConversion)} que costó convertir a USDT`
               : ` + ${usd(-caja.costoConversion)} ganados al convertir a USDT`)}
+            {Math.abs(ajusteUsdt) >= 0.005 && ` ${ajusteUsdt > 0 ? '+' : '−'} ${usd(Math.abs(ajusteUsdt))} al valorar los Bs a tasa USDT`}
           </p>
           {/* Dónde está: lo que suman las cuentas, más la apertura, es el saldo de arriba. */}
           <ul className="mt-2 pt-2 border-t border-gray-100 space-y-0.5">
             {porCuenta.map(c => ({ ...c, usd: c.usd + (apertura && c.cuenta === apertura.cuenta ? apertura.saldoInicial : 0) })).map(c => (
               <li key={c.cuenta ?? 'sin'} className="flex justify-between text-[11px] text-gray-500">
                 <span>{c.cuenta ? CUENTA_LABELS[c.cuenta] : 'Sin cuenta'}</span>
-                {/* El banco se ve en bolívares: sus dólares son solo el valor en libro que suma arriba. */}
+                {/* El banco se ve en bolívares, y al lado lo que valen a tasa USDT (lo que suma arriba). */}
                 <span className="font-mono">
                   {c.bs != null
-                    ? `Bs ${c.bs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${c.sinBs > 0 ? '+' : ''}`
+                    ? `Bs ${c.bs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${c.sinBs > 0 ? '+' : ''}${bancoUsdt != null ? ` ≈ ${usd(bancoUsdt)}` : ''}`
                     : usd(c.usd)}
                 </span>
               </li>
