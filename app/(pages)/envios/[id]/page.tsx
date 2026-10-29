@@ -22,6 +22,8 @@ import EnvioMaritimo from './maritimo'
 import { lookupDeConjuntos, expandCostPieces, repartirCostoReal } from '@/lib/envio-build'
 import { financiamientoEnvio, type FinanciamientoEnvio } from '@/lib/financiamiento-envio'
 import FleteRealCard, { type FilaFlete } from '@/components/FleteRealCard'
+import TrackingsCaja from '@/components/TrackingsCaja'
+import { esTramoTracking, type FilaTracking } from '@/lib/tracking'
 import ConteoCaja, { BotonConteo } from '@/components/ConteoCaja'
 import { piezasAContar } from '@/lib/conteo'
 import { statusIndex } from '@/lib/shipping-status'
@@ -43,7 +45,7 @@ import {
   guardarTarifaKg,
   cambiarReenvio,
   saveMedidasCaja,
-  guardarGuia,
+  guardarTrackings,
   guardarFleteReal,
   pagarFlete,
   deshacerPagoFlete,
@@ -140,6 +142,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
         // El proveedor de la caja: decide el precio de las piezas, cómo se cobra el tramo
         // a USA y qué etapas tiene la ruta de todo lo que va adentro.
         supplier: { select: { id: true, name: true, origen: true, inbound: true } },
+        trackings: { select: { tramo: true, numero: true, transportista: true }, orderBy: { id: 'asc' } },
       },
     }),
     db.config.findMany(),
@@ -1305,26 +1308,12 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               </div>
             </FormConResultado>
 
-            {/* Guía: solo se anota. Sirve para encontrar la caja cuando el cliente pregunta dónde está su pieza. */}
-            <FormConResultado action={guardarGuia.bind(null, envio.id)} className="mt-5 pt-4 border-t border-gray-100 flex flex-wrap items-end gap-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Guía / tracking</label>
-                <input
-                  type="text" name="guia" defaultValue={envio.guia ?? ''} placeholder="Ej: SHP-64898"
-                  className="w-48 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Transportista</label>
-                <input
-                  type="text" name="transportista" defaultValue={envio.transportista ?? ''} placeholder="Ej: Shoppre / DHL"
-                  className="w-40 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-              <PendingButton className="px-4 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-                Guardar guía
-              </PendingButton>
-            </FormConResultado>
+            {/* Trackings por tramo: solo se anotan. Sirven para encontrar la caja cuando el cliente pregunta dónde está su pieza. */}
+            <TrackingsCaja
+              key={envio.trackings.map(t => `${t.tramo}:${t.numero}:${t.transportista ?? ''}`).join('|')}
+              action={guardarTrackings.bind(null, envio.id)}
+              inicial={envio.trackings.filter(t => esTramoTracking(t.tramo)) as FilaTracking[]}
+            />
 
             {calc.caja.medido && (
               <div className="mt-5">

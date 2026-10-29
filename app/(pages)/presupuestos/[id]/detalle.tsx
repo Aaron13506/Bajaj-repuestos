@@ -42,6 +42,7 @@ import { estadoLinea } from '@/lib/pedido-edicion'
 import { etiquetaPieza, tiposPara, TIPO_LABELS } from '@/lib/incidencias'
 import { motivoNoEntregable, saldoReal } from '@/lib/saldo-entrega'
 import { mensajeEstado } from '@/lib/mensajes-cliente'
+import { resumenTrackings } from '@/lib/tracking'
 
 // "#123 Andry" en la pestaña del navegador; lo reexportan las dos rutas del detalle.
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
@@ -72,9 +73,14 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
             },
             ensamble: { select: { id: true, nameEs: true, nameEn: true, imageUrl: true, compatibleModels: true } },
             supplier: { select: { name: true } },
-            // La caja en que viaja (con su guía) y por qué etapas pasó: lo que se le contesta al
-            // cliente cuando pregunta dónde está su pieza.
-            envio: { select: { id: true, guia: true, transportista: true } },
+            // La caja en que viaja (con sus trackings) y por qué etapas pasó: lo que se le contesta
+            // al cliente cuando pregunta dónde está su pieza.
+            envio: {
+              select: {
+                id: true,
+                trackings: { select: { tramo: true, numero: true, transportista: true }, orderBy: { id: 'asc' } },
+              },
+            },
             etapas: { select: { desde: true, hacia: true, at: true }, orderBy: { at: 'asc' } },
           },
           orderBy: { id: 'asc' },
@@ -848,9 +854,9 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                             envío #{item.envioId}
                           </Link>
                         )}
-                        {item.envio?.guia && (
-                          <span className="text-[10px] font-mono text-gray-500" title="Número de guía de la caja">
-                            guía {item.envio.guia}{item.envio.transportista ? ` · ${item.envio.transportista}` : ''}
+                        {item.envio && item.envio.trackings.length > 0 && (
+                          <span className="text-[10px] font-mono text-gray-500" title="Trackings de la caja">
+                            {resumenTrackings(item.envio.trackings)}
                           </span>
                         )}
                       </p>

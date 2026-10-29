@@ -20,6 +20,7 @@ import type { BundlePiece } from '@/lib/bundle'
 import {
   TRAMOS_FLETE, CATEGORIAS_FLETE, esTramoFlete, excedeFacturado, type TramoFlete,
 } from '@/lib/flete-real'
+import { TRAMOS_TRACKING, leerTrackingsTramo, type FilaTracking } from '@/lib/tracking'
 
 // Crea una caja. La RUTA se elige acá y no se vuelve a tocar: es lo que decide con qué
 // cadena logística se costea y, sobre todo, qué se puede meter adentro.
@@ -412,13 +413,29 @@ export async function guardarTarifaKg(envioId: number, formData: FormData): Prom
   return ok()
 }
 
-// El número de guía y quién la lleva. Solo se anotan (el sistema no consulta nada afuera): sirven
-// para encontrar la caja cuando el cliente pregunta dónde está su pieza. Vacío = no se sabe.
-export async function guardarGuia(envioId: number, formData: FormData): Promise<ActionResult> {
-  const guia = (formData.get('guia') as string)?.trim() || null
-  const transportista = (formData.get('transportista') as string)?.trim() || null
-  const r = await db.envio.updateMany({ where: { id: envioId }, data: { guia, transportista } })
-  if (r.count === 0) return fallo('Ese envío ya no existe.')
+// Los trackings de la caja, por tramo. Solo se anotan (el sistema no consulta nada afuera):
+// sirven para encontrar la caja cuando el cliente pregunta dónde está su pieza. El form manda
+// la lista completa de cada tramo y reemplaza la guardada; un tramo vacío queda sin trackings.
+export async function guardarTrackings(envioId: number, formData: FormData): Promise<ActionResult> {
+  const filas: FilaTracking[] = []
+  for (const tramo of TRAMOS_TRACKING) {
+    const r = leerTrackingsTramo(
+      tramo,
+      formData.getAll(`numero_${tramo}`).map(String),
+      formData.getAll(`transportista_${tramo}`).map(String),
+    )
+    if ('error' in r) return fallo(r.error)
+    filas.push(...r.filas)
+  }
+  const existe = await db.$transaction(async tx => {
+    // Bloquea la caja: dos guardados cruzados no se pisan a medias.
+    const caja = await tx.$queryRaw<{ id: number }[]>`SELECT "id" FROM "Envio" WHERE "id" = ${envioId} FOR UPDATE`
+    if (caja.length === 0) return false
+    await tx.envioTracking.deleteMany({ where: { envioId } })
+    if (filas.length > 0) await tx.envioTracking.createMany({ data: filas.map(f => ({ envioId, ...f })) })
+    return true
+  })
+  if (!existe) return fallo('Ese envío ya no existe.')
   revalidatePath('/envios')
   revalidatePath(`/envios/${envioId}`)
   revalidatePath('/presupuestos')
