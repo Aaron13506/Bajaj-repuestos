@@ -50,6 +50,7 @@ import { debeSaldo, motivoNoEntregable, saldoReal, seEntregaDesdeElPedido, situa
 import { diasSinMoverse, tiempoDeCompraA, tiemposPorTramo } from '../lib/etapas'
 import { leerDevolucion } from '../lib/devolucion'
 import { motivoNoCambiaReenvio, tarifaEquilibrioKgInr } from '../lib/reenvio'
+import { leerTrackingsTramo, resumenTrackings, MAX_TRACKINGS_POR_TRAMO } from '../lib/tracking'
 
 const cfg: ConfigMap = {
   inr_usd_rate: '94.95',
@@ -1296,6 +1297,25 @@ console.log('\nMENSAJE AL CLIENTE')
   check('llegó y pagado: no pide plata', si(mensajeEstado({ ...base, etapa: 'en_venezuela' }).includes('pagado en su totalidad')), 1)
   check('en camino no habla de plata', si(mensajeEstado({ ...base, etapa: 'camino_usa', porPagar: { usd: 50, bcv: false, bs: null, divisas: 50 } }).includes('$')), 0)
   check('avisa lo que falta comprar', si(mensajeEstado({ ...base, etapa: 'en_venezuela', porComprar: 2 }).includes('Quedan 2 piezas')), 1)
+}
+
+console.log('\nTRACKINGS DE LA CAJA')
+{
+  const si = (b: boolean) => (b ? 1 : 0)
+  const n = (r: ReturnType<typeof leerTrackingsTramo>) => ('filas' in r ? r.filas.length : -1)
+  check('tres paquetes locales', n(leerTrackingsTramo('local', ['A1', ' B2 ', 'C3'], ['Delhivery', '', ''])), 3)
+  check('el renglón vacío se descarta', n(leerTrackingsTramo('local', ['A1', '  '], ['', ''])), 1)
+  check('transportista sin número: rechazo', n(leerTrackingsTramo('usa', [''], ['Shoppre'])), -1)
+  check('repetido (sin importar mayúsculas): rechazo', n(leerTrackingsTramo('usa', ['shp-1', 'SHP-1'], ['', ''])), -1)
+  const once = Array.from({ length: MAX_TRACKINGS_POR_TRAMO + 1 }, (_, i) => `T${i}`)
+  check('más del tope: rechazo', n(leerTrackingsTramo('usa', once, once.map(() => ''))), -1)
+  check('justo el tope: pasa', n(leerTrackingsTramo('usa', once.slice(1), once.slice(1).map(() => ''))), MAX_TRACKINGS_POR_TRAMO)
+  const r = resumenTrackings([
+    { tramo: 'usa', numero: 'SHP-1', transportista: 'Shoppre' },
+    { tramo: 'local', numero: 'A1', transportista: 'Delhivery' },
+    { tramo: 'local', numero: 'B2', transportista: null },
+  ])
+  check('resumen en orden de viaje', si(r === 'local A1, B2 (Delhivery) · USA SHP-1 (Shoppre)'), 1)
 }
 
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)

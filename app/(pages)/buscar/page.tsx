@@ -39,8 +39,8 @@ export default async function BuscarPage({ searchParams }: { searchParams: Promi
           take: LIMITE,
         }),
         db.envio.findMany({
-          where: { OR: [...(num != null ? [{ id: num }] : []), { nombre: texto }, { guia: texto }] },
-          select: { id: true, nombre: true, guia: true },
+          where: { OR: [...(num != null ? [{ id: num }] : []), { nombre: texto }, { trackings: { some: { numero: texto } } }] },
+          select: { id: true, nombre: true, trackings: { select: { numero: true }, orderBy: { id: 'asc' } } },
           orderBy: { createdAt: 'desc' },
           take: LIMITE,
         }),
@@ -83,7 +83,7 @@ export default async function BuscarPage({ searchParams }: { searchParams: Promi
           {productos.map(p => <Fila key={p.id} href={`/products/${p.id}`} izq={p.nameEs} der={p.bajajCode ?? ''} />)}
         </Grupo>
         <Grupo titulo="Cajas" n={envios.length}>
-          {envios.map(e => <Fila key={e.id} href={`/envios/${e.id}`} izq={e.nombre ?? `Caja #${e.id}`} der={e.guia ?? ''} />)}
+          {envios.map(e => <Fila key={e.id} href={`/envios/${e.id}`} izq={e.nombre ?? `Caja #${e.id}`} der={e.trackings.map(t => t.numero).join(', ')} />)}
         </Grupo>
       </div>
     </div>

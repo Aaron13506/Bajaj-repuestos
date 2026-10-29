@@ -340,9 +340,8 @@ model Envio {
   cajaL            Float?
   cajaA            Float?
   cajaH            Float?
-  // Número de guía / tracking y quién la lleva. Solo se anotan: el sistema no consulta nada afuera.
-  guia             String?
-  transportista    String?
+  // Los números de tracking por tramo (local India, hacia USA, hacia Venezuela). Ver lib/tracking.ts.
+  trackings        EnvioTracking[]
   // Carga COMERCIAL: piezas que ya se le vendieron a alguien. Es el carril aéreo.
   items            PedidoItem[]
   // Carga PROPIA: mercancía que traigo para stock. Es el carril marítimo.
@@ -353,6 +352,23 @@ model Envio {
   updatedAt        DateTime     @updatedAt
 
   @@index([supplierId])
+}
+
+// Un número de tracking de una caja en un tramo. Una caja puede tener varios por tramo: el
+// proveedor despacha en dos o tres paquetes y da un número local por cada uno. Solo se anotan;
+// el orden es el de carga (id). Ver lib/tracking.ts.
+model EnvioTracking {
+  id            Int     @id @default(autoincrement())
+  envioId       Int
+  // 'local' (proveedor → depósito en India) | 'usa' | 'venezuela'. CHECK en la base.
+  tramo         String
+  numero        String
+  transportista String?
+
+  envio Envio @relation(fields: [envioId], references: [id], onDelete: Cascade)
+
+  @@unique([envioId, tramo, numero])
+  @@index([numero])
 }
 
 // Una línea de mercancía PROPIA dentro de un embarque.
