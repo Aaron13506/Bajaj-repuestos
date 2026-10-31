@@ -1,4 +1,5 @@
 import baseline from '@/shipping_rates.json'
+import baselineVe from '@/shipping_rates_ve.json'
 
 // Tabla escalón de Shoppre India→USA, en DÓLARES. La API de Shoppre ya devuelve el
 // precio convertido (`customer_rate_in_usd`), así que el tramo aéreo no pasa por
@@ -34,6 +35,22 @@ export interface ScrapedRates {
 export const CARRIER_DUTY_FREE = 'ShipGlobal USA - Duty Free'
 export const CARRIER_ECONOMY   = 'Economy Shipping'
 
+// Hay DOS tablas, una por destino, y salen de la misma API de Shoppre cambiando el país:
+//
+//   'usa' India → USA, el tramo de la caja aérea de siempre (después cruza a Caracas por mar).
+//   've'  India → Venezuela directo: el envío express. Un solo servicio, 3 a 6 días, y la
+//         misma tarifa de socio que la de USA (probado contra una factura real).
+//
+// Cada una vive en su key de Config (la escribe el cron) y tiene su baseline buildeado.
+export type DestinoTarifa = 'usa' | 've'
+
+export const CONFIG_KEY_TARIFAS: Record<DestinoTarifa, string> = {
+  usa: 'shoppre_rates_usd',
+  ve: 'shoppre_rates_ve_usd',
+}
+
+export const CARRIER_EXPRESS_VE = 'Shoppre Trusted Carrier - Express Shipping'
+
 /** Convierte una corrida del scraper en la tabla de escalones que consume la app. */
 export function buildRateTable(scraped: ScrapedRates): RateTable {
   const carriers: Record<string, RateStep[]> = {}
@@ -61,29 +78,32 @@ function isRateTable(value: unknown): value is RateTable {
   return !!t && typeof t === 'object' && !!t.carriers && Object.keys(t.carriers).length > 0
 }
 
-const BASELINE = baseline as unknown as RateTable
+const BASELINE: Record<DestinoTarifa, RateTable> = {
+  usa: baseline as unknown as RateTable,
+  ve: baselineVe as unknown as RateTable,
+}
 
 // Parsear la tabla es barato pero calcLanded corre una vez por producto listado, así
 // que se cachea por el string crudo: mientras el cron no la reescriba, es la misma.
-let cached: { raw: string; table: RateTable } | null = null
+const cached: Partial<Record<DestinoTarifa, { raw: string; table: RateTable }>> = {}
 
 /**
- * Tabla vigente: la que dejó el cron en Config (`shoppre_rates_usd`), y si no hay o
- * está corrupta, la que quedó congelada en shipping_rates.json al buildear. El
- * fallback existe para que un scrape fallido no deje la app sin costear.
+ * Tabla vigente: la que dejó el cron en Config (`shoppre_rates_usd`, o `shoppre_rates_ve_usd`
+ * para el express), y si no hay o está corrupta, la que quedó congelada en el baseline al
+ * buildear. El fallback existe para que un scrape fallido no deje la app sin costear.
  */
-export function resolveRateTable(cfg?: Record<string, string>): RateTable {
-  const raw = cfg?.shoppre_rates_usd
-  if (!raw) return BASELINE
-  if (cached?.raw === raw) return cached.table
+export function resolveRateTable(cfg?: Record<string, string>, destino: DestinoTarifa = 'usa'): RateTable {
+  const raw = cfg?.[CONFIG_KEY_TARIFAS[destino]]
+  if (!raw) return BASELINE[destino]
+  if (cached[destino]?.raw === raw) return cached[destino]!.table
 
   try {
     const parsed = JSON.parse(raw)
-    if (!isRateTable(parsed)) return BASELINE
-    cached = { raw, table: parsed }
+    if (!isRateTable(parsed)) return BASELINE[destino]
+    cached[destino] = { raw, table: parsed }
     return parsed
   } catch {
-    return BASELINE
+    return BASELINE[destino]
   }
 }
 
@@ -92,13 +112,13 @@ export function resolveRateTable(cfg?: Record<string, string>): RateTable {
  * tres carriers). NO es un detalle del scraper — es el límite por caja del transportista,
  * y por eso mandar más que eso no es "un precio que falta", es OTRA caja.
  */
-export function capacidadCajaKg(carrier: string, cfg?: Record<string, string>): number {
-  const steps = pasosDe(carrier, cfg)
+export function capacidadCajaKg(carrier: string, cfg?: Record<string, string>, destino: DestinoTarifa = 'usa'): number {
+  const steps = pasosDe(carrier, cfg, destino)
   return steps[steps.length - 1][0]
 }
 
-function pasosDe(carrier: string, cfg?: Record<string, string>): RateStep[] {
-  const table = resolveRateTable(cfg)
+function pasosDe(carrier: string, cfg?: Record<string, string>, destino: DestinoTarifa = 'usa'): RateStep[] {
+  const table = resolveRateTable(cfg, destino)
   return table.carriers[carrier] ?? table.carriers[CARRIER_DUTY_FREE] ?? Object.values(table.carriers)[0]
 }
 
@@ -135,9 +155,10 @@ export function cotizarTramoAereo(
   carrier: string,
   isMember: boolean,
   cfg?: Record<string, string>,
+  destino: DestinoTarifa = 'usa',
 ): TramoCotizacion {
-  const table = resolveRateTable(cfg)
-  const steps = pasosDe(carrier, cfg)
+  const table = resolveRateTable(cfg, destino)
+  const steps = pasosDe(carrier, cfg, destino)
   const capKg = steps[steps.length - 1][0]
   const socio = (basic: number) => (isMember ? Number((basic * (1 - table.member_discount)).toFixed(2)) : basic)
   // El escalón que cubre ese peso. Nunca satura acá: por construcción cada caja pesa

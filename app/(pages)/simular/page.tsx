@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import SimuladorEnvio, { type SimProduct, type SimPedido } from '@/components/SimuladorEnvio'
 import CompararCompra, { type PedidoOpcion } from '@/components/CompararCompra'
 import SimularTabs from '@/components/SimularTabs'
+import SimuladorExpress from '@/components/SimuladorExpress'
 import type { ConfigMap } from '@/lib/calc'
 import type { ProveedorOpcion } from '@/lib/comparar-compra'
 import { makeProductLookup, expandCostPieces, type ProductCost } from '@/lib/envio-build'
@@ -106,13 +107,15 @@ export default async function SimularPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Simular envío</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Dos preguntas sobre una caja que todavía no existe: a quién comprarle, y por dónde traerla.
+          Preguntas sobre una caja que todavía no existe: a quién comprarle, por dónde traerla, y si
+          entra por express.
           Nada de lo que se toca acá se guarda.
         </p>
       </div>
       <SimularTabs
         compra={<CompararCompra proveedores={proveedores} pedidos={pedidosParaComparar} cfg={cfg} />}
         ruta={<SimuladorEnvio products={productsForClient} pedidos={pedidosForClient} cfg={cfg} />}
+        express={<SimuladorExpress pedidos={pedidosParaComparar} cfg={cfg} />}
       />
     </div>
   )

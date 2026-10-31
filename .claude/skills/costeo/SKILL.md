@@ -40,6 +40,13 @@ Charges attach to what generated them (spreading them wrecks the per-piece lande
 
 - Live table: `Config.shoppre_rates_usd`, refreshed by `pnpm fx:update` (hourly timer) → `scripts/update-shipping-rates.ts`, throttled to one scrape per `SHOPPRE_RATES_MAX_AGE_H` (72 h) measured from the row's `updatedAt` (touched even when nothing changed). Fallback: bundled `shipping_rates.json` (`pnpm rates:baseline`). Shape: `[maxKg, basicUsd]` steps per carrier; member price = fixed 5% off, derived.
 - **`cotizarTramoAereo` is the only door into the table.** 22 kg is the carrier's cap per box: past it there are more boxes, split into **equal** boxes (not the cheapest split — you don't choose how Shoppre packs, and the optimum would end up in a sale price). `LegBreakdown.cajas/.cajasKg/.capKg` expose it.
+- **Two tables, one per destination** (`DestinoTarifa`): `'usa'` (above) and `'ve'`, Shoppre's express straight to Venezuela (`Config.shoppre_rates_ve_usd`, baseline `shipping_rates_ve.json`, API country 231, carrier `CARRIER_EXPRESS_VE`). Same cron, same throttle, same member discount (confirmed on a real invoice). `pnpm rates:baseline [--destino=usa|ve]`.
+
+## Express (`lib/express.ts`)
+
+`calcEnvio(…, { modo: 'express' })`: the `shoppre` lines pay the **Venezuela** table on the package's chargeable weight, plus Shoppre insurance and processing from Config; **no maritime leg**. Billed freight (`fleteFacturado.aereoUsd`) replaces the table and zeroes processing, as on the air lane. `calcLanded` refuses `'express'` by type: the freight is one rate per package, so there is no per-piece landed.
+
+`calcExpress` adds what is express-only: **the package's landed (product + freight + insurance + processing) may not exceed `express_tope_usd` ($100)**, per package; the sale price may. `holguraUsd` (negative = over), `productoQueEntraUsd` (room ÷ (1 + insurance), valid while the freight stays on its step), `kgHastaProximoEscalon`. Price = line landed per unit ÷ (1 − `express_margen_pct`, falling back to the default margin), rounded to the cent: never the catalog price, which carries the Miami freight and sea leg. UI: the Express tab in `/simular` (nothing saved yet).
 
 ## CBM, the sea lane (`lib/cbm.ts`)
 

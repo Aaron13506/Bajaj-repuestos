@@ -24,7 +24,8 @@ import {
   type MontosProveedor, type PiezaCompra, type ProveedorOpcion,
 } from '../lib/comparar-compra'
 import { parseListaSkus } from '../lib/lista-skus'
-import { cotizarTramoAereo, capacidadCajaKg } from '../lib/shipping-rates'
+import { cotizarTramoAereo, capacidadCajaKg, CARRIER_EXPRESS_VE } from '../lib/shipping-rates'
+import { calcExpress } from '../lib/express'
 import { repartirEnCentavos } from '../lib/reparto-compra'
 import { financiamientoEnvio } from '../lib/financiamiento-envio'
 import { estadoFlete, excedeFacturado, porSalirDeCaja, resumenFletes } from '../lib/flete-real'
@@ -1297,6 +1298,66 @@ console.log('\nMENSAJE AL CLIENTE')
   check('llegó y pagado: no pide plata', si(mensajeEstado({ ...base, etapa: 'en_venezuela' }).includes('pagado en su totalidad')), 1)
   check('en camino no habla de plata', si(mensajeEstado({ ...base, etapa: 'camino_usa', porPagar: { usd: 50, bcv: false, bs: null, divisas: 50 } }).includes('$')), 0)
   check('avisa lo que falta comprar', si(mensajeEstado({ ...base, etapa: 'en_venezuela', porComprar: 2 }).includes('Quedan 2 piezas')), 1)
+}
+
+// ── Envío express: Shoppre directo a Venezuela, con tope de landed por paquete ──
+// Es la caja aérea sin Miami: el mismo seguro y processing de Shoppre, la tabla de Venezuela
+// en vez de la de USA, y nada de marítimo. Encima, el landed del paquete no puede pasar del
+// tope, y el precio sale de ESE landed (no del catálogo, que lleva el flete por Miami).
+console.log('\nENVÍO EXPRESS')
+{
+  const ve = (kg: number, socio = false) => cotizarTramoAereo(kg, CARRIER_EXPRESS_VE, socio, cfg, 've').costUsd
+  const inr = 94.95
+  const pieza = (gramos: number, inrPrecio: number, dims: [number, number, number] = [20, 15, 10]): EnvioItemInput => ({
+    pedidoId: 9, productId: 901, name: 'Express A', weightGrams: gramos, dimL: dims[0], dimA: dims[1], dimH: dims[2],
+    priceInr: inrPrecio, quantity: 1, origen: 'india', inbound: 'shoppre', supplierId: null,
+  })
+
+  check('la tabla de Venezuela no es la de USA', ve(1) !== cotizarTramoAereo(1, CARRIER, false).costUsd ? 1 : 0, 1)
+
+  const e = calcExpress([pieza(800, 2000)], cfg)
+  const producto = 2000 / inr
+  const esperado = producto + ve(0.8) + producto * 0.03 + 500 / inr
+  check('express: flete de la tabla de Venezuela', e.envio.airUsd, ve(0.8))
+  check('express: no paga marítimo', e.envio.maritimeUsd, 0)
+  check('express: seguro de Shoppre sobre el producto', e.envio.insuranceUsd, producto * 0.03)
+  check('express: processing de Shoppre', e.envio.processingUsd, 500 / inr)
+  check('express: landed = producto + flete + seguro + processing', e.landedUsd, esperado)
+  check('express: holgura contra el tope', e.holguraUsd, 100 - esperado)
+  check('express: no se pasa', e.excede ? 1 : 0, 0)
+  check('express: producto que entra (descontando el seguro)', e.productoQueEntraUsd, (100 - esperado) / 1.03)
+  check('express: kg hasta el próximo escalón', e.kgHastaProximoEscalon ?? -1, 0.2, 1e-9)
+
+  const socio = calcExpress([pieza(800, 2000)], { ...cfg, shoppre_member: 'true' })
+  check('express: tarifa de socio también a Venezuela', socio.envio.airUsd, Number((ve(0.8) * 0.95).toFixed(2)), 0.0001)
+
+  // El volumétrico manda: 1 kg real en una caja de 30 cm de lado se cobra como 5.4 kg.
+  const bulto = calcExpress([pieza(1000, 2000, [30, 30, 30])], cfg)
+  check('express: cobra el volumétrico (5.4 kg)', bulto.envio.air.chargeableKg, 5.4, 1e-9)
+  check('express: y lo cobra a la tarifa de 5.4 kg', bulto.envio.airUsd, ve(5.4))
+
+  const pesado = calcExpress([pieza(3000, 4000)], cfg)
+  check('express: 3 kg con $42 de producto se pasa', pesado.excede ? 1 : 0, 1)
+  check('express: dice por cuánto', pesado.holguraUsd, 100 - pesado.landedUsd)
+  check('express: pasado no entra más producto', pesado.productoQueEntraUsd, 0)
+
+  // La factura de Shoppre trae el processing adentro: pisa a la tabla y no se suma dos veces.
+  const facturado = calcExpress([pieza(800, 2000)], cfg, { fleteUsd: 50 })
+  check('express: el flete facturado pisa la tabla', facturado.envio.airUsd, 50)
+  check('express: y el processing no se cuenta dos veces', facturado.envio.processingUsd, 0)
+
+  // Precio: landed por unidad / (1 − margen), redondeado al centavo.
+  const conMargen = calcExpress([{ ...pieza(800, 2000), quantity: 2 }], cfg, { margen: 0.3 })
+  const unit = Math.round((conMargen.landedUsd / 2 / 0.7) * 100) / 100
+  check('express: precio por unidad sale del landed del paquete', conMargen.lineas[0].precioUnitUsd, unit)
+  check('express: precio total = unidad × cantidad', conMargen.precioUsd, unit * 2, 1e-9)
+  check('express: margen por defecto es express_margen_pct', calcExpress([pieza(800, 2000)], { ...cfg, express_margen_pct: '25' }).margen, 0.25)
+  check('express: tope configurable', calcExpress([pieza(800, 2000)], { ...cfg, express_tope_usd: '120' }).topeUsd, 120)
+
+  // Y la caja aérea de siempre no se enteró: sigue con la tabla de USA y su marítimo.
+  const aereo = calcEnvio([pieza(800, 2000)], cfg, { modo: 'aereo' })
+  check('aéreo: sigue con la tabla de USA', aereo.airUsd, q(0.8).costUsd)
+  check('aéreo: sigue pagando marítimo', aereo.maritimeUsd > 0 ? 1 : 0, 1)
 }
 
 console.log('\nTRACKINGS DE LA CAJA')
