@@ -18,6 +18,7 @@ import { claveLinea } from '@/lib/linea-pedido'
 import { etiquetaPieza } from '@/lib/incidencias'
 import { esRedireccion } from '@/lib/redireccion'
 import type { ActionResult } from '@/lib/action-result'
+import type { Via } from '@/lib/express'
 
 interface Product {
   id: number
@@ -122,6 +123,8 @@ interface Props {
   editando?: boolean
   /** Lo que ya tengo de cada pieza (aquí / en camino / en borrador). Solo informativo. */
   posiciones?: PosicionesStock
+  /** Cómo se trae: por la caja normal (Miami) o express (Shoppre directo a Venezuela). */
+  initialVia?: Via
 }
 
 // Mapa vacío de identidad estable: se usa mientras no hay búsqueda por pieza, para no
@@ -142,8 +145,13 @@ export default function PresupuestoBuilder({
   clienteFijo = false,
   editando = initialItems.length > 0,
   posiciones,
+  initialVia = 'normal',
 }: Props) {
   const isPropio = tipo === 'propio'
+  // El stock propio viaja siempre por la caja normal; un pedido ya confirmado no cambia de vía
+  // (se cotizó y se cobró así).
+  const [via, setVia] = useState<Via>(isPropio ? 'normal' : initialVia)
+  const esExpress = via === 'express'
   const [selectedAssemblyId, setSelectedAssemblyId] = useState<number | null>(null)
   const [checked, setChecked] = useState<Record<number, boolean>>({})
   const [quantities, setQuantities] = useState<Record<number, number>>({})
@@ -449,18 +457,20 @@ export default function PresupuestoBuilder({
   // apagar banderas desde el efecto.
   const [costoHecho, setCostoHecho] = useState<{ clave: string; costo: CostoCarrito | null } | null>(null)
 
+  // La vía entra en la composición: pasar a express cambia el costo de TODO el carrito.
   const composicion = useMemo(
-    () => JSON.stringify(
+    () => JSON.stringify([
+      via,
       cart.map(c => [c.productId, c.ensambleId, c.quantity, c.bundleItems?.map(p => [p.bajajCode, p.nameEs, p.quantity]) ?? null]),
-    ),
-    [cart],
+    ]),
+    [cart, via],
   )
   const carritoVacio = cart.length === 0
   const costo = carritoVacio ? null : costoHecho?.costo ?? null
   const costeando = !carritoVacio && costoHecho?.clave !== composicion
 
   useEffect(() => {
-    const lineas = JSON.parse(composicion) as [number | null, number | null, number, [string | null, string, number][] | null][]
+    const [viaCosteo, lineas] = JSON.parse(composicion) as [Via, [number | null, number | null, number, [string | null, string, number][] | null][]]
     if (lineas.length === 0) return
     let cancelled = false
     const t = setTimeout(async () => {
@@ -475,6 +485,7 @@ export default function PresupuestoBuilder({
             // (el subgrupo es una etiqueta de presentación); se repone vacío para el tipo.
             bundleItems: piezas?.map(([bajajCode, nameEs, qty]) => ({ bajajCode, nameEs, quantity: qty, groupName: '' })) ?? null,
           })),
+          viaCosteo,
         )
         if (cancelled) return
         setCostoHecho({ clave: composicion, costo: r })
@@ -578,9 +589,13 @@ export default function PresupuestoBuilder({
     if ((e.target as HTMLElement).tagName === 'INPUT') e.preventDefault()
   }
 
+  // En express el precio de cada pieza depende del paquete entero (un solo flete): guardar a
+  // mitad del cálculo dejaba líneas con el precio de antes de agregar o sacar otra pieza.
+  const esperandoExpress = esExpress && costeando
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    if (!clienteValid || cart.length === 0 || nlsEnCarrito.length > 0 || submitting) return
+    if (!clienteValid || cart.length === 0 || nlsEnCarrito.length > 0 || submitting || esperandoExpress) return
     setSubmitting(true)
     setErrorGuardado(null)
     const fd = new FormData()
@@ -595,6 +610,7 @@ export default function PresupuestoBuilder({
     }
     fd.set('notas', notas)
     fd.set('tipo', tipo)
+    fd.set('via', via)
     fd.set(
       'items',
       JSON.stringify(sortedCart.map(c => ({
@@ -1194,7 +1210,7 @@ export default function PresupuestoBuilder({
                   <div className="mt-3 pt-3 border-t border-gray-100 space-y-2.5">
                     <div className="flex items-center justify-between">
                       <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                        ✈️ Costo por la ruta aérea
+                        {esExpress ? '⚡ Costo express (Shoppre → Venezuela)' : '✈️ Costo por la ruta aérea'}
                         {costeando && <span className="ml-2 font-normal normal-case text-gray-400">calculando…</span>}
                       </h3>
                       {costo.proveedor && (
@@ -1243,6 +1259,37 @@ export default function PresupuestoBuilder({
                         <p className="text-[10px] text-gray-400">ganancia ${(total - landedTotal).toFixed(2)}</p>
                       </div>
                     </div>
+
+                    {costo.express && (
+                      <div className={`rounded-lg border px-3 py-2.5 ${costo.express.excede ? 'border-red-300 bg-red-50' : 'border-green-300 bg-green-50'}`}>
+                        <div className="flex items-baseline justify-between gap-2">
+                          <p className={`text-sm font-semibold ${costo.express.excede ? 'text-red-800' : 'text-green-800'}`}>
+                            {costo.express.excede
+                              ? `Te pasaste $${(-costo.express.holguraUsd).toFixed(2)} del tope`
+                              : `Entra. Te quedan $${costo.express.holguraUsd.toFixed(2)}`}
+                          </p>
+                          <span className="text-[11px] font-mono text-gray-600">
+                            ${costo.express.landedUsd.toFixed(2)} de ${costo.express.topeUsd.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="mt-1.5 h-2 rounded-full bg-white overflow-hidden border border-gray-200">
+                          <div
+                            className={`h-full ${costo.express.excede ? 'bg-red-500' : 'bg-green-500'}`}
+                            style={{ width: `${Math.min(100, (costo.express.landedUsd / costo.express.topeUsd) * 100)}%` }}
+                          />
+                        </div>
+                        <p className="text-[11px] text-gray-600 mt-1.5">
+                          Flete ${costo.express.fleteUsd.toFixed(2)} por {costo.express.chargeableKg.toFixed(2)} kg cobrables
+                          {costo.express.ataVolumen && ' (manda el volumen)'}
+                          {!costo.express.excede && <> · entran ≈ ${costo.express.productoQueEntraUsd.toFixed(2)} más de producto
+                            {costo.express.kgHastaProximoEscalon != null && <> ({costo.express.kgHastaProximoEscalon.toFixed(2)} kg en este escalón)</>}</>}
+                          {' '}· margen express {(costo.express.margen * 100).toFixed(0)}%
+                        </p>
+                        {costo.express.motivo && (
+                          <p className="text-[11px] text-red-800 mt-1">Así no se puede confirmar: {costo.express.motivo}</p>
+                        )}
+                      </div>
+                    )}
 
                     {costo.sinPeso > 0 && (
                       <p className="text-[11px] bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-2.5 py-2">
@@ -1346,6 +1393,35 @@ export default function PresupuestoBuilder({
             ) : (
               <div className="space-y-3">
                 <div>
+                  <span className="block text-sm font-medium text-gray-700 mb-1">Envío</span>
+                  <div className="grid grid-cols-2 rounded-lg border border-gray-300 overflow-hidden text-sm">
+                    {([
+                      ['normal', '✈️ Normal', 'Por Miami'],
+                      ['express', '⚡ Express', 'Directo, 3 a 6 días'],
+                    ] as const).map(([v, titulo, sub]) => (
+                      <button
+                        key={v}
+                        type="button"
+                        disabled={clienteFijo}
+                        onClick={() => setVia(v)}
+                        className={`px-3 py-2 text-left disabled:cursor-not-allowed ${
+                          via === v ? 'bg-blue-50 text-blue-900' : 'bg-white text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        <span className="block font-medium">{titulo}</span>
+                        <span className="block text-[11px] text-gray-500">{sub}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {clienteFijo ? (
+                    <p className="text-[11px] text-gray-400 mt-1">El pedido ya está confirmado: el envío no se cambia.</p>
+                  ) : esExpress && editando && desalineadas.length > 0 && (
+                    <p className="text-[11px] text-amber-700 mt-1">
+                      Los precios que ya tenía no cambian solos: usá &quot;Aplicar precios sugeridos&quot; para pasarlos a precio express.
+                    </p>
+                  )}
+                </div>
+                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Cliente <span className="text-red-500">*</span>
                   </label>
@@ -1415,10 +1491,10 @@ export default function PresupuestoBuilder({
 
             <button
               type="submit"
-              disabled={!clienteValid || cart.length === 0 || nlsEnCarrito.length > 0 || submitting}
+              disabled={!clienteValid || cart.length === 0 || nlsEnCarrito.length > 0 || submitting || esperandoExpress}
               className="w-full bg-blue-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              {submitting ? 'Guardando...' : isEditing ? 'Guardar cambios' : isPropio ? 'Guardar stock' : 'Guardar presupuesto'}
+              {submitting ? 'Guardando...' : esperandoExpress ? 'Calculando precios express…' : isEditing ? 'Guardar cambios' : isPropio ? 'Guardar stock' : 'Guardar presupuesto'}
             </button>
           </div>
         </div>

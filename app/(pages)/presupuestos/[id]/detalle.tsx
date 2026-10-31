@@ -43,6 +43,8 @@ import { etiquetaPieza, tiposPara, TIPO_LABELS } from '@/lib/incidencias'
 import { motivoNoEntregable, saldoReal } from '@/lib/saldo-entrega'
 import { mensajeEstado } from '@/lib/mensajes-cliente'
 import { resumenTrackings } from '@/lib/tracking'
+import { motivoExpressNoAprobable } from '@/lib/express'
+import { expressDelPedido } from '@/lib/express-pedido'
 
 // "#123 Andry" en la pestaña del navegador; lo reexportan las dos rutas del detalle.
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
@@ -133,6 +135,10 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
   const compra = isCancelado ? null : stageSummary(presupuesto.items)
   // Cuánto se gana con este pedido: solo cuando ya es una venta (un presupuesto todavía no).
   const margen = !isPropio && !isPresupuesto ? (await cargarMargenes([id]))[0]?.margen ?? null : null
+  // Express: el paquete contra el tope y el margen estimado sobre su landed, con las tarifas de
+  // hoy. Es lo que el armador mostró al cotizar, y lo que se revisa al confirmar.
+  const express = await expressDelPedido(db, id, cfg)
+  const motivoExpress = express && isPresupuesto ? motivoExpressNoAprobable(express) : null
 
   // ── Volumen y costo por mar ────────────────────────────────────────────────
   // El presupuesto es donde se decide el precio, así que es donde tiene que verse el
@@ -300,6 +306,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
     fecha,
     validez: isPresupuesto ? validez : null,
     clientName: presupuesto.clientName,
+    express: express != null,
     notas: presupuesto.notas,
     items: items.map(item => {
       // Solo cuando el producto apunta a UNA moto (los ensambles): la lista larga de
@@ -345,6 +352,9 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
           </div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold text-gray-900">{presupuesto.clientName}</h1>
+            {express && (
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 whitespace-nowrap">⚡ Express</span>
+            )}
             {presupuesto.clienteId && (
               <Link href={`/clientes/${presupuesto.clienteId}`} className="text-sm text-blue-600 hover:text-blue-800">
                 Ver cliente →
@@ -677,6 +687,45 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
               medidas cargadas: el total real es mayor que éste.
             </p>
           )}
+        </div>
+      )}
+
+      {/* Express: el paquete entero contra el tope, y lo que se gana sobre su landed estimado. */}
+      {express && (
+        <div className={`rounded-xl border-2 p-6 mb-4 ${express.excede ? 'border-red-300 bg-red-50' : 'border-green-300 bg-green-50'}`}>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className={`font-semibold ${express.excede ? 'text-red-800' : 'text-green-800'}`}>
+              ⚡ Paquete express: {express.excede
+                ? `se pasa $${(-express.holguraUsd).toFixed(2)} del tope`
+                : `entra, quedan $${express.holguraUsd.toFixed(2)}`}
+            </h2>
+            <span className="text-sm font-mono text-gray-600">${express.landedUsd.toFixed(2)} de ${express.topeUsd.toFixed(2)}</span>
+          </div>
+          <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+            <div>
+              <p className="text-xs text-gray-500">Peso cobrable</p>
+              <p className="font-mono font-semibold">{express.envio.air.chargeableKg.toFixed(2)} kg</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Flete Shoppre → VEN</p>
+              <p className="font-mono font-semibold">${express.envio.airUsd.toFixed(2)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Landed estimado</p>
+              <p className="font-mono font-semibold">${express.landedUsd.toFixed(2)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Margen sobre lo cotizado</p>
+              <p className={`font-mono font-semibold ${total - express.landedUsd < 0 ? 'text-red-700' : 'text-green-700'}`}>
+                ${(total - express.landedUsd).toFixed(2)}
+                {total > 0 && <span className="text-xs font-normal ml-1">({(((total - express.landedUsd) / total) * 100).toFixed(1)}%)</span>}
+              </p>
+            </div>
+          </div>
+          <p className="text-[11px] text-gray-500 mt-3">
+            Con las tarifas de hoy, sumando el peso de las piezas: la caja real puede pesar algo más.
+          </p>
+          {motivoExpress && <p className="text-sm text-red-800 mt-2">No se puede confirmar así: {motivoExpress}</p>}
         </div>
       )}
 

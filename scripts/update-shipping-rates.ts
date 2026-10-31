@@ -1,4 +1,6 @@
-// Refresca la tabla de tarifas Shoppre India→USA y la deja en Config.shoppre_rates_usd.
+// Refresca las tablas de tarifas de Shoppre y las deja en Config: India→USA
+// (shoppre_rates_usd, la caja aérea) e India→Venezuela directo (shoppre_rates_ve_usd, el
+// envío express). Es la misma API cambiando el país de destino.
 //
 // Lo invoca scripts/update-fx-rates.ts (pnpm fx:update, el timer horario del servidor).
 // La copia viva va en Config, que es de donde ya salen todas las tarifas que lee
@@ -6,16 +8,30 @@
 //
 // CLI:
 //   pnpm fx:update --force-rates scrapea aunque la tabla guardada sea reciente
-//   pnpm rates:baseline          reescribe shipping_rates.json (el fallback del bundle)
+//   pnpm rates:baseline          reescribe shipping_rates.json y shipping_rates_ve.json (los
+//                                fallbacks del bundle)
 import { PrismaClient } from '@prisma/client'
-import { buildRateTable, type RateTable, type ScrapedRates } from '@/lib/shipping-rates'
+import { buildRateTable, CONFIG_KEY_TARIFAS, type DestinoTarifa, type RateTable, type ScrapedRates } from '@/lib/shipping-rates'
 
 // El scraper es CommonJS sin tipos (viene tal cual del repo de análisis).
 const { scrapeRates } = require('./shoppre-scraper') as {
   scrapeRates: (opts?: Record<string, unknown>) => Promise<ScrapedRates>
 }
 
-export const CONFIG_KEY = 'shoppre_rates_usd'
+// Cómo se llama cada destino en la API de Shoppre (el `value` del selector de país de su
+// calculadora), dónde queda su baseline y cómo se describe la fila de Config.
+export const DESTINOS: Record<DestinoTarifa, { countryId: number; baseline: string; descripcion: string }> = {
+  usa: {
+    countryId: 226,
+    baseline: 'shipping_rates.json',
+    descripcion: 'Tarifas Shoppre India→USA en USD (escalones) — actualizado automáticamente a diario',
+  },
+  ve: {
+    countryId: 231,
+    baseline: 'shipping_rates_ve.json',
+    descripcion: 'Tarifas Shoppre India→Venezuela directo (express) en USD (escalones) — actualizado automáticamente',
+  },
+}
 
 // Rango que cubre la tabla: desde una pieza suelta hasta 22 kg, el tope de caja con el
 // que se consolida. Paso 0.1 kg porque es la granularidad con la que Shoppre cambia de
@@ -67,9 +83,10 @@ function diffTables(prev: RateTable | null, next: RateTable) {
   return { changed, added, removed, total: changed.length + added + removed }
 }
 
-function summarize(diff: ReturnType<typeof diffTables>, limit = 8): string {
-  if (diff.total === 0) return 'Shoppre: sin cambios de tarifa.'
-  const lines = [`Shoppre: ${diff.changed.length} escalones cambiaron, ${diff.added} nuevos, ${diff.removed} eliminados.`]
+function summarize(destino: DestinoTarifa, diff: ReturnType<typeof diffTables>, limit = 8): string {
+  const quien = `Shoppre ${destino.toUpperCase()}`
+  if (diff.total === 0) return `${quien}: sin cambios de tarifa.`
+  const lines = [`${quien}: ${diff.changed.length} escalones cambiaron, ${diff.added} nuevos, ${diff.removed} eliminados.`]
   const worst = [...diff.changed]
     .sort((x, y) => Math.abs(y.to - y.from) - Math.abs(x.to - x.from))
     .slice(0, limit)
@@ -94,7 +111,12 @@ export interface UpdateResult {
  * devuelve datos parciales, y una tabla incompleta no se distingue de una baja de
  * precio (corrompería el costeo en silencio).
  */
-export async function updateShippingRates(db: PrismaClient, opts: { force?: boolean } = {}): Promise<UpdateResult> {
+export async function updateShippingRates(
+  db: PrismaClient,
+  opts: { force?: boolean; destino?: DestinoTarifa } = {},
+): Promise<UpdateResult> {
+  const destino = opts.destino ?? 'usa'
+  const CONFIG_KEY = CONFIG_KEY_TARIFAS[destino]
   const row = await db.config.findUnique({ where: { key: CONFIG_KEY } })
   const stored = readStored(row?.value)
   const age = stored ? ageHours(row?.updatedAt) : Infinity
@@ -103,10 +125,10 @@ export async function updateShippingRates(db: PrismaClient, opts: { force?: bool
     return { skipped: true, reason: `tabla de hace ${age.toFixed(1)} h (< ${MAX_AGE_HOURS} h)` }
   }
 
-  const table = buildRateTable(await scrapeRates(SCRAPE_OPTIONS))
+  const table = buildRateTable(await scrapeRates({ ...SCRAPE_OPTIONS, country: DESTINOS[destino].countryId }))
   const steps = Object.values(table.carriers).reduce((s, v) => s + v.length, 0)
   const diff = diffTables(stored, table)
-  console.log(summarize(diff))
+  console.log(summarize(destino, diff))
 
   // Sin cambios no se reescribe la tabla (generated_at sigue marcando cuándo cambiaron los precios
   // de verdad), pero sí se anota que se revisó: es lo que frena el próximo scrape (ver ageHours).
@@ -122,7 +144,7 @@ export async function updateShippingRates(db: PrismaClient, opts: { force?: bool
     create: {
       key: CONFIG_KEY,
       value,
-      description: 'Tarifas Shoppre India→USA en USD (escalones) — actualizado automáticamente a diario',
+      description: DESTINOS[destino].descripcion,
     },
   })
   return { skipped: false, steps, changed: diff.changed.length }
@@ -133,27 +155,40 @@ export async function updateShippingRates(db: PrismaClient, opts: { force?: bool
 if (require.main === module) {
   const argv = process.argv.slice(2)
 
+  // --destino=usa|ve limita la corrida a una tabla; sin él, las dos.
+  const pedido = argv.find(a => a.startsWith('--destino='))?.split('=')[1]
+  const destinos = (Object.keys(DESTINOS) as DestinoTarifa[]).filter(d => !pedido || d === pedido)
+  if (destinos.length === 0) {
+    console.error(`--destino desconocido: ${pedido} (usa | ve)`)
+    process.exit(1)
+  }
+
   const run = async () => {
     if (argv.includes('--baseline')) {
-      // Regenera el fallback que se buildea en el bundle. Se corre en la PC y se commitea.
+      // Regenera los fallbacks que se buildean en el bundle. Se corre en la PC y se commitea.
       const fs = await import('node:fs')
       const path = await import('node:path')
-      const table = buildRateTable(await scrapeRates({
-        ...SCRAPE_OPTIONS,
-        onProgress: (d: number, t: number) => process.stderr.write(`\r  ${d}/${t} pesos`),
-      }))
-      process.stderr.write('\n')
-      const out = path.join(process.cwd(), 'shipping_rates.json')
-      fs.writeFileSync(out, JSON.stringify(table, null, 2) + '\n', 'utf8')
-      const steps = Object.values(table.carriers).reduce((s, v) => s + v.length, 0)
-      console.log(`shipping_rates.json: ${Object.keys(table.carriers).length} carriers, ${steps} escalones`)
+      for (const destino of destinos) {
+        const { countryId, baseline } = DESTINOS[destino]
+        const table = buildRateTable(await scrapeRates({
+          ...SCRAPE_OPTIONS,
+          country: countryId,
+          onProgress: (d: number, t: number) => process.stderr.write(`\r  ${destino}: ${d}/${t} pesos`),
+        }))
+        process.stderr.write('\n')
+        fs.writeFileSync(path.join(process.cwd(), baseline), JSON.stringify(table, null, 2) + '\n', 'utf8')
+        const steps = Object.values(table.carriers).reduce((s, v) => s + v.length, 0)
+        console.log(`${baseline}: ${Object.keys(table.carriers).length} carriers, ${steps} escalones`)
+      }
       return
     }
 
     const db = new PrismaClient()
     try {
-      const res = await updateShippingRates(db, { force: argv.includes('--force') })
-      console.log(res.skipped ? `omitido (${res.reason})` : `guardado: ${res.steps} escalones, ${res.changed} cambios`)
+      for (const destino of destinos) {
+        const res = await updateShippingRates(db, { force: argv.includes('--force'), destino })
+        console.log(`${destino}: ${res.skipped ? `omitido (${res.reason})` : `guardado: ${res.steps} escalones, ${res.changed} cambios`}`)
+      }
     } finally {
       await db.$disconnect()
     }

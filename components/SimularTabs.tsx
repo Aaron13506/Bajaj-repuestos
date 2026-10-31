@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from 'react'
 
-// Dos herramientas, dos preguntas, una pantalla. Están juntas porque las dos son
+// Tres herramientas, tres preguntas, una pantalla. Están juntas porque las dos son
 // "¿cuánto me sale traer esto?" sobre una caja que todavía no existe, pero no se pueden
 // fusionar: una elige PROVEEDOR dentro del carril aéreo (mismo avión, mismo barco de
 // Miami a Caracas: lo único que cambia es el tramo India→USA y el precio de la mercancía)
@@ -25,10 +25,17 @@ const TABS = [
     titulo: 'Por dónde lo traigo',
     sub: 'El mismo presupuesto: aéreo contra marítimo',
   },
+  {
+    id: 'express' as const,
+    titulo: 'Express a Venezuela',
+    sub: 'Shoppre directo, 3 a 6 días: ¿entra en el tope y a cuánto lo vendo?',
+  },
 ]
 
-export default function SimularTabs({ compra, ruta }: { compra: ReactNode; ruta: ReactNode }) {
-  const [tab, setTab] = useState<'compra' | 'ruta'>('compra')
+type TabId = (typeof TABS)[number]['id']
+
+export default function SimularTabs({ compra, ruta, express }: { compra: ReactNode; ruta: ReactNode; express: ReactNode }) {
+  const [tab, setTab] = useState<TabId>('compra')
 
   return (
     <div>
@@ -51,7 +58,7 @@ export default function SimularTabs({ compra, ruta }: { compra: ReactNode; ruta:
           </button>
         ))}
       </div>
-      {tab === 'compra' ? compra : ruta}
+      {tab === 'compra' ? compra : tab === 'ruta' ? ruta : express}
     </div>
   )
 }

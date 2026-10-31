@@ -25,7 +25,7 @@ pnpm measures:audit [--usadas]      # physical check of stored weights/dimension
 pnpm db:up | db:pull-prod           # local Postgres 17 copy of production on 127.0.0.1:5432
 pnpm db:migrar [--probar|--aplicar|--drift] · pnpm db:generate · pnpm db:studio
 pnpm deploy:prod [--migrar] [--dry] # push first; see the deploy-y-esquema skill
-pnpm fx:update [--force-rates]      # rates + Shoppre table (hourly on the server)
+pnpm fx:update [--force-rates]      # rates + Shoppre tables USA and VE express (hourly on the server)
 pnpm scrape:99rpm · pnpm prices:99rpm --file=… [--apply]
 ```
 

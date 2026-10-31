@@ -1,4 +1,4 @@
-import { cotizarTramoAereo } from './shipping-rates'
+import { cotizarTramoAereo, CARRIER_EXPRESS_VE } from './shipping-rates'
 import { inboundDe, type Inbound } from './inbound'
 import type { Reenvio } from './reenvio'
 import { num, flag, margenPorDefecto, type ConfigMap } from './config'
@@ -157,7 +157,9 @@ function applyMargin(landedCostUsd: number, margin: number | null, cfg: ConfigMa
 export function calcLanded(
   product: ProductForCalc,
   cfg: ConfigMap,
-  modo: ModoEnvio = 'aereo',
+  // El express no tiene landed por pieza suelta: el flete es UNA tarifa por paquete y el
+  // paquete tiene tope ($100), así que se costea siempre como paquete (lib/express.ts).
+  modo: Exclude<ModoEnvio, 'express'> = 'aereo',
 ): LandedBreakdown | null {
   const hasCost = product.priceUsd != null || !!product.priceInr
   if (!hasCost) return null
@@ -333,9 +335,14 @@ export interface EnvioItemInput {
 //                      de India, que es un MONTO FIJO POR EMBARQUE. La naviera factura un
 //                      mínimo de m³ (LCL) aunque la caja vaya a medio llenar.
 //
+//   express  (real):   India → Venezuela directo, por el servicio express de Shoppre. Es el
+//                      mismo depósito, el mismo seguro y el mismo processing que el aéreo,
+//                      pero la tabla escalón es la de Venezuela (Config.shoppre_rates_ve_usd)
+//                      y no hay tramo marítimo: la caja llega en avión hasta Caracas.
+//
 // El peso deja de importar por completo en los modos marítimos: la naviera cobra volumen.
 // Por eso el max(W,V) y el punto dulce de la tabla escalón no aplican ahí.
-export type ModoEnvio = 'aereo' | 'maritimo' | 'maritimo_cbm'
+export type ModoEnvio = 'aereo' | 'maritimo' | 'maritimo_cbm' | 'express'
 
 // cm³ → m³. El catálogo guarda dimensiones en centímetros; la naviera cotiza en metros
 // cúbicos, así que esta es la única conversión que hace falta en el modo CBM.
@@ -765,9 +772,13 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   const modo          = opts.modo ?? 'aereo'
   const esCbm         = modo === 'maritimo_cbm'
   const esMaritimo    = modo === 'maritimo' || esCbm
+  // Express: la tabla de Shoppre a Venezuela, un solo servicio, y nada de marítimo.
+  const esExpress     = modo === 'express'
   const inrUsd        = num(cfg, 'inr_usd_rate', 95)
   const isMember      = flag(cfg, 'shoppre_member', true)
-  const carrier       = cfg.shoppre_carrier                   ?? 'ShipGlobal USA - Duty Free'
+  const carrier       = esExpress
+    ? CARRIER_EXPRESS_VE
+    : cfg.shoppre_carrier                                     ?? 'ShipGlobal USA - Duty Free'
   const divisor       = num(cfg, 'air_volumetric_divisor', 5000)
 
   // Tarifa del flete por mar. En aéreo es el tramo corto Miami→CCS; en marítimo directo es
@@ -896,13 +907,13 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
           pesosKg: [Number(shoppreChargeable.toFixed(2))],
           capKg: null,
         }
-      : cotizarTramoAereo(shoppreChargeable, carrier, isMember, cfg)
+      : cotizarTramoAereo(shoppreChargeable, carrier, isMember, cfg, esExpress ? 've' : 'usa')
   // La banda de error solo rige mientras la caja no se pesó Y midió: con las dos cosas cargadas
   // el volumétrico deja de ser una suma de pisos y vale la regla exacta.
   const cajaCompleta = caja.pesoKg != null && caja.cm3 != null
   const tolerancia = cajaCompleta ? 0 : num(cfg, 'caja_sin_pesar_tolerancia_pct', 10) / 100
   // Lo que Shoppre/el reenvío facturó de verdad, si ya se cargó, pisa al estimado.
-  const airFacturadoUsd = modo === 'aereo' ? (opts.fleteFacturado?.aereoUsd ?? null) : null
+  const airFacturadoUsd = modo === 'aereo' || esExpress ? (opts.fleteFacturado?.aereoUsd ?? null) : null
   // Sin tarifa cotizada el estimado es 0, y pisar un 0 con la factura la repartiría en partes
   // iguales por línea (no hay proporción de la cual escalar). Se reparte la factura directo,
   // por la misma dimensión que ata: es lo que haría la tarifa si se hubiera cargado.
@@ -962,7 +973,8 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
 
   // En CBM el flete es la tarifa plana sobre el volumen facturable; el FOB va aparte
   // (es fijo por embarque y se suma como cargo del envío, más abajo).
-  const maritimeCalculadoUsd = esCbm ? billableM3 * cbm.ratePerM3 : billableFt3 * maritimePft3
+  // El express llega en avión hasta Caracas: no hay tramo por mar que cobrar.
+  const maritimeCalculadoUsd = esExpress ? 0 : esCbm ? billableM3 * cbm.ratePerM3 : billableFt3 * maritimePft3
 
   // Reparto: por volumen si hay dimensiones; si no hay ninguna cargada (pero igual se paga
   // el mínimo) se cae al costo de producto para no dejar el flete sin imputar a nadie.
