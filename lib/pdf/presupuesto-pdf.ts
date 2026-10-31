@@ -42,6 +42,8 @@ export interface PresupuestoPdfData {
   tasaBcv: number | null
   /** Escalón de brecha vigente; 0 = no se menciona el descuento. */
   descuentoDivisasPct: number
+  /** El total pagado en divisas (dólares reales): lo que el cliente paga con el descuento. */
+  totalDivisas: number
   isPresupuesto: boolean
   deposit: number
   /** Lo cobrado y el saldo, en la unidad del documento (dólares BCV si modoBcv). */
@@ -65,7 +67,6 @@ type Rgb = [number, number, number]
 type Celda = { content: string; colSpan?: number; styles?: Record<string, unknown> }
 
 const VERDE = { fondo: [220, 252, 231] as Rgb, texto: [22, 101, 52] as Rgb }
-const AMARILLO = { fondo: [254, 249, 195] as Rgb, texto: [133, 100, 4] as Rgb }
 const NEUTRO = { fondo: [245, 245, 245] as Rgb, texto: [DARK, DARK, DARK] as Rgb }
 
 // Una franja del resumen: etiqueta a la izquierda, valor a la derecha. Todas miden lo
@@ -219,11 +220,6 @@ export function buildPresupuestoPdf(data: PresupuestoPdfData): jsPDF {
   if (data.modoBcv) {
     aclaraciones.push(['Monto expresado en dólares a tasa BCV.', null])
     aclaraciones.push(['Se paga a la tasa BCV del día en que se realice el pago.', null])
-    // Informativo, junto a las otras aclaraciones: en una franja de color al lado de los
-    // montos parecía un descuento ya aplicado al total.
-    if (data.descuentoDivisasPct > 0) {
-      aclaraciones.push([`Pagando en divisas se aplica un descuento del ${data.descuentoDivisasPct}%.`, null])
-    }
   }
   if (data.totalBsd != null) {
     aclaraciones.push(['Referencia en bolívares', `Bs ${Math.round(data.totalBsd).toLocaleString('es-VE')}`])
@@ -239,12 +235,31 @@ export function buildPresupuestoPdf(data: PresupuestoPdfData): jsPDF {
       if (valor) doc.text(valor, pageWidth - MARGIN, y, { align: 'right' })
     }
   }
+  // Pagar en divisas, con su monto: un punto intermedio entre el total y las aclaraciones,
+  // en verde y sin fondo. Una franja de color al lado de los montos parecía un descuento
+  // ya aplicado al total; la línea gris chica no se veía.
+  if (data.modoBcv && data.descuentoDivisasPct > 0) {
+    y += 6.5
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(10)
+    doc.setTextColor(...VERDE.texto)
+    doc.text(`Pagando en divisas se aplica un descuento del ${data.descuentoDivisasPct}%`, MARGIN, y)
+    doc.setFontSize(12)
+    doc.text(`$${data.totalDivisas.toFixed(2)}`, pageWidth - MARGIN, y, { align: 'right' })
+  }
+  // El abono, como una condición más y alineado con el resto: sin monto (el total BCV y el
+  // de divisas ya están arriba) y sin franja, que arrancaba corrida y desordenaba la columna.
+  if (data.isPresupuesto) {
+    y += 6
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(9.5)
+    doc.setTextColor(DARK)
+    doc.text('Para confirmar el pedido se requiere un abono del 50%.', MARGIN, y)
+  }
   y += SECCION - 2
 
-  // ── Franjas del resumen, una por dato
-  if (data.isPresupuesto) {
-    y = drawFranja(doc, y, 'Abono mínimo 50% para confirmar', `$${data.deposit.toFixed(2)}`, AMARILLO)
-  } else if (data.depositUsd != null) {
+  // ── Franjas del resumen (pedido confirmado), una por dato
+  if (data.depositUsd != null && !data.isPresupuesto) {
     const label = ['Abonado', data.paymentMethod, data.depositAt].filter(Boolean).join(' · ')
     y = drawFranja(doc, y, label, `$${data.depositUsd.toFixed(2)}`, VERDE)
     y = drawFranja(doc, y, 'Saldo pendiente', `$${(data.saldoUsd ?? 0).toFixed(2)}`, NEUTRO)

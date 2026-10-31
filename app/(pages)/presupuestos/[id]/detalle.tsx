@@ -327,6 +327,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
     modoBcv,
     tasaBcv: modoBcv ? tasaBcv : null,
     descuentoDivisasPct,
+    totalDivisas: cobro.totalReal,
     isPresupuesto,
     deposit,
     depositUsd: depositUsd != null ? cobro.abonadoBcv : null,
@@ -1003,7 +1004,13 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
             <div className="text-xs text-gray-500 text-right">
               <p>Monto expresado en dólares a tasa BCV</p>
               <p>Se paga a la tasa BCV del día en que se realice el pago</p>
-              {descuentoDivisasPct > 0 && <p>Pagando en divisas se aplica un descuento del {descuentoDivisasPct}%</p>}
+            </div>
+          )}
+          {modoBcv && descuentoDivisasPct > 0 && (
+            // Punto intermedio: más que las aclaraciones grises, menos que el total BCV.
+            <div className="flex justify-between items-baseline gap-3 pt-1 text-green-700">
+              <span className="text-sm font-semibold">Pagando en divisas se aplica un descuento del {descuentoDivisasPct}%</span>
+              <span className="font-bold text-lg font-mono">${cobro.totalReal.toFixed(2)}</span>
             </div>
           )}
           {totalBsd != null && (
@@ -1013,10 +1020,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
             </div>
           )}
           {isPresupuesto && (
-            <div className="flex justify-between items-center bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 mt-2">
-              <span className="text-sm font-semibold text-yellow-800">Abono mínimo 50% para confirmar</span>
-              <span className="font-bold font-mono text-yellow-900">${deposit.toFixed(2)}</span>
-            </div>
+            <p className="text-sm font-semibold text-gray-800 pt-1">Para confirmar el pedido se requiere un abono del 50%.</p>
           )}
           {isCancelado && depositUsd != null && depositUsd > 0.005 && (
             <div className="flex justify-between items-center bg-red-50 border border-red-200 rounded-lg px-3 py-2 mt-2">
