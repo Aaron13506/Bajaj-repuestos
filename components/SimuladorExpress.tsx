@@ -10,7 +10,7 @@ import type { PedidoOpcion } from '@/components/CompararCompra'
 // ─────────────────────────────────────────────────────────────────────────────
 // ¿Entra por express, y a cuánto lo vendo?
 //
-// Express es Shoppre despachando directo a Venezuela: 3 a 6 días, más caro, y con un tope de
+// Express es Shoppre despachando directo a Venezuela: más rápido, más caro, y con un tope de
 // landed por paquete (Config.express_tope_usd). La pregunta del día a día es justo esa:
 // "esto que me pidieron, ¿entra?", y si entra, "¿cuánto le cobro?".
 //

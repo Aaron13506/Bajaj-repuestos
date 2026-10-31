@@ -125,6 +125,8 @@ interface Props {
   posiciones?: PosicionesStock
   /** Cómo se trae: por la caja normal (Miami) o express (Shoppre directo a Venezuela). */
   initialVia?: Via
+  /** El plazo express que se le promete al cliente (plazoExpress), para el botón. */
+  plazoExpressTexto?: string
 }
 
 // Mapa vacío de identidad estable: se usa mientras no hay búsqueda por pieza, para no
@@ -146,6 +148,7 @@ export default function PresupuestoBuilder({
   editando = initialItems.length > 0,
   posiciones,
   initialVia = 'normal',
+  plazoExpressTexto = 'Directo desde India',
 }: Props) {
   const isPropio = tipo === 'propio'
   // El stock propio viaja siempre por la caja normal; un pedido ya confirmado no cambia de vía
@@ -1397,7 +1400,7 @@ export default function PresupuestoBuilder({
                   <div className="grid grid-cols-2 rounded-lg border border-gray-300 overflow-hidden text-sm">
                     {([
                       ['normal', '✈️ Normal', 'Por Miami'],
-                      ['express', '⚡ Express', 'Directo, 3 a 6 días'],
+                      ['express', '⚡ Express', plazoExpressTexto],
                     ] as const).map(([v, titulo, sub]) => (
                       <button
                         key={v}

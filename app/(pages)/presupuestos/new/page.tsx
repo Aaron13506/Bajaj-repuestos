@@ -3,7 +3,8 @@ import { toModelIds } from '@/lib/modelo'
 import { cabeceraDeLinea, nombreEnsamble } from '@/lib/linea-pedido'
 import { type BundlePiece } from '@/lib/bundle'
 import Link from 'next/link'
-import { viaDe } from '@/lib/express'
+import { plazoExpress, viaDe } from '@/lib/express'
+import { getConfig } from '@/lib/config-db'
 import PresupuestoBuilder from '@/components/PresupuestoBuilder'
 import { createPresupuesto } from '../actions'
 import { posicionesParaArmador } from '@/lib/inventario'
@@ -105,6 +106,7 @@ export default async function NewPresupuestoPage({
         posiciones={posiciones}
         // Un duplicado sale por la misma vía que el original; si no, la que pida el enlace.
         initialVia={viaDe(desde?.via ?? sp.via)}
+        plazoExpressTexto={plazoExpress(await getConfig())}
       />
     </div>
   )

@@ -6,7 +6,7 @@ import { resolveRateTable, CARRIER_EXPRESS_VE } from './shipping-rates'
 // ENVÍO EXPRESS: India → Venezuela directo, por Shoppre
 //
 // La misma compra a 99rpm y el mismo depósito de Shoppre que la caja aérea, pero Shoppre la
-// despacha directo a Caracas (3 a 6 días) en vez de a Miami. Más rápido y más caro, y con
+// despacha directo a Caracas en vez de a Miami. Más rápido y más caro, y con
 // una regla que la caja aérea no tiene:
 //
 //   EL LANDED DEL PAQUETE NO PUEDE PASAR DE `express_tope_usd` ($100).
@@ -156,4 +156,32 @@ export function motivoExpressNoAprobable(e: Pick<Express, 'excede' | 'holguraUsd
     return `Sin peso cargado: ${e.sinPeso.join(', ')}. Sin peso no se sabe si el paquete express entra en el tope.`
   }
   return null
+}
+
+/**
+ * Por qué una línea de un presupuesto no entra en esta caja, o null si entra. Un presupuesto
+ * express viaja solo en una caja express, y una caja express lleva solo presupuestos
+ * express: su precio se calculó con el flete directo y su tope es del paquete.
+ */
+export function motivoViaNoCoincide(via: string | null | undefined, modoCaja: string | null | undefined): string | null {
+  const express = viaDe(via) === 'express'
+  if (express && modoCaja !== 'express') return 'Es un presupuesto express: va en una caja express, no en esta.'
+  if (!express && modoCaja === 'express') return 'Esta caja es express: lleva solo presupuestos express.'
+  return null
+}
+
+/** Lo que se le promete al cliente, contado desde que se hace la compra (Config express_plazo_dias). */
+export function plazoExpress(cfg: ConfigMap): string {
+  const raw = cfg.express_plazo_dias?.trim()
+  return `${raw || '10 a 15'} días hábiles`
+}
+
+/**
+ * El tope aplicado a una caja express ya armada (su calcEnvio en modo 'express', con la caja
+ * pesada y el flete facturado si se cargaron). Misma forma que pide motivoExpressNoAprobable.
+ */
+export function topeDeCaja(calc: EnvioBreakdown, cfg: ConfigMap): Pick<Express, 'excede' | 'holguraUsd' | 'topeUsd' | 'sinPeso'> {
+  const topeUsd = topeExpressUsd(cfg)
+  const holguraUsd = topeUsd - calc.landedUsd
+  return { topeUsd, holguraUsd, excede: holguraUsd < 0, sinPeso: calc.lines.filter(l => l.missingWeight).map(l => l.name) }
 }

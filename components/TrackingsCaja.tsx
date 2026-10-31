@@ -16,9 +16,12 @@ type Fila = { key: number; numero: string; transportista: string }
 export default function TrackingsCaja({
   action,
   inicial,
+  sinUsa = false,
 }: {
   action: (formData: FormData) => Promise<ActionResult>
   inicial: FilaTracking[]
+  /** Caja express: va directo de India a Venezuela, no tiene tramo hacia USA. */
+  sinUsa?: boolean
 }) {
   const [siguiente, setSiguiente] = useState(inicial.length + TRAMOS_TRACKING.length)
   const [filas, setFilas] = useState<Record<TramoTracking, Fila[]>>(() => {
@@ -48,7 +51,7 @@ export default function TrackingsCaja({
   return (
     <FormConResultado action={action} className="mt-5 pt-4 border-t border-gray-100 space-y-4">
       <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Trackings</h3>
-      {TRAMOS_TRACKING.map(tramo => {
+      {TRAMOS_TRACKING.filter(t => !(sinUsa && t === 'usa')).map(tramo => {
         const meta = TRAMO_TRACKING_META[tramo]
         const lista = filas[tramo]
         const lleno = lista.length >= MAX_TRACKINGS_POR_TRAMO

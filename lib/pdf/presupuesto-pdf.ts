@@ -31,8 +31,8 @@ export interface PresupuestoPdfData {
   fecha: string
   validez: string | null
   clientName: string
-  /** Envío express (Shoppre directo a Venezuela): se le dice al cliente cómo y en cuánto llega. */
-  express?: boolean
+  /** Envío express: el plazo que se le promete al cliente (ver plazoExpress). null = envío normal. */
+  expressPlazo?: string | null
   notas: string | null
   items: PresupuestoPdfItem[]
   total: number
@@ -164,9 +164,9 @@ export function buildPresupuestoPdf(data: PresupuestoPdfData): jsPDF {
   // ── Cliente y notas
   drawLabeledValue(doc, y, 'CLIENTE', data.clientName)
   y += 5
-  if (data.express) {
+  if (data.expressPlazo) {
     y += 7
-    drawLabeledValue(doc, y, 'ENVÍO', 'Express desde India (3 a 6 días desde el despacho)')
+    drawLabeledValue(doc, y, 'ENVÍO', `Express: llega en ${data.expressPlazo} desde la compra`)
     y += 5
   }
   if (data.notas) {
