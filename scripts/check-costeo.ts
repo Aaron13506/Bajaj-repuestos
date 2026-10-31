@@ -25,7 +25,9 @@ import {
 } from '../lib/comparar-compra'
 import { parseListaSkus } from '../lib/lista-skus'
 import { cotizarTramoAereo, capacidadCajaKg, CARRIER_EXPRESS_VE } from '../lib/shipping-rates'
-import { calcExpress, motivoExpressNoAprobable, viaDe } from '../lib/express'
+import { calcExpress, motivoExpressNoAprobable, motivoViaNoCoincide, plazoExpress, topeDeCaja, viaDe } from '../lib/express'
+import { nextStatus, normalizeToRoute, routeFor, routeStages } from '../lib/shipping-status'
+import { isModoApp, llevaPedidos } from '../lib/modo'
 import { repartirEnCentavos } from '../lib/reparto-compra'
 import { financiamientoEnvio } from '../lib/financiamiento-envio'
 import { estadoFlete, excedeFacturado, porSalirDeCaja, resumenFletes } from '../lib/flete-real'
@@ -1362,6 +1364,24 @@ console.log('\nENVÍO EXPRESS')
   check('confirmar: sin peso no (no se sabe si entra)', si(motivoExpressNoAprobable(sinPeso)?.includes('Sin pesar') ?? false), 1)
   check('vía: express se lee', si(viaDe('express') === 'express'), 1)
   check('vía: cualquier otra cosa es normal', si(viaDe('expres') === 'normal' && viaDe(null) === 'normal'), 1)
+
+  // La caja express: ruta propia (depósito de Shoppre → Venezuela, sin USA) y solo presupuestos express.
+  const rutaX = routeFor('shoppre', false, 'express')
+  check('ruta: una caja express tiene ruta express', si(rutaX === 'express'), 1)
+  check('ruta: sin escala en USA', si(routeStages(rutaX).some(st => st.value === 'camino_usa' || st.value === 'en_usa')), 0)
+  check('ruta: del depósito sale directo a Venezuela', si(nextStatus('en_shoppre', rutaX) === 'camino_venezuela'), 1)
+  check('ruta: una línea que quedó en USA avanza, no retrocede', si(normalizeToRoute('en_usa', rutaX) === 'camino_venezuela'), 1)
+  check('ruta: la caja aérea sigue pasando por USA', si(nextStatus('en_shoppre', routeFor('shoppre', false, 'aereo')) === 'camino_usa'), 1)
+  check('caja: express lleva pedidos', si(isModoApp('express') && llevaPedidos('express') && !llevaPedidos('maritimo_cbm')), 1)
+  check('caja: presupuesto express en caja express', si(motivoViaNoCoincide('express', 'express') == null), 1)
+  check('caja: presupuesto express no va en la aérea', si(motivoViaNoCoincide('express', 'aereo') != null), 1)
+  check('caja: presupuesto normal no va en la express', si(motivoViaNoCoincide('normal', 'express') != null), 1)
+  check('caja: presupuesto normal en la aérea', si(motivoViaNoCoincide('normal', 'aereo') == null), 1)
+  const cajaX = calcEnvio([pieza(3000, 4000)], cfg, { modo: 'express' })
+  check('caja: el tope de la caja usa su landed', topeDeCaja(cajaX, cfg).holguraUsd, 100 - cajaX.landedUsd)
+  check('caja: pasada del tope no se confirma', si(motivoExpressNoAprobable(topeDeCaja(cajaX, cfg)) != null), 1)
+  check('plazo: por defecto 10 a 13 días hábiles', si(plazoExpress(cfg) === '10 a 13 días hábiles'), 1)
+  check('plazo: configurable', si(plazoExpress({ ...cfg, express_plazo_dias: '12 a 15' }) === '12 a 15 días hábiles'), 1)
 
   // Y la caja aérea de siempre no se enteró: sigue con la tabla de USA y su marítimo.
   const aereo = calcEnvio([pieza(800, 2000)], cfg, { modo: 'aereo' })

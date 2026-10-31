@@ -18,6 +18,7 @@ import { calcEnvio, type EnvioItemInput, type ConfigMap, type ProveedorEnvio } f
 import { inboundDe, inboundMeta } from '@/lib/inbound'
 import { reenvioDe, reenvioMeta, motivoNoCambiaReenvio, tarifaEquilibrioKgInr } from '@/lib/reenvio'
 import { modoDeEnvio, MODOS } from '@/lib/modo'
+import { motivoExpressNoAprobable, topeDeCaja } from '@/lib/express'
 import EnvioMaritimo from './maritimo'
 import { lookupDeConjuntos, expandCostPieces, repartirCostoReal } from '@/lib/envio-build'
 import { financiamientoEnvio, type FinanciamientoEnvio } from '@/lib/financiamiento-envio'
@@ -147,7 +148,8 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     }),
     db.config.findMany(),
     db.pedidoItem.findMany({
-      where: { envioId: null, desdeStock: false, pedido: { tipo: { not: 'venta' }, status: { not: 'cancelado' } } },
+      // Una caja express lleva solo presupuestos express, y una aérea los demás (motivoViaNoCoincide).
+      where: { envioId: null, desdeStock: false, pedido: { tipo: { not: 'venta' }, status: { not: 'cancelado' }, via: ruta.modo === 'express' ? 'express' : 'normal' } },
       include: {
         product: { select: { nameEs: true, bajajCode: true, discontinuedAt: true } },
         ensamble: { select: { nameEs: true, nameEn: true } },
@@ -335,6 +337,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   // una caja aérea ya armada sigue costeándose como aérea aunque hoy operes en CBM.
   const modoEnvio = modoDeEnvio(envio.modo)
   const esCbm = modoEnvio === 'maritimo_cbm'
+  const esExpress = modoEnvio === 'express'
   // La caja como la pesó y midió el transportista. Si está cargada manda ella y reemplaza
   // a la suma de las piezas: lo que se factura es lo que leyó la balanza.
   const medidas = {
@@ -629,7 +632,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
 
   const anyMissing = calc.lines.some(l => l.missingWeight || l.missingDims)
   // Los escalones de la tabla solo existen en Shoppre: el reenvío por kilo cotiza cada caja.
-  const tierHint = porKilo ? null : airTierHint(calc.air.chargeableKg, calc.air.costPerKgUsd, calc.air.cajas, calc.air.capKg)
+  const tierHint = porKilo || esExpress ? null : airTierHint(calc.air.chargeableKg, calc.air.costPerKgUsd, calc.air.cajas, calc.air.capKg)
   const ratioPct = calc.air.ratioVW != null ? calc.air.ratioVW * 100 : null
   const fmtBound =
     calc.air.binding === 'weight'
@@ -641,7 +644,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   // Shoppre contra el reenvío por kilo, para ESTA caja y estimado contra estimado (sin facturas):
   // es para decidir antes de comprar. La tarifa de equilibrio es el ₹/kg máximo que conviene
   // aceptar. Solo tiene sentido si algo pasa por un depósito.
-  const comparaReenvio = !esCbm && calc.air.items > 0
+  const comparaReenvio = !esCbm && !esExpress && calc.air.items > 0
   const calcPorShoppre = comparaReenvio ? calcEnvio(items, cfg, { proveedor, modo: modoEnvio, medidas }) : null
   const calcPorKilo = comparaReenvio
     ? calcEnvio(items, cfg, { proveedor, modo: modoEnvio, medidas, reenvio: { tipo: 'por_kilo', tarifaKgInr: reenvioCaja.tarifaKgInr } })
@@ -682,7 +685,9 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   if (!esCbm) {
     if (inboundCaja !== 'cotizado') {
       filasFlete.push({
-        tramo: 'aereo', titulo: TRAMOS_FLETE.aereo.titulo, icono: TRAMOS_FLETE.aereo.icono,
+        tramo: 'aereo',
+        titulo: esExpress ? 'Express Shoppre → Venezuela' : TRAMOS_FLETE.aereo.titulo,
+        icono: esExpress ? '⚡' : TRAMOS_FLETE.aereo.icono,
         facturadoUsd: costoRealAereo, calculadoUsd: calc.airCalculadoUsd,
         nota: porKilo
           ? `La factura de ${reenvioLabel} incluye los gastos fijos (repack y demás).`
@@ -693,14 +698,17 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
         deshacer: deshacerPagoFlete.bind(null, envio.id),
       })
     }
-    filasFlete.push({
-      tramo: 'maritimo', titulo: TRAMOS_FLETE.maritimo.titulo, icono: TRAMOS_FLETE.maritimo.icono,
-      facturadoUsd: costoRealMaritimo, calculadoUsd: calc.maritimeCalculadoUsd + calc.fobUsd,
-      pagos: pagosDe(TRAMOS_FLETE.maritimo.categoria),
-      guardar: guardarFleteReal.bind(null, envio.id, 'maritimo'),
-      pagar: pagarFlete.bind(null, envio.id, 'maritimo'),
-      deshacer: deshacerPagoFlete.bind(null, envio.id),
-    })
+    // El express no tiene naviera: Shoppre lo lleva hasta Venezuela.
+    if (!esExpress) {
+      filasFlete.push({
+        tramo: 'maritimo', titulo: TRAMOS_FLETE.maritimo.titulo, icono: TRAMOS_FLETE.maritimo.icono,
+        facturadoUsd: costoRealMaritimo, calculadoUsd: calc.maritimeCalculadoUsd + calc.fobUsd,
+        pagos: pagosDe(TRAMOS_FLETE.maritimo.categoria),
+        guardar: guardarFleteReal.bind(null, envio.id, 'maritimo'),
+        pagar: pagarFlete.bind(null, envio.id, 'maritimo'),
+        deshacer: deshacerPagoFlete.bind(null, envio.id),
+      })
+    }
   }
 
   // Qué parte del landed sale de datos reales y qué parte sigue siendo estimada. Una pieza con
@@ -739,11 +747,17 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   if (!esCbm) {
     if (inboundCaja !== 'cotizado') {
       const e = estadoFlete(costoRealAereo, pagadoTramo(TRAMOS_FLETE.aereo.categoria)).clave
-      pasos.push({ texto: 'Flete aéreo pagado', hecho: e === 'pagado' || e === 'de_mas' })
+      pasos.push({ texto: esExpress ? 'Flete express pagado' : 'Flete aéreo pagado', hecho: e === 'pagado' || e === 'de_mas' })
     }
-    const em = estadoFlete(costoRealMaritimo, pagadoTramo(TRAMOS_FLETE.maritimo.categoria)).clave
-    pasos.push({ texto: 'Flete marítimo pagado', hecho: em === 'pagado' || em === 'de_mas' })
+    if (!esExpress) {
+      const em = estadoFlete(costoRealMaritimo, pagadoTramo(TRAMOS_FLETE.maritimo.categoria)).clave
+      pasos.push({ texto: 'Flete marítimo pagado', hecho: em === 'pagado' || em === 'de_mas' })
+    }
   }
+  // Express: la caja entera contra el tope de landed (lib/express.ts). Con la caja pesada y la
+  // factura de Shoppre cargadas, es el número real.
+  const topeExpress = esExpress ? topeDeCaja(calc, cfg) : null
+  const motivoTope = topeExpress ? motivoExpressNoAprobable(topeExpress) : null
   pasos.push({ texto: `Entregada ${entregadas}/${envio.items.length}`, hecho: envio.items.length > 0 && entregadas === envio.items.length })
   const proximoPaso = pasos.find(p => !p.hecho)
 
@@ -764,7 +778,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
             <span
               title={MODOS.find(m => m.value === modoEnvio)?.hint}
               className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                esCbm ? 'bg-cyan-100 text-cyan-800' : 'bg-indigo-100 text-indigo-800'
+                esCbm ? 'bg-cyan-100 text-cyan-800' : esExpress ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-800'
               }`}
             >
               {MODOS.find(m => m.value === modoEnvio)?.icon}{' '}
@@ -777,6 +791,20 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
             )}
           </div>
           {envio.notas && <p className="text-sm text-gray-500 mt-1">{envio.notas}</p>}
+          {topeExpress && envio.items.length > 0 && (
+            <div className={`mt-3 rounded-lg border px-4 py-2.5 ${topeExpress.excede ? 'border-red-300 bg-red-50' : 'border-green-300 bg-green-50'}`}>
+              <p className={`text-sm font-semibold ${topeExpress.excede ? 'text-red-800' : 'text-green-800'}`}>
+                ⚡ {topeExpress.excede
+                  ? `El paquete se pasa $${(-topeExpress.holguraUsd).toFixed(2)} del tope`
+                  : `El paquete entra: quedan $${topeExpress.holguraUsd.toFixed(2)}`}
+                <span className="font-mono font-normal text-gray-600 ml-2">
+                  ${calc.landedUsd.toFixed(2)} de ${topeExpress.topeUsd.toFixed(2)}
+                </span>
+              </p>
+              {motivoTope && esBorrador && <p className="text-xs text-red-800 mt-1">No se puede confirmar así: {motivoTope}</p>}
+              {!calc.caja.medido && <p className="text-xs text-gray-500 mt-1">Suma de las piezas: con la caja pesada sale el número real.</p>}
+            </div>
+          )}
           {esBorrador && (
             <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5">
               <p className="text-sm text-amber-900">
@@ -931,7 +959,9 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
                 {calc.air.items === 0 && calc.tramo
                   ? `✈️ Tramo ${calc.tramo.nombre} → USA · DDP`
-                  : `🇮🇳 Tramo India → USA · ${reenvioLabel} · peso cobrable`}
+                  : esExpress
+                    ? '⚡ Tramo India → Venezuela · Shoppre express · peso cobrable'
+                    : `🇮🇳 Tramo India → USA · ${reenvioLabel} · peso cobrable`}
               </h2>
               {calc.air.items > 0 && (
                 <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${fmtBound.cls}`}>{fmtBound.label}</span>
@@ -1158,7 +1188,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                 <>
                   {calc.air.items > 0 && (
                     <Row
-                      label={`Aéreo ${reenvioLabel}→USA · ${calc.air.chargeableKg.toFixed(1)} kg cobrables${calc.air.cajas > 1 ? ` en ${calc.air.cajas} cajas (${calc.air.cajasKg.map(k => `${k} kg`).join(' + ')})` : ''}${porKilo && reenvioCaja.tarifaKgInr != null && costoRealAereo == null ? ` × ₹${reenvioCaja.tarifaKgInr.toFixed(2)}/kg` : ''}`}
+                      label={`${esExpress ? 'Express Shoppre→Venezuela' : `Aéreo ${reenvioLabel}→USA`} · ${calc.air.chargeableKg.toFixed(1)} kg cobrables${calc.air.cajas > 1 ? ` en ${calc.air.cajas} cajas (${calc.air.cajasKg.map(k => `${k} kg`).join(' + ')})` : ''}${porKilo && reenvioCaja.tarifaKgInr != null && costoRealAereo == null ? ` × ₹${reenvioCaja.tarifaKgInr.toFixed(2)}/kg` : ''}`}
                       value={usd(calc.air.costUsd)}
                       tag={costoRealAereo != null
                         ? { texto: 'facturado', tono: 'real' }
@@ -1176,13 +1206,15 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                       tag={tramoUsd != null ? { texto: 'facturado', tono: 'real' } : { texto: 'sin cargar', tono: 'falta' }}
                     />
                   )}
-                  <Row
-                    label="Marítimo USA→VEN (volumen)"
-                    value={usd(calc.maritimeUsd)}
-                    tag={costoRealMaritimo != null
-                      ? { texto: 'facturado', tono: 'real' }
-                      : { texto: 'estimado por ft³', tono: 'est' }}
-                  />
+                  {!esExpress && (
+                    <Row
+                      label="Marítimo USA→VEN (volumen)"
+                      value={usd(calc.maritimeUsd)}
+                      tag={costoRealMaritimo != null
+                        ? { texto: 'facturado', tono: 'real' }
+                        : { texto: 'estimado por ft³', tono: 'est' }}
+                    />
+                  )}
                   {/* Seguro y processing son cargos de Shoppre: solo los paga lo que pasa por su
                       depósito, y solo se muestran si valen algo (la factura ya trae el processing
                       y Shoppre no cobra seguro: una fila en $0.00 es un cargo que no existe). */}
@@ -1313,6 +1345,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               key={envio.trackings.map(t => `${t.tramo}:${t.numero}:${t.transportista ?? ''}`).join('|')}
               action={guardarTrackings.bind(null, envio.id)}
               inicial={envio.trackings.filter(t => esTramoTracking(t.tramo)) as FilaTracking[]}
+              sinUsa={esExpress}
             />
 
             {calc.caja.medido && (
@@ -1533,6 +1566,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
             envioId={envio.id}
             items={itemRows}
             inbound={inboundCaja}
+            modo={modoEnvio}
             guardar={saveItemChanges}
             quitar={removePedido}
             bloqueada={esBorrador}

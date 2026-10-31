@@ -7,6 +7,7 @@ import { saldoReal, situacionDeCobro, debeSaldo, SITUACION_LABELS } from '@/lib/
 import { estadoValidez, validezDias } from '@/lib/validez'
 import { DIAS_CAJA_PARADA, diasSinMoverse } from '@/lib/etapas'
 import { VENTA_STATUS } from '@/lib/clientes'
+import { MODOS_CON_PEDIDOS } from '@/lib/modo'
 
 export const metadata = { title: 'Inicio' }
 
@@ -42,7 +43,7 @@ async function getDatos() {
     }),
     db.pedidoItem.count({ where: { envioId: null, costRealUsd: null, pedido: { status: VENTA_STATUS, tipo: 'cliente' } } }),
     db.envio.findMany({
-      where: { modo: 'aereo', estado: { not: 'borrador' } },
+      where: { modo: { in: [...MODOS_CON_PEDIDOS] }, estado: { not: 'borrador' } },
       select: {
         id: true, nombre: true, supplier: { select: { name: true } },
         items: { select: { shippingStatus: true, shippingStatusAt: true } },

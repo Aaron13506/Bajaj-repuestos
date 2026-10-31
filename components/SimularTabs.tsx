@@ -28,7 +28,7 @@ const TABS = [
   {
     id: 'express' as const,
     titulo: 'Express a Venezuela',
-    sub: 'Shoppre directo, 3 a 6 días: ¿entra en el tope y a cuánto lo vendo?',
+    sub: 'Shoppre directo, sin pasar por USA: ¿entra en el tope y a cuánto lo vendo?',
   },
 ]
 

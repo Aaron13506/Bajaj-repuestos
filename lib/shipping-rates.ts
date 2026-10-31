@@ -38,7 +38,7 @@ export const CARRIER_ECONOMY   = 'Economy Shipping'
 // Hay DOS tablas, una por destino, y salen de la misma API de Shoppre cambiando el país:
 //
 //   'usa' India → USA, el tramo de la caja aérea de siempre (después cruza a Caracas por mar).
-//   've'  India → Venezuela directo: el envío express. Un solo servicio, 3 a 6 días, y la
+//   've'  India → Venezuela directo: el envío express. Un solo servicio (Shoppre dice 3 a 6 días de vuelo), y la
 //         misma tarifa de socio que la de USA (probado contra una factura real).
 //
 // Cada una vive en su key de Config (la escribe el cron) y tiene su baseline buildeado.

@@ -43,7 +43,7 @@ import { etiquetaPieza, tiposPara, TIPO_LABELS } from '@/lib/incidencias'
 import { motivoNoEntregable, saldoReal } from '@/lib/saldo-entrega'
 import { mensajeEstado } from '@/lib/mensajes-cliente'
 import { resumenTrackings } from '@/lib/tracking'
-import { motivoExpressNoAprobable } from '@/lib/express'
+import { motivoExpressNoAprobable, plazoExpress } from '@/lib/express'
 import { expressDelPedido } from '@/lib/express-pedido'
 
 // "#123 Andry" en la pestaña del navegador; lo reexportan las dos rutas del detalle.
@@ -306,7 +306,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
     fecha,
     validez: isPresupuesto ? validez : null,
     clientName: presupuesto.clientName,
-    express: express != null,
+    expressPlazo: express ? plazoExpress(cfg) : null,
     notas: presupuesto.notas,
     items: items.map(item => {
       // Solo cuando el producto apunta a UNA moto (los ensambles): la lista larga de

@@ -69,8 +69,9 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Envíos</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Dos rutas, dos formas de llenar la caja: la aérea agrupa <span className="font-medium">pedidos de
-          cliente</span>, la marítima se arma con <span className="font-medium">mercancía propia</span> pieza por pieza.
+          Tres rutas: la aérea agrupa <span className="font-medium">pedidos de cliente</span>, la marítima se arma
+          con <span className="font-medium">mercancía propia</span> pieza por pieza, y la express lleva un
+          <span className="font-medium"> presupuesto express</span> directo a Venezuela.
         </p>
       </div>
 
@@ -129,7 +130,7 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
 
       {/* Crear: la ruta se elige acá y ya no se cambia — decide cómo se costea la caja y
           qué se le puede meter adentro. */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
         {[
           {
             modo: 'aereo',
@@ -148,6 +149,15 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
             placeholder: 'Ej: Embarque agosto',
             cls: 'border-cyan-200 bg-cyan-50/40',
             btn: 'bg-cyan-600 hover:bg-cyan-700',
+          },
+          {
+            modo: 'express',
+            icono: '⚡',
+            titulo: 'Envío express',
+            desc: 'Shoppre directo India → Venezuela, sin pasar por USA. Lleva un presupuesto express ya confirmado, con tope de landed por paquete.',
+            placeholder: 'Ej: Express María',
+            cls: 'border-amber-200 bg-amber-50/40',
+            btn: 'bg-amber-600 hover:bg-amber-700',
           },
         ].map(r => (
           <FormConResultado
@@ -172,20 +182,22 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
                 asigne después a esta caja lo hereda. */}
             <label className="block">
               <span className="text-xs text-gray-500">
-                Proveedor {r.modo === 'aereo' ? '(define precios y cómo llega a USA)' : '(define precios y FOB)'}
+                Proveedor {r.modo === 'aereo' ? '(define precios y cómo llega a USA)' : r.modo === 'express' ? '(solo los que pasan por el depósito)' : '(define precios y FOB)'}
               </span>
               <select
                 name="supplierId"
                 defaultValue=""
                 className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
-                <option value="">99rpm · precio base ₹{r.modo === 'aereo' ? ' · por depósito' : ''}</option>
+                <option value="">99rpm · precio base ₹{r.modo !== 'maritimo_cbm' ? ' · por depósito' : ''}</option>
                 {suppliers.map(sp => {
                   const meta = inboundMeta(inboundDe(sp.origen, sp.inbound))
+                  // Express es Shoppre despachando desde su depósito: quien manda él mismo no entra.
+                  if (r.modo === 'express' && meta.value !== 'shoppre') return null
                   return (
                     <option key={sp.id} value={sp.id}>
                       {sp.name}
-                      {r.modo === 'aereo'
+                      {r.modo !== 'maritimo_cbm'
                         ? (meta.value === 'shoppre' ? ' · por depósito' : ` · ${meta.label}`)
                         : sp.fobUsd != null
                           ? ` · FOB $${parseFloat(sp.fobUsd.toString()).toFixed(0)}`
@@ -218,7 +230,7 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
               pendingLabel="Creando…"
               className={`text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors ${r.btn}`}
             >
-              + Crear {r.modo === 'aereo' ? 'envío aéreo' : 'embarque marítimo'}
+              + Crear {r.modo === 'aereo' ? 'envío aéreo' : r.modo === 'express' ? 'envío express' : 'embarque marítimo'}
             </PendingButton>
           </FormConResultado>
         ))}
@@ -256,6 +268,7 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
         <div className="space-y-3">
           {lista.map(e => {
             const esMar = e.modo === 'maritimo_cbm'
+            const esExpress = e.modo === 'express'
             const costo = costos.get(e.id)
             const esBorrador = e.estado === 'borrador'
             // El aéreo se mide en ítems de pedido; el marítimo en líneas propias. Mezclar
@@ -268,7 +281,8 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
             const cotizada = e.supplier ? inboundDe(e.supplier.origen, e.supplier.inbound) === 'cotizado' : false
             const fletes = esMar ? 'sin_cargar' : resumenFletes([
               ...(cotizada ? [] : [{ facturadoUsd: e.shippingCostRealAereo != null ? parseFloat(e.shippingCostRealAereo.toString()) : null, pagadoUsd: pagadoFlete.get(`${e.id}:flete_aereo`) ?? 0 }]),
-              { facturadoUsd: e.shippingCostRealMaritimo != null ? parseFloat(e.shippingCostRealMaritimo.toString()) : null, pagadoUsd: pagadoFlete.get(`${e.id}:flete_maritimo`) ?? 0 },
+              // El express no tiene naviera: Shoppre lo lleva hasta Venezuela.
+              ...(esExpress ? [] : [{ facturadoUsd: e.shippingCostRealMaritimo != null ? parseFloat(e.shippingCostRealMaritimo.toString()) : null, pagadoUsd: pagadoFlete.get(`${e.id}:flete_maritimo`) ?? 0 }]),
             ])
             const pct = summary
               ? Math.round((summary.leadIndex / (SHIPPING_STATUSES.length - 1)) * 100)
@@ -288,9 +302,9 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
                     {e.nombre ?? (esMar ? `Embarque #${e.id}` : `Envío #${e.id}`)}
                   </Link>
                   <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                    esMar ? 'bg-cyan-100 text-cyan-800' : 'bg-indigo-100 text-indigo-800'
+                    esMar ? 'bg-cyan-100 text-cyan-800' : esExpress ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-800'
                   }`}>
-                    {esMar ? '🚢 Marítimo' : '✈️ Aéreo'}
+                    {esMar ? '🚢 Marítimo' : esExpress ? '⚡ Express' : '✈️ Aéreo'}
                   </span>
                   {/* Con cajas de proveedores distintos viajando a la vez, el nombre es lo
                       primero que hay que poder leer de un vistazo en la lista. */}

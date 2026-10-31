@@ -11,6 +11,10 @@ import type { Inbound } from './inbound'
 //   shoppre:  pendiente → camino_shoppre → en_shoppre → camino_usa → en_usa → ...
 //   cotizado: pendiente ───────────────────────────────→ camino_usa → en_usa → ...
 //   landed:   pendiente ─────────────────────────────────────────→ en_venezuela → entregado
+//   express:  pendiente → camino_shoppre → en_shoppre ────────────→ camino_venezuela → ...
+//
+// 'express' es la caja que Shoppre manda directo a Venezuela (Envio.modo = 'express'): pasa
+// por su depósito en India igual que la aérea, pero no hace escala en USA.
 //
 // Lo que separa las dos primeras NO es el país sino si la mercancía pasa por el depósito
 // de Shoppre. Antes se llamaban 'india' y 'china' porque coincidía; Garuda Impex la
@@ -45,20 +49,24 @@ const LAST = SHIPPING_STATUSES[SHIPPING_STATUSES.length - 1].value
 // 'en_usa' está tan avanzado como uno de India en 'en_usa'.
 
 export type Origen = 'india' | 'china'
-export type Ruta = 'shoppre' | 'cotizado' | 'landed'
+export type Ruta = 'shoppre' | 'cotizado' | 'landed' | 'express'
 
 const ROUTE_STATUSES: Record<Ruta, readonly ShippingStatus[]> = {
   shoppre: SHIPPING_STATUSES.map(s => s.value),
   cotizado: ['pendiente', 'camino_usa', 'en_usa', 'camino_venezuela', 'en_venezuela', 'entregado'],
   landed: ['pendiente', 'en_venezuela', 'entregado'],
+  express: ['pendiente', 'camino_shoppre', 'en_shoppre', 'camino_venezuela', 'en_venezuela', 'entregado'],
 }
 
 // La ruta sale de por dónde entra lo que se le compra al proveedor, salvo que haya
 // cotizado puesto en Venezuela (isLanded): en ese caso la pieza no pasa por el pipeline,
 // venga de donde venga. El país no decide nada acá — inboundDe() ya resolvió que un
 // proveedor chino y uno indio que despacha por su cuenta comparten las mismas etapas.
-export function routeFor(inbound: Inbound, isLanded: boolean): Ruta {
+//
+// `modo` es el de la caja en la que viaja: una caja express tiene su propia ruta, sin USA.
+export function routeFor(inbound: Inbound, isLanded: boolean, modo?: string | null): Ruta {
   if (isLanded) return 'landed'
+  if (modo === 'express') return 'express'
   return inbound === 'cotizado' ? 'cotizado' : 'shoppre'
 }
 

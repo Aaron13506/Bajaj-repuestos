@@ -8,7 +8,9 @@ import { isDelivered, isPending, isValidStatus, normalizeToRoute, routeFor } fro
 import { bloqueaCompra, bloqueaEntrega } from '@/lib/incidencias'
 import { seEntregaDesdeElPedido } from '@/lib/saldo-entrega'
 import { inboundDe } from '@/lib/inbound'
-import { isModoApp } from '@/lib/modo'
+import { isModoApp, llevaPedidos, MODOS_CON_PEDIDOS } from '@/lib/modo'
+import { motivoExpressNoAprobable, motivoViaNoCoincide, topeDeCaja } from '@/lib/express'
+import { contextoCosteo, costearAereo, ENVIO_COSTEO_INCLUDE } from '@/lib/costo-envios'
 import { isReenvio, motivoNoCambiaReenvio, ETAPAS_FUERA_DEL_DEPOSITO } from '@/lib/reenvio'
 import { fallo, ok, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
 import { isForeignKeyViolation } from '@/lib/prisma-errors'
@@ -60,6 +62,15 @@ export async function createEnvio(formData: FormData): Promise<ActionResult> {
     if (sp && inboundDe(sp.origen, sp.inbound) === 'cotizado') reenvio = 'shoppre'
   }
 
+  // Express es Shoppre despachando desde su depósito: un proveedor que manda él mismo a USA no
+  // tiene cómo entrar ahí.
+  if (modo === 'express' && supplierId != null) {
+    const sp = await db.supplier.findUnique({ where: { id: supplierId }, select: { origen: true, inbound: true } })
+    if (sp && inboundDe(sp.origen, sp.inbound) === 'cotizado') {
+      return fallo('Ese proveedor despacha él mismo: no pasa por el depósito de Shoppre, así que no va por express.')
+    }
+  }
+
   let envio
   try {
     envio = await db.envio.create({ data: { nombre, notas, modo, estado, supplierId, reenvio } })
@@ -80,8 +91,16 @@ export async function createEnvio(formData: FormData): Promise<ActionResult> {
 // Transición guardada (`updateMany where estado = 'borrador'`), como las del marítimo: un
 // doble click o una segunda pestaña no hacen nada la segunda vez.
 export async function confirmarCajaAerea(envioId: number): Promise<ActionResult> {
+  // Una caja express pasada del tope no se despacha: confirmarla sería comprarla igual.
+  const caja = await db.envio.findUnique({ where: { id: envioId }, include: ENVIO_COSTEO_INCLUDE })
+  if (caja?.modo === 'express' && caja.estado === 'borrador') {
+    const ctx = await contextoCosteo([caja])
+    const motivo = motivoExpressNoAprobable(topeDeCaja(costearAereo(caja, ctx).calc, ctx.cfg))
+    if (motivo) return fallo(motivo)
+  }
+
   const r = await db.envio.updateMany({
-    where: { id: envioId, modo: 'aereo', estado: 'borrador', items: { some: {} } },
+    where: { id: envioId, modo: { in: [...MODOS_CON_PEDIDOS] }, estado: 'borrador', items: { some: {} } },
     data: { estado: 'confirmado' },
   })
   if (r.count === 0) {
@@ -102,7 +121,7 @@ export async function volverCajaABorrador(envioId: number): Promise<ActionResult
   const r = await db.envio.updateMany({
     where: {
       id: envioId,
-      modo: 'aereo',
+      modo: { in: [...MODOS_CON_PEDIDOS] },
       estado: 'confirmado',
       items: { none: { OR: [{ shippingStatus: { not: 'pendiente' } }, { costRealUsd: { not: null } }] } },
       movimientos: { none: {} },
@@ -206,7 +225,7 @@ async function asignarAEnvio(envioId: number, itemIds: number[]): Promise<Action
     }),
     db.pedidoItem.findMany({
       where: { id: { in: itemIds } },
-      select: { id: true, productId: true, shippingStatus: true, costRealUsd: true, pedido: { select: { tipo: true, status: true } } },
+      select: { id: true, productId: true, shippingStatus: true, costRealUsd: true, pedido: { select: { tipo: true, status: true, via: true } } },
     }),
   ])
 
@@ -218,8 +237,12 @@ async function asignarAEnvio(envioId: number, itemIds: number[]): Promise<Action
   if (items.some(i => i.pedido.status === 'cancelado')) {
     return fallo('Ese pedido está cancelado: no viaja en ninguna caja.')
   }
-  if (envio.modo !== 'aereo') {
+  if (!llevaPedidos(envio.modo)) {
     return fallo('Esa caja es marítima: lleva mercancía propia pieza por pieza, no pedidos.')
+  }
+  for (const it of items) {
+    const motivo = motivoViaNoCoincide(it.pedido.via, envio.modo)
+    if (motivo) return fallo(motivo)
   }
   if (envio.estado === 'entregado') {
     return fallo('Esa caja ya se entregó: no se le pueden agregar pedidos.')
@@ -239,7 +262,8 @@ async function asignarAEnvio(envioId: number, itemIds: number[]): Promise<Action
   // mismo proveedor puede cotizar unas piezas puestas en Venezuela y otras no. Un conjunto no
   // es una pieza y no tiene precio de proveedor propio (cotizan cada pieza, no el ensamble),
   // así que nunca es landed.
-  const piezaIds = items.flatMap(i => (i.productId != null ? [i.productId] : []))
+  // En express todo sale del depósito de Shoppre en el mismo paquete: nada es landed.
+  const piezaIds = envio.modo === 'express' ? [] : items.flatMap(i => (i.productId != null ? [i.productId] : []))
   const landed = sup && piezaIds.length > 0
     ? new Set(
         (await db.supplierPrice.findMany({
@@ -259,7 +283,7 @@ async function asignarAEnvio(envioId: number, itemIds: number[]): Promise<Action
         origen,
         inbound,
         isLanded: esLanded,
-        shippingStatus: normalizeToRoute(it.shippingStatus, routeFor(inbound, esLanded)),
+        shippingStatus: normalizeToRoute(it.shippingStatus, routeFor(inbound, esLanded, envio.modo)),
       },
     })
   }))
@@ -290,12 +314,16 @@ export async function removePedido(envioId: number, pedidoId: number): Promise<A
 // aparte según el checkbox del formulario.
 export async function assignAllConfirmados(envioId: number, formData: FormData): Promise<ActionResult> {
   const incluirPropio = formData.get('incluirPropio') === 'on'
+  // Una caja express se llena solo con presupuestos express, y una aérea con los demás.
+  const caja = await db.envio.findUnique({ where: { id: envioId }, select: { modo: true } })
+  const via = caja?.modo === 'express' ? 'express' : 'normal'
 
   const ids = await db.pedidoItem.findMany({
     where: {
       envioId: null,
       pedido: {
         status: 'pedido',
+        via,
         // Las ventas del depósito ya están entregadas: nunca van a una caja.
         tipo: incluirPropio ? { not: 'venta' } : { notIn: ['propio', 'venta'] },
       },
@@ -459,7 +487,9 @@ async function tramoAplica(envioId: number, tramo: TramoFlete) {
     select: { modo: true, supplier: { select: { origen: true, inbound: true } } },
   })
   if (!envio) return { error: 'Ese envío ya no existe.' }
-  if (envio.modo !== 'aereo') return { error: 'El flete real se carga en las cajas aéreas.' }
+  if (!llevaPedidos(envio.modo)) return { error: 'El flete real se carga en las cajas aéreas.' }
+  // El express llega en avión hasta Caracas: Shoppre factura todo el trayecto y no hay naviera.
+  if (envio.modo === 'express' && tramo === 'maritimo') return { error: 'Una caja express no tiene tramo marítimo: Shoppre la lleva hasta Venezuela.' }
   if (tramo === 'aereo' && inboundDe(envio.supplier?.origen, envio.supplier?.inbound) === 'cotizado') {
     return { error: 'En esta caja el tramo a USA lo factura el proveedor: se carga como "Envío + impuestos" en su tarjeta.' }
   }
@@ -665,6 +695,7 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]): P
       productId: true, quantity: true, bundleItems: true,
       pedido: { select: { id: true, tipo: true, status: true, clientName: true } },
       incidencias: { select: { tipo: true, estado: true } },
+      envio: { select: { modo: true } },
     },
   })
   if (items.length === 0) return ok()
@@ -687,7 +718,7 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]): P
     if (!c) continue
 
     const destino = isValidStatus(c.shippingStatus) ? c.shippingStatus : it.shippingStatus
-    const ruta = routeFor(inboundDe(it.origen, it.inbound), it.isLanded)
+    const ruta = routeFor(inboundDe(it.origen, it.inbound), it.isLanded, it.envio?.modo)
     const status = normalizeToRoute(destino, ruta)
     if (status === it.shippingStatus) continue
 
