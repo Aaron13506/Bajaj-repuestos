@@ -1021,8 +1021,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
           )}
           {isPresupuesto && (
             <div className="flex justify-between items-center bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 mt-2">
-              <span className="text-sm font-semibold text-yellow-800">Abono mínimo 50% para confirmar</span>
-              <span className="font-bold font-mono text-yellow-900">${deposit.toFixed(2)}</span>
+              <span className="text-sm font-semibold text-yellow-800">Para confirmar se requiere un abono del 50%</span>
             </div>
           )}
           {isCancelado && depositUsd != null && depositUsd > 0.005 && (

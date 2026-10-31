@@ -250,9 +250,10 @@ export function buildPresupuestoPdf(data: PresupuestoPdfData): jsPDF {
   }
   y += SECCION - 2
 
-  // ── Franjas del resumen, una por dato
+  // ── Franjas del resumen, una por dato. El abono va sin monto: con el total BCV y el de
+  // divisas arriba, un tercer número (y en cuál de las dos monedas) solo desordenaba.
   if (data.isPresupuesto) {
-    y = drawFranja(doc, y, 'Abono mínimo 50% para confirmar', `$${data.deposit.toFixed(2)}`, AMARILLO)
+    y = drawFranja(doc, y, 'Para confirmar se requiere un abono del 50%', '', AMARILLO)
   } else if (data.depositUsd != null) {
     const label = ['Abonado', data.paymentMethod, data.depositAt].filter(Boolean).join(' · ')
     y = drawFranja(doc, y, label, `$${data.depositUsd.toFixed(2)}`, VERDE)
