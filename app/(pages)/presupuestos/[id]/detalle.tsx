@@ -328,7 +328,6 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
     tasaBcv: modoBcv ? tasaBcv : null,
     descuentoDivisasPct,
     totalDivisas: cobro.totalReal,
-    depositDivisas,
     isPresupuesto,
     deposit,
     depositUsd: depositUsd != null ? cobro.abonadoBcv : null,
@@ -1005,7 +1004,13 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
             <div className="text-xs text-gray-500 text-right">
               <p>Monto expresado en dólares a tasa BCV</p>
               <p>Se paga a la tasa BCV del día en que se realice el pago</p>
-              {descuentoDivisasPct > 0 && <p>Pagando en divisas se aplica un descuento del {descuentoDivisasPct}%</p>}
+            </div>
+          )}
+          {modoBcv && descuentoDivisasPct > 0 && (
+            // Punto intermedio: más que las aclaraciones grises, menos que el total BCV.
+            <div className="flex justify-between items-baseline gap-3 pt-1 text-green-700">
+              <span className="text-sm font-semibold">Pagando en divisas se aplica un descuento del {descuentoDivisasPct}%</span>
+              <span className="font-bold text-lg font-mono">${cobro.totalReal.toFixed(2)}</span>
             </div>
           )}
           {totalBsd != null && (

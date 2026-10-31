@@ -42,9 +42,8 @@ export interface PresupuestoPdfData {
   tasaBcv: number | null
   /** Escalón de brecha vigente; 0 = no se menciona el descuento. */
   descuentoDivisasPct: number
-  /** El total y el abono pagados en divisas (dólares reales): lo que el cliente paga con el descuento. */
+  /** El total pagado en divisas (dólares reales): lo que el cliente paga con el descuento. */
   totalDivisas: number
-  depositDivisas: number
   isPresupuesto: boolean
   deposit: number
   /** Lo cobrado y el saldo, en la unidad del documento (dólares BCV si modoBcv). */
@@ -237,24 +236,23 @@ export function buildPresupuestoPdf(data: PresupuestoPdfData): jsPDF {
       if (valor) doc.text(valor, pageWidth - MARGIN, y, { align: 'right' })
     }
   }
+  // Pagar en divisas, con su monto: un punto intermedio entre el total y las aclaraciones,
+  // en verde y sin fondo. Una franja de color al lado de los montos parecía un descuento
+  // ya aplicado al total; la línea gris chica no se veía.
+  if (data.modoBcv && data.descuentoDivisasPct > 0) {
+    y += 6.5
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(10)
+    doc.setTextColor(...VERDE.texto)
+    doc.text(`Pagando en divisas se aplica un descuento del ${data.descuentoDivisasPct}%`, MARGIN, y)
+    doc.setFontSize(12)
+    doc.text(`$${data.totalDivisas.toFixed(2)}`, pageWidth - MARGIN, y, { align: 'right' })
+  }
   y += SECCION - 2
 
-  // ── Franjas del resumen, una por dato. El precio en divisas va con el monto y rotulado
-  // "Si paga en divisas": con solo el porcentaje al lado de los montos parecía un
-  // descuento ya aplicado al total.
-  const conDescuento = data.modoBcv && data.descuentoDivisasPct > 0
-  if (data.isPresupuesto && conDescuento) {
-    const ahorro = data.total - data.totalDivisas
-    y = drawFranja(
-      doc, y,
-      `Si paga en divisas  ·  ahorra $${ahorro.toFixed(2)} (${data.descuentoDivisasPct}% de descuento)`,
-      `$${data.totalDivisas.toFixed(2)}`,
-      VERDE,
-    )
-  }
+  // ── Franjas del resumen, una por dato
   if (data.isPresupuesto) {
-    const enDivisas = conDescuento ? `  ·  en divisas $${data.depositDivisas.toFixed(2)}` : ''
-    y = drawFranja(doc, y, `Abono mínimo 50% para confirmar${enDivisas}`, `$${data.deposit.toFixed(2)}`, AMARILLO)
+    y = drawFranja(doc, y, 'Abono mínimo 50% para confirmar', `$${data.deposit.toFixed(2)}`, AMARILLO)
   } else if (data.depositUsd != null) {
     const label = ['Abonado', data.paymentMethod, data.depositAt].filter(Boolean).join(' · ')
     y = drawFranja(doc, y, label, `$${data.depositUsd.toFixed(2)}`, VERDE)
