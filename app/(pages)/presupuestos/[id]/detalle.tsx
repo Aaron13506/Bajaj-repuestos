@@ -1020,9 +1020,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
             </div>
           )}
           {isPresupuesto && (
-            <div className="flex justify-between items-center bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 mt-2">
-              <span className="text-sm font-semibold text-yellow-800">Para confirmar se requiere un abono del 50%</span>
-            </div>
+            <p className="text-sm font-semibold text-gray-800 pt-1">Para confirmar el pedido se requiere un abono del 50%.</p>
           )}
           {isCancelado && depositUsd != null && depositUsd > 0.005 && (
             <div className="flex justify-between items-center bg-red-50 border border-red-200 rounded-lg px-3 py-2 mt-2">

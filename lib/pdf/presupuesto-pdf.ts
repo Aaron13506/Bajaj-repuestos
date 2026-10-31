@@ -67,7 +67,6 @@ type Rgb = [number, number, number]
 type Celda = { content: string; colSpan?: number; styles?: Record<string, unknown> }
 
 const VERDE = { fondo: [220, 252, 231] as Rgb, texto: [22, 101, 52] as Rgb }
-const AMARILLO = { fondo: [254, 249, 195] as Rgb, texto: [133, 100, 4] as Rgb }
 const NEUTRO = { fondo: [245, 245, 245] as Rgb, texto: [DARK, DARK, DARK] as Rgb }
 
 // Una franja del resumen: etiqueta a la izquierda, valor a la derecha. Todas miden lo
@@ -248,13 +247,19 @@ export function buildPresupuestoPdf(data: PresupuestoPdfData): jsPDF {
     doc.setFontSize(12)
     doc.text(`$${data.totalDivisas.toFixed(2)}`, pageWidth - MARGIN, y, { align: 'right' })
   }
+  // El abono, como una condición más y alineado con el resto: sin monto (el total BCV y el
+  // de divisas ya están arriba) y sin franja, que arrancaba corrida y desordenaba la columna.
+  if (data.isPresupuesto) {
+    y += 6
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(9.5)
+    doc.setTextColor(DARK)
+    doc.text('Para confirmar el pedido se requiere un abono del 50%.', MARGIN, y)
+  }
   y += SECCION - 2
 
-  // ── Franjas del resumen, una por dato. El abono va sin monto: con el total BCV y el de
-  // divisas arriba, un tercer número (y en cuál de las dos monedas) solo desordenaba.
-  if (data.isPresupuesto) {
-    y = drawFranja(doc, y, 'Para confirmar se requiere un abono del 50%', '', AMARILLO)
-  } else if (data.depositUsd != null) {
+  // ── Franjas del resumen (pedido confirmado), una por dato
+  if (data.depositUsd != null && !data.isPresupuesto) {
     const label = ['Abonado', data.paymentMethod, data.depositAt].filter(Boolean).join(' · ')
     y = drawFranja(doc, y, label, `$${data.depositUsd.toFixed(2)}`, VERDE)
     y = drawFranja(doc, y, 'Saldo pendiente', `$${(data.saldoUsd ?? 0).toFixed(2)}`, NEUTRO)
