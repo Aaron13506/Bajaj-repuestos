@@ -132,3 +132,28 @@ export function calcExpress(items: EnvioItemInput[], cfg: ConfigMap, opts: Expre
     sinPeso: envio.lines.filter(l => l.missingWeight).map(l => l.name),
   }
 }
+
+// ── El presupuesto express ───────────────────────────────────────────────────
+// La vía es del presupuesto entero (Pedido.via), no de cada línea: el flete express es uno
+// por paquete, así que el precio de cada pieza depende de todo lo que va en el paquete.
+
+export type Via = 'normal' | 'express'
+
+export function viaDe(v: string | null | undefined): Via {
+  return v === 'express' ? 'express' : 'normal'
+}
+
+/**
+ * Por qué un presupuesto express no se puede confirmar, o null si se puede. La comparten el
+ * armador y la ficha (que avisan) y la confirmación (que es el candado real): confirmar es
+ * comprometerse a traerlo, y un paquete pasado del tope no se puede despachar así.
+ */
+export function motivoExpressNoAprobable(e: Pick<Express, 'excede' | 'holguraUsd' | 'topeUsd' | 'sinPeso'>): string | null {
+  if (e.excede) {
+    return `El paquete express se pasa ${(-e.holguraUsd).toFixed(2)} USD del tope de ${e.topeUsd.toFixed(2)} USD. Sacá piezas o pasalo a envío normal.`
+  }
+  if (e.sinPeso.length > 0) {
+    return `Sin peso cargado: ${e.sinPeso.join(', ')}. Sin peso no se sabe si el paquete express entra en el tope.`
+  }
+  return null
+}

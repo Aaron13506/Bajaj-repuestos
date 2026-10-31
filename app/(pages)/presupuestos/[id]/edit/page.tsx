@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import { toModelIds } from '@/lib/modelo'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
+import { viaDe } from '@/lib/express'
 import PresupuestoBuilder from '@/components/PresupuestoBuilder'
 import { updatePresupuesto } from '../../actions'
 import { type BundlePiece } from '@/lib/bundle'
@@ -122,6 +123,7 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
         initialItems={initialItems}
         clientes={clientes}
         posiciones={posiciones}
+        initialVia={viaDe(presupuesto.via)}
       />
     </div>
   )

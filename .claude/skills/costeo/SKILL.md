@@ -46,7 +46,7 @@ Charges attach to what generated them (spreading them wrecks the per-piece lande
 
 `calcEnvio(…, { modo: 'express' })`: the `shoppre` lines pay the **Venezuela** table on the package's chargeable weight, plus Shoppre insurance and processing from Config; **no maritime leg**. Billed freight (`fleteFacturado.aereoUsd`) replaces the table and zeroes processing, as on the air lane. `calcLanded` refuses `'express'` by type: the freight is one rate per package, so there is no per-piece landed.
 
-`calcExpress` adds what is express-only: **the package's landed (product + freight + insurance + processing) may not exceed `express_tope_usd` ($100)**, per package; the sale price may. `holguraUsd` (negative = over), `productoQueEntraUsd` (room ÷ (1 + insurance), valid while the freight stays on its step), `kgHastaProximoEscalon`. Price = line landed per unit ÷ (1 − `express_margen_pct`, falling back to the default margin), rounded to the cent: never the catalog price, which carries the Miami freight and sea leg. UI: the Express tab in `/simular` (nothing saved yet).
+`calcExpress` adds what is express-only: **the package's landed (product + freight + insurance + processing) may not exceed `express_tope_usd` ($100)**, per package; the sale price may. `holguraUsd` (negative = over), `productoQueEntraUsd` (room ÷ (1 + insurance), valid while the freight stays on its step), `kgHastaProximoEscalon`. Price = line landed per unit ÷ (1 − `express_margen_pct`, falling back to the default margin), rounded to the cent: never the catalog price, which carries the Miami freight and sea leg. UI: the Express tab in `/simular` (nothing saved) and express quotes (`Pedido.via`, see the `pedidos` skill).
 
 ## CBM, the sea lane (`lib/cbm.ts`)
 

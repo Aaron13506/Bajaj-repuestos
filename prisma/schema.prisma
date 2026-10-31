@@ -405,6 +405,11 @@ model Pedido {
   // 'venta'   = una venta del depósito (lib/venta-stock.ts): nace confirmada y entregada, sin
   //             compra ni caja; sus líneas guardan en costRealUsd lo que costaba lo vendido.
   tipo          String       @default("cliente")
+  // Cómo se le va a traer al cliente: 'normal' (caja aérea por Miami) o 'express' (Shoppre
+  // directo a Venezuela, con tope de landed por paquete). Cambia el costeo y el precio
+  // sugerido de TODO el presupuesto, porque el flete express es uno por paquete. Ver
+  // lib/express.ts.
+  via           String       @default("normal")
   status        String       @default("presupuesto")
   // Adelanto: se llenan al aprobar un presupuesto de cliente (ver aprobarPedido). Desde el
   // libro de movimientos, depositUsd es una CACHÉ de "total recibido hasta ahora" — la

@@ -110,6 +110,9 @@ export default async function PresupuestosPage({
             >
               {p.clientName}
             </Link>
+            {p.via === 'express' && (
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 whitespace-nowrap">⚡ Express</span>
+            )}
             <span className="text-xs text-gray-400">
               {p.items.length} {p.items.length === 1 ? 'pieza' : 'piezas'}
             </span>
@@ -200,6 +203,12 @@ export default async function PresupuestosPage({
             className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
           >
             + Stock propio
+          </Link>
+          <Link
+            href="/presupuestos/new?via=express"
+            className="border border-blue-300 text-blue-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-50 transition-colors"
+          >
+            + Presupuesto express
           </Link>
           <Link
             href="/presupuestos/new"

@@ -25,7 +25,7 @@ import {
 } from '../lib/comparar-compra'
 import { parseListaSkus } from '../lib/lista-skus'
 import { cotizarTramoAereo, capacidadCajaKg, CARRIER_EXPRESS_VE } from '../lib/shipping-rates'
-import { calcExpress } from '../lib/express'
+import { calcExpress, motivoExpressNoAprobable, viaDe } from '../lib/express'
 import { repartirEnCentavos } from '../lib/reparto-compra'
 import { financiamientoEnvio } from '../lib/financiamiento-envio'
 import { estadoFlete, excedeFacturado, porSalirDeCaja, resumenFletes } from '../lib/flete-real'
@@ -1353,6 +1353,15 @@ console.log('\nENVÍO EXPRESS')
   check('express: precio total = unidad × cantidad', conMargen.precioUsd, unit * 2, 1e-9)
   check('express: margen por defecto es express_margen_pct', calcExpress([pieza(800, 2000)], { ...cfg, express_margen_pct: '25' }).margen, 0.25)
   check('express: tope configurable', calcExpress([pieza(800, 2000)], { ...cfg, express_tope_usd: '120' }).topeUsd, 120)
+
+  // Confirmar un presupuesto express: pasado del tope o sin peso, no.
+  const si = (b: boolean) => (b ? 1 : 0)
+  check('confirmar: el que entra se confirma', si(motivoExpressNoAprobable(e) == null), 1)
+  check('confirmar: el pasado del tope no', si(motivoExpressNoAprobable(pesado)?.includes('tope') ?? false), 1)
+  const sinPeso = calcExpress([{ ...pieza(800, 2000), weightGrams: null, name: 'Sin pesar' }], cfg)
+  check('confirmar: sin peso no (no se sabe si entra)', si(motivoExpressNoAprobable(sinPeso)?.includes('Sin pesar') ?? false), 1)
+  check('vía: express se lee', si(viaDe('express') === 'express'), 1)
+  check('vía: cualquier otra cosa es normal', si(viaDe('expres') === 'normal' && viaDe(null) === 'normal'), 1)
 
   // Y la caja aérea de siempre no se enteró: sigue con la tabla de USA y su marítimo.
   const aereo = calcEnvio([pieza(800, 2000)], cfg, { modo: 'aereo' })
