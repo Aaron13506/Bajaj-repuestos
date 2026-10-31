@@ -327,6 +327,8 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
     modoBcv,
     tasaBcv: modoBcv ? tasaBcv : null,
     descuentoDivisasPct,
+    totalDivisas: cobro.totalReal,
+    depositDivisas,
     isPresupuesto,
     deposit,
     depositUsd: depositUsd != null ? cobro.abonadoBcv : null,
