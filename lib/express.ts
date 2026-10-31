@@ -173,7 +173,7 @@ export function motivoViaNoCoincide(via: string | null | undefined, modoCaja: st
 /** Lo que se le promete al cliente, contado desde que se hace la compra (Config express_plazo_dias). */
 export function plazoExpress(cfg: ConfigMap): string {
   const raw = cfg.express_plazo_dias?.trim()
-  return `${raw || '10 a 13'} días hábiles`
+  return `${raw || '10 a 15'} días hábiles`
 }
 
 /**
