@@ -7,7 +7,7 @@ import type { ActionResult } from '@/lib/action-result'
 import {
   TRAMOS_TRACKING, TRAMO_TRACKING_META, MAX_TRACKINGS_POR_TRAMO, type TramoTracking, type FilaTracking,
 } from '@/lib/tracking'
-import type { CourierTM } from '@/lib/trackingmore'
+import type { Courier } from '@/lib/ship24'
 import ElegirCourier, { type CourierInicial } from '@/components/ElegirCourier'
 
 type Fila = { key: number; numero: string; courier: CourierInicial }
@@ -17,8 +17,8 @@ const SIN_COURIER: CourierInicial = { code: null, nombre: null }
 // form manda todo junto y la acción reemplaza lo guardado (ver guardarTrackings). La página
 // lo monta con una `key` que cambia con lo guardado, así después de guardar arranca de nuevo.
 //
-// El courier se elige de la lista de TrackingMore con un buscador (ElegirCourier): elegido de
-// ahí, el tracking se sigue solo. Sin lista (TrackingMore apagado) es texto libre.
+// El courier se elige de la lista de Ship24 con un buscador (ElegirCourier): elegido de
+// ahí, el tracking se sigue solo. Sin lista (Ship24 apagado) es texto libre.
 export default function TrackingsCaja({
   action,
   inicial,
@@ -29,8 +29,8 @@ export default function TrackingsCaja({
   inicial: (FilaTracking & { courierCode: string | null })[]
   /** Caja express: va directo de India a Venezuela, no tiene tramo hacia USA. */
   sinUsa?: boolean
-  /** La lista de couriers de TrackingMore; vacía = texto libre. */
-  couriers: CourierTM[]
+  /** La lista de couriers de Ship24; vacía = texto libre. */
+  couriers: Courier[]
 }) {
   const [siguiente, setSiguiente] = useState(inicial.length + TRAMOS_TRACKING.length)
   const [filas, setFilas] = useState<Record<TramoTracking, Fila[]>>(() => {

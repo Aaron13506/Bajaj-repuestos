@@ -1,17 +1,17 @@
 // Lo corre cada hora el timer del servidor, bajaj-tracking.timer (pnpm tracking:sync): pone al
-// día con TrackingMore los trackings de las cajas que tienen courier y todavía no llegaron, y
+// día con Ship24 los trackings de las cajas que tienen courier y todavía no llegaron, y
 // una vez por semana la lista de couriers para elegir. Ver lib/sync-trackings.ts.
 //
 //   pnpm tracking:sync                  la corrida normal
 //   pnpm tracking:sync --couriers       además fuerza bajar la lista de couriers
 //
-// Sin TRACKINGMORE_API_KEY no hace nada y sale bien: el seguimiento está apagado, no roto.
-import { apiKeyTrackingMore, ENV_API_KEY } from '@/lib/trackingmore'
+// Sin SHIP24_API_KEY no hace nada y sale bien: el seguimiento está apagado, no roto.
+import { apiKeyShip24, ENV_API_KEY } from '@/lib/ship24'
 import { refrescarCouriers, sincronizarTrackings } from '@/lib/sync-trackings'
 import { db } from '@/lib/db'
 
 async function main() {
-  const apiKey = apiKeyTrackingMore()
+  const apiKey = apiKeyShip24()
   if (!apiKey) {
     console.log(`${ENV_API_KEY} no está definida: seguimiento automático apagado.`)
     return
