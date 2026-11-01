@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import { buscarCouriers, type CourierTM } from '@/lib/trackingmore'
 
 export type CourierInicial = { code: string | null; nombre: string | null }
@@ -24,6 +24,7 @@ export default function ElegirCourier({
   placeholder: string
 }) {
   const hayLista = couriers.length > 0
+  const idLista = useId()
   const porCode = useMemo(() => new Map(couriers.map(c => [c.code, c])), [couriers])
   const [code, setCode] = useState<string | null>(inicial.code && porCode.has(inicial.code) ? inicial.code : null)
   // Lo ya guardado sin courier era texto escrito a mano: se respeta como «sin seguimiento».
@@ -97,7 +98,7 @@ export default function ElegirCourier({
       {campos}
       <input
         type="text" value={texto} placeholder="Buscar courier… (Delhivery, DTDC, DHL)" autoComplete="off"
-        role="combobox" aria-expanded={opciones.length > 0} aria-label={`Courier ${tramo}`}
+        role="combobox" aria-expanded={opciones.length > 0} aria-controls={idLista} aria-label={`Courier ${tramo}`}
         onChange={e => { setTexto(e.target.value); setAbierto(true); setActivo(0) }}
         onFocus={() => setAbierto(true)}
         onBlur={() => setAbierto(false)}
@@ -113,7 +114,7 @@ export default function ElegirCourier({
       />
       {abierto && texto.trim() !== '' && (
         // onMouseDown + preventDefault: elegir antes de que el blur cierre la lista.
-        <ul className="absolute z-20 mt-1 w-80 max-h-72 overflow-auto bg-white border border-gray-200 rounded-lg shadow-lg text-sm">
+        <ul id={idLista} className="absolute z-20 mt-1 w-80 max-h-72 overflow-auto bg-white border border-gray-200 rounded-lg shadow-lg text-sm">
           {opciones.map((c, i) => (
             <li key={c.code}>
               <button
