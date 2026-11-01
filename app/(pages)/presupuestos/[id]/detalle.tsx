@@ -42,7 +42,9 @@ import { estadoLinea } from '@/lib/pedido-edicion'
 import { etiquetaPieza, tiposPara, TIPO_LABELS } from '@/lib/incidencias'
 import { motivoNoEntregable, saldoReal } from '@/lib/saldo-entrega'
 import { mensajeEstado } from '@/lib/mensajes-cliente'
-import { resumenTrackings } from '@/lib/tracking'
+import { esTramoTracking, resumenTrackings, TRAMOS_TRACKING, TRAMO_TRACKING_META } from '@/lib/tracking'
+import { eventosGuardados, horaConsulta } from '@/lib/trackingmore'
+import PasosTracking, { type TrackingPasos } from '@/components/PasosTracking'
 import { motivoExpressNoAprobable, plazoExpress } from '@/lib/express'
 import { expressDelPedido } from '@/lib/express-pedido'
 
@@ -80,7 +82,10 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
             envio: {
               select: {
                 id: true,
-                trackings: { select: { tramo: true, numero: true, transportista: true, estado: true }, orderBy: { id: 'asc' } },
+                trackings: {
+                  select: { tramo: true, numero: true, transportista: true, estado: true, courierCode: true, eventos: true, consultadoEn: true, errorSeguimiento: true },
+                  orderBy: { id: 'asc' },
+                },
               },
             },
             etapas: { select: { desde: true, hacia: true, at: true }, orderBy: { at: 'asc' } },
@@ -909,6 +914,14 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                             {resumenTrackings(item.envio.trackings)}
                           </span>
                         )}
+                        {item.envio && item.envio.trackings.some(t => t.courierCode) && (
+                          <PasosTracking
+                            titulo={`Seguimiento · envío #${item.envio.id}`}
+                            boton="📍 Ver pasos"
+                            className="text-[10px] text-blue-600 hover:underline"
+                            trackings={pasosDeCaja(item.envio.trackings)}
+                          />
+                        )}
                       </p>
                     )}
                     {isConfirmadoCliente && (item.desdeStock ? item.shippingStatus === 'en_venezuela' : !motivoNoServible(
@@ -1108,4 +1121,23 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
       )}
     </div>
   )
+}
+
+// Los trackings de la caja que se siguen con TrackingMore, en el orden del viaje, para la
+// ventana de pasos de la línea.
+function pasosDeCaja(
+  trackings: {
+    tramo: string; numero: string; transportista: string | null; estado: string | null; courierCode: string | null
+    eventos: unknown; consultadoEn: Date | null; errorSeguimiento: string | null
+  }[],
+): TrackingPasos[] {
+  return TRAMOS_TRACKING.flatMap(tramo => trackings.filter(t => t.tramo === tramo && t.courierCode)).map(t => ({
+    tramo: esTramoTracking(t.tramo) ? TRAMO_TRACKING_META[t.tramo].corto : t.tramo,
+    numero: t.numero,
+    transportista: t.transportista,
+    estado: t.estado,
+    eventos: eventosGuardados(t.eventos),
+    consultado: t.consultadoEn ? horaConsulta(t.consultadoEn) : null,
+    error: t.errorSeguimiento,
+  }))
 }

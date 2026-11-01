@@ -210,6 +210,16 @@ export function datosDeTracking(t: TrackingTM): {
   }
 }
 
+/** La columna `eventos` como se guardó (Json): lo que no tenga forma de checkpoint se descarta. */
+export function eventosGuardados(v: unknown): CheckpointTM[] {
+  return Array.isArray(v) ? (v as CheckpointTM[]).filter(e => e && typeof e.detalle === 'string') : []
+}
+
+/** Cuándo se consultó, en hora de Venezuela: "01/11, 12:15 a. m.". */
+export function horaConsulta(d: Date): string {
+  return d.toLocaleString('es-VE', { timeZone: 'America/Caracas', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
 /** "2023-11-04T14:31:00-04:00" → "2023-11-04 14:31". La hora es la del courier, sin convertir. */
 export function fechaCourier(s: string | null | undefined): string {
   if (!s) return ''

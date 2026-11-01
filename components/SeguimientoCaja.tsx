@@ -2,7 +2,8 @@ import FormConResultado from '@/components/FormConResultado'
 import PendingButton from '@/components/PendingButton'
 import type { ActionResult } from '@/lib/action-result'
 import { TRAMOS_TRACKING, TRAMO_TRACKING_META, esTramoTracking } from '@/lib/tracking'
-import { fechaCourier, metaEstadoTM, type CheckpointTM } from '@/lib/trackingmore'
+import { eventosGuardados, fechaCourier, horaConsulta, metaEstadoTM } from '@/lib/trackingmore'
+import PasosTracking from '@/components/PasosTracking'
 
 export type TrackingConEstado = {
   id: number
@@ -17,13 +18,6 @@ export type TrackingConEstado = {
   eventos: unknown
   consultadoEn: Date | null
   errorSeguimiento: string | null
-}
-
-const horaVe = (d: Date) =>
-  d.toLocaleString('es-VE', { timeZone: 'America/Caracas', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-
-function eventosDe(v: unknown): CheckpointTM[] {
-  return Array.isArray(v) ? (v as CheckpointTM[]).filter(e => e && typeof e.detalle === 'string') : []
 }
 
 // Lo que TrackingMore dice de cada tracking de la caja (solo lectura). Lo pone al día el timer
@@ -79,7 +73,7 @@ export default function SeguimientoCaja({
         <ul className="space-y-2">
           {ordenados.map(t => {
             const meta = metaEstadoTM(t.estado)
-            const eventos = eventosDe(t.eventos)
+            const eventos = eventosGuardados(t.eventos)
             const corto = esTramoTracking(t.tramo) ? TRAMO_TRACKING_META[t.tramo].corto : t.tramo
             return (
               <li key={t.id} className="text-sm">
@@ -109,20 +103,19 @@ export default function SeguimientoCaja({
                   </p>
                 )}
                 {t.courierCode && t.consultadoEn && (
-                  <p className="ml-12 text-[10px] text-gray-400">consultado {horaVe(t.consultadoEn)}</p>
+                  <p className="ml-12 text-[10px] text-gray-400">consultado {horaConsulta(t.consultadoEn)}</p>
                 )}
-                {eventos.length > 1 && (
-                  <details className="ml-12 mt-1">
-                    <summary className="text-xs text-blue-600 cursor-pointer">{eventos.length} eventos</summary>
-                    <ol className="mt-1 space-y-1 border-l border-gray-200 pl-3">
-                      {eventos.map((e, i) => (
-                        <li key={i} className="text-xs text-gray-600">
-                          <span className="text-gray-400">{fechaCourier(e.fecha)}</span> {e.detalle}
-                          {e.lugar && <span className="text-gray-400"> · {e.lugar}</span>}
-                        </li>
-                      ))}
-                    </ol>
-                  </details>
+                {eventos.length > 0 && (
+                  <div className="ml-12 mt-0.5">
+                    <PasosTracking
+                      titulo={`Tracking ${t.numero}`}
+                      boton={`Ver todos los pasos (${eventos.length})`}
+                      trackings={[{
+                        tramo: corto, numero: t.numero, transportista: t.transportista, estado: t.estado, eventos,
+                        consultado: t.consultadoEn ? horaConsulta(t.consultadoEn) : null,
+                      }]}
+                    />
+                  </div>
                 )}
               </li>
             )
