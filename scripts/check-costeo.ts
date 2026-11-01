@@ -54,6 +54,7 @@ import { diasSinMoverse, tiempoDeCompraA, tiemposPorTramo } from '../lib/etapas'
 import { leerDevolucion } from '../lib/devolucion'
 import { motivoNoCambiaReenvio, tarifaEquilibrioKgInr } from '../lib/reenvio'
 import { leerTrackingsTramo, resumenTrackings, MAX_TRACKINGS_POR_TRAMO } from '../lib/tracking'
+import { conCourier, datosDeTracking, esEstadoFinal, fechaCourier, mismoTracking, resolverCourier, textoTransportista, errorDeFila } from '../lib/trackingmore'
 
 const cfg: ConfigMap = {
   inr_usd_rate: '94.95',
@@ -1406,6 +1407,60 @@ console.log('\nTRACKINGS DE LA CAJA')
     { tramo: 'local', numero: 'B2', transportista: null },
   ])
   check('resumen en orden de viaje', si(r === 'local A1, B2 (Delhivery) · USA SHP-1 (Shoppre)'), 1)
+  const conEstado = resumenTrackings([
+    { tramo: 'local', numero: 'A1', transportista: 'Delhivery', estado: 'transit' },
+    { tramo: 'local', numero: 'B2', transportista: null, estado: null },
+  ])
+  check('resumen con el estado de TrackingMore', si(conEstado === 'local A1 [En tránsito], B2 (Delhivery)'), 1)
+}
+
+console.log('\nTRACKINGMORE')
+{
+  const si = (b: boolean) => (b ? 1 : 0)
+  const lista = [
+    { code: 'delhivery', nombre: 'Delhivery', pais: 'IN' },
+    { code: 'dhl', nombre: 'DHL Express', pais: null },
+    { code: 'dhlecommerce', nombre: 'DHL eCommerce', pais: null },
+    { code: 'dhl-global', nombre: 'DHL', pais: null },
+    { code: 'dhl-paket', nombre: 'DHL', pais: 'DE' },
+  ]
+  check('courier: la etiqueta de la lista', si(resolverCourier('Delhivery (delhivery)', lista)?.code === 'delhivery'), 1)
+  check('courier: el code pelado', si(resolverCourier(' DHL-PAKET ', lista)?.code === 'dhl-paket'), 1)
+  check('courier: code en minúsculas', si(resolverCourier('dhlecommerce', lista)?.code === 'dhlecommerce'), 1)
+  check('courier: nombre exacto de uno solo', si(resolverCourier('dhl express', lista)?.code === 'dhl'), 1)
+  check('courier: nombre de dos no se adivina (aunque sea un code)', si(resolverCourier('DHL', lista) === null), 1)
+  check('courier: texto libre queda anotado', si(resolverCourier('Shoppre', lista) === null), 1)
+  check('courier: sin lista no resuelve nada', si(resolverCourier('delhivery', []) === null), 1)
+  const f = conCourier({ tramo: 'local', numero: 'A1', transportista: 'delhivery' }, lista)
+  check('fila con courier: guarda code y nombre', si(f.courierCode === 'delhivery' && f.transportista === 'Delhivery'), 1)
+  const g = conCourier({ tramo: 'usa', numero: 'S1', transportista: 'Shoppre' }, lista)
+  check('fila sin courier: el texto se conserva', si(g.courierCode === null && g.transportista === 'Shoppre'), 1)
+  check('al editar se ve la etiqueta', si(textoTransportista(f) === 'Delhivery (delhivery)'), 1)
+  check('y la etiqueta vuelve al mismo courier', si(resolverCourier(textoTransportista(f), lista)?.code === 'delhivery'), 1)
+
+  const d = datosDeTracking({
+    id: 'abc', tracking_number: 'A1', courier_code: 'Delhivery', delivery_status: 'Transit', substatus: 'transit002',
+    latest_event: null, latest_checkpoint_time: null,
+    origin_info: { trackinfo: [
+      { checkpoint_date: '2026-10-02T09:00:00+05:30', tracking_detail: 'Picked up', location: 'Delhi' },
+      { checkpoint_date: '2026-10-03T11:00:00+05:30', tracking_detail: 'Arrived at hub', location: 'Mumbai' },
+    ] },
+    destination_info: { trackinfo: [
+      { checkpoint_date: '2026-10-03T11:00:00+05:30', tracking_detail: 'Arrived at hub', location: 'Mumbai' },
+      { checkpoint_date: null, tracking_detail: '  ', location: null },
+    ] },
+  })
+  check('eventos: origen + destino sin repetidos ni vacíos', d.eventos.length, 2)
+  check('eventos: el más nuevo primero', si(d.eventos[0].detalle === 'Arrived at hub'), 1)
+  check('sin latest_event: el último checkpoint', si(d.ultimoEvento === 'Arrived at hub' && d.ultimoEventoEn === '2026-10-03T11:00:00+05:30'), 1)
+  check('estado en minúsculas', si(d.estado === 'transit' && d.tmId === 'abc'), 1)
+  check('fecha del courier sin convertir', si(fechaCourier('2023-11-04T14:31:00-04:00') === '2023-11-04 14:31'), 1)
+  check('mismo tracking: courier sin importar mayúsculas', si(mismoTracking({ numero: 'A1', courierCode: 'delhivery' }, { tracking_number: 'A1', courier_code: 'Delhivery' })), 1)
+  check('otro courier con el mismo número no es el mismo', si(mismoTracking({ numero: 'A1', courierCode: 'dtdc' }, { tracking_number: 'A1', courier_code: 'delhivery' })), 0)
+  check('entregado y vencido no se consultan más', si(esEstadoFinal('delivered') && esEstadoFinal('expired')), 1)
+  check('un problema en aduana se sigue consultando', si(esEstadoFinal('exception')), 0)
+  check('courier equivocado es error de la fila', si(errorDeFila(4120) != null), 1)
+  check('sin créditos no es error de la fila (corta la corrida)', si(errorDeFila(4190) == null), 1)
 }
 
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)

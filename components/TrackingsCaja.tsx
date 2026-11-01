@@ -7,21 +7,29 @@ import type { ActionResult } from '@/lib/action-result'
 import {
   TRAMOS_TRACKING, TRAMO_TRACKING_META, MAX_TRACKINGS_POR_TRAMO, type TramoTracking, type FilaTracking,
 } from '@/lib/tracking'
+import { textoTransportista } from '@/lib/trackingmore'
 
 type Fila = { key: number; numero: string; transportista: string }
 
 // Los trackings de la caja, una lista por tramo con un botón para ir añadiendo renglones. El
 // form manda todo junto y la acción reemplaza lo guardado (ver guardarTrackings). La página
 // lo monta con una `key` que cambia con lo guardado, así después de guardar arranca de nuevo.
+//
+// El transportista se elige de la lista de couriers de TrackingMore (un <datalist> que la
+// página pinta una sola vez, con id `listaCouriers`): elegido de ahí, el tracking se sigue
+// solo. Lo que se escriba a mano y no esté en la lista queda solo anotado.
 export default function TrackingsCaja({
   action,
   inicial,
   sinUsa = false,
+  listaCouriers,
 }: {
   action: (formData: FormData) => Promise<ActionResult>
-  inicial: FilaTracking[]
+  inicial: (FilaTracking & { courierCode: string | null })[]
   /** Caja express: va directo de India a Venezuela, no tiene tramo hacia USA. */
   sinUsa?: boolean
+  /** id del <datalist> de couriers; sin él el campo es texto libre. */
+  listaCouriers?: string
 }) {
   const [siguiente, setSiguiente] = useState(inicial.length + TRAMOS_TRACKING.length)
   const [filas, setFilas] = useState<Record<TramoTracking, Fila[]>>(() => {
@@ -31,7 +39,7 @@ export default function TrackingsCaja({
       const deTramo = inicial.filter(f => f.tramo === tramo)
       // Un tramo sin nada arranca con un renglón vacío, listo para escribir.
       porTramo[tramo] = deTramo.length > 0
-        ? deTramo.map(f => ({ key: k++, numero: f.numero, transportista: f.transportista ?? '' }))
+        ? deTramo.map(f => ({ key: k++, numero: f.numero, transportista: textoTransportista(f) }))
         : [{ key: k++, numero: '', transportista: '' }]
     }
     return porTramo
@@ -72,9 +80,10 @@ export default function TrackingsCaja({
                   />
                   <input
                     type="text" name={`transportista_${tramo}`} value={f.transportista} placeholder={meta.transportista}
+                    list={listaCouriers} autoComplete="off"
                     onChange={e => cambiar(tramo, f.key, 'transportista', e.target.value)}
                     aria-label={`Transportista ${meta.corto}`}
-                    className="w-40 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-56 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                   <button
                     type="button" onClick={() => quitar(tramo, f.key)} title="Quitar este tracking"

@@ -1,9 +1,12 @@
-// Los números de tracking de una caja, por tramo. Solo se anotan: el sistema no consulta
-// nada afuera. Sirven para encontrar la caja cuando el cliente pregunta dónde está su pieza.
+// Los números de tracking de una caja, por tramo. Sirven para encontrar la caja cuando el
+// cliente pregunta dónde está su pieza. Los que tienen courier de TrackingMore se siguen solos
+// (lib/trackingmore.ts); los demás quedan anotados.
 //
 // Son una LISTA por tramo porque así llegan: el proveedor despacha en dos o tres paquetes y
 // da un número local por cada uno, y el reenvío a USA o el courier a Venezuela pueden partir
 // la carga igual. El tope es por tramo y es solo para que la pantalla no crezca sin fin.
+
+import { metaEstadoTM } from './trackingmore'
 
 export const TRAMOS_TRACKING = ['local', 'usa', 'venezuela'] as const
 export type TramoTracking = (typeof TRAMOS_TRACKING)[number]
@@ -59,16 +62,23 @@ export function leerTrackingsTramo(
 
 /**
  * Los trackings de una caja en una línea, tramo por tramo y en el orden del viaje:
- * "local 123, 456 (Delhivery) · USA SHP-64898 (Shoppre)". Vacío si no hay ninguno.
+ * "local 123 [En tránsito], 456 (Delhivery) · USA SHP-64898 (Shoppre)". El estado entre
+ * corchetes es el que copió TrackingMore, si lo hay. Vacío si no hay ninguno.
  */
-export function resumenTrackings(trackings: { tramo: string; numero: string; transportista: string | null }[]): string {
+export function resumenTrackings(
+  trackings: { tramo: string; numero: string; transportista: string | null; estado?: string | null }[],
+): string {
   return TRAMOS_TRACKING
     .map(tramo => {
       const deTramo = trackings.filter(t => t.tramo === tramo)
       if (deTramo.length === 0) return null
       const transportistas = [...new Set(deTramo.map(t => t.transportista).filter((t): t is string => !!t))]
       const quien = transportistas.length > 0 ? ` (${transportistas.join(', ')})` : ''
-      return `${TRAMO_TRACKING_META[tramo].corto} ${deTramo.map(t => t.numero).join(', ')}${quien}`
+      const numeros = deTramo.map(t => {
+        const meta = metaEstadoTM(t.estado)
+        return meta ? `${t.numero} [${meta.label}]` : t.numero
+      })
+      return `${TRAMO_TRACKING_META[tramo].corto} ${numeros.join(', ')}${quien}`
     })
     .filter(Boolean)
     .join(' · ')

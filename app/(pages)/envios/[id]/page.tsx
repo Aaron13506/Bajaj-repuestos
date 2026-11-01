@@ -24,6 +24,9 @@ import { lookupDeConjuntos, expandCostPieces, repartirCostoReal } from '@/lib/en
 import { financiamientoEnvio, type FinanciamientoEnvio } from '@/lib/financiamiento-envio'
 import FleteRealCard, { type FilaFlete } from '@/components/FleteRealCard'
 import TrackingsCaja from '@/components/TrackingsCaja'
+import SeguimientoCaja from '@/components/SeguimientoCaja'
+import { apiKeyTrackingMore, etiquetaCourier } from '@/lib/trackingmore'
+import { listaCouriers } from '@/lib/sync-trackings'
 import { esTramoTracking, type FilaTracking } from '@/lib/tracking'
 import ConteoCaja, { BotonConteo } from '@/components/ConteoCaja'
 import { piezasAContar } from '@/lib/conteo'
@@ -47,6 +50,7 @@ import {
   cambiarReenvio,
   saveMedidasCaja,
   guardarTrackings,
+  actualizarTrackings,
   guardarFleteReal,
   pagarFlete,
   deshacerPagoFlete,
@@ -132,7 +136,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   if (!ruta) notFound()
   if (ruta.modo === 'maritimo_cbm') return <EnvioMaritimo envioId={id} />
 
-  const [envio, cfgRows, sinAsignar, suppliers, pedidosCaja, despiece99, repartidos, egresosCaja, itemsPendientesCosto, pagosFlete] = await Promise.all([
+  const [envio, cfgRows, sinAsignar, suppliers, pedidosCaja, despiece99, repartidos, egresosCaja, itemsPendientesCosto, pagosFlete, couriers] = await Promise.all([
     db.envio.findUnique({
       where: { id },
       include: {
@@ -143,7 +147,13 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
         // El proveedor de la caja: decide el precio de las piezas, cómo se cobra el tramo
         // a USA y qué etapas tiene la ruta de todo lo que va adentro.
         supplier: { select: { id: true, name: true, origen: true, inbound: true } },
-        trackings: { select: { tramo: true, numero: true, transportista: true }, orderBy: { id: 'asc' } },
+        trackings: {
+          select: {
+            id: true, tramo: true, numero: true, transportista: true, courierCode: true, estado: true, subestado: true,
+            ultimoEvento: true, ultimoEventoEn: true, eventos: true, consultadoEn: true, errorSeguimiento: true,
+          },
+          orderBy: { id: 'asc' },
+        },
       },
     }),
     db.config.findMany(),
@@ -222,9 +232,12 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
       select: { id: true, fecha: true, monto: true, metodoPago: true, categoria: true },
       orderBy: [{ fecha: 'asc' }, { id: 'asc' }],
     }),
+    // Los couriers de TrackingMore, para elegir el de cada tracking (lib/trackingmore.ts).
+    listaCouriers(),
   ])
 
   if (!envio) notFound()
+  const trackingActivo = apiKeyTrackingMore() != null
 
   // Solo lo que esta caja necesita, no el catálogo entero (~5.8k filas) ni los precios de
   // todos los proveedores: las piezas de sus conjuntos, y el precio de cada línea con SU
@@ -1340,12 +1353,28 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               </div>
             </FormConResultado>
 
-            {/* Trackings por tramo: solo se anotan. Sirven para encontrar la caja cuando el cliente pregunta dónde está su pieza. */}
+            {/* Trackings por tramo. Con un courier de la lista de TrackingMore se siguen solos
+                (lib/trackingmore.ts); sin él quedan anotados. Sirven para contestarle al cliente
+                dónde está su pieza. */}
+            <SeguimientoCaja
+              trackings={envio.trackings}
+              activo={trackingActivo}
+              hayCouriers={couriers.length > 0}
+              actualizar={actualizarTrackings.bind(null, envio.id)}
+            />
+            {couriers.length > 0 && (
+              <datalist id="couriers-trackingmore">
+                {couriers.map(c => (
+                  <option key={c.code} value={etiquetaCourier(c)}>{c.pais ?? ''}</option>
+                ))}
+              </datalist>
+            )}
             <TrackingsCaja
-              key={envio.trackings.map(t => `${t.tramo}:${t.numero}:${t.transportista ?? ''}`).join('|')}
+              key={envio.trackings.map(t => `${t.tramo}:${t.numero}:${t.courierCode ?? ''}:${t.transportista ?? ''}`).join('|')}
               action={guardarTrackings.bind(null, envio.id)}
-              inicial={envio.trackings.filter(t => esTramoTracking(t.tramo)) as FilaTracking[]}
+              inicial={envio.trackings.filter(t => esTramoTracking(t.tramo)) as (FilaTracking & { courierCode: string | null })[]}
               sinUsa={esExpress}
+              listaCouriers={couriers.length > 0 ? 'couriers-trackingmore' : undefined}
             />
 
             {calc.caja.medido && (

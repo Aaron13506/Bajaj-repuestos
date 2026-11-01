@@ -80,7 +80,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
             envio: {
               select: {
                 id: true,
-                trackings: { select: { tramo: true, numero: true, transportista: true }, orderBy: { id: 'asc' } },
+                trackings: { select: { tramo: true, numero: true, transportista: true, estado: true }, orderBy: { id: 'asc' } },
               },
             },
             etapas: { select: { desde: true, hacia: true, at: true }, orderBy: { at: 'asc' } },
