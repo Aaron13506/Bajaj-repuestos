@@ -53,7 +53,7 @@ import { debeSaldo, motivoNoEntregable, saldoReal, seEntregaDesdeElPedido, situa
 import { diasSinMoverse, tiempoDeCompraA, tiemposPorTramo } from '../lib/etapas'
 import { leerDevolucion } from '../lib/devolucion'
 import { motivoNoCambiaReenvio, tarifaEquilibrioKgInr } from '../lib/reenvio'
-import { leerTrackingsTramo, resumenTrackings, MAX_TRACKINGS_POR_TRAMO } from '../lib/tracking'
+import { leerTrackingsTramo, MAX_TRACKINGS_POR_TRAMO } from '../lib/tracking'
 import { buscarCouriers, courierDeFila, datosDeTracking, esEstadoFinal, fechaCourier, mismoTracking, resolverCourier, errorDeFila } from '../lib/trackingmore'
 
 const cfg: ConfigMap = {
@@ -1401,17 +1401,6 @@ console.log('\nTRACKINGS DE LA CAJA')
   const once = Array.from({ length: MAX_TRACKINGS_POR_TRAMO + 1 }, (_, i) => `T${i}`)
   check('más del tope: rechazo', n(leerTrackingsTramo('usa', once, once.map(() => ''))), -1)
   check('justo el tope: pasa', n(leerTrackingsTramo('usa', once.slice(1), once.slice(1).map(() => ''))), MAX_TRACKINGS_POR_TRAMO)
-  const r = resumenTrackings([
-    { tramo: 'usa', numero: 'SHP-1', transportista: 'Shoppre' },
-    { tramo: 'local', numero: 'A1', transportista: 'Delhivery' },
-    { tramo: 'local', numero: 'B2', transportista: null },
-  ])
-  check('resumen en orden de viaje', si(r === 'local A1, B2 (Delhivery) · USA SHP-1 (Shoppre)'), 1)
-  const conEstado = resumenTrackings([
-    { tramo: 'local', numero: 'A1', transportista: 'Delhivery', estado: 'transit' },
-    { tramo: 'local', numero: 'B2', transportista: null, estado: null },
-  ])
-  check('resumen con el estado de TrackingMore', si(conEstado === 'local A1 [En tránsito], B2 (Delhivery)'), 1)
 }
 
 console.log('\nTRACKINGMORE')

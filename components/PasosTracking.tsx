@@ -17,10 +17,9 @@ export type TrackingPasos = {
   error?: string | null
 }
 
-// Los pasos de uno o varios trackings, en una ventana encima de la página (no un desplegable
-// que la empuja). En la caja se abre por tracking; en el pedido, con todos los de su caja.
-// La ventana va a document.body por un portal: el botón vive dentro de un <p> en el pedido, y
-// un <div> adentro de un <p> es HTML inválido (error de hidratación).
+// Los pasos de un tracking (o varios), en una ventana encima de la página (no un desplegable
+// que la empuja). Se abre desde el bloque de seguimiento de la caja. La ventana va a
+// document.body por un portal, para que no herede el layout de donde está el botón.
 export default function PasosTracking({
   trackings,
   titulo,
