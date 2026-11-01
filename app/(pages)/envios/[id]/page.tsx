@@ -25,7 +25,7 @@ import { financiamientoEnvio, type FinanciamientoEnvio } from '@/lib/financiamie
 import FleteRealCard, { type FilaFlete } from '@/components/FleteRealCard'
 import TrackingsCaja from '@/components/TrackingsCaja'
 import SeguimientoCaja from '@/components/SeguimientoCaja'
-import { apiKeyTrackingMore, etiquetaCourier } from '@/lib/trackingmore'
+import { apiKeyTrackingMore } from '@/lib/trackingmore'
 import { listaCouriers } from '@/lib/sync-trackings'
 import { esTramoTracking, type FilaTracking } from '@/lib/tracking'
 import ConteoCaja, { BotonConteo } from '@/components/ConteoCaja'
@@ -1362,19 +1362,12 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               hayCouriers={couriers.length > 0}
               actualizar={actualizarTrackings.bind(null, envio.id)}
             />
-            {couriers.length > 0 && (
-              <datalist id="couriers-trackingmore">
-                {couriers.map(c => (
-                  <option key={c.code} value={etiquetaCourier(c)}>{c.pais ?? ''}</option>
-                ))}
-              </datalist>
-            )}
             <TrackingsCaja
               key={envio.trackings.map(t => `${t.tramo}:${t.numero}:${t.courierCode ?? ''}:${t.transportista ?? ''}`).join('|')}
               action={guardarTrackings.bind(null, envio.id)}
               inicial={envio.trackings.filter(t => esTramoTracking(t.tramo)) as (FilaTracking & { courierCode: string | null })[]}
               sinUsa={esExpress}
-              listaCouriers={couriers.length > 0 ? 'couriers-trackingmore' : undefined}
+              couriers={couriers}
             />
 
             {calc.caja.medido && (

@@ -71,7 +71,7 @@ export default function SeguimientoCaja({
       )}
       {activo && hayCouriers && !conCourier && trackings.length > 0 && (
         <p className="text-xs text-gray-400">
-          Ningún tracking tiene courier de la lista: elegilo en el campo transportista para que se siga solo.
+          Ningún tracking tiene courier de la lista: elegilo en el buscador de cada tracking para que se siga solo.
         </p>
       )}
 

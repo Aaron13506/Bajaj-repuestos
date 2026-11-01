@@ -30,15 +30,16 @@ export type FilaTracking = { tramo: TramoTracking; numero: string; transportista
 /**
  * Las filas de un tramo tal como llegan del formulario (dos listas paralelas). Una fila sin
  * número se descarta (es el renglón vacío que quedó), pero una con transportista y sin número
- * se rechaza: se escribió algo y se perdería. Devuelve las filas o el motivo del rechazo.
+ * se rechaza: se escribió algo y se perdería. Devuelve las filas (con su `indice` en el
+ * formulario, para leer los otros campos del mismo renglón) o el motivo del rechazo.
  */
 export function leerTrackingsTramo(
   tramo: TramoTracking,
   numeros: string[],
   transportistas: string[],
-): { filas: FilaTracking[] } | { error: string } {
+): { filas: (FilaTracking & { indice: number })[] } | { error: string } {
   const label = TRAMO_TRACKING_META[tramo].label
-  const filas: FilaTracking[] = []
+  const filas: (FilaTracking & { indice: number })[] = []
   for (let i = 0; i < numeros.length; i++) {
     const numero = (numeros[i] ?? '').trim()
     const transportista = (transportistas[i] ?? '').trim() || null
@@ -52,7 +53,7 @@ export function leerTrackingsTramo(
     if (filas.some(f => f.numero.toLowerCase() === numero.toLowerCase())) {
       return { error: `${label}: el tracking ${numero} está repetido.` }
     }
-    filas.push({ tramo, numero, transportista })
+    filas.push({ tramo, numero, transportista, indice: i })
   }
   if (filas.length > MAX_TRACKINGS_POR_TRAMO) {
     return { error: `${label}: máximo ${MAX_TRACKINGS_POR_TRAMO} trackings.` }

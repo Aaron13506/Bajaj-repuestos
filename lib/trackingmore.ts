@@ -74,46 +74,72 @@ export function esEstadoFinal(estado: string | null | undefined): boolean {
 
 export type CourierTM = { code: string; nombre: string; pais: string | null }
 
-/** Lo que se ve y se elige en el campo transportista: "Delhivery (delhivery)". */
-export function etiquetaCourier(c: { code: string; nombre: string }): string {
-  return `${c.nombre} (${c.code})`
+/**
+ * El courier de un renglón del formulario. El campo es un buscador sobre la lista de
+ * TrackingMore: lo elegido llega como `codigo`. Texto escrito sin elegir NO se acepta en
+ * silencio (un "Delhivry" mal escrito quedaría sin seguimiento sin que nadie lo note): se
+ * rechaza, salvo que se haya marcado a propósito `libre` ("anotar sin seguimiento", para
+ * Zoom, Tealca o una referencia de Shoppre) o que todavía no haya lista. Un texto que es
+ * exactamente el nombre o el code de un solo courier no es un error de tipeo y se acepta.
+ */
+export function courierDeFila(
+  f: { codigo: string | null; libre: boolean; texto: string | null },
+  lista: CourierTM[],
+): { courierCode: string | null; transportista: string | null } | { error: string } {
+  const codigo = (f.codigo ?? '').trim().toLowerCase()
+  const texto = (f.texto ?? '').trim() || null
+  if (codigo) {
+    const c = lista.find(c => c.code === codigo)
+    if (!c) return { error: `el courier «${codigo}» ya no está en la lista de TrackingMore; elegilo de nuevo.` }
+    return { courierCode: c.code, transportista: c.nombre }
+  }
+  if (!texto || f.libre || lista.length === 0) return { courierCode: null, transportista: texto }
+  const c = resolverCourier(texto, lista)
+  if (c) return { courierCode: c.code, transportista: c.nombre }
+  return { error: `«${texto}» no es un courier de la lista. Elegilo de la lista, o marcá «anotar sin seguimiento».` }
 }
 
 /**
- * Qué courier de TrackingMore quiso decir el texto del campo transportista: la etiqueta de la
- * lista ("Delhivery (delhivery)"), el nombre exacto si es de uno solo, o el code pelado. Si no
- * es ninguno, el texto queda como nota y el tracking solo anotado (null). Sin adivinar: un
- * nombre que tienen dos couriers no se resuelve.
+ * El nombre exacto si es de un solo courier, si no el code exacto. Sin adivinar: un nombre
+ * que tienen dos couriers ("DHL") no se resuelve aunque también sea un code.
  */
 export function resolverCourier(texto: string | null, lista: CourierTM[]): CourierTM | null {
-  const t = (texto ?? '').trim()
+  const t = (texto ?? '').trim().toLowerCase()
   if (!t || lista.length === 0) return null
-  const porCode = new Map(lista.map(c => [c.code, c]))
-  const m = t.match(/\(([a-z0-9-]+)\)\s*$/i)
-  if (m) {
-    const c = porCode.get(m[1].toLowerCase())
-    if (c) return c
-  }
-  // El nombre manda sobre el code: "DHL" es el nombre de dos couriers y no se resuelve,
-  // aunque también sea el code de DHL Express.
-  const porNombre = lista.filter(c => c.nombre.toLowerCase() === t.toLowerCase())
+  const porNombre = lista.filter(c => c.nombre.toLowerCase() === t)
   if (porNombre.length > 0) return porNombre.length === 1 ? porNombre[0] : null
-  return porCode.get(t.toLowerCase()) ?? null
+  return lista.find(c => c.code === t) ?? null
 }
 
-/** La fila del formulario con su courier resuelto: transportista pasa a ser el nombre. */
-export function conCourier<F extends { transportista: string | null }>(
-  fila: F,
-  lista: CourierTM[],
-): F & { courierCode: string | null } {
-  const c = resolverCourier(fila.transportista, lista)
-  return c ? { ...fila, transportista: c.nombre, courierCode: c.code } : { ...fila, courierCode: null }
-}
+const normalizar = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
 
-/** Lo que se pone en el campo al editar: la etiqueta si tiene courier, si no el texto. */
-export function textoTransportista(t: { transportista: string | null; courierCode: string | null }): string {
-  if (t.courierCode) return etiquetaCourier({ code: t.courierCode, nombre: t.transportista ?? t.courierCode })
-  return t.transportista ?? ''
+/**
+ * Los couriers que coinciden con lo que se va escribiendo en el buscador, mejores primero:
+ * el nombre empieza así, el code empieza así, el nombre lo contiene, el code lo contiene.
+ * Los de India, USA y Venezuela (por donde pasan las cajas) van antes a igual coincidencia.
+ */
+export function buscarCouriers(q: string, lista: CourierTM[], max = 8): CourierTM[] {
+  const t = normalizar(q)
+  if (!t) return []
+  const cerca = new Set(['IN', 'US', 'VE'])
+  const puntaje = (c: CourierTM) => {
+    const n = normalizar(c.nombre)
+    if (n.startsWith(t)) return 0
+    if (c.code.startsWith(t)) return 1
+    if (n.includes(t)) return 2
+    if (c.code.includes(t)) return 3
+    return -1
+  }
+  return lista
+    .map(c => ({ c, p: puntaje(c) }))
+    .filter(x => x.p >= 0)
+    .sort((a, b) =>
+      a.p - b.p ||
+      Number(!cerca.has(a.c.pais ?? '')) - Number(!cerca.has(b.c.pais ?? '')) ||
+      a.c.nombre.length - b.c.nombre.length ||
+      a.c.nombre.localeCompare(b.c.nombre))
+    .slice(0, max)
+    .map(x => x.c)
 }
 
 // ── Respuestas ───────────────────────────────────────────────────────────────

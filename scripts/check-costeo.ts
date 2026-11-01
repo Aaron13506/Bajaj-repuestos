@@ -54,7 +54,7 @@ import { diasSinMoverse, tiempoDeCompraA, tiemposPorTramo } from '../lib/etapas'
 import { leerDevolucion } from '../lib/devolucion'
 import { motivoNoCambiaReenvio, tarifaEquilibrioKgInr } from '../lib/reenvio'
 import { leerTrackingsTramo, resumenTrackings, MAX_TRACKINGS_POR_TRAMO } from '../lib/tracking'
-import { conCourier, datosDeTracking, esEstadoFinal, fechaCourier, mismoTracking, resolverCourier, textoTransportista, errorDeFila } from '../lib/trackingmore'
+import { buscarCouriers, courierDeFila, datosDeTracking, esEstadoFinal, fechaCourier, mismoTracking, resolverCourier, errorDeFila } from '../lib/trackingmore'
 
 const cfg: ConfigMap = {
   inr_usd_rate: '94.95',
@@ -1424,19 +1424,28 @@ console.log('\nTRACKINGMORE')
     { code: 'dhl-global', nombre: 'DHL', pais: null },
     { code: 'dhl-paket', nombre: 'DHL', pais: 'DE' },
   ]
-  check('courier: la etiqueta de la lista', si(resolverCourier('Delhivery (delhivery)', lista)?.code === 'delhivery'), 1)
   check('courier: el code pelado', si(resolverCourier(' DHL-PAKET ', lista)?.code === 'dhl-paket'), 1)
-  check('courier: code en minúsculas', si(resolverCourier('dhlecommerce', lista)?.code === 'dhlecommerce'), 1)
   check('courier: nombre exacto de uno solo', si(resolverCourier('dhl express', lista)?.code === 'dhl'), 1)
   check('courier: nombre de dos no se adivina (aunque sea un code)', si(resolverCourier('DHL', lista) === null), 1)
-  check('courier: texto libre queda anotado', si(resolverCourier('Shoppre', lista) === null), 1)
   check('courier: sin lista no resuelve nada', si(resolverCourier('delhivery', []) === null), 1)
-  const f = conCourier({ tramo: 'local', numero: 'A1', transportista: 'delhivery' }, lista)
-  check('fila con courier: guarda code y nombre', si(f.courierCode === 'delhivery' && f.transportista === 'Delhivery'), 1)
-  const g = conCourier({ tramo: 'usa', numero: 'S1', transportista: 'Shoppre' }, lista)
-  check('fila sin courier: el texto se conserva', si(g.courierCode === null && g.transportista === 'Shoppre'), 1)
-  check('al editar se ve la etiqueta', si(textoTransportista(f) === 'Delhivery (delhivery)'), 1)
-  check('y la etiqueta vuelve al mismo courier', si(resolverCourier(textoTransportista(f), lista)?.code === 'delhivery'), 1)
+
+  type R = ReturnType<typeof courierDeFila>
+  const code = (r: R) => ('error' in r ? 'ERROR' : r.courierCode)
+  const elegido = courierDeFila({ codigo: 'delhivery', libre: false, texto: 'lo que sea' }, lista)
+  check('elegido de la lista: code y nombre de la lista', si(code(elegido) === 'delhivery' && !('error' in elegido) && elegido.transportista === 'Delhivery'), 1)
+  check('code que ya no está en la lista: rechazo', si(code(courierDeFila({ codigo: 'zzz', libre: false, texto: null }, lista)) === 'ERROR'), 1)
+  check('texto mal escrito sin elegir: rechazo (no queda anotado en silencio)', si(code(courierDeFila({ codigo: '', libre: false, texto: 'Delhivry' }, lista)) === 'ERROR'), 1)
+  check('texto exacto de un courier: se acepta', si(code(courierDeFila({ codigo: '', libre: false, texto: 'delhivery' }, lista)) === 'delhivery'), 1)
+  const libre = courierDeFila({ codigo: '', libre: true, texto: 'Zoom' }, lista)
+  check('«anotar sin seguimiento»: texto sin courier', si(!('error' in libre) && libre.courierCode === null && libre.transportista === 'Zoom'), 1)
+  check('sin lista (TrackingMore apagado): texto libre', si(code(courierDeFila({ codigo: '', libre: false, texto: 'Delhivry' }, [])) === null), 1)
+  check('sin courier ni texto: solo el número', si(code(courierDeFila({ codigo: '', libre: false, texto: '  ' }, lista)) === null), 1)
+
+  const b = (q: string) => buscarCouriers(q, lista).map(c => c.code).join(',')
+  check('buscar: el nombre que empieza así primero', si(b('dhl').startsWith('dhl-global,dhl')), 1)
+  check('buscar: sin importar mayúsculas ni tildes', si(b('DÉLHI') === 'delhivery'), 1)
+  check('buscar: también por code', si(b('paket') === 'dhl-paket'), 1)
+  check('buscar: vacío no lista nada', si(b('  ') === ''), 1)
 
   const d = datosDeTracking({
     id: 'abc', tracking_number: 'A1', courier_code: 'Delhivery', delivery_status: 'Transit', substatus: 'transit002',
