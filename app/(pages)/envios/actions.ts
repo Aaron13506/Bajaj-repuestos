@@ -22,7 +22,9 @@ import type { BundlePiece } from '@/lib/bundle'
 import {
   TRAMOS_FLETE, CATEGORIAS_FLETE, esTramoFlete, excedeFacturado, type TramoFlete,
 } from '@/lib/flete-real'
-import { TRAMOS_TRACKING, leerTrackingsTramo, type FilaTracking } from '@/lib/tracking'
+import { TRAMOS_TRACKING, TRAMO_TRACKING_META, leerTrackingsTramo, type FilaTracking } from '@/lib/tracking'
+import { apiKeyTrackingMore, courierDeFila, ENV_API_KEY } from '@/lib/trackingmore'
+import { listaCouriers, refrescarCouriers, sincronizarTrackings } from '@/lib/sync-trackings'
 
 // Crea una caja. La RUTA se elige acá y no se vuelve a tocar: es lo que decide con qué
 // cadena logística se costea y, sobre todo, qué se puede meter adentro.
@@ -441,11 +443,18 @@ export async function guardarTarifaKg(envioId: number, formData: FormData): Prom
   return ok()
 }
 
-// Los trackings de la caja, por tramo. Solo se anotan (el sistema no consulta nada afuera):
-// sirven para encontrar la caja cuando el cliente pregunta dónde está su pieza. El form manda
-// la lista completa de cada tramo y reemplaza la guardada; un tramo vacío queda sin trackings.
+// Los trackings de la caja, por tramo. Sirven para encontrar la caja cuando el cliente
+// pregunta dónde está su pieza. El form manda la lista completa de cada tramo y reemplaza la
+// guardada; un tramo vacío queda sin trackings.
+//
+// El courier llega elegido de la lista de TrackingMore (su code); con él el tracking se sigue
+// solo (lib/sync-trackings.ts). Texto sin elegir se rechaza salvo «anotar sin seguimiento»
+// (courierDeFila): un courier mal escrito no puede quedar sin seguimiento en silencio.
+// Reemplazar no borra lo ya consultado: una fila con el mismo tramo, número y courier se
+// conserva con su estado y su registro en TrackingMore (registrar de nuevo gastaría otro crédito).
 export async function guardarTrackings(envioId: number, formData: FormData): Promise<ActionResult> {
-  const filas: FilaTracking[] = []
+  const couriers = await listaCouriers()
+  const filas: (FilaTracking & { courierCode: string | null })[] = []
   for (const tramo of TRAMOS_TRACKING) {
     const r = leerTrackingsTramo(
       tramo,
@@ -453,20 +462,67 @@ export async function guardarTrackings(envioId: number, formData: FormData): Pro
       formData.getAll(`transportista_${tramo}`).map(String),
     )
     if ('error' in r) return fallo(r.error)
-    filas.push(...r.filas)
+    const codigos = formData.getAll(`courier_${tramo}`).map(String)
+    const libres = formData.getAll(`libre_${tramo}`).map(String)
+    for (const { indice, ...f } of r.filas) {
+      const c = courierDeFila({ codigo: codigos[indice] ?? null, libre: libres[indice] === '1', texto: f.transportista }, couriers)
+      if ('error' in c) return fallo(`${TRAMO_TRACKING_META[tramo].label}, tracking ${f.numero}: ${c.error}`)
+      filas.push({ ...f, ...c })
+    }
   }
   const existe = await db.$transaction(async tx => {
     // Bloquea la caja: dos guardados cruzados no se pisan a medias.
     const caja = await tx.$queryRaw<{ id: number }[]>`SELECT "id" FROM "Envio" WHERE "id" = ${envioId} FOR UPDATE`
     if (caja.length === 0) return false
-    await tx.envioTracking.deleteMany({ where: { envioId } })
-    if (filas.length > 0) await tx.envioTracking.createMany({ data: filas.map(f => ({ envioId, ...f })) })
+    const actuales = await tx.envioTracking.findMany({
+      where: { envioId },
+      select: { id: true, tramo: true, numero: true, courierCode: true, transportista: true },
+    })
+    const conservar = new Map<number, string | null>()
+    const crear: typeof filas = []
+    for (const f of filas) {
+      const a = actuales.find(
+        a => !conservar.has(a.id) && a.tramo === f.tramo && a.numero === f.numero && a.courierCode === f.courierCode,
+      )
+      if (a) conservar.set(a.id, f.transportista)
+      else crear.push(f)
+    }
+    // Primero se borra: un número que cambió de courier choca con el único (caja, tramo, número).
+    await tx.envioTracking.deleteMany({ where: { envioId, id: { notIn: [...conservar.keys()] } } })
+    for (const a of actuales) {
+      const nuevo = conservar.get(a.id)
+      if (nuevo !== undefined && nuevo !== a.transportista) {
+        await tx.envioTracking.update({ where: { id: a.id }, data: { transportista: nuevo } })
+      }
+    }
+    if (crear.length > 0) await tx.envioTracking.createMany({ data: crear.map(f => ({ envioId, ...f })) })
     return true
   })
   if (!existe) return fallo('Ese envío ya no existe.')
   revalidatePath('/envios')
   revalidatePath(`/envios/${envioId}`)
   revalidatePath('/presupuestos')
+  return ok()
+}
+
+// "Actualizar ahora": consulta ya, en TrackingMore, los trackings de esta caja (incluso los
+// que habían dado error, por si se corrigió del lado de ellos). Si todavía no hay lista de
+// couriers, la baja: es lo que hace falta para elegirlos la primera vez.
+export async function actualizarTrackings(envioId: number): Promise<ActionResult> {
+  const apiKey = apiKeyTrackingMore()
+  if (!apiKey) return fallo(`El seguimiento automático está apagado: falta ${ENV_API_KEY} en el servidor.`)
+  const caja = await db.envio.findUnique({ where: { id: envioId }, select: { id: true } })
+  if (!caja) return fallo('Ese envío ya no existe.')
+  try {
+    await refrescarCouriers(apiKey)
+  } catch (e) {
+    // Sin lista nueva se sigue con la que hay; si no hay ninguna, el motivo importa.
+    if ((await db.trackingCourier.count()) === 0) return fallo(`No se pudo bajar la lista de couriers: ${(e as Error).message}`)
+  }
+  const r = await sincronizarTrackings({ envioId })
+  revalidatePath(`/envios/${envioId}`)
+  revalidatePath('/presupuestos')
+  if (r.error) return fallo(r.error)
   return ok()
 }
 

@@ -1,0 +1,11 @@
+[Unit]
+Description=Bajaj Repuestos: trackings de las cajas cada hora (TrackingMore)
+
+[Timer]
+# A los 20 minutos, para no pisarse con bajaj-fx (en punto).
+OnCalendar=*-*-* *:20:00
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

@@ -42,7 +42,6 @@ import { estadoLinea } from '@/lib/pedido-edicion'
 import { etiquetaPieza, tiposPara, TIPO_LABELS } from '@/lib/incidencias'
 import { motivoNoEntregable, saldoReal } from '@/lib/saldo-entrega'
 import { mensajeEstado } from '@/lib/mensajes-cliente'
-import { resumenTrackings } from '@/lib/tracking'
 import { motivoExpressNoAprobable, plazoExpress } from '@/lib/express'
 import { expressDelPedido } from '@/lib/express-pedido'
 
@@ -75,14 +74,8 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
             },
             ensamble: { select: { id: true, nameEs: true, nameEn: true, imageUrl: true, compatibleModels: true } },
             supplier: { select: { name: true } },
-            // La caja en que viaja (con sus trackings) y por qué etapas pasó: lo que se le contesta
-            // al cliente cuando pregunta dónde está su pieza.
-            envio: {
-              select: {
-                id: true,
-                trackings: { select: { tramo: true, numero: true, transportista: true }, orderBy: { id: 'asc' } },
-              },
-            },
+            // Por qué etapas pasó la línea. Los trackings NO van acá: una caja grande tiene varios
+            // locales e internacionales y no se sabe cuál lleva qué pieza; se ven en la caja.
             etapas: { select: { desde: true, hacia: true, at: true }, orderBy: { at: 'asc' } },
           },
           orderBy: { id: 'asc' },
@@ -903,11 +896,6 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                           <Link href={`/envios/${item.envioId}`} className="text-[10px] text-blue-600 hover:underline">
                             envío #{item.envioId}
                           </Link>
-                        )}
-                        {item.envio && item.envio.trackings.length > 0 && (
-                          <span className="text-[10px] font-mono text-gray-500" title="Trackings de la caja">
-                            {resumenTrackings(item.envio.trackings)}
-                          </span>
                         )}
                       </p>
                     )}

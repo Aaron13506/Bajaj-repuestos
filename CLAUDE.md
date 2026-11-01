@@ -26,12 +26,13 @@ pnpm db:up | db:pull-prod           # local Postgres 17 copy of production on 12
 pnpm db:migrar [--probar|--aplicar|--drift] · pnpm db:generate · pnpm db:studio
 pnpm deploy:prod [--migrar] [--dry] # push first; see the deploy-y-esquema skill
 pnpm fx:update [--force-rates]      # rates + Shoppre tables USA and VE express (hourly on the server)
+pnpm tracking:sync [--couriers]     # box trackings via TrackingMore (hourly on the server; see envios skill)
 pnpm scrape:99rpm · pnpm prices:99rpm --file=… [--apply]
 ```
 
 ## Environment
 
-Copy `.env.example` to `.env`. `DATABASE_URL`/`DIRECT_URL` point at the local Docker copy; production is reachable only on purpose (server or SSH tunnel on `localhost:15432` — **with the tunnel open, writes hit production**). `ADMIN_USER`/`ADMIN_PASSWORD`: the `admin`/`admin123` fallback exists only with `APP_ENV=local`; elsewhere a missing value fails closed (503). `S3_*` + `S3_PUBLIC_BASE_URL`: the image bucket (`motokira-images`); `lib/s3-publico.ts` refuses to derive the public URL from the endpoint.
+Copy `.env.example` to `.env`. `DATABASE_URL`/`DIRECT_URL` point at the local Docker copy; production is reachable only on purpose (server or SSH tunnel on `localhost:15432` — **with the tunnel open, writes hit production**). `ADMIN_USER`/`ADMIN_PASSWORD`: the `admin`/`admin123` fallback exists only with `APP_ENV=local`; elsewhere a missing value fails closed (503). `TRACKINGMORE_API_KEY`: automatic tracking of box trackings (unset = off, numbers just written down). `S3_*` + `S3_PUBLIC_BASE_URL`: the image bucket (`motokira-images`); `lib/s3-publico.ts` refuses to derive the public URL from the endpoint.
 
 ## Architecture
 

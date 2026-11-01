@@ -1,5 +1,6 @@
-// Los números de tracking de una caja, por tramo. Solo se anotan: el sistema no consulta
-// nada afuera. Sirven para encontrar la caja cuando el cliente pregunta dónde está su pieza.
+// Los números de tracking de una caja, por tramo. Sirven para encontrar la caja cuando el
+// cliente pregunta dónde está su pieza. Los que tienen courier de TrackingMore se siguen solos
+// (lib/trackingmore.ts); los demás quedan anotados.
 //
 // Son una LISTA por tramo porque así llegan: el proveedor despacha en dos o tres paquetes y
 // da un número local por cada uno, y el reenvío a USA o el courier a Venezuela pueden partir
@@ -27,15 +28,16 @@ export type FilaTracking = { tramo: TramoTracking; numero: string; transportista
 /**
  * Las filas de un tramo tal como llegan del formulario (dos listas paralelas). Una fila sin
  * número se descarta (es el renglón vacío que quedó), pero una con transportista y sin número
- * se rechaza: se escribió algo y se perdería. Devuelve las filas o el motivo del rechazo.
+ * se rechaza: se escribió algo y se perdería. Devuelve las filas (con su `indice` en el
+ * formulario, para leer los otros campos del mismo renglón) o el motivo del rechazo.
  */
 export function leerTrackingsTramo(
   tramo: TramoTracking,
   numeros: string[],
   transportistas: string[],
-): { filas: FilaTracking[] } | { error: string } {
+): { filas: (FilaTracking & { indice: number })[] } | { error: string } {
   const label = TRAMO_TRACKING_META[tramo].label
-  const filas: FilaTracking[] = []
+  const filas: (FilaTracking & { indice: number })[] = []
   for (let i = 0; i < numeros.length; i++) {
     const numero = (numeros[i] ?? '').trim()
     const transportista = (transportistas[i] ?? '').trim() || null
@@ -49,27 +51,10 @@ export function leerTrackingsTramo(
     if (filas.some(f => f.numero.toLowerCase() === numero.toLowerCase())) {
       return { error: `${label}: el tracking ${numero} está repetido.` }
     }
-    filas.push({ tramo, numero, transportista })
+    filas.push({ tramo, numero, transportista, indice: i })
   }
   if (filas.length > MAX_TRACKINGS_POR_TRAMO) {
     return { error: `${label}: máximo ${MAX_TRACKINGS_POR_TRAMO} trackings.` }
   }
   return { filas }
-}
-
-/**
- * Los trackings de una caja en una línea, tramo por tramo y en el orden del viaje:
- * "local 123, 456 (Delhivery) · USA SHP-64898 (Shoppre)". Vacío si no hay ninguno.
- */
-export function resumenTrackings(trackings: { tramo: string; numero: string; transportista: string | null }[]): string {
-  return TRAMOS_TRACKING
-    .map(tramo => {
-      const deTramo = trackings.filter(t => t.tramo === tramo)
-      if (deTramo.length === 0) return null
-      const transportistas = [...new Set(deTramo.map(t => t.transportista).filter((t): t is string => !!t))]
-      const quien = transportistas.length > 0 ? ` (${transportistas.join(', ')})` : ''
-      return `${TRAMO_TRACKING_META[tramo].corto} ${deTramo.map(t => t.numero).join(', ')}${quien}`
-    })
-    .filter(Boolean)
-    .join(' · ')
 }
