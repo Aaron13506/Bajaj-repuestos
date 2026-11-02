@@ -427,7 +427,7 @@ export interface LegBreakdown {
    * 0 cuando no viaja nada por este tramo; 1 en el caso normal.
    */
   cajas: number
-  /** El peso facturable de cada caja, de mayor a menor. Vacío si no aplica. */
+  /** El peso facturable de cada caja (las reales si se cargaron), de mayor a menor. Vacío si no aplica. */
   cajasKg: number[]
   /** El tope por caja de la tarifa. null cuando el tramo no sale de una tabla. */
   capKg: number | null
@@ -618,8 +618,9 @@ export interface EnvioOptions {
   proveedor?: ProveedorEnvio | null
   // Cadena logística a costear. Default 'aereo' — el modo en producción hoy.
   modo?: ModoEnvio
-  // La caja como la pesó y midió el transportista. Ver `cajaFacturable`.
-  medidas?: MedidasCaja | null
+  // Las cajas como las pesó y midió el transportista (una entrega puede ir en varias). Ver
+  // `cajaFacturable`.
+  medidas?: MedidasCaja[] | null
   // El flete que en verdad facturó cada transportista, si ya se cargó (Envio.
   // shippingCostRealAereo / shippingCostRealMaritimo). Reemplaza al estimado de tabla en el
   // landed y en el reparto por pieza — mismo principio que `medidas`: manda el dato real, no
@@ -663,20 +664,35 @@ export interface MedidasCaja {
 }
 
 // De dónde salieron los totales de la caja que se costeó.
+//
+// Con varias cajas, un total se conoce solo si TODAS tienen ese dato: sumar las pesadas y
+// olvidar la que falta daría un número más chico que la realidad presentado como medido.
 export interface CajaFacturable {
   // true = al menos uno de los dos totales lo dio una balanza o una cinta métrica.
   // false = son la suma de las piezas, que es un PISO: no incluye el cartón ni el hueco.
   medido: boolean
-  pesoKg: number | null   // lo que se cargó, si se cargó
-  cm3: number | null      // volumen del cartón, si se cargó
+  pesoKg: number | null   // suma de lo que se cargó, si todas están pesadas
+  cm3: number | null      // volumen de los cartones, si todos están medidos
+  cajas: number           // cuántas cajas se cargaron (0 = ninguna)
+  // Cada caja pesada y medida, si lo están todas: el depósito cobra caja por caja.
+  porCaja: { pesoKg: number; cm3: number }[] | null
 }
 
-function cajaFacturable(medidas?: MedidasCaja | null): CajaFacturable {
-  const pesoKg = medidas?.pesoKg != null && medidas.pesoKg > 0 ? medidas.pesoKg : null
-  const cm3 = medidas?.dimL && medidas.dimA && medidas.dimH
-    ? medidas.dimL * medidas.dimA * medidas.dimH
-    : null
-  return { medido: pesoKg != null || cm3 != null, pesoKg, cm3 }
+function cajaFacturable(medidas?: MedidasCaja[] | null): CajaFacturable {
+  const lista = medidas ?? []
+  const pesos = lista.map(c => (c.pesoKg != null && c.pesoKg > 0 ? c.pesoKg : null))
+  const vols = lista.map(c => (c.dimL && c.dimA && c.dimH ? c.dimL * c.dimA * c.dimH : null))
+  const suma = (xs: (number | null)[]) =>
+    lista.length > 0 && xs.every(x => x != null) ? xs.reduce<number>((s, x) => s + x!, 0) : null
+  const pesoKg = suma(pesos)
+  const cm3 = suma(vols)
+  return {
+    medido: pesoKg != null || cm3 != null,
+    pesoKg,
+    cm3,
+    cajas: lista.length,
+    porCaja: pesoKg != null && cm3 != null ? lista.map((_, i) => ({ pesoKg: pesos[i]!, cm3: vols[i]! })) : null,
+  }
 }
 
 // Mide un grupo de líneas como caja independiente: peso real, volumétrico, cuál de los
@@ -766,6 +782,17 @@ function aplicarFacturado(
     l[campo] = factor != null ? l[campo] * factor : facturadoUsd / lines.length
   }
   return facturadoUsd
+}
+
+// La cotización de varias cajas reales, cada una por su lado (una que pase el tope del
+// transportista se parte adentro de cotizarTramoAereo, como siempre).
+function sumarCotizaciones(qs: ReturnType<typeof cotizarTramoAereo>[]) {
+  return {
+    costUsd: Number(qs.reduce((s, q) => s + q.costUsd, 0).toFixed(2)),
+    cajas: qs.reduce((s, q) => s + q.cajas, 0),
+    pesosKg: qs.flatMap(q => q.pesosKg).sort((a, b) => b - a),
+    capKg: qs[0]?.capKg ?? null,
+  }
 }
 
 export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOptions = {}): EnvioBreakdown {
@@ -898,8 +925,24 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   // para esta caja, convertida con inr_usd_rate (es lo único de este tramo que está en rupias).
   const tarifaKgInr = porKilo ? (opts.reenvio?.tarifaKgInr ?? null) : null
   const viajaPorDeposito = !esMaritimo && shoppreChargeable > 0
+  // Con las cajas reales pesadas y medidas, el depósito cobra CADA caja por su max(peso,
+  // volumétrico): dos cajas de 10 kg pagan dos veces el escalón de 10, no una vez el de 20
+  // partido. Con una sola caja da lo mismo que la cuenta de abajo. Solo si todo lo que viaja
+  // pasa por el depósito: lo que despacha el proveedor no está en las cajas que factura.
+  const cobrablesPorCaja = viajaPorDeposito && cotizadoLines.length === 0 && caja.porCaja
+    ? caja.porCaja.map(c => Math.max(c.pesoKg, c.cm3 / divisor))
+    : null
   const airQuote = !viajaPorDeposito
     ? { costUsd: 0, cajas: 0, pesosKg: [] as number[], capKg: null as number | null }
+    : cobrablesPorCaja
+      ? porKilo
+        ? {
+            costUsd: tarifaKgInr != null ? (cobrablesPorCaja.reduce((s, k) => s + k, 0) * tarifaKgInr) / inrUsd : 0,
+            cajas: cobrablesPorCaja.length,
+            pesosKg: cobrablesPorCaja.map(k => Number(k.toFixed(2))).sort((a, b) => b - a),
+            capKg: null,
+          }
+        : sumarCotizaciones(cobrablesPorCaja.map(k => cotizarTramoAereo(k, carrier, isMember, cfg, esExpress ? 've' : 'usa')))
     : porKilo
       ? {
           costUsd: tarifaKgInr != null ? (shoppreChargeable * tarifaKgInr) / inrUsd : 0,
@@ -923,6 +966,8 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
     sinEstimado ? (airFacturadoUsd ?? 0) : airQuote.costUsd,
     escala, airQuote, tolerancia,
   )
+  // Caja por caja, lo cobrable es la suma de cada una (≥ el max de los totales).
+  if (cobrablesPorCaja) airLeg.chargeableKg = cobrablesPorCaja.reduce((s, k) => s + k, 0)
 
   // Tramo cotizado: no hay tabla, es el total que facturó el proveedor de la caja.
   const prov = opts.proveedor ?? null

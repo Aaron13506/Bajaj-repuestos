@@ -88,7 +88,7 @@ export function calcExpress(items: EnvioItemInput[], cfg: ConfigMap, opts: Expre
     cfg,
     {
       modo: 'express',
-      medidas: opts.medidas,
+      medidas: opts.medidas ? [opts.medidas] : null,
       fleteFacturado: opts.fleteUsd != null ? { aereoUsd: opts.fleteUsd } : null,
     },
   )

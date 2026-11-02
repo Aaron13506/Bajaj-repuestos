@@ -23,6 +23,7 @@ import {
   TRAMOS_FLETE, CATEGORIAS_FLETE, esTramoFlete, excedeFacturado, type TramoFlete,
 } from '@/lib/flete-real'
 import { TRAMOS_TRACKING, TRAMO_TRACKING_META, leerTrackingsTramo, type FilaTracking } from '@/lib/tracking'
+import { ETAPAS_CAJA, leerCajasEtapa, type CajaFisica, type CampoCaja, type EtapaCaja } from '@/lib/cajas-envio'
 import { apiKeyShip24, courierDeFila, ENV_API_KEY } from '@/lib/ship24'
 import { listaCouriers, refrescarCouriers, sincronizarTrackings } from '@/lib/sync-trackings'
 
@@ -340,41 +341,37 @@ export async function assignAllConfirmados(envioId: number, formData: FormData):
   return r
 }
 
-// La caja como la pesó y midió el transportista.
+// Las cajas como las pesó y midió el transportista o el depósito: lo que llegó y, si hubo
+// reempaque, lo que sale. Ver lib/cajas-envio.ts.
 //
-// Es el único dato del envío que NO se puede derivar del catálogo: el catálogo conoce la
-// pieza desnuda y la balanza pesa el bulto — cada repuesto con su caja, el cartón y el
-// relleno. Mientras no esté cargado, el costeo de la caja es un piso.
+// Es el único dato físico del envío que NO se puede derivar del catálogo: el catálogo conoce
+// la pieza desnuda y la balanza pesa el bulto. Mientras no esté cargado, el costeo es un piso.
 //
-// Cada campo se guarda por separado y vacío significa "todavía no lo sé", no cero: cargar
-// el peso no inventa las medidas, y un 0 haría desaparecer la caja del cálculo.
-//
-// Un número ilegible o negativo se RECHAZA en vez de guardarse como vacío: vacío es "no lo
-// sé" y reemplaza lo que hubiera, así que tipear mal "18,6x" borraba en silencio el peso ya
-// cargado y la pantalla volvía a la estimación como si nada. Vacío y 0 siguen siendo "sin dato".
-export async function saveMedidasCaja(envioId: number, formData: FormData): Promise<ActionResult> {
-  // Solo lo FÍSICO. El flete facturado tiene su propia acción (guardarFleteReal): estaban en un
-  // mismo form y esta acción arrancaba los seis campos en null, así que guardar el peso borraba
-  // el flete cargado — y viceversa. Son datos que llegan en momentos distintos.
-  const campos = {
-    pesoRealKg: 'el peso real',
-    cajaL: 'el largo de la caja',
-    cajaA: 'el ancho de la caja',
-    cajaH: 'el alto de la caja',
-  } as const
-  const data: Record<keyof typeof campos, number | null> = {
-    pesoRealKg: null, cajaL: null, cajaA: null, cajaH: null,
+// El form manda todo junto y esto reemplaza lo guardado, como los trackings. Sin reempaque
+// las cajas de salida se borran: lo que se ve es lo que queda. Un número ilegible se RECHAZA
+// (vacío reemplaza lo que había, así que guardarlo como vacío borraría un peso cargado).
+// Solo lo FÍSICO: el flete facturado tiene su propia acción (guardarFleteReal).
+export async function guardarCajas(envioId: number, formData: FormData): Promise<ActionResult> {
+  const reempaque = formData.get('reempaque') === '1'
+  const filas: (CajaFisica & { etapa: EtapaCaja })[] = []
+  for (const etapa of ETAPAS_CAJA) {
+    if (etapa === 'salida' && !reempaque) continue
+    const campo = (c: CampoCaja) => formData.getAll(`${c}_${etapa}`).map(String)
+    const r = leerCajasEtapa(etapa, {
+      referencia: campo('referencia'), peso: campo('peso'), largo: campo('largo'), ancho: campo('ancho'), alto: campo('alto'),
+    })
+    if ('error' in r) return fallo(r.error)
+    filas.push(...r.filas.map(f => ({ ...f, etapa })))
   }
-  for (const [name, nombre] of Object.entries(campos) as [keyof typeof campos, string][]) {
-    const raw = (formData.get(name) as string)?.trim()
-    if (!raw) continue
-    const v = parseFloat(raw.replace(',', '.'))
-    if (!Number.isFinite(v) || v < 0) return fallo(`Revisá ${nombre}: no es un número válido.`)
-    data[name] = v > 0 ? v : null
-  }
-
-  const r = await db.envio.updateMany({ where: { id: envioId }, data })
-  if (r.count === 0) return fallo('Ese envío ya no existe.')
+  const existe = await db.$transaction(async tx => {
+    // El update bloquea la fila del envío: dos guardados cruzados no se mezclan a medias.
+    const r = await tx.envio.updateMany({ where: { id: envioId }, data: { reempaque } })
+    if (r.count === 0) return false
+    await tx.envioCaja.deleteMany({ where: { envioId } })
+    if (filas.length > 0) await tx.envioCaja.createMany({ data: filas.map(f => ({ envioId, ...f })) })
+    return true
+  })
+  if (!existe) return fallo('Ese envío ya no existe.')
   revalidatePath('/envios')
   revalidatePath(`/envios/${envioId}`)
   return ok()
