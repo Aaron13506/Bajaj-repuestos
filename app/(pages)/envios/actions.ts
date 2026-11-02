@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { isDelivered, isPending, isValidStatus, normalizeToRoute, routeFor } from '@/lib/shipping-status'
 import { bloqueaCompra, bloqueaEntrega } from '@/lib/incidencias'
+import { reportarIncidencia } from '@/app/(pages)/presupuestos/flujos-actions'
 import { seEntregaDesdeElPedido } from '@/lib/saldo-entrega'
 import { inboundDe } from '@/lib/inbound'
 import { isModoApp, llevaPedidos, MODOS_CON_PEDIDOS } from '@/lib/modo'
@@ -147,6 +148,17 @@ function revalidarCaja(envioId: number) {
   revalidatePath('/inventario')
   revalidatePath('/contabilidad')
   revalidatePath('/')
+}
+
+// "No vino" desde la caja: lo que el proveedor no mandó de una línea. Es la incidencia "sin_enviar"
+// de su pedido, con las mismas reglas (reportarIncidencia); acá solo se ata a esta caja.
+export async function marcarNoVino(envioId: number, itemId: number, formData: FormData): Promise<ActionResult> {
+  const linea = await db.pedidoItem.findUnique({ where: { id: itemId }, select: { envioId: true } })
+  if (linea?.envioId !== envioId) return fallo('Esa línea ya no está en esta caja. Recargá la página.')
+  formData.set('tipo', 'sin_enviar')
+  const r = await reportarIncidencia(itemId, formData)
+  if (r.ok) revalidarCaja(envioId)
+  return r
 }
 
 // Mientras la caja está en borrador no es una compra: no se le anota plata ni se mueven sus
