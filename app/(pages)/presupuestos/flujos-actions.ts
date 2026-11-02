@@ -12,15 +12,16 @@ import { ok, fallo, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from 
 import { escalonBcvVigente } from '@/lib/calc'
 import { toConfigMap, num } from '@/lib/config'
 import { bloquearPedido, cobrarPedido, devolverACliente } from '@/lib/movimientos'
-import { leerCobroBs } from '@/lib/cuentas'
+import { cuentaDeMetodo, leerCobroBs } from '@/lib/cuentas'
+import { METODOS_PAGO_EGRESO } from '@/lib/pagos'
 import { leerDevolucion } from '@/lib/devolucion'
 import { bloquearDescontinuadas } from '@/lib/descontinuadas'
 import { estadoLinea } from '@/lib/pedido-edicion'
 import { motivoDevolucionInvalida, motivoNoCancelable, resumenCancelacion } from '@/lib/pedido-cancelacion'
 import { crearReposicion, pasarAStockPropio, registrarEvento, SELECT_LINEA_MOVIBLE } from '@/lib/pedido-derivado'
 import {
-  RECLAMO_HORAS_DEFAULT, RESOLUCION_LABELS, TIPO_LABELS, bloqueaCompra, bloqueaEntrega, dentroDePlazo, esResolucion, esTipoIncidencia, etiquetaPieza,
-  motivoResolucionInvalida, origenPara, perdidaSugerida, planReembolso, tiposPara,
+  RECLAMO_HORAS_DEFAULT, admitePieza, RESOLUCION_LABELS, TIPO_LABELS, bloqueaCompra, bloqueaEntrega, dentroDePlazo, esResolucion, esTipoIncidencia, etiquetaPieza,
+  motivoResolucionInvalida, origenPara, perdidaSugerida, perdidaTrasDevolucion, planReembolso, tiposPara, tiposParaPropio,
   type TipoIncidencia,
 } from '@/lib/incidencias'
 import { nombreEnsamble } from '@/lib/linea-pedido'
@@ -426,7 +427,7 @@ export async function reportarIncidencia(itemId: number, formData: FormData): Pr
   // En un conjunto casi nunca falta todo: falta UN SKU. Con `pieza` la cantidad sale de la pieza,
   // no se escribe (por eso puede venir vacía).
   const pieza = (formData.get('pieza') as string)?.trim() || null
-  if (pieza && tipo !== 'no_disponible') return fallo('Solo se anota una pieza concreta cuando no está disponible.')
+  if (pieza && !admitePieza(tipo)) return fallo('Solo se anota una pieza concreta cuando no está disponible o el proveedor no la mandó.')
   const cantidadEscrita = parseInt(String(formData.get('cantidad') ?? ''), 10)
   if (!pieza && (!Number.isInteger(cantidadEscrita) || cantidadEscrita < 1)) return fallo('La cantidad tiene que ser un entero ≥ 1.')
   const nota = (formData.get('nota') as string)?.trim() || null
@@ -453,11 +454,13 @@ export async function reportarIncidencia(itemId: number, formData: FormData): Pr
         },
       })
       if (!it) throw new ErrorDeNegocio('Esa línea ya no existe. Recargá la página.')
-      if (it.pedido.tipo !== 'cliente' || it.pedido.status !== 'pedido') {
-        throw new ErrorDeNegocio('Solo se anotan problemas de un pedido de cliente confirmado.')
+      // De stock propio solo se anota lo que el proveedor no mandó (no hay cliente que reclame).
+      const propio = it.pedido.tipo === 'propio'
+      if ((it.pedido.tipo !== 'cliente' && !propio) || it.pedido.status !== 'pedido') {
+        throw new ErrorDeNegocio('Solo se anotan problemas de un pedido confirmado (de cliente o de stock propio).')
       }
       const linea = { shippingStatus: it.shippingStatus, costRealUsd: dec(it.costRealUsd) }
-      if (!tiposPara(linea).includes(tipo)) {
+      if (!(propio ? tiposParaPropio(linea) : tiposPara(linea)).includes(tipo)) {
         throw new ErrorDeNegocio(`Esta línea no admite «${TIPO_LABELS[tipo]}» en la etapa en que está.`)
       }
       let cantidad = cantidadEscrita
@@ -466,8 +469,8 @@ export async function reportarIncidencia(itemId: number, formData: FormData): Pr
         const piezas = Array.isArray(it.bundleItems) ? (it.bundleItems as unknown as BundlePiece[]) : []
         const p = piezas.find(x => etiquetaPieza(x) === pieza)
         if (!p) throw new ErrorDeNegocio(`«${pieza}» no está en este conjunto (quizá ya se quitó). Recargá la página.`)
-        const repetida = await tx.incidencia.count({ where: { itemId, estado: 'abierta', tipo: 'no_disponible', pieza } })
-        if (repetida > 0) throw new ErrorDeNegocio(`«${pieza}» ya está marcada como no disponible.`)
+        const repetida = await tx.incidencia.count({ where: { itemId, estado: 'abierta', tipo, pieza } })
+        if (repetida > 0) throw new ErrorDeNegocio(`«${pieza}» ya está marcada como «${TIPO_LABELS[tipo]}».`)
         // Unidades de esa pieza que lleva la línea: por set × cantidad de sets.
         cantidad = p.quantity * it.quantity
         descripcion = `${descripcion} — ${pieza}`
@@ -514,6 +517,14 @@ export async function resolverIncidencia(incidenciaId: number, formData: FormDat
   }
   const dev = leerDevolucion(formData)
   if (!dev.ok) return fallo(dev.error)
+  // Al reembolsar algo que el proveedor no mandó: cuánto te devolvió y por dónde. Vacío no es 0
+  // (se rechaza en motivoResolucionInvalida); un 0 escrito es "no me devolvió nada".
+  const devueltoCrudo = String(formData.get('devueltoProveedorUsd') ?? '').trim().replace(',', '.')
+  const devueltoProveedor = devueltoCrudo === '' ? null : Number(devueltoCrudo)
+  const metodoDevuelto = (formData.get('metodoDevuelto') as string)?.trim() || null
+  if (metodoDevuelto != null && !(METODOS_PAGO_EGRESO as readonly string[]).includes(metodoDevuelto)) {
+    return fallo('Elegí por dónde te devolvió la plata el proveedor.')
+  }
 
   let pedidoId = 0
   let reposicionId: number | null = null
@@ -541,13 +552,20 @@ export async function resolverIncidencia(incidenciaId: number, formData: FormDat
         ? { quantity: inc.item.quantity, salePrice: Number(inc.item.salePrice), costRealUsd: dec(inc.item.costRealUsd) }
         : null
 
+      const propio = inc.pedido.tipo === 'propio'
+      const sinEnviar = inc.tipo === 'sin_enviar'
       const invalido = motivoResolucionInvalida({
         tipo: inc.tipo, origen, cantidad: inc.cantidad, resolucion, linea, perdidaUsd: perdidaEscrita,
+        propio, devueltoProveedorUsd: devueltoProveedor, pieza: inc.pieza,
       })
       if (invalido) throw new ErrorDeNegocio(invalido)
-      if ((resolucion === 'reposicion' || resolucion === 'reembolso') && (inc.pedido.tipo !== 'cliente' || inc.pedido.status !== 'pedido')) {
-        throw new ErrorDeNegocio('Solo se repone o reembolsa en un pedido de cliente confirmado.')
+      if ((resolucion === 'reposicion' || resolucion === 'reembolso') && (!(inc.pedido.tipo === 'cliente' || (propio && sinEnviar)) || inc.pedido.status !== 'pedido')) {
+        throw new ErrorDeNegocio('Solo se repone o reembolsa en un pedido confirmado.')
       }
+      if (sinEnviar && resolucion === 'reembolso' && (devueltoProveedor ?? 0) > 0 && metodoDevuelto == null) {
+        throw new ErrorDeNegocio('Elegí por dónde te devolvió la plata el proveedor.')
+      }
+      if (propio && dev.devolucion) throw new ErrorDeNegocio('Un pedido de stock propio no tiene cliente a quien devolverle.')
 
       const cierre = { estado: 'resuelta', resolucion, resueltaAt: new Date() }
       const detalle: string[] = [
@@ -560,7 +578,9 @@ export async function resolverIncidencia(incidenciaId: number, formData: FormDat
         detalle.push(`Pedido de reposición #${reposicionId}`)
       } else if (resolucion === 'reembolso') {
         const it = inc.item!
-        const perdida = perdidaEscrita ?? perdidaSugerida(linea!.costRealUsd, linea!.quantity, inc.cantidad)
+        const costoUnidades = perdidaSugerida(linea!.costRealUsd, linea!.quantity, inc.cantidad)
+        // Lo que devolvió el proveedor ya no es pérdida: se pierde solo lo pagado que no volvió.
+        const perdida = perdidaEscrita ?? (sinEnviar ? perdidaTrasDevolucion(costoUnidades, devueltoProveedor ?? 0) : costoUnidades)
         const plan = planReembolso(linea!, inc.cantidad, perdida)
         await tx.incidencia.update({ where: { id: inc.id }, data: { ...cierre, perdidaUsd: plan.perdidaUsd } })
         if (plan.quitaLinea) {
@@ -568,7 +588,29 @@ export async function resolverIncidencia(incidenciaId: number, formData: FormDat
         } else {
           await tx.pedidoItem.update({ where: { id: it.id }, data: { quantity: plan.quedan, costRealUsd: plan.costRealNuevo } })
         }
-        detalle.push(`Baja lo vendido ${usd(plan.bajaVentaUsd)}` + (plan.perdidaUsd > 0 ? ` · pérdida ${usd(plan.perdidaUsd)}` : ''))
+        detalle.push(
+          (propio ? `Bajan ${inc.cantidad} unidad(es) de la línea` : `Baja lo vendido ${usd(plan.bajaVentaUsd)}`) +
+          (plan.perdidaUsd > 0 ? ` · pérdida ${usd(plan.perdidaUsd)}` : ''),
+        )
+        // La plata que vuelve del proveedor entra al libro ligada a su caja y a él: descuenta de lo
+        // que figura como pagado (lib/movimientos.ts, CATEGORIAS_REEMBOLSO_PROVEEDOR). No va ligada al
+        // pedido: no es un cobro del cliente y no toca depositUsd.
+        if (sinEnviar && devueltoProveedor != null && devueltoProveedor > 0) {
+          await tx.movimiento.create({
+            data: {
+              fecha: new Date(),
+              tipo: 'ingreso',
+              categoria: 'reembolso_proveedor',
+              monto: Math.round(devueltoProveedor * 100) / 100,
+              metodoPago: metodoDevuelto,
+              cuenta: cuentaDeMetodo(metodoDevuelto),
+              descripcion: `Reembolso del proveedor: ${inc.cantidad}× «${inc.descripcion}» (pedido #${pedidoId})`,
+              envioId: it.envioId,
+              supplierId: it.supplierId,
+            },
+          })
+          detalle.push(`El proveedor devolvió ${usd(devueltoProveedor)} (${metodoDevuelto})`)
+        }
         if (dev.devolucion) {
           await devolverACliente(tx, {
             pedidoId, monto: dev.devolucion.monto, fecha: dev.devolucion.fecha, metodoPago: dev.devolucion.metodoPago,

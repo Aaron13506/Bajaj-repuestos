@@ -519,9 +519,10 @@ async function editarPedidoConfirmado(id: number, formData: FormData) {
           })
           break
         case 'quitar':
-          // Un "no disponible" abierto de una línea que se saca ya está resuelto: se cambió por otra.
+          // Un "no disponible" (o un "no lo mandó" de una línea sin comprar) abierto de una línea
+          // que se saca ya está resuelto: se cambió por otra o se quitó.
           await tx.incidencia.updateMany({
-            where: { itemId: o.actual.id, estado: 'abierta', tipo: 'no_disponible' },
+            where: { itemId: o.actual.id, estado: 'abierta', tipo: { in: ['no_disponible', 'sin_enviar'] } },
             data: { estado: 'resuelta', resolucion: 'sustituida', resueltaAt: new Date() },
           })
           await tx.pedidoItem.delete({ where: { id: o.actual.id } })

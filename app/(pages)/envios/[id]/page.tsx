@@ -32,10 +32,11 @@ import { listaCouriers } from '@/lib/sync-trackings'
 import { esTramoTracking, type FilaTracking } from '@/lib/tracking'
 import ConteoCaja, { BotonConteo } from '@/components/ConteoCaja'
 import { piezasAContar } from '@/lib/conteo'
+import { lineaNoViene, sinEnviarDe, textoSinEnviar } from '@/lib/incidencias'
 import { statusIndex } from '@/lib/shipping-status'
 import { seEntregaDesdeElPedido } from '@/lib/saldo-entrega'
 import { TRAMOS_FLETE, CATEGORIAS_FLETE, estadoFlete } from '@/lib/flete-real'
-import { itemsSinCostoRealDeEnvio, CATEGORIAS_PAGO_PROVEEDOR } from '@/lib/movimientos'
+import { itemsSinCostoRealDeEnvio, CATEGORIAS_PAGO_PROVEEDOR, CATEGORIAS_REEMBOLSO_PROVEEDOR } from '@/lib/movimientos'
 import type { BundlePiece } from '@/lib/bundle'
 import { num, toConfigMap } from '@/lib/config'
 import { armarCompra99rpm } from '@/lib/compra-99rpm'
@@ -143,7 +144,11 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
       where: { id },
       include: {
         items: {
-          include: { product: true, ensamble: true, pedido: true, supplier: true },
+          include: {
+            product: true, ensamble: true, pedido: true, supplier: true,
+            // Lo que el proveedor no mandó todavía: la caja no lo espera al llegar.
+            incidencias: { where: { estado: 'abierta', tipo: 'sin_enviar' }, select: { tipo: true, estado: true, cantidad: true, pieza: true } },
+          },
           orderBy: [{ pedidoId: 'asc' }, { id: 'asc' }],
         },
         // El proveedor de la caja: decide el precio de las piezas, cómo se cobra el tramo
@@ -221,8 +226,16 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     // que salda lo que se le debe al PROVEEDOR (mercancía, tramo, comisión del giro): un
     // flete anotado contra la caja se le pagó a Shoppre o a la naviera, y contarlo acá
     // reducía una deuda que sigue viva. Es la misma definición que usa cuentasPorPagar.
-    db.movimiento.aggregate({
-      where: { envioId: id, tipo: 'egreso', categoria: { in: [...CATEGORIAS_PAGO_PROVEEDOR] } },
+    // Menos lo que el proveedor devolvió por algo que no mandó (CATEGORIAS_REEMBOLSO_PROVEEDOR).
+    db.movimiento.groupBy({
+      by: ['tipo'],
+      where: {
+        envioId: id,
+        OR: [
+          { tipo: 'egreso', categoria: { in: [...CATEGORIAS_PAGO_PROVEEDOR] } },
+          { tipo: 'ingreso', categoria: { in: [...CATEGORIAS_REEMBOLSO_PROVEEDOR] } },
+        ],
+      },
       _sum: { monto: true },
     }),
     // Piezas de ESTA caja sin costRealUsd cargado, para el picker de "cuánto pagué de
@@ -262,7 +275,8 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
       })
     : []
 
-  const pagadoProveedor = parseFloat((egresosCaja._sum.monto ?? 0).toString())
+  const pagadoProveedor = egresosCaja.reduce(
+    (t, g) => t + (g.tipo === 'ingreso' ? -1 : 1) * parseFloat((g._sum.monto ?? 0).toString()), 0)
 
   const cfg = toConfigMap(cfgRows)
 
@@ -573,18 +587,26 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     esCliente: seEntregaDesdeElPedido(it.pedido.tipo),
     sinPeso: faltantesByItem.get(it.id)?.sinPeso ?? 0,
     sinMedidas: faltantesByItem.get(it.id)?.sinMedidas ?? 0,
+    sinEnviar: textoSinEnviar(sinEnviarDe(it.incidencias)),
   }))
 
   // Lo comprado que viaja en la caja, esté en la etapa que esté: la caja se cuenta cuando se
   // abre, aunque ya la hayas marcado en Venezuela (o entregado). Recibir pasa a "en Venezuela"
   // solo lo que todavía no llegó a esa etapa.
+  // Lo que el proveedor no mandó (incidencias "sin_enviar" abiertas) no se espera en la mesa, y una
+  // línea que no vino entera tampoco pasa a Recibido: se recibe a mano cuando llegue.
   const enCaja = envio.items.filter(it => !it.isLanded && it.shippingStatus !== 'pendiente')
-  const porRecibir = enCaja.filter(it => statusIndex(it.shippingStatus) < statusIndex('en_venezuela'))
+  const sinEnviarPorItem = new Map(enCaja.map(it => [it.id, sinEnviarDe(it.incidencias)]))
+  const porRecibir = enCaja.filter(it =>
+    statusIndex(it.shippingStatus) < statusIndex('en_venezuela') && !lineaNoViene(it.quantity, sinEnviarPorItem.get(it.id)!))
+  const noVinieron = enCaja.filter(it =>
+    statusIndex(it.shippingStatus) < statusIndex('en_venezuela') && lineaNoViene(it.quantity, sinEnviarPorItem.get(it.id)!))
   const aContar = piezasAContar(enCaja.map(it => ({
     nombre: cabeceraDeLinea(it).nameEs,
     codigo: cabeceraDeLinea(it).bajajCode,
     quantity: it.quantity,
     piezas: (it.bundleItems as BundlePiece[] | null) ?? [],
+    sinEnviar: sinEnviarPorItem.get(it.id),
   })))
   // Las de peso estimado se ofrecen pesar al contarlas. Un conjunto solo guarda códigos, así
   // que se resuelve por código, y un código que comparten dos productos no se ofrece.
@@ -1547,7 +1569,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               piezas={aContar}
               recibir={saveItemChanges.bind(null, envio.id, porRecibir.map(it => ({ id: it.id, shippingStatus: 'en_venezuela' })))}
               yaRecibida={porRecibir.length === 0}
-              aviso={`${porRecibir.length > 0 ? `Pasa ${porRecibir.length} ${porRecibir.length === 1 ? 'línea' : 'líneas'} a "Recibido". ` : ''}Lo que falte, reportalo como incidencia "faltante" en su pedido.`}
+              aviso={`${porRecibir.length > 0 ? `Pasa ${porRecibir.length} ${porRecibir.length === 1 ? 'línea' : 'líneas'} a "Recibido". ` : ''}${noVinieron.length > 0 ? `${noVinieron.length} ${noVinieron.length === 1 ? 'línea queda' : 'líneas quedan'} sin recibir porque el proveedor no la${noVinieron.length === 1 ? '' : 's'} mandó. ` : ''}Lo que falte, reportalo como incidencia "faltante" en su pedido.`}
             />
           )}
 

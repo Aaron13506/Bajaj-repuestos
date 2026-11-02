@@ -208,7 +208,14 @@ export default function ConteoCaja({
                     </button>
                   )}
                 </td>
-                <td className="px-3 py-2 text-right font-mono text-gray-700">{p.esperado}</td>
+                <td className="px-3 py-2 text-right font-mono text-gray-700">
+                  {p.esperado}
+                  {p.sinEnviar > 0 && (
+                    <span title="El proveedor no las mandó: no se esperan en esta caja" className="block text-[10px] font-sans text-orange-700">
+                      +{p.sinEnviar} sin enviar
+                    </span>
+                  )}
+                </td>
                 <td className="px-3 py-2 text-right">
                   <div className="flex items-center justify-end gap-1">
                     <button

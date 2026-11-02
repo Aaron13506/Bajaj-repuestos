@@ -47,7 +47,7 @@ import { describirOps, estadoLinea, permisoDeLinea, motivoEdicionSinCliente, pla
 import { devolucionSugerida, motivoDevolucionInvalida, motivoNoCancelable, resumenCancelacion } from '../lib/pedido-cancelacion'
 import {
   bloqueaCompra, bloqueaEntrega, cerradosPorEdicion, dentroDePlazo, etiquetaPieza, motivoResolucionInvalida, origenPara, perdidaSugerida, planReembolso,
-  resolucionesPara, tiposPara, type Resolucion,
+  resolucionesPara, tiposPara, sinEnviarDe, lineaNoViene, textoSinEnviar, admitePieza, tiposParaPropio, perdidaTrasDevolucion, type Resolucion,
 } from '../lib/incidencias'
 import { debeSaldo, motivoNoEntregable, saldoReal, seEntregaDesdeElPedido, situacionDeCobro } from '../lib/saldo-entrega'
 import { diasSinMoverse, tiempoDeCompraA, tiemposPorTramo } from '../lib/etapas'
@@ -1063,8 +1063,39 @@ console.log('\nINCIDENCIAS Y RECLAMOS')
   const libre = { shippingStatus: 'pendiente', costRealUsd: null }
   const enCamino = { shippingStatus: 'en_venezuela', costRealUsd: 100 }
   const entregada = { shippingStatus: 'entregado', costRealUsd: 100 }
-  check('sin comprar solo puede no estar disponible', si(tiposPara(libre).join() === 'no_disponible'), 1)
-  check('en camino: lo que le pasa a la mercancía', tiposPara(enCamino).length, 4)
+  check('sin comprar: no disponible, o que el proveedor no la mande', si(tiposPara(libre).join() === 'no_disponible,sin_enviar'), 1)
+  check('ya en Venezuela: lo que le pasa a la mercancía', tiposPara(enCamino).length, 4)
+  check('comprada y en camino: también "no la mandó"', si(tiposPara({ shippingStatus: 'camino_usa', costRealUsd: 100 })[0] === 'sin_enviar'), 1)
+  check('ya en Venezuela ya no se anota "no la mandó"', si(!tiposPara(enCamino).includes('sin_enviar')), 1)
+  check('"no la mandó" no frena la compra', si(bloqueaCompra([{ tipo: 'sin_enviar', estado: 'abierta' }])), 0)
+  check('"no la mandó" frena la entrega', si(bloqueaEntrega([{ tipo: 'sin_enviar', estado: 'abierta' }])), 1)
+  check('"no la mandó" se anota por pieza de un conjunto', si(admitePieza('sin_enviar') && !admitePieza('faltante')), 1)
+  check('"no la mandó" se cierra como llegó, reposición o reembolso', si(resolucionesPara('sin_enviar', 'operacion').join() === 'llego,reposicion,reembolso'), 1)
+  const se = sinEnviarDe([
+    { tipo: 'sin_enviar', estado: 'abierta', cantidad: 2, pieza: null },
+    { tipo: 'sin_enviar', estado: 'resuelta', cantidad: 5, pieza: null },
+    { tipo: 'faltante', estado: 'abierta', cantidad: 9, pieza: null },
+    { tipo: 'sin_enviar', estado: 'abierta', cantidad: 1, pieza: 'Bujía (B1)' },
+  ])
+  check('sin enviar: solo los abiertos de ese tipo, línea entera', se.lineaEntera, 2)
+  check('sin enviar: por pieza aparte', se.porPieza.get('Bujía (B1)') ?? 0, 1)
+  check('una línea de 2 con 2 sin enviar no viene', si(lineaNoViene(2, se)), 1)
+  check('una línea de 3 con 2 sin enviar sí viene (en parte)', si(lineaNoViene(3, se)), 0)
+  check('etiqueta "2 + 1 pieza sin enviar"', si(textoSinEnviar(se) === '2 + 1 pieza sin enviar'), 1)
+  check('sin nada abierto no hay etiqueta', si(textoSinEnviar(sinEnviarDe([])) === null), 1)
+  // Stock propio: solo "no la mandó", y se cierra llegando o con el reembolso del proveedor.
+  check('propio: solo se anota "no la mandó"', si(tiposParaPropio({ shippingStatus: 'camino_usa', costRealUsd: 50 }).join() === 'sin_enviar'), 1)
+  check('propio: ya en Venezuela no se anota nada', tiposParaPropio(enCamino).length, 0)
+  check('propio: llegó o reembolso, sin reposición', si(resolucionesPara('sin_enviar', 'operacion', true).join() === 'llego,reembolso'), 1)
+  const lineaSE = { quantity: 4, salePrice: 10, costRealUsd: 40 }
+  const base = { tipo: 'sin_enviar' as const, origen: 'operacion' as const, cantidad: 1, resolucion: 'reembolso' as const, linea: lineaSE, perdidaUsd: null }
+  check('reembolso de "no la mandó" pide lo devuelto', si(motivoResolucionInvalida({ ...base, devueltoProveedorUsd: null }) != null), 1)
+  check('un 0 devuelto es un dato', si(motivoResolucionInvalida({ ...base, devueltoProveedorUsd: 0 }) === null), 1)
+  check('propio: el reembolso del proveedor vale', si(motivoResolucionInvalida({ ...base, propio: true, devueltoProveedorUsd: 10 }) === null), 1)
+  check('propio: no se repone', si(motivoResolucionInvalida({ ...base, resolucion: 'reposicion', propio: true, devueltoProveedorUsd: null }) != null), 1)
+  check('una pieza sola de un conjunto no se reembolsa', si(motivoResolucionInvalida({ ...base, devueltoProveedorUsd: 5, pieza: 'Bujía (B1)' }) != null), 1)
+  check('pérdida = costo − lo que devolvió el proveedor', perdidaTrasDevolucion(10, 7.5), 2.5)
+  check('si devolvió todo (o más) no hay pérdida', perdidaTrasDevolucion(10, 12), 0)
   check('entregada: solo reclamos, y el defecto de fábrica se admite', si(tiposPara(entregada).includes('defecto') && !tiposPara(entregada).includes('perdida')), 1)
   check('lo de una línea entregada es un reclamo del cliente', si(origenPara(entregada) === 'cliente'), 1)
   check('lo de una en camino lo detecté yo', si(origenPara(enCamino) === 'operacion'), 1)
@@ -1285,6 +1316,19 @@ console.log('\nCONTEO DE LA CAJA')
   check('suelta + dentro de un conjunto se suman por código', de('B1'), 5)
   check('sin código se cuenta por nombre × cantidad del conjunto', de('Arandela'), 6)
   check('el conjunto en sí no es una fila', c.length, 2)
+
+  // Lo que el proveedor no mandó no se espera: 1 bujía suelta y 1 set entero del kit, y en otro
+  // set la arandela sola (2 unidades de esa pieza).
+  const sinEnviar = { lineaEntera: 1, porPieza: new Map([['Arandela', 2]]) }
+  const c2 = piezasAContar([
+    { nombre: 'Bujía', codigo: 'B1', quantity: 2, piezas: [], sinEnviar: { lineaEntera: 1, porPieza: new Map() } },
+    { nombre: 'Kit', codigo: null, quantity: 3, piezas: [bp('B1', 'Bujía', 1), bp(null, 'Arandela', 2)], sinEnviar },
+  ])
+  const fila = (k: string) => c2.find(p => p.clave === k)
+  check('sin enviar: la bujía espera 5 − 1 suelta − 1 del set', fila('B1')?.esperado ?? -1, 3)
+  check('sin enviar: y lo dice aparte', fila('B1')?.sinEnviar ?? -1, 2)
+  check('sin enviar: arandela 6 − 2 del set − 2 sueltas', fila('Arandela')?.esperado ?? -1, 2)
+  check('sin enviar: nunca espera menos de 0', piezasAContar([{ nombre: 'X', codigo: 'X', quantity: 1, piezas: [], sinEnviar: { lineaEntera: 5, porPieza: new Map() } }])[0].esperado, 0)
 }
 
 console.log('\nREENVÍO POR KILO  (₹/kg cotizado por caja + gastos fijos, sin seguro)')

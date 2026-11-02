@@ -43,6 +43,9 @@ export interface EnvioItemRow {
   // Piezas de la línea sin peso / sin medidas cargados: el cálculo del flete las subestima.
   sinPeso: number
   sinMedidas: number
+  // Lo que el proveedor no mandó todavía (incidencias "sin_enviar" abiertas), ya dicho en texto
+  // ("2 sin enviar", "1 pieza sin enviar"); null = vino todo. La caja no lo espera al llegar.
+  sinEnviar: string | null
 }
 
 interface Props {
@@ -547,6 +550,15 @@ export default function EnvioItemsTable({
                           {it.quantity > 1 && <span className="text-xs text-gray-400"> ×{it.quantity}</span>}
                           {it.bajajCode && (
                             <span className="ml-2 font-mono text-[10px] text-gray-400">{it.bajajCode}</span>
+                          )}
+                          {it.sinEnviar && (
+                            <Link
+                              href={`/presupuestos/${it.pedidoId}`}
+                              title="El proveedor no lo mandó todavía: el conteo no lo espera. Cuando llegue, resolvelo como «Llegó» en el pedido."
+                              className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-800 hover:bg-orange-200"
+                            >
+                              {it.sinEnviar}
+                            </Link>
                           )}
                           {esLanded && (
                             <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">

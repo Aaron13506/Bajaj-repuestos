@@ -6,7 +6,7 @@ import { useEnviarAccion } from '@/components/useEnviarAccion'
 import CamposDevolucion from '@/components/CamposDevolucion'
 import type { ActionResult } from '@/lib/action-result'
 import {
-  RESOLUCION_LABELS, TIPO_AYUDA, TIPO_LABELS, perdidaSugerida, resolucionesPara, planReembolso,
+  RESOLUCION_LABELS, TIPO_AYUDA, TIPO_LABELS, admitePieza, perdidaSugerida, perdidaTrasDevolucion, resolucionesPara, planReembolso,
   type OrigenIncidencia, type Resolucion, type TipoIncidencia,
 } from '@/lib/incidencias'
 
@@ -49,6 +49,10 @@ interface Props {
   /** Lo que vale el pedido entero y lo que tiene cobrado (reales), para saber cuánto le sobraría al cliente. */
   pedido: { totalReal: number; depositUsd: number }
   tasaSugerida: number
+  /** Pedido de stock propio: no hay cliente (ni venta, ni devolución, ni reposición). */
+  propio?: boolean
+  /** Por dónde te puede devolver la plata el proveedor (al reembolsar algo que no mandó). */
+  metodosProveedor?: readonly string[]
   incidencias: IncidenciaVista[]
   reportar: (itemId: number, formData: FormData) => Promise<ActionResult>
   resolver: (incidenciaId: number, formData: FormData) => Promise<ActionResult>
@@ -62,8 +66,8 @@ function FormReportar({
 }: { itemId: number; tipos: TipoIncidencia[]; cantidadLinea: number; piezas: PiezaVista[]; reportar: Props['reportar']; cerrar: () => void }) {
   const [tipo, setTipo] = useState<TipoIncidencia>(tipos[0])
   const [pieza, setPieza] = useState('')
-  // Solo "no disponible" se anota sobre UNA pieza: el resto (dañada, incompleta…) es de unidades de la línea.
-  const porPieza = tipo === 'no_disponible' && piezas.length > 0
+  // "No disponible" y "no la mandó" se anotan sobre UNA pieza: el resto (dañada, incompleta…) es de unidades de la línea.
+  const porPieza = admitePieza(tipo) && piezas.length > 0
   const { enviar, isPending, error } = useEnviarAccion(fd => reportar(itemId, fd), cerrar)
   return (
     <form onSubmit={enviar} className="mt-1.5 p-2.5 bg-amber-50 border border-amber-200 rounded-lg space-y-2">
@@ -85,7 +89,7 @@ function FormReportar({
             <option value="">Todo el conjunto</option>
             {piezas.map(p => <option key={p.etiqueta} value={p.etiqueta}>{p.quantity}× {p.etiqueta}</option>)}
           </select>
-          {pieza && <p className="text-[10px] text-amber-700 mt-0.5">Las demás piezas siguen su curso: al editar el pedido quitás solo esta.</p>}
+          {pieza && tipo === 'no_disponible' && <p className="text-[10px] text-amber-700 mt-0.5">Las demás piezas siguen su curso: al editar el pedido quitás solo esta.</p>}
         </div>
       )}
       <p className="text-[11px] text-amber-800">{TIPO_AYUDA[tipo]}</p>
@@ -102,14 +106,23 @@ function FormReportar({
 }
 
 function FormResolver({
-  inc, linea, pedido, tasaSugerida, resolver, cerrar,
-}: { inc: IncidenciaVista } & Pick<Props, 'linea' | 'pedido' | 'tasaSugerida' | 'resolver'> & { cerrar: () => void }) {
-  const opciones = resolucionesPara(inc.tipo, inc.origen)
+  inc, linea, pedido, tasaSugerida, propio = false, metodosProveedor = [], resolver, cerrar,
+}: { inc: IncidenciaVista } & Pick<Props, 'linea' | 'pedido' | 'tasaSugerida' | 'propio' | 'metodosProveedor' | 'resolver'> & { cerrar: () => void }) {
+  // Reponer o reembolsar baja sets enteros: a una pieza sola de un conjunto no se le ofrece.
+  const opciones = resolucionesPara(inc.tipo, inc.origen, propio)
+    .filter(r => !inc.pieza || (r !== 'reposicion' && r !== 'reembolso'))
   const [resolucion, setResolucion] = useState<Resolucion>(opciones[0])
+  // Lo que devolvió el proveedor (solo "no la mandó"): baja la pérdida propuesta.
+  const [devuelto, setDevuelto] = useState('')
   const { enviar, isPending, error } = useEnviarAccion(fd => resolver(inc.id, fd), cerrar)
+  const sinEnviar = inc.tipo === 'sin_enviar'
 
   // Lo que va a pasar si se reembolsa: cuánto sale del pedido, cuánto se pierde y cuánto le sobra al cliente.
-  const sugerida = perdidaSugerida(linea.costRealUsd, linea.quantity, inc.cantidad)
+  const costoUnidades = perdidaSugerida(linea.costRealUsd, linea.quantity, inc.cantidad)
+  const devueltoNum = Number(devuelto.replace(',', '.'))
+  const sugerida = sinEnviar && devuelto.trim() !== '' && Number.isFinite(devueltoNum)
+    ? perdidaTrasDevolucion(costoUnidades, devueltoNum)
+    : costoUnidades
   const plan = planReembolso({ ...linea }, Math.min(inc.cantidad, linea.quantity), sugerida)
   const nuevoTotal = Math.max(0, pedido.totalReal - plan.bajaVentaUsd)
   const leSobra = Math.min(pedido.depositUsd, Math.max(0, pedido.depositUsd - nuevoTotal))
@@ -126,17 +139,47 @@ function FormResolver({
           comprarlas otra vez queda como margen negativo de ese pedido.
         </p>
       )}
+      {resolucion === 'llego' && sinEnviar && (
+        <p className="text-[11px] text-gray-600">
+          Ya la tenés: la caja la vuelve a esperar. Si la caja ya se recibió, pasá la línea a «Recibido» desde la caja.
+        </p>
+      )}
       {resolucion === 'reembolso' && (
         <div className="space-y-2">
           <p className="text-[11px] text-gray-600">
-            Bajan {inc.cantidad} unidad(es) del pedido (${plan.bajaVentaUsd.toFixed(2)}). Lo que se pagó por ellas sale de la línea y queda como pérdida del pedido.
+            {propio
+              ? <>Bajan {inc.cantidad} unidad(es) de la línea: ya no se esperan. </>
+              : <>Bajan {inc.cantidad} unidad(es) del pedido (${plan.bajaVentaUsd.toFixed(2)}). </>}
+            Lo que se pagó por ellas sale de la línea{sinEnviar ? '; lo que el proveedor no devolvió' : ''} queda como pérdida del pedido.
           </p>
+          {sinEnviar && (
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[11px] font-medium text-gray-600 mb-0.5">El proveedor te devolvió (USD)</label>
+                <input
+                  type="number" name="devueltoProveedorUsd" min={0} step="0.01" required
+                  value={devuelto} onChange={e => setDevuelto(e.target.value)}
+                  placeholder={costoUnidades.toFixed(2)} className={`${cls} font-mono`}
+                />
+                <p className="text-[10px] text-gray-400 mt-0.5">0 si no te devolvió nada. Entra a la caja como ingreso.</p>
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-gray-600 mb-0.5">Por dónde</label>
+                <select name="metodoDevuelto" defaultValue="" className={cls}>
+                  <option value="">—</option>
+                  {metodosProveedor.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
           <div>
             <label className="block text-[11px] font-medium text-gray-600 mb-0.5">Pérdida (USD)</label>
-            <input type="number" name="perdidaUsd" min={0} step="0.01" defaultValue={sugerida.toFixed(2)} className={`${cls} font-mono`} />
-            <p className="text-[10px] text-gray-400 mt-0.5">Lo que costaron esas unidades. Bajalo si el proveedor te devolvió parte.</p>
+            <input key={sugerida.toFixed(2)} type="number" name="perdidaUsd" min={0} step="0.01" defaultValue={sugerida.toFixed(2)} className={`${cls} font-mono`} />
+            <p className="text-[10px] text-gray-400 mt-0.5">
+              {sinEnviar ? 'Lo que costaron esas unidades menos lo que te devolvió el proveedor.' : 'Lo que costaron esas unidades. Bajalo si el proveedor te devolvió parte.'}
+            </p>
           </div>
-          {pedido.depositUsd > 0.005 && (
+          {!propio && pedido.depositUsd > 0.005 && (
             <CamposDevolucion sugerido={leSobra} maximo={pedido.depositUsd} tasaSugerida={tasaSugerida} etiqueta="Devolverle al cliente (USD reales)" />
           )}
         </div>
@@ -153,7 +196,7 @@ function FormResolver({
   )
 }
 
-export default function IncidenciasLinea({ itemId, tipos, piezas = [], editarHref, linea, pedido, tasaSugerida, incidencias, reportar, resolver }: Props) {
+export default function IncidenciasLinea({ itemId, tipos, piezas = [], editarHref, linea, pedido, tasaSugerida, propio = false, metodosProveedor, incidencias, reportar, resolver }: Props) {
   const [reportando, setReportando] = useState(false)
   const [resolviendo, setResolviendo] = useState<number | null>(null)
   const abiertas = incidencias.filter(i => i.estado === 'abierta')
@@ -202,7 +245,7 @@ export default function IncidenciasLinea({ itemId, tipos, piezas = [], editarHre
       )}
       {abiertas.map(i =>
         resolviendo === i.id ? (
-          <FormResolver key={i.id} inc={i} linea={linea} pedido={pedido} tasaSugerida={tasaSugerida} resolver={resolver} cerrar={() => setResolviendo(null)} />
+          <FormResolver key={i.id} inc={i} linea={linea} pedido={pedido} tasaSugerida={tasaSugerida} propio={propio} metodosProveedor={metodosProveedor} resolver={resolver} cerrar={() => setResolviendo(null)} />
         ) : null,
       )}
     </div>
