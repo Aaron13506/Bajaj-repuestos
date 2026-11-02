@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { fechaCourier, metaEstadoTM, type CheckpointTM } from '@/lib/trackingmore'
+import { fechaCourier, metaEstado, type Checkpoint } from '@/lib/ship24'
 
 export type TrackingPasos = {
   /** "local", "USA", "VE". */
@@ -10,10 +10,10 @@ export type TrackingPasos = {
   numero: string
   transportista: string | null
   estado: string | null
-  eventos: CheckpointTM[]
+  eventos: Checkpoint[]
   /** Ya formateado en hora de Venezuela (lo arma el servidor). */
   consultado: string | null
-  /** Por qué TrackingMore no lo sigue (courier equivocado, número inválido…). */
+  /** Por qué Ship24 no lo sigue (courier equivocado, número inválido…). */
   error?: string | null
 }
 
@@ -72,7 +72,7 @@ export default function PasosTracking({
             <div className="px-5 py-4 space-y-6">
               {trackings.map(t => <Linea key={`${t.tramo}:${t.numero}`} t={t} />)}
               <p className="text-[10px] text-gray-400">
-                Fechas y horas en la hora local del courier, como las reporta TrackingMore.
+                Fechas y horas en la hora local del courier, como las reporta Ship24.
               </p>
             </div>
           </div>
@@ -84,7 +84,7 @@ export default function PasosTracking({
 }
 
 function Linea({ t }: { t: TrackingPasos }) {
-  const meta = metaEstadoTM(t.estado)
+  const meta = metaEstado(t.estado)
   return (
     <section>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-3">
@@ -104,7 +104,7 @@ function Linea({ t }: { t: TrackingPasos }) {
       ) : (
         <ol className="relative border-l-2 border-gray-200 ml-1.5 space-y-4">
           {t.eventos.map((e, i) => {
-            const m = metaEstadoTM(e.estado)
+            const m = metaEstado(e.estado)
             return (
               <li key={i} className="pl-5 relative">
                 <span

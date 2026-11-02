@@ -25,7 +25,7 @@ import { financiamientoEnvio, type FinanciamientoEnvio } from '@/lib/financiamie
 import FleteRealCard, { type FilaFlete } from '@/components/FleteRealCard'
 import TrackingsCaja from '@/components/TrackingsCaja'
 import SeguimientoCaja from '@/components/SeguimientoCaja'
-import { apiKeyTrackingMore } from '@/lib/trackingmore'
+import { apiKeyShip24 } from '@/lib/ship24'
 import { listaCouriers } from '@/lib/sync-trackings'
 import { esTramoTracking, type FilaTracking } from '@/lib/tracking'
 import ConteoCaja, { BotonConteo } from '@/components/ConteoCaja'
@@ -232,12 +232,12 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
       select: { id: true, fecha: true, monto: true, metodoPago: true, categoria: true },
       orderBy: [{ fecha: 'asc' }, { id: 'asc' }],
     }),
-    // Los couriers de TrackingMore, para elegir el de cada tracking (lib/trackingmore.ts).
+    // Los couriers de Ship24, para elegir el de cada tracking (lib/ship24.ts).
     listaCouriers(),
   ])
 
   if (!envio) notFound()
-  const trackingActivo = apiKeyTrackingMore() != null
+  const trackingActivo = apiKeyShip24() != null
 
   // Solo lo que esta caja necesita, no el catálogo entero (~5.8k filas) ni los precios de
   // todos los proveedores: las piezas de sus conjuntos, y el precio de cada línea con SU
@@ -1353,8 +1353,8 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               </div>
             </FormConResultado>
 
-            {/* Trackings por tramo. Con un courier de la lista de TrackingMore se siguen solos
-                (lib/trackingmore.ts); sin él quedan anotados. Sirven para contestarle al cliente
+            {/* Trackings por tramo. Con un courier de la lista de Ship24 se siguen solos
+                (lib/ship24.ts); sin él quedan anotados. Sirven para contestarle al cliente
                 dónde está su pieza. */}
             <SeguimientoCaja
               trackings={envio.trackings}

@@ -23,7 +23,7 @@ import {
   TRAMOS_FLETE, CATEGORIAS_FLETE, esTramoFlete, excedeFacturado, type TramoFlete,
 } from '@/lib/flete-real'
 import { TRAMOS_TRACKING, TRAMO_TRACKING_META, leerTrackingsTramo, type FilaTracking } from '@/lib/tracking'
-import { apiKeyTrackingMore, courierDeFila, ENV_API_KEY } from '@/lib/trackingmore'
+import { apiKeyShip24, courierDeFila, ENV_API_KEY } from '@/lib/ship24'
 import { listaCouriers, refrescarCouriers, sincronizarTrackings } from '@/lib/sync-trackings'
 
 // Crea una caja. La RUTA se elige acá y no se vuelve a tocar: es lo que decide con qué
@@ -447,11 +447,11 @@ export async function guardarTarifaKg(envioId: number, formData: FormData): Prom
 // pregunta dónde está su pieza. El form manda la lista completa de cada tramo y reemplaza la
 // guardada; un tramo vacío queda sin trackings.
 //
-// El courier llega elegido de la lista de TrackingMore (su code); con él el tracking se sigue
+// El courier llega elegido de la lista de Ship24 (su code); con él el tracking se sigue
 // solo (lib/sync-trackings.ts). Texto sin elegir se rechaza salvo «anotar sin seguimiento»
 // (courierDeFila): un courier mal escrito no puede quedar sin seguimiento en silencio.
 // Reemplazar no borra lo ya consultado: una fila con el mismo tramo, número y courier se
-// conserva con su estado y su registro en TrackingMore (registrar de nuevo gastaría otro crédito).
+// conserva con su estado y su tracker en Ship24 (crear otro gastaría otro envío del cupo).
 export async function guardarTrackings(envioId: number, formData: FormData): Promise<ActionResult> {
   const couriers = await listaCouriers()
   const filas: (FilaTracking & { courierCode: string | null })[] = []
@@ -505,11 +505,11 @@ export async function guardarTrackings(envioId: number, formData: FormData): Pro
   return ok()
 }
 
-// "Actualizar ahora": consulta ya, en TrackingMore, los trackings de esta caja (incluso los
+// "Actualizar ahora": consulta ya, en Ship24, los trackings de esta caja (incluso los
 // que habían dado error, por si se corrigió del lado de ellos). Si todavía no hay lista de
 // couriers, la baja: es lo que hace falta para elegirlos la primera vez.
 export async function actualizarTrackings(envioId: number): Promise<ActionResult> {
-  const apiKey = apiKeyTrackingMore()
+  const apiKey = apiKeyShip24()
   if (!apiKey) return fallo(`El seguimiento automático está apagado: falta ${ENV_API_KEY} en el servidor.`)
   const caja = await db.envio.findUnique({ where: { id: envioId }, select: { id: true } })
   if (!caja) return fallo('Ese envío ya no existe.')

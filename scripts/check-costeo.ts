@@ -54,7 +54,7 @@ import { diasSinMoverse, tiempoDeCompraA, tiemposPorTramo } from '../lib/etapas'
 import { leerDevolucion } from '../lib/devolucion'
 import { motivoNoCambiaReenvio, tarifaEquilibrioKgInr } from '../lib/reenvio'
 import { leerTrackingsTramo, MAX_TRACKINGS_POR_TRAMO } from '../lib/tracking'
-import { buscarCouriers, courierDeFila, datosDeTracking, esEstadoFinal, fechaCourier, mismoTracking, resolverCourier, errorDeFila } from '../lib/trackingmore'
+import { buscarCouriers, courierDeFila, cuerpoTracker, datosDeTracking, esEstadoFinal, fechaCourier, listaDeCouriers, numeroParaShip24, resolverCourier, errorDeFila } from '../lib/ship24'
 
 const cfg: ConfigMap = {
   inr_usd_rate: '94.95',
@@ -1403,7 +1403,7 @@ console.log('\nTRACKINGS DE LA CAJA')
   check('justo el tope: pasa', n(leerTrackingsTramo('usa', once.slice(1), once.slice(1).map(() => ''))), MAX_TRACKINGS_POR_TRAMO)
 }
 
-console.log('\nTRACKINGMORE')
+console.log('\nSHIP24')
 {
   const si = (b: boolean) => (b ? 1 : 0)
   const lista = [
@@ -1427,7 +1427,7 @@ console.log('\nTRACKINGMORE')
   check('texto exacto de un courier: se acepta', si(code(courierDeFila({ codigo: '', libre: false, texto: 'delhivery' }, lista)) === 'delhivery'), 1)
   const libre = courierDeFila({ codigo: '', libre: true, texto: 'Zoom' }, lista)
   check('«anotar sin seguimiento»: texto sin courier', si(!('error' in libre) && libre.courierCode === null && libre.transportista === 'Zoom'), 1)
-  check('sin lista (TrackingMore apagado): texto libre', si(code(courierDeFila({ codigo: '', libre: false, texto: 'Delhivry' }, [])) === null), 1)
+  check('sin lista (Ship24 apagado): texto libre', si(code(courierDeFila({ codigo: '', libre: false, texto: 'Delhivry' }, [])) === null), 1)
   check('sin courier ni texto: solo el número', si(code(courierDeFila({ codigo: '', libre: false, texto: '  ' }, lista)) === null), 1)
 
   const b = (q: string) => buscarCouriers(q, lista).map(c => c.code).join(',')
@@ -1437,28 +1437,45 @@ console.log('\nTRACKINGMORE')
   check('buscar: vacío no lista nada', si(b('  ') === ''), 1)
 
   const d = datosDeTracking({
-    id: 'abc', tracking_number: 'A1', courier_code: 'Delhivery', delivery_status: 'Transit', substatus: 'transit002',
-    latest_event: null, latest_checkpoint_time: null,
-    origin_info: { trackinfo: [
-      { checkpoint_date: '2026-10-02T09:00:00+05:30', tracking_detail: 'Picked up', location: 'Delhi' },
-      { checkpoint_date: '2026-10-03T11:00:00+05:30', tracking_detail: 'Arrived at hub', location: 'Mumbai' },
-    ] },
-    destination_info: { trackinfo: [
-      { checkpoint_date: '2026-10-03T11:00:00+05:30', tracking_detail: 'Arrived at hub', location: 'Mumbai' },
-      { checkpoint_date: null, tracking_detail: '  ', location: null },
-    ] },
+    tracker: { trackerId: 'abc', trackingNumber: 'A1', isTracked: true },
+    shipment: { statusMilestone: 'In_Transit', statusCode: 'transit_handover' },
+    events: [
+      { occurrenceDatetime: '2026-10-03T11:00:00+05:30', status: 'Arrived at hub', location: 'Mumbai', statusMilestone: 'in_transit' },
+      { occurrenceDatetime: '2026-10-03T11:00:00+05:30', status: 'Arrived at hub', location: 'Mumbai', statusMilestone: 'in_transit' },
+      { occurrenceDatetime: '2026-10-02T09:00:00+05:30', status: 'Picked up', location: 'Delhi', statusMilestone: 'in_transit' },
+      { occurrenceDatetime: null, status: '  ', location: null },
+    ],
   })
-  check('eventos: origen + destino sin repetidos ni vacíos', d.eventos.length, 2)
-  check('eventos: el más nuevo primero', si(d.eventos[0].detalle === 'Arrived at hub'), 1)
-  check('sin latest_event: el último checkpoint', si(d.ultimoEvento === 'Arrived at hub' && d.ultimoEventoEn === '2026-10-03T11:00:00+05:30'), 1)
-  check('estado en minúsculas', si(d.estado === 'transit' && d.tmId === 'abc'), 1)
+  check('eventos: sin repetidos ni vacíos', d.eventos.length, 2)
+  check('eventos: el orden de Ship24 (más nuevo primero)', si(d.eventos[0].detalle === 'Arrived at hub'), 1)
+  check('último evento: el primero de la lista', si(d.ultimoEvento === 'Arrived at hub' && d.ultimoEventoEn === '2026-10-03T11:00:00+05:30'), 1)
+  check('estado: statusMilestone en minúsculas, trackerId y statusCode', si(d.estado === 'in_transit' && d.trackerId === 'abc' && d.subestado === 'transit_handover'), 1)
+  const parado = datosDeTracking({ tracker: { trackerId: 'x', isTracked: false }, shipment: { statusMilestone: 'in_transit' }, events: [] })
+  check('Ship24 dejó de seguirlo sin entregar: detenido', si(parado.estado === 'detenido'), 1)
+  const entregado = datosDeTracking({ tracker: { trackerId: 'x', isTracked: false }, shipment: { statusMilestone: 'delivered' } })
+  check('entregado (isTracked false) sigue siendo entregado', si(entregado.estado === 'delivered'), 1)
   check('fecha del courier sin convertir', si(fechaCourier('2023-11-04T14:31:00-04:00') === '2023-11-04 14:31'), 1)
-  check('mismo tracking: courier sin importar mayúsculas', si(mismoTracking({ numero: 'A1', courierCode: 'delhivery' }, { tracking_number: 'A1', courier_code: 'Delhivery' })), 1)
-  check('otro courier con el mismo número no es el mismo', si(mismoTracking({ numero: 'A1', courierCode: 'dtdc' }, { tracking_number: 'A1', courier_code: 'delhivery' })), 0)
-  check('entregado y vencido no se consultan más', si(esEstadoFinal('delivered') && esEstadoFinal('expired')), 1)
-  check('un problema en aduana se sigue consultando', si(esEstadoFinal('exception')), 0)
-  check('courier equivocado es error de la fila', si(errorDeFila(4120) != null), 1)
-  check('sin créditos no es error de la fila (corta la corrida)', si(errorDeFila(4190) == null), 1)
+  check('entregado y detenido no se consultan más', si(esEstadoFinal('delivered') && esEstadoFinal('detenido')), 1)
+  check('un problema (exception) se sigue consultando', si(esEstadoFinal('exception')), 0)
+  check('courier equivocado es error de la fila', si(errorDeFila('validation_error') != null), 1)
+  check('sin cupo no es error de la fila (corta la corrida)', si(errorDeFila('quota_limit_reached') == null), 1)
+
+  check('número: sin espacios', si(numeroParaShip24(' 1234 5678 ') === '12345678'), 1)
+  check('número: muy corto se rechaza', si(typeof numeroParaShip24('A1') !== 'string'), 1)
+  check('número: caracteres raros se rechazan', si(typeof numeroParaShip24('SHP#64898') !== 'string'), 1)
+  const c1 = cuerpoTracker({ envioId: 7, tramo: 'venezuela', numero: 'MIA-12345', courierCode: 'zoom' })
+  const c2 = cuerpoTracker({ envioId: 7, tramo: 'venezuela', numero: 'MIA-12345', courierCode: 'zoom' })
+  check('cuerpo: el mismo para la misma fila (idempotente, no crea otro tracker)', si(JSON.stringify(c1) === JSON.stringify(c2)), 1)
+  check('cuerpo: tramo Venezuela va a VE', si(!('error' in c1) && c1.destinationCountryCode === 'VE' && c1.courierCode[0] === 'zoom'), 1)
+  const cl = cuerpoTracker({ envioId: 7, tramo: 'local', numero: '1234567890', courierCode: 'delhivery' })
+  check('cuerpo: el local no inventa país', si(!('error' in cl) && !('destinationCountryCode' in cl)), 1)
+  const lc = listaDeCouriers([
+    { courierCode: 'Delhivery', courierName: 'Delhivery', countryCode: 'in', isDeprecated: false },
+    { courierCode: 'viejo', courierName: 'Viejo', countryCode: null, isDeprecated: true },
+    { courierCode: 'delhivery', courierName: 'Delhivery 2' },
+    { courierCode: '', courierName: 'Sin code' },
+  ])
+  check('couriers: sin deprecados, repetidos ni vacíos; code y país normalizados', si(lc.length === 1 && lc[0].code === 'delhivery' && lc[0].pais === 'IN'), 1)
 }
 
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)

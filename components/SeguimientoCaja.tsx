@@ -2,7 +2,7 @@ import FormConResultado from '@/components/FormConResultado'
 import PendingButton from '@/components/PendingButton'
 import type { ActionResult } from '@/lib/action-result'
 import { TRAMOS_TRACKING, TRAMO_TRACKING_META, esTramoTracking } from '@/lib/tracking'
-import { eventosGuardados, fechaCourier, horaConsulta, metaEstadoTM } from '@/lib/trackingmore'
+import { ENV_API_KEY, eventosGuardados, fechaCourier, horaConsulta, metaEstado } from '@/lib/ship24'
 import PasosTracking from '@/components/PasosTracking'
 
 export type TrackingConEstado = {
@@ -20,8 +20,8 @@ export type TrackingConEstado = {
   errorSeguimiento: string | null
 }
 
-// Lo que TrackingMore dice de cada tracking de la caja (solo lectura). Lo pone al día el timer
-// de cada hora (pnpm tracking:sync) o el botón. Ver lib/trackingmore.ts.
+// Lo que Ship24 dice de cada tracking de la caja (solo lectura). Lo pone al día el timer
+// de cada hora (pnpm tracking:sync) o el botón. Ver lib/ship24.ts.
 export default function SeguimientoCaja({
   trackings,
   activo,
@@ -29,7 +29,7 @@ export default function SeguimientoCaja({
   actualizar,
 }: {
   trackings: TrackingConEstado[]
-  /** Hay TRACKINGMORE_API_KEY en el servidor. */
+  /** Hay SHIP24_API_KEY en el servidor. */
   activo: boolean
   hayCouriers: boolean
   actualizar: () => Promise<ActionResult>
@@ -40,7 +40,7 @@ export default function SeguimientoCaja({
   return (
     <div className="mt-5 pt-4 border-t border-gray-100 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Seguimiento · TrackingMore</h3>
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Seguimiento · Ship24</h3>
         {activo && (
           <FormConResultado action={actualizar} className="flex flex-col items-end gap-1">
             <PendingButton
@@ -55,7 +55,7 @@ export default function SeguimientoCaja({
 
       {!activo && (
         <p className="text-xs text-gray-400">
-          Apagado: falta <code>TRACKINGMORE_API_KEY</code> en el servidor. Los trackings quedan solo anotados.
+          Apagado: falta <code>{ENV_API_KEY}</code> en el servidor. Los trackings quedan solo anotados.
         </p>
       )}
       {activo && !hayCouriers && (
@@ -72,7 +72,7 @@ export default function SeguimientoCaja({
       {ordenados.length > 0 && (
         <ul className="space-y-2">
           {ordenados.map(t => {
-            const meta = metaEstadoTM(t.estado)
+            const meta = metaEstado(t.estado)
             const eventos = eventosGuardados(t.eventos)
             const corto = esTramoTracking(t.tramo) ? TRAMO_TRACKING_META[t.tramo].corto : t.tramo
             return (

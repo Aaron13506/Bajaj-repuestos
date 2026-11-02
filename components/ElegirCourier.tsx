@@ -1,15 +1,15 @@
 'use client'
 
 import { useId, useMemo, useState } from 'react'
-import { buscarCouriers, type CourierTM } from '@/lib/trackingmore'
+import { buscarCouriers, type Courier } from '@/lib/ship24'
 
 export type CourierInicial = { code: string | null; nombre: string | null }
 
-// El courier de un renglón de tracking: un buscador sobre la lista de TrackingMore, no un texto
+// El courier de un renglón de tracking: un buscador sobre la lista de Ship24, no un texto
 // libre. Lo elegido viaja como code (`courier_<tramo>`), así que no hay tipeo que falle. Para
-// lo que TrackingMore no rastrea (Zoom, Tealca, una referencia de Shoppre) está «anotar sin
+// lo que Ship24 no rastrea (Zoom, Tealca, una referencia de Shoppre) está «anotar sin
 // seguimiento», que hay que elegir a propósito. Texto escrito sin elegir nada lo rechaza la
-// acción (courierDeFila). Sin lista (TrackingMore apagado) es un texto libre como antes.
+// acción (courierDeFila). Sin lista (Ship24 apagado) es un texto libre como antes.
 //
 // Manda tres campos paralelos a `numero_<tramo>`: courier_, libre_ y transportista_.
 export default function ElegirCourier({
@@ -20,7 +20,7 @@ export default function ElegirCourier({
 }: {
   tramo: string
   inicial: CourierInicial
-  couriers: CourierTM[]
+  couriers: Courier[]
   placeholder: string
 }) {
   const hayLista = couriers.length > 0
@@ -44,7 +44,7 @@ export default function ElegirCourier({
     </>
   )
 
-  function elegir(c: CourierTM) {
+  function elegir(c: Courier) {
     setCode(c.code)
     setLibre(false)
     setTexto('')
@@ -82,7 +82,7 @@ export default function ElegirCourier({
         {hayLista && (
           <button
             type="button" onClick={() => { setLibre(false); setAbierto(true) }}
-            title="Sin seguimiento automático. Tocá para buscarlo en la lista de TrackingMore."
+            title="Sin seguimiento automático. Tocá para buscarlo en la lista de Ship24."
             className="text-[10px] whitespace-nowrap px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200"
           >
             sin seguimiento ↺
