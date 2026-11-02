@@ -32,7 +32,7 @@ import { listaCouriers } from '@/lib/sync-trackings'
 import { esTramoTracking, type FilaTracking } from '@/lib/tracking'
 import ConteoCaja, { BotonConteo } from '@/components/ConteoCaja'
 import { piezasAContar } from '@/lib/conteo'
-import { lineaNoViene, sinEnviarDe, textoSinEnviar } from '@/lib/incidencias'
+import { etiquetaPieza, lineaNoViene, sinEnviarDe, textoSinEnviar, tiposPara } from '@/lib/incidencias'
 import { statusIndex } from '@/lib/shipping-status'
 import { seEntregaDesdeElPedido } from '@/lib/saldo-entrega'
 import { TRAMOS_FLETE, CATEGORIAS_FLETE, estadoFlete } from '@/lib/flete-real'
@@ -47,6 +47,7 @@ import {
   assignItems,
   assignAllConfirmados,
   removePedido,
+  marcarNoVino,
   deleteEnvio,
   saveCostosProveedor,
   guardarTarifaKg,
@@ -588,6 +589,9 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     sinPeso: faltantesByItem.get(it.id)?.sinPeso ?? 0,
     sinMedidas: faltantesByItem.get(it.id)?.sinMedidas ?? 0,
     sinEnviar: textoSinEnviar(sinEnviarDe(it.incidencias)),
+    admiteNoVino: (it.pedido.tipo === 'cliente' || it.pedido.tipo === 'propio') && it.pedido.status === 'pedido' && !it.isLanded &&
+      tiposPara({ shippingStatus: it.shippingStatus, costRealUsd: it.costRealUsd != null ? Number(it.costRealUsd) : null }).includes('sin_enviar'),
+    piezasEtiqueta: ((it.bundleItems as BundlePiece[] | null) ?? []).map(p => ({ etiqueta: etiquetaPieza(p), quantity: p.quantity })),
   }))
 
   // Lo comprado que viaja en la caja, esté en la etapa que esté: la caja se cuenta cuando se
@@ -1582,6 +1586,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
             modo={modoEnvio}
             guardar={saveItemChanges}
             quitar={removePedido}
+            marcarNoVino={marcarNoVino}
             bloqueada={esBorrador}
           />
 
