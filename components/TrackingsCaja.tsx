@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import FormConResultado from '@/components/FormConResultado'
 import PendingButton from '@/components/PendingButton'
 import type { ActionResult } from '@/lib/action-result'
@@ -19,6 +20,9 @@ const SIN_COURIER: CourierInicial = { code: null, nombre: null }
 //
 // El courier se elige de la lista de Ship24 con un buscador (ElegirCourier): elegido de
 // ahí, el tracking se sigue solo. Sin lista (Ship24 apagado) es texto libre.
+//
+// Quitar un renglón con número pide confirmación en una ventana: un ✕ tocado sin querer, y
+// después «Guardar», borraba el tracking y su seguimiento. El renglón vacío se quita directo.
 export default function TrackingsCaja({
   action,
   inicial,
@@ -53,6 +57,13 @@ export default function TrackingsCaja({
   function quitar(tramo: TramoTracking, key: number) {
     setFilas(prev => ({ ...prev, [tramo]: prev[tramo].filter(f => f.key !== key) }))
   }
+  const [aQuitar, setAQuitar] = useState<{ tramo: TramoTracking; key: number; numero: string } | null>(null)
+  function pedirQuitar(tramo: TramoTracking, f: Fila) {
+    const numero = f.numero.trim()
+    if (numero) setAQuitar({ tramo, key: f.key, numero })
+    else quitar(tramo, f.key)
+  }
+  const cancelarQuitar = useCallback(() => setAQuitar(null), [])
   function cambiarNumero(tramo: TramoTracking, key: number, numero: string) {
     setFilas(prev => ({ ...prev, [tramo]: prev[tramo].map(f => (f.key === key ? { ...f, numero } : f)) }))
   }
@@ -81,7 +92,7 @@ export default function TrackingsCaja({
                   />
                   <ElegirCourier tramo={tramo} inicial={f.courier} couriers={couriers} placeholder={meta.transportista} />
                   <button
-                    type="button" onClick={() => quitar(tramo, f.key)} title="Quitar este tracking"
+                    type="button" onClick={() => pedirQuitar(tramo, f)} title="Quitar este tracking"
                     className="px-2 py-1 text-sm text-gray-400 hover:text-red-600 transition-colors"
                   >
                     ✕
@@ -102,6 +113,73 @@ export default function TrackingsCaja({
       <PendingButton className="px-4 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
         Guardar trackings
       </PendingButton>
+      {aQuitar && (
+        <ConfirmarQuitar
+          numero={aQuitar.numero}
+          tramo={TRAMO_TRACKING_META[aQuitar.tramo].label}
+          onCancelar={cancelarQuitar}
+          onConfirmar={() => { quitar(aQuitar.tramo, aQuitar.key); setAQuitar(null) }}
+        />
+      )}
     </FormConResultado>
+  )
+}
+
+// La ventana de confirmación, encima de la página (portal a body, como PasosTracking). El
+// foco arranca en «Cancelar»: un Enter apurado no borra nada. Escape o tocar afuera cancela.
+function ConfirmarQuitar({
+  numero, tramo, onCancelar, onConfirmar,
+}: {
+  numero: string
+  tramo: string
+  onCancelar: () => void
+  onConfirmar: () => void
+}) {
+  const cancelar = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    cancelar.current?.focus()
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancelar() }
+    window.addEventListener('keydown', onKey)
+    const previo = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = previo
+    }
+  }, [onCancelar])
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onCancelar}>
+      <div
+        role="alertdialog" aria-modal="true" aria-labelledby="quitar-tracking-titulo"
+        className="w-full max-w-sm bg-white rounded-xl shadow-xl p-5 space-y-3"
+        onClick={e => e.stopPropagation()}
+      >
+        <h2 id="quitar-tracking-titulo" className="text-sm font-semibold text-gray-800">¿Quitar este tracking?</h2>
+        <p className="text-sm text-gray-700">
+          <span className="font-mono font-semibold">{numero}</span>
+          <span className="block text-xs text-gray-500">{tramo}</span>
+        </p>
+        <p className="text-xs text-gray-500">
+          Se borra de la caja, con su seguimiento, al tocar «Guardar trackings». Hasta entonces podés
+          recargar la página para recuperarlo.
+        </p>
+        <div className="flex justify-end gap-2 pt-1">
+          <button
+            ref={cancelar} type="button" onClick={onCancelar}
+            className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button" onClick={onConfirmar}
+            className="px-3 py-1.5 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700"
+          >
+            Quitar
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   )
 }
