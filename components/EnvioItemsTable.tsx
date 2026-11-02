@@ -19,7 +19,7 @@ import { groupBundlePieces, type BundlePiece } from '@/lib/bundle'
 import { limpiarNombre } from '@/lib/utils'
 import type { CambioItem } from '@/app/(pages)/envios/actions'
 import type { ActionResult } from '@/lib/action-result'
-import MarcarNoVino from '@/components/MarcarNoVino'
+import MarcarNoVino, { type SkuNoVino } from '@/components/MarcarNoVino'
 
 export interface EnvioItemRow {
   id: number
@@ -50,7 +50,10 @@ export interface EnvioItemRow {
   // Se le puede marcar desde acá que el proveedor no la mandó (pedido confirmado de cliente o propio,
   // que todavía no llegó a Venezuela). Las piezas de un conjunto, por si falta solo una.
   admiteNoVino: boolean
-  piezasEtiqueta: { etiqueta: string; quantity: number }[]
+  /** Los SKU de un conjunto, con lo ya anotado como "no vino" (vacío = pieza suelta). */
+  skusNoVino: SkuNoVino[]
+  /** Pieza suelta: unidades ya anotadas como "no vino". */
+  yaNoVino: number
 }
 
 interface Props {
@@ -616,7 +619,8 @@ export default function EnvioItemsTable({
                           <MarcarNoVino
                             nombre={limpiarNombre(it.nombre)}
                             cantidad={it.quantity}
-                            piezas={it.piezasEtiqueta}
+                            piezas={it.skusNoVino}
+                            yaAnotadasLinea={it.yaNoVino}
                             marcar={fd => marcarNoVino(envioId, it.id, fd)}
                             cerrar={() => setNoVino(null)}
                           />

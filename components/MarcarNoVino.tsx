@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useEnviarAccion } from '@/components/useEnviarAccion'
 import type { ActionResult } from '@/lib/action-result'
@@ -14,18 +14,20 @@ export default function MarcarNoVino({
   nombre,
   cantidad,
   piezas,
+  yaAnotadasLinea = 0,
   marcar,
   cerrar,
 }: {
   /** La línea, para el título de la ventana. */
   nombre: string
   cantidad: number
-  /** Las piezas de un conjunto (etiquetaPieza), para marcar solo una. Vacío = pieza suelta. */
-  piezas: { etiqueta: string; quantity: number }[]
+  /** Pieza suelta: unidades ya anotadas como "no la mandó". */
+  yaAnotadasLinea?: number
+  /** Los SKU de un conjunto. Vacío = pieza suelta (un solo SKU, la línea). */
+  piezas: SkuNoVino[]
   marcar: (formData: FormData) => Promise<ActionResult>
   cerrar: () => void
 }) {
-  const [pieza, setPieza] = useState('')
   const { enviar, isPending, error } = useEnviarAccion(marcar, cerrar)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar() }
@@ -40,23 +42,9 @@ export default function MarcarNoVino({
         <button type="button" onClick={cerrar} title="Cerrar" className="px-2 text-gray-400 hover:text-gray-700">✕</button>
       </div>
       <p className="text-xs text-orange-900 bg-orange-50 rounded-lg px-3 py-2">
-        El proveedor no la mandó todavía: la caja no la espera al llegar y no se entrega hasta que llegue o te la reembolse.
+        Poné cuántas unidades de cada SKU no mandó el proveedor (vacío = vino). La caja no las espera al llegar y la línea no se entrega hasta que lleguen o te las reembolse.
       </p>
-      <div className="flex items-center gap-2 flex-wrap">
-        {piezas.length > 0 && (
-          <select name="pieza" value={pieza} onChange={e => setPieza(e.target.value)} className={cls} aria-label="Qué pieza del conjunto">
-            <option value="">Conjunto entero</option>
-            {piezas.map(p => <option key={p.etiqueta} value={p.etiqueta}>{p.quantity}× {p.etiqueta}</option>)}
-          </select>
-        )}
-        {!pieza && (
-          <label className="flex items-center gap-1 text-[11px] text-gray-600">
-            {piezas.length > 0 ? 'sets' : 'unidades'}
-            <input type="number" name="cantidad" min={1} max={cantidad} defaultValue={cantidad} required className={`${cls} w-16 text-right font-mono`} />
-            <span className="text-gray-400">de {cantidad}</span>
-          </label>
-        )}
-      </div>
+      <CamposNoVino cantidad={cantidad} piezas={piezas} yaAnotadasLinea={yaAnotadasLinea} />
       <input type="text" name="nota" placeholder="Nota (opcional): qué te dijo el proveedor" className={`${cls} w-full`} />
       {error && <p role="alert" className="text-[11px] text-red-600">{error}</p>}
       <div className="flex gap-2">
@@ -68,5 +56,54 @@ export default function MarcarNoVino({
     </form>
     </div>,
     document.body,
+  )
+}
+
+export interface SkuNoVino {
+  /** etiquetaPieza: «Nombre (CÓDIGO)». */
+  etiqueta: string
+  /** Unidades por set. */
+  quantity: number
+  /** Ya anotadas como "no la mandó" (abiertas): no se pueden volver a anotar. */
+  yaAnotadas?: number
+}
+
+// Una fila por SKU: cuántas unidades de ese código no vinieron. Vacío = vino todo. Los campos se
+// llaman `cant::<etiqueta>` (en una pieza suelta, `cant::`), que es lo que lee reportarNoVino.
+export function CamposNoVino({ cantidad, piezas, yaAnotadasLinea = 0 }: { cantidad: number; piezas: SkuNoVino[]; yaAnotadasLinea?: number }) {
+  const filas = piezas.length > 0
+    ? piezas.map(p => ({ clave: p.etiqueta, nombre: p.etiqueta, total: p.quantity * cantidad, ya: p.yaAnotadas ?? 0 }))
+    : [{ clave: '', nombre: null as string | null, total: cantidad, ya: yaAnotadasLinea }]
+  return (
+    <table className="w-full text-xs">
+      <thead>
+        <tr className="text-[10px] uppercase tracking-wide text-gray-400">
+          <th className="text-left font-semibold pb-1">SKU</th>
+          <th className="text-right font-semibold pb-1 w-28">No vinieron</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-gray-100">
+        {filas.map(f => {
+          const libres = Math.max(0, f.total - f.ya)
+          return (
+            <tr key={f.clave}>
+              <td className="py-1.5 pr-2 text-gray-800">
+                {f.nombre ?? 'Esta pieza'}
+                {f.ya > 0 && <span className="ml-1 text-[10px] text-orange-700">({f.ya} ya anotadas)</span>}
+              </td>
+              <td className="py-1.5 text-right whitespace-nowrap">
+                <input
+                  type="number" name={`cant::${f.clave}`} min={0} max={libres} step={1} inputMode="numeric"
+                  placeholder="0" disabled={libres === 0}
+                  aria-label={`Unidades de ${f.nombre ?? 'la pieza'} que no vinieron`}
+                  className="w-14 border border-gray-300 rounded px-1.5 py-0.5 text-right font-mono disabled:bg-gray-50"
+                />
+                <span className="ml-1 text-gray-400">de {libres}</span>
+              </td>
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
   )
 }
