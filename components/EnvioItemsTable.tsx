@@ -614,6 +614,7 @@ export default function EnvioItemsTable({
                         )}
                         {noVino === it.id && marcarNoVino && (
                           <MarcarNoVino
+                            nombre={limpiarNombre(it.nombre)}
                             cantidad={it.quantity}
                             piezas={it.piezasEtiqueta}
                             marcar={fd => marcarNoVino(envioId, it.id, fd)}
@@ -640,14 +641,14 @@ export default function EnvioItemsTable({
                       </td>
                       {/* Una pieza no se saca sola del envío; lo único por fila es avisar que no vino. */}
                       <td className="px-4 py-3 text-right">
-                        {it.admiteNoVino && marcarNoVino && noVino !== it.id && (
+                        {it.admiteNoVino && marcarNoVino && (
                           <button
                             type="button"
                             onClick={() => setNoVino(it.id)}
                             title="El proveedor no la mandó (o no toda): la caja no la espera al llegar"
-                            className="text-[11px] font-medium text-orange-700 hover:text-orange-900 hover:underline whitespace-nowrap"
+                            className="px-2 py-1 text-[11px] font-medium rounded-lg border border-orange-300 bg-white text-orange-700 hover:bg-orange-50 whitespace-nowrap"
                           >
-                            No vino
+                            Marcar «no vino»
                           </button>
                         )}
                       </td>
