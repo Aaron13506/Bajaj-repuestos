@@ -47,7 +47,7 @@ import { describirOps, estadoLinea, permisoDeLinea, motivoEdicionSinCliente, pla
 import { devolucionSugerida, motivoDevolucionInvalida, motivoNoCancelable, resumenCancelacion } from '../lib/pedido-cancelacion'
 import {
   bloqueaCompra, bloqueaEntrega, cerradosPorEdicion, dentroDePlazo, etiquetaPieza, motivoResolucionInvalida, origenPara, perdidaSugerida, planReembolso,
-  resolucionesPara, tiposPara, sinEnviarDe, lineaNoViene, textoSinEnviar, admitePieza, type Resolucion,
+  resolucionesPara, tiposPara, sinEnviarDe, lineaNoViene, textoSinEnviar, admitePieza, tiposParaPropio, perdidaTrasDevolucion, type Resolucion,
 } from '../lib/incidencias'
 import { debeSaldo, motivoNoEntregable, saldoReal, seEntregaDesdeElPedido, situacionDeCobro } from '../lib/saldo-entrega'
 import { diasSinMoverse, tiempoDeCompraA, tiemposPorTramo } from '../lib/etapas'
@@ -1083,6 +1083,19 @@ console.log('\nINCIDENCIAS Y RECLAMOS')
   check('una línea de 3 con 2 sin enviar sí viene (en parte)', si(lineaNoViene(3, se)), 0)
   check('etiqueta "2 + 1 pieza sin enviar"', si(textoSinEnviar(se) === '2 + 1 pieza sin enviar'), 1)
   check('sin nada abierto no hay etiqueta', si(textoSinEnviar(sinEnviarDe([])) === null), 1)
+  // Stock propio: solo "no la mandó", y se cierra llegando o con el reembolso del proveedor.
+  check('propio: solo se anota "no la mandó"', si(tiposParaPropio({ shippingStatus: 'camino_usa', costRealUsd: 50 }).join() === 'sin_enviar'), 1)
+  check('propio: ya en Venezuela no se anota nada', tiposParaPropio(enCamino).length, 0)
+  check('propio: llegó o reembolso, sin reposición', si(resolucionesPara('sin_enviar', 'operacion', true).join() === 'llego,reembolso'), 1)
+  const lineaSE = { quantity: 4, salePrice: 10, costRealUsd: 40 }
+  const base = { tipo: 'sin_enviar' as const, origen: 'operacion' as const, cantidad: 1, resolucion: 'reembolso' as const, linea: lineaSE, perdidaUsd: null }
+  check('reembolso de "no la mandó" pide lo devuelto', si(motivoResolucionInvalida({ ...base, devueltoProveedorUsd: null }) != null), 1)
+  check('un 0 devuelto es un dato', si(motivoResolucionInvalida({ ...base, devueltoProveedorUsd: 0 }) === null), 1)
+  check('propio: el reembolso del proveedor vale', si(motivoResolucionInvalida({ ...base, propio: true, devueltoProveedorUsd: 10 }) === null), 1)
+  check('propio: no se repone', si(motivoResolucionInvalida({ ...base, resolucion: 'reposicion', propio: true, devueltoProveedorUsd: null }) != null), 1)
+  check('una pieza sola de un conjunto no se reembolsa', si(motivoResolucionInvalida({ ...base, devueltoProveedorUsd: 5, pieza: 'Bujía (B1)' }) != null), 1)
+  check('pérdida = costo − lo que devolvió el proveedor', perdidaTrasDevolucion(10, 7.5), 2.5)
+  check('si devolvió todo (o más) no hay pérdida', perdidaTrasDevolucion(10, 12), 0)
   check('entregada: solo reclamos, y el defecto de fábrica se admite', si(tiposPara(entregada).includes('defecto') && !tiposPara(entregada).includes('perdida')), 1)
   check('lo de una línea entregada es un reclamo del cliente', si(origenPara(entregada) === 'cliente'), 1)
   check('lo de una en camino lo detecté yo', si(origenPara(enCamino) === 'operacion'), 1)

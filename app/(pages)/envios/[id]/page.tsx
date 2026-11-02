@@ -36,7 +36,7 @@ import { lineaNoViene, sinEnviarDe, textoSinEnviar } from '@/lib/incidencias'
 import { statusIndex } from '@/lib/shipping-status'
 import { seEntregaDesdeElPedido } from '@/lib/saldo-entrega'
 import { TRAMOS_FLETE, CATEGORIAS_FLETE, estadoFlete } from '@/lib/flete-real'
-import { itemsSinCostoRealDeEnvio, CATEGORIAS_PAGO_PROVEEDOR } from '@/lib/movimientos'
+import { itemsSinCostoRealDeEnvio, CATEGORIAS_PAGO_PROVEEDOR, CATEGORIAS_REEMBOLSO_PROVEEDOR } from '@/lib/movimientos'
 import type { BundlePiece } from '@/lib/bundle'
 import { num, toConfigMap } from '@/lib/config'
 import { armarCompra99rpm } from '@/lib/compra-99rpm'
@@ -226,8 +226,16 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     // que salda lo que se le debe al PROVEEDOR (mercancía, tramo, comisión del giro): un
     // flete anotado contra la caja se le pagó a Shoppre o a la naviera, y contarlo acá
     // reducía una deuda que sigue viva. Es la misma definición que usa cuentasPorPagar.
-    db.movimiento.aggregate({
-      where: { envioId: id, tipo: 'egreso', categoria: { in: [...CATEGORIAS_PAGO_PROVEEDOR] } },
+    // Menos lo que el proveedor devolvió por algo que no mandó (CATEGORIAS_REEMBOLSO_PROVEEDOR).
+    db.movimiento.groupBy({
+      by: ['tipo'],
+      where: {
+        envioId: id,
+        OR: [
+          { tipo: 'egreso', categoria: { in: [...CATEGORIAS_PAGO_PROVEEDOR] } },
+          { tipo: 'ingreso', categoria: { in: [...CATEGORIAS_REEMBOLSO_PROVEEDOR] } },
+        ],
+      },
       _sum: { monto: true },
     }),
     // Piezas de ESTA caja sin costRealUsd cargado, para el picker de "cuánto pagué de
@@ -267,7 +275,8 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
       })
     : []
 
-  const pagadoProveedor = parseFloat((egresosCaja._sum.monto ?? 0).toString())
+  const pagadoProveedor = egresosCaja.reduce(
+    (t, g) => t + (g.tipo === 'ingreso' ? -1 : 1) * parseFloat((g._sum.monto ?? 0).toString()), 0)
 
   const cfg = toConfigMap(cfgRows)
 

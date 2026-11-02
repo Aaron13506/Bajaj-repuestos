@@ -83,6 +83,11 @@ export function tiposPara(linea: { shippingStatus: string; costRealUsd: number |
   }
 }
 
+/** En un pedido de stock propio solo se anota lo que el proveedor no mandó (no hay cliente que reclame). */
+export function tiposParaPropio(linea: { shippingStatus: string; costRealUsd: number | null }): TipoIncidencia[] {
+  return tiposPara(linea).filter(t => t === 'sin_enviar')
+}
+
 /** Los tipos que se pueden anotar sobre UNA pieza de un conjunto (el resto es de unidades de la línea). */
 export function admitePieza(tipo: TipoIncidencia): boolean {
   return tipo === 'no_disponible' || tipo === 'sin_enviar'
@@ -92,9 +97,11 @@ export function origenPara(linea: { shippingStatus: string; costRealUsd: number 
   return estadoLinea(linea) === 'entregada' ? 'cliente' : 'operacion'
 }
 
-// Cómo se puede cerrar según qué es y quién lo detectó.
-export function resolucionesPara(tipo: TipoIncidencia, origen: OrigenIncidencia): Resolucion[] {
+// Cómo se puede cerrar según qué es, quién lo detectó y de qué pedido es. En stock propio no hay
+// cliente a quien reponerle: lo que el proveedor no mandó llega después o te lo reembolsa.
+export function resolucionesPara(tipo: TipoIncidencia, origen: OrigenIncidencia, propio = false): Resolucion[] {
   if (tipo === 'no_disponible') return ['llego', 'sustituida']
+  if (propio) return tipo === 'sin_enviar' ? ['llego', 'reembolso'] : []
   if (origen === 'cliente') return ['reposicion', 'reembolso', 'rechazado']
   return tipo === 'danada' || tipo === 'equivocada'
     ? ['reposicion', 'reembolso', 'llego']
@@ -188,6 +195,12 @@ export function perdidaSugerida(costRealUsd: number | null, cantidadLinea: numbe
   return centavos((costRealUsd * unidades) / cantidadLinea)
 }
 
+// Al reembolsar algo que el proveedor no mandó, lo que él te devolvió ya no es pérdida: se pierde
+// solo lo que pagaste por esas unidades y no volvió.
+export function perdidaTrasDevolucion(costoUnidadesUsd: number, devueltoProveedorUsd: number): number {
+  return centavos(Math.max(0, costoUnidadesUsd - devueltoProveedorUsd))
+}
+
 export interface LineaParaResolver {
   quantity: number
   salePrice: number
@@ -218,18 +231,31 @@ export function motivoResolucionInvalida(i: {
   resolucion: Resolucion
   linea: LineaParaResolver | null
   perdidaUsd: number | null
+  /** Pedido de stock propio. */
+  propio?: boolean
+  /** Lo que devolvió el proveedor (solo al reembolsar algo que no mandó). null = no se escribió. */
+  devueltoProveedorUsd?: number | null
+  /** La pieza del conjunto, si la incidencia es de una sola (null = la línea entera). */
+  pieza?: string | null
 }): string | null {
-  if (!resolucionesPara(i.tipo, i.origen).includes(i.resolucion)) {
+  if (!resolucionesPara(i.tipo, i.origen, i.propio).includes(i.resolucion)) {
     return `Un problema «${TIPO_LABELS[i.tipo]}» no se puede cerrar como «${RESOLUCION_LABELS[i.resolucion]}».`
   }
   if (i.resolucion === 'reposicion' || i.resolucion === 'reembolso') {
     if (!i.linea) return 'La línea ya no está en el pedido: no hay de dónde reponer o reembolsar.'
+    // Reponer o reembolsar baja sets enteros: una sola pieza de un conjunto no se puede descontar así.
+    if (i.pieza) return 'Una pieza suelta de un conjunto no se repone ni se reembolsa sola: cerrala y anotá el problema sobre el conjunto entero.'
     if (i.cantidad > i.linea.quantity) {
       return `La incidencia es de ${i.cantidad} unidades pero la línea tiene ${i.linea.quantity}.`
     }
   }
   if (i.resolucion === 'reembolso' && i.perdidaUsd != null && (!Number.isFinite(i.perdidaUsd) || i.perdidaUsd < 0)) {
     return 'La pérdida no es un monto válido.'
+  }
+  if (i.resolucion === 'reembolso' && i.tipo === 'sin_enviar') {
+    const d = i.devueltoProveedorUsd
+    if (d == null) return 'Escribí cuánto te devolvió el proveedor (0 si no te devolvió nada).'
+    if (!Number.isFinite(d) || d < 0) return 'Lo que devolvió el proveedor no es un monto válido.'
   }
   return null
 }

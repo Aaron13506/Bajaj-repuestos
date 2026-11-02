@@ -26,7 +26,7 @@ import { lookupDeConjuntos } from '@/lib/envio-build'
 import { escalonBcvVigente, type ConfigMap } from '@/lib/calc'
 import { aDolarBcv, resumenCobro } from '@/lib/cobro-bcv'
 import { getTerminos } from '@/lib/terminos'
-import { METODOS_PAGO_INGRESO } from '@/lib/pagos'
+import { METODOS_PAGO_EGRESO, METODOS_PAGO_INGRESO } from '@/lib/pagos'
 import { compararNombre, telefonoIntl, toFileName } from '@/lib/utils'
 import type { PresupuestoPdfData } from '@/lib/pdf/presupuesto-pdf'
 import { isDelivered, stageSummary, shippingStatusMeta, SHIPPING_STATUSES } from '@/lib/shipping-status'
@@ -39,7 +39,7 @@ import { cargarMargenes } from '@/lib/resultados'
 import { estadoValidez, escalonDelPresupuesto, validezDias } from '@/lib/validez'
 import { devolucionSugerida, motivoNoCancelable, resumenCancelacion } from '@/lib/pedido-cancelacion'
 import { estadoLinea } from '@/lib/pedido-edicion'
-import { etiquetaPieza, tiposPara, TIPO_LABELS } from '@/lib/incidencias'
+import { etiquetaPieza, tiposPara, tiposParaPropio, TIPO_LABELS } from '@/lib/incidencias'
 import { motivoNoEntregable, saldoReal } from '@/lib/saldo-entrega'
 import { mensajeEstado } from '@/lib/mensajes-cliente'
 import { motivoExpressNoAprobable, plazoExpress } from '@/lib/express'
@@ -912,14 +912,16 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                         devolver={devolverAlDeposito.bind(null, item.id)}
                       />
                     )}
-                    {isConfirmadoCliente && (
+                    {(isConfirmadoCliente || (isPropio && presupuesto.status === 'pedido')) && (
                       <IncidenciasLinea
                         itemId={item.id}
                         piezas={Array.isArray(item.bundleItems)
                           ? (item.bundleItems as unknown as BundlePiece[]).map(p => ({ etiqueta: etiquetaPieza(p), quantity: p.quantity }))
                           : undefined}
                         editarHref={`/presupuestos/${presupuesto.id}/edit`}
-                        tipos={tiposPara({ shippingStatus: item.shippingStatus, costRealUsd: item.costRealUsd != null ? Number(item.costRealUsd) : null })}
+                        tipos={(isPropio ? tiposParaPropio : tiposPara)({ shippingStatus: item.shippingStatus, costRealUsd: item.costRealUsd != null ? Number(item.costRealUsd) : null })}
+                        propio={isPropio}
+                        metodosProveedor={METODOS_PAGO_EGRESO}
                         linea={{ quantity: item.quantity, salePrice: parseFloat(item.salePrice.toString()), costRealUsd: item.costRealUsd != null ? Number(item.costRealUsd) : null }}
                         pedido={{ totalReal: totalRealPedido, depositUsd: depositUsd ?? 0 }}
                         tasaSugerida={tasaDevolucion}
