@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import FormConResultado from '@/components/FormConResultado'
 import PendingButton from '@/components/PendingButton'
 import type { ActionResult } from '@/lib/action-result'
@@ -28,21 +29,105 @@ const aCaja = (f: Fila): CajaFisica => ({
 })
 const vacia = (f: Fila) => !f.referencia.trim() && !f.peso.trim() && !f.largo.trim() && !f.ancho.trim() && !f.alto.trim()
 
-// Las cajas físicas del envío: lo que llegó al depósito y, si hubo reempaque, lo que sale. El
-// form manda todo junto y la acción reemplaza lo guardado (guardarCajas). La página lo monta
-// con una `key` que cambia con lo guardado, así después de guardar arranca de nuevo.
-export default function CajasEnvio({
-  action,
-  reempaque: reempaqueInicial,
-  inicial,
-  divisor,
-}: {
+type Props = {
   action: (formData: FormData) => Promise<ActionResult>
   reempaque: boolean
   inicial: (CajaFisica & { etapa: string })[]
   /** Divisor volumétrico del aéreo (cm³ por kg), de Config. */
   divisor: number
-}) {
+}
+
+// Las cajas físicas del envío: lo que llegó al depósito y, si hubo reempaque, lo que sale.
+// En la ficha ocupa una línea (lo guardado, resumido) y se edita en una ventana aparte: la
+// ficha ya es larga y las dos listas solo hacen falta el día que llegan los pesos.
+export default function CajasEnvio(props: Props) {
+  const [abierto, setAbierto] = useState(false)
+  const cerrar = useCallback(() => setAbierto(false), [])
+  const { inicial, reempaque, divisor } = props
+  const facturan = cajasQueSeFacturan(reempaque, inicial)
+  const r = resumenCajas(facturan.cajas, divisor)
+  const llegaron = inicial.filter(c => c.etapa === 'llegada').length
+  const salen = inicial.filter(c => c.etapa === 'salida').length
+  const n = (k: number) => `${k} ${k === 1 ? 'caja' : 'cajas'}`
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="text-sm text-gray-700">
+        {inicial.length === 0 ? (
+          <span className="text-gray-500">Sin cajas cargadas: el costeo usa la suma de las piezas, que es un piso.</span>
+        ) : (
+          <>
+            <span className="font-medium">
+              {reempaque && salen > 0 ? `Llegaron ${n(llegaron)} → salen ${n(salen)}` : n(r.cajas)}
+            </span>
+            {r.pesoKg != null && <> · <span className="font-mono">{r.pesoKg.toFixed(2)} kg</span></>}
+            {r.volumenM3 != null && <> · <span className="font-mono">{r.volumenM3.toFixed(3)} m³</span></>}
+            {r.cobrableKg != null && <> · cobrable <span className="font-mono font-semibold">{r.cobrableKg.toFixed(2)} kg</span></>}
+            <span className={`ml-2 text-[10px] font-semibold px-2 py-0.5 rounded-full ${reempaque ? 'bg-violet-100 text-violet-700' : 'bg-gray-100 text-gray-600'}`}>
+              {reempaque ? 'REEMPACADO' : 'SIN REEMPAQUE'}
+            </span>
+            {(r.sinPeso > 0 || r.sinMedidas > 0) && (
+              <span className="block text-xs text-amber-700">
+                {[r.sinPeso > 0 && `${r.sinPeso} sin pesar`, r.sinMedidas > 0 && `${r.sinMedidas} sin medir`].filter(Boolean).join(', ')}: ese total sale de la suma de las piezas.
+              </span>
+            )}
+            {facturan.provisoria && (
+              <span className="block text-xs text-amber-700">Faltan las cajas que salen del reempaque: se costea con las que llegaron.</span>
+            )}
+          </>
+        )}
+      </div>
+      <button
+        type="button" onClick={() => setAbierto(true)}
+        className="px-4 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+      >
+        {inicial.length === 0 ? 'Cargar cajas' : 'Editar cajas'}
+      </button>
+      {abierto && <VentanaCajas {...props} onCerrar={cerrar} />}
+    </div>
+  )
+}
+
+// La ventana, encima de la página (portal a body, como ConfirmarQuitar de los trackings). El
+// editor se monta al abrirla, así «Cancelar» descarta lo tipeado. No se cierra tocando afuera:
+// un clic perdido no tiene que tirar diez medidas cargadas a mano.
+function VentanaCajas({ onCerrar, ...props }: Props & { onCerrar: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCerrar() }
+    window.addEventListener('keydown', onKey)
+    const previo = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = previo
+    }
+  }, [onCerrar])
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 overflow-y-auto">
+      <div role="dialog" aria-modal="true" aria-labelledby="cajas-titulo" className="w-full max-w-3xl bg-white rounded-xl shadow-xl p-5 my-8">
+        <div className="flex items-start justify-between gap-3 mb-1">
+          <h2 id="cajas-titulo" className="text-sm font-semibold text-gray-800">📦 Cajas del envío</h2>
+          <button type="button" onClick={onCerrar} title="Cerrar" className="px-2 text-gray-400 hover:text-gray-700">✕</button>
+        </div>
+        <p className="text-xs text-gray-500 mb-4">
+          Copiá del panel del transportista o del depósito el <em>Actual Weight</em> y las <em>Box Dimensions</em> de
+          cada caja. Las cajas que viajan <strong>reemplazan</strong> a la suma de las piezas: es lo que se factura,
+          caja por caja.
+        </p>
+        <EditorCajas {...props} onGuardado={onCerrar} onCancelar={onCerrar} />
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+function EditorCajas({
+  action,
+  reempaque: reempaqueInicial,
+  inicial,
+  divisor,
+  onGuardado,
+  onCancelar,
+}: Props & { onGuardado: () => void; onCancelar: () => void }) {
   const [reempaque, setReempaque] = useState(reempaqueInicial)
   const [siguiente, setSiguiente] = useState(inicial.length + 2)
   const [filas, setFilas] = useState<Record<EtapaCaja, Fila[]>>(() => {
@@ -165,16 +250,32 @@ export default function CajasEnvio({
   }
 
   return (
-    <FormConResultado action={action} className="space-y-4">
-      <label className="flex items-center gap-2 text-sm text-gray-700">
-        <input
-          type="checkbox" name="reempaque" value="1" checked={reempaque}
-          onChange={e => setReempaque(e.target.checked)}
-          className="rounded border-gray-300"
-        />
-        Hubo reempaque en el depósito
-        <span className="text-xs text-gray-400">(juntaron o rearmaron las cajas antes de despacharlas)</span>
-      </label>
+    <FormConResultado
+      action={async fd => {
+        const r = await action(fd)
+        if (r.ok) onGuardado()
+        return r
+      }}
+      className="space-y-4"
+    >
+      <div>
+        <p className="text-xs font-medium text-gray-600 mb-1">¿El depósito reempacó las cajas?</p>
+        <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden text-sm" role="radiogroup">
+          {[
+            { v: false, texto: 'No, viajan las mismas' },
+            { v: true, texto: 'Sí, las rearmaron' },
+          ].map(o => (
+            <button
+              key={String(o.v)} type="button" role="radio" aria-checked={reempaque === o.v}
+              onClick={() => setReempaque(o.v)}
+              className={`px-3 py-1.5 transition-colors ${reempaque === o.v ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            >
+              {o.texto}
+            </button>
+          ))}
+        </div>
+        {reempaque && <input type="hidden" name="reempaque" value="1" />}
+      </div>
 
       {lista('llegada')}
       {reempaque && (
@@ -189,9 +290,17 @@ export default function CajasEnvio({
         </p>
       )}
 
-      <PendingButton className="px-4 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-        Guardar cajas
-      </PendingButton>
+      <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+        <button
+          type="button" onClick={onCancelar}
+          className="px-4 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+        >
+          Cancelar
+        </button>
+        <PendingButton className="px-4 py-1.5 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors">
+          Guardar cajas
+        </PendingButton>
+      </div>
     </FormConResultado>
   )
 }

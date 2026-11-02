@@ -25,7 +25,7 @@ import { financiamientoEnvio, type FinanciamientoEnvio } from '@/lib/financiamie
 import FleteRealCard, { type FilaFlete } from '@/components/FleteRealCard'
 import TrackingsCaja from '@/components/TrackingsCaja'
 import CajasEnvio from '@/components/CajasEnvio'
-import { CAJA_SELECT, cajaFisica, cajasQueSeFacturan, medidasDeCajas, ETAPA_CAJA_META } from '@/lib/cajas-envio'
+import { CAJA_SELECT, cajaFisica, cajasQueSeFacturan, medidasDeCajas } from '@/lib/cajas-envio'
 import SeguimientoCaja from '@/components/SeguimientoCaja'
 import { apiKeyShip24 } from '@/lib/ship24'
 import { listaCouriers } from '@/lib/sync-trackings'
@@ -1302,9 +1302,9 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
           {/* La caja real. Es el único dato del envío que no se puede derivar del
               catálogo: el catálogo tiene la pieza desnuda, la balanza pesa el bulto. */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-                📦 Caja real · peso y medidas
+                📦 Cajas · peso y medidas
               </h2>
               <span
                 className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
@@ -1314,18 +1314,6 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                 {calc.caja.medido ? 'MEDIDA' : 'SIN MEDIR'}
               </span>
             </div>
-            <p className="text-xs text-gray-500 mb-4">
-              Copiá lo que dice el panel del transportista o del depósito: <em>Actual Weight</em> y{' '}
-              <em>Box Dimensions</em> de cada caja. Una entrega puede llegar en varios paquetes; si el
-              depósito los reempaca, anotá también las cajas que salen. Las que viajan{' '}
-              <strong>reemplazan</strong> a la suma de las piezas, caja por caja: es lo que se factura.
-              {facturan.provisoria && (
-                <span className="block mt-1 text-amber-700">
-                  Hubo reempaque pero todavía no cargaste las cajas que salen: se costea con {ETAPA_CAJA_META.llegada.label.toLowerCase()}.
-                </span>
-              )}
-            </p>
-
             <CajasEnvio
               key={`${envio.reempaque}|${envio.cajas.map(c => c.id).join(',')}`}
               action={guardarCajas.bind(null, envio.id)}
