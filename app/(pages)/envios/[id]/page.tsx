@@ -24,6 +24,8 @@ import { lookupDeConjuntos, expandCostPieces, repartirCostoReal } from '@/lib/en
 import { financiamientoEnvio, type FinanciamientoEnvio } from '@/lib/financiamiento-envio'
 import FleteRealCard, { type FilaFlete } from '@/components/FleteRealCard'
 import TrackingsCaja from '@/components/TrackingsCaja'
+import CajasEnvio from '@/components/CajasEnvio'
+import { CAJA_SELECT, cajaFisica, cajasQueSeFacturan, medidasDeCajas, ETAPA_CAJA_META } from '@/lib/cajas-envio'
 import SeguimientoCaja from '@/components/SeguimientoCaja'
 import { apiKeyShip24 } from '@/lib/ship24'
 import { listaCouriers } from '@/lib/sync-trackings'
@@ -35,7 +37,7 @@ import { seEntregaDesdeElPedido } from '@/lib/saldo-entrega'
 import { TRAMOS_FLETE, CATEGORIAS_FLETE, estadoFlete } from '@/lib/flete-real'
 import { itemsSinCostoRealDeEnvio, CATEGORIAS_PAGO_PROVEEDOR } from '@/lib/movimientos'
 import type { BundlePiece } from '@/lib/bundle'
-import { toConfigMap } from '@/lib/config'
+import { num, toConfigMap } from '@/lib/config'
 import { armarCompra99rpm } from '@/lib/compra-99rpm'
 import { cabeceraDeLinea, nombreEnsamble } from '@/lib/linea-pedido'
 import { registrarCompra } from '@/app/(pages)/contabilidad/actions'
@@ -48,7 +50,7 @@ import {
   saveCostosProveedor,
   guardarTarifaKg,
   cambiarReenvio,
-  saveMedidasCaja,
+  guardarCajas,
   guardarTrackings,
   actualizarTrackings,
   guardarFleteReal,
@@ -154,6 +156,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
           },
           orderBy: { id: 'asc' },
         },
+        cajas: { select: CAJA_SELECT, orderBy: { id: 'asc' } },
       },
     }),
     db.config.findMany(),
@@ -351,14 +354,12 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   const modoEnvio = modoDeEnvio(envio.modo)
   const esCbm = modoEnvio === 'maritimo_cbm'
   const esExpress = modoEnvio === 'express'
-  // La caja como la pesó y midió el transportista. Si está cargada manda ella y reemplaza
-  // a la suma de las piezas: lo que se factura es lo que leyó la balanza.
-  const medidas = {
-    pesoKg: envio.pesoRealKg != null ? parseFloat(envio.pesoRealKg.toString()) : null,
-    dimL: envio.cajaL,
-    dimA: envio.cajaA,
-    dimH: envio.cajaH,
-  }
+  // Las cajas como las pesó y midió el transportista: si hubo reempaque, las que salen. Si
+  // están cargadas mandan ellas y reemplazan a la suma de las piezas: lo que se factura es
+  // lo que leyó la balanza, caja por caja. Ver lib/cajas-envio.ts.
+  const cajasFisicas = envio.cajas.map(cajaFisica)
+  const facturan = cajasQueSeFacturan(envio.reempaque, cajasFisicas)
+  const medidas = medidasDeCajas(facturan.cajas)
   // Lo que en verdad facturaron los transportistas. Si ya se cargó, pisa al estimado de
   // tabla en el landed y el margen — igual que `medidas` con el peso, ver calcEnvio.
   const costoRealAereo = envio.shippingCostRealAereo != null ? parseFloat(envio.shippingCostRealAereo.toString()) : null
@@ -645,7 +646,8 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
 
   const anyMissing = calc.lines.some(l => l.missingWeight || l.missingDims)
   // Los escalones de la tabla solo existen en Shoppre: el reenvío por kilo cotiza cada caja.
-  const tierHint = porKilo || esExpress ? null : airTierHint(calc.air.chargeableKg, calc.air.costPerKgUsd, calc.air.cajas, calc.air.capKg)
+  // Con varias cajas reales cargadas, cuántas son es un hecho y no un consejo que dar.
+  const tierHint = porKilo || esExpress || calc.caja.cajas > 1 ? null : airTierHint(calc.air.chargeableKg, calc.air.costPerKgUsd, calc.air.cajas, calc.air.capKg)
   const ratioPct = calc.air.ratioVW != null ? calc.air.ratioVW * 100 : null
   const fmtBound =
     calc.air.binding === 'weight'
@@ -1313,45 +1315,24 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               </span>
             </div>
             <p className="text-xs text-gray-500 mb-4">
-              Copiá lo que dice el panel del transportista: <em>Actual Weight</em> y{' '}
-              <em>Box Dimensions</em>. Estos números <strong>reemplazan</strong> a la suma
-              de las piezas — es lo que se factura.
+              Copiá lo que dice el panel del transportista o del depósito: <em>Actual Weight</em> y{' '}
+              <em>Box Dimensions</em> de cada caja. Una entrega puede llegar en varios paquetes; si el
+              depósito los reempaca, anotá también las cajas que salen. Las que viajan{' '}
+              <strong>reemplazan</strong> a la suma de las piezas, caja por caja: es lo que se factura.
+              {facturan.provisoria && (
+                <span className="block mt-1 text-amber-700">
+                  Hubo reempaque pero todavía no cargaste las cajas que salen: se costea con {ETAPA_CAJA_META.llegada.label.toLowerCase()}.
+                </span>
+              )}
             </p>
 
-            <FormConResultado action={saveMedidasCaja.bind(null, envio.id)}>
-              <div className="flex flex-wrap items-end gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Peso real (kg)</label>
-                  <input
-                    type="number" step="0.01" min="0" name="pesoRealKg"
-                    defaultValue={medidas.pesoKg ?? ''}
-                    placeholder={calc.netRealKg > 0 ? calc.netRealKg.toFixed(2) : '0.00'}
-                    className="w-28 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Caja L × A × H (cm)</label>
-                  <div className="flex items-center gap-1">
-                    {(['cajaL', 'cajaA', 'cajaH'] as const).map((f, i) => (
-                      <div key={f} className="flex items-center gap-1">
-                        {i > 0 && <span className="text-gray-300 text-sm">×</span>}
-                        <input
-                          type="number" step="0.01" min="0" name={f}
-                          defaultValue={envio[f] ?? ''}
-                          placeholder="0"
-                          className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <PendingButton
-                  className="px-4 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  Guardar
-                </PendingButton>
-              </div>
-            </FormConResultado>
+            <CajasEnvio
+              key={`${envio.reempaque}|${envio.cajas.map(c => c.id).join(',')}`}
+              action={guardarCajas.bind(null, envio.id)}
+              reempaque={envio.reempaque}
+              inicial={cajasFisicas}
+              divisor={num(cfg, 'air_volumetric_divisor', 5000)}
+            />
 
             {/* Trackings por tramo. Con un courier de la lista de Ship24 se siguen solos
                 (lib/ship24.ts); sin él quedan anotados. Sirven para contestarle al cliente
@@ -1377,7 +1358,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                     <tr className="text-xs text-gray-400 uppercase tracking-wide">
                       <th className="text-left font-medium pb-1"></th>
                       <th className="text-right font-medium pb-1">Suma de piezas</th>
-                      <th className="text-right font-medium pb-1">Caja real</th>
+                      <th className="text-right font-medium pb-1">{calc.caja.cajas > 1 ? 'Cajas reales' : 'Caja real'}</th>
                       <th className="text-right font-medium pb-1">Falta en el catálogo</th>
                     </tr>
                   </thead>

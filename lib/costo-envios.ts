@@ -10,6 +10,7 @@ import { expandCostPieces, lookupDeConjuntos, repartirCostoReal, type ProductCos
 import type { BundlePiece } from './bundle'
 import { CATEGORIAS_FLETE, porSalirDeCaja } from './flete-real'
 import { cuentasPorPagar, type EnvioPendiente } from './movimientos'
+import { CAJA_SELECT, cajaFisica, cajasQueSeFacturan, medidasDeCajas } from './cajas-envio'
 
 // Lo que la lista de envíos muestra por caja. Se calcula EN VIVO, con el mismo costeo que la
 // ficha de cada una (calcEnvio en aéreo, costoEmbarque/resumirCbm en marítimo).
@@ -68,6 +69,7 @@ export const ENVIO_COSTEO_INCLUDE = {
     select: { id: true, productId: true, quantity: true, product: PRODUCTO_COSTEO },
   },
   supplier: { select: { id: true, name: true, fobUsd: true } },
+  cajas: { select: CAJA_SELECT, orderBy: { id: 'asc' } },
 } satisfies Prisma.EnvioInclude
 
 export type EnvioCosteo = Prisma.EnvioGetPayload<{ include: typeof ENVIO_COSTEO_INCLUDE }>
@@ -157,10 +159,7 @@ export function costearAereo(e: EnvioCosteo, ctx: ContextoCosteo): CosteoAereo {
     proveedor,
     modo: modoDeEnvio(e.modo),
     reenvio: { tipo: reenvioDe(e.reenvio), tarifaKgInr: dec(e.tarifaKgInr) },
-    medidas: {
-      pesoKg: dec(e.pesoRealKg),
-      dimL: e.cajaL, dimA: e.cajaA, dimH: e.cajaH,
-    },
+    medidas: medidasDeCajas(cajasQueSeFacturan(e.reempaque, e.cajas.map(cajaFisica)).cajas),
     fleteFacturado: {
       aereoUsd: dec(e.shippingCostRealAereo),
       maritimoUsd: dec(e.shippingCostRealMaritimo),
