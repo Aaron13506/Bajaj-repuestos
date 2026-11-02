@@ -12,6 +12,8 @@ import { CUENTAS, cuentaDeMetodo, datosBs, type Cuenta, type DatosBs } from '@/l
 import { convertir, usdPorBsAlConvertir, usdPorBsEnCuenta } from '@/lib/conversion'
 import { notaCobroBcv, realDeCobro, resumenCobro } from '@/lib/cobro-bcv'
 import { repartirEnCentavos } from '@/lib/reparto-compra'
+import { TIPO_LABELS, tiposPara } from '@/lib/incidencias'
+import { registrarEvento } from '@/lib/pedido-derivado'
 
 // Libro de movimientos: la fuente única de "cuánta plata tengo". Cada categoría fija su
 // tipo (ver tipoDeCategoria) para que un ingreso no pueda anotarse con categoría de egreso
@@ -723,6 +725,9 @@ export interface ItemPendienteCosto {
   envioId: number | null
   envioNombre: string | null
   supplierId: number | null
+  // Se le puede anotar al comprarla que el proveedor no la mandó (incidencia "sin_enviar"): solo
+  // en un pedido de cliente y si todavía no llegó a Venezuela (tiposPara).
+  admiteSinEnviar: boolean
 }
 
 async function itemsConEstimado(where: Prisma.PedidoItemWhereInput): Promise<ItemPendienteCosto[]> {
@@ -735,8 +740,9 @@ async function itemsConEstimado(where: Prisma.PedidoItemWhereInput): Promise<Ite
         supplierId: true,
         envioId: true,
         bundleItems: true,
+        shippingStatus: true,
         envio: { select: { id: true, nombre: true } },
-        pedido: { select: { id: true, clientName: true } },
+        pedido: { select: { id: true, clientName: true, tipo: true } },
         product: {
           select: {
             id: true, nameEs: true, bajajCode: true, priceInr: true,
@@ -799,6 +805,7 @@ async function itemsConEstimado(where: Prisma.PedidoItemWhereInput): Promise<Ite
       envioId: i.envioId,
       envioNombre: i.envio?.nombre ?? null,
       supplierId: i.supplierId,
+      admiteSinEnviar: i.pedido.tipo === 'cliente' && tiposPara({ shippingStatus: i.shippingStatus, costRealUsd: 0 }).includes('sin_enviar'),
     }
   })
 }
@@ -888,6 +895,21 @@ export async function registrarCompra(formData: FormData): Promise<ResultadoComp
   // que sí quedan repartiría el monto entero —que era por TODAS— entre unas pocas.
   if (items.length !== ids.length) return fallo(MSG_COMPRA_OBSOLETA)
 
+  // Lo que el proveedor cobró pero no mandó todavía (backorder): `sinEnviar_<id>` = unidades de
+  // esa línea. Se anota como incidencia "sin_enviar" en la misma compra, y así la caja no lo
+  // espera al llegar. Vacío o 0 = vino todo; un número ilegible se rechaza, no se ignora.
+  const sinEnviar: { item: ItemPendienteCosto; cantidad: number }[] = []
+  for (const it of items) {
+    const crudo = String(formData.get(`sinEnviar_${it.id}`) ?? '').trim()
+    if (crudo === '') continue
+    const n = Number(crudo)
+    if (!Number.isInteger(n) || n < 0) return fallo(`«${it.nombre}»: lo que no mandó el proveedor tiene que ser un entero ≥ 0.`)
+    if (n === 0) continue
+    if (n > it.quantity) return fallo(`«${it.nombre}» tiene ${it.quantity} unidad(es): no pueden faltar ${n}.`)
+    if (!it.admiteSinEnviar) return fallo(`«${it.nombre}» no admite «no lo mandó» (es stock propio o ya llegó a Venezuela).`)
+    sinEnviar.push({ item: it, cantidad: n })
+  }
+
   // Reparto proporcional al estimado, en centavos exactos: lo repartido suma el total pagado
   // al centavo (ver repartirEnCentavos). Sin estimado en ninguna, a partes iguales.
   const costos = repartirEnCentavos(monto, items.map(i => i.estimadoUsd))
@@ -903,6 +925,12 @@ export async function registrarCompra(formData: FormData): Promise<ResultadoComp
 
   try {
     await db.$transaction(async tx => {
+      // Los pedidos a los que se les anota algo, en orden y antes que nada (como en todas las
+      // acciones por pedido): un pedido cancelado mientras tanto ya no está en la compra.
+      for (const pedidoId of [...new Set(sinEnviar.map(s => s.item.pedidoId))].sort((a, b) => a - b)) {
+        const p = await bloquearPedido(tx, pedidoId)
+        if (p?.status !== 'pedido') throw new CompraObsoleta()
+      }
       const mov = await tx.movimiento.create({
         data: {
           fecha,
@@ -930,6 +958,13 @@ export async function registrarCompra(formData: FormData): Promise<ResultadoComp
         FROM (VALUES ${valores}) AS v(id, costo)
         WHERE pi."id" = v.id AND pi."costRealUsd" IS NULL`
       if (n !== items.length) throw new CompraObsoleta()
+
+      for (const { item, cantidad } of sinEnviar) {
+        await tx.incidencia.create({
+          data: { pedidoId: item.pedidoId, itemId: item.id, descripcion: item.nombre, tipo: 'sin_enviar', origen: 'operacion', cantidad },
+        })
+        await registrarEvento(tx, item.pedidoId, 'incidencia', `Problema: ${TIPO_LABELS.sin_enviar} · ${cantidad}× «${item.nombre}» (anotado al registrar la compra)`)
+      }
     }, { maxWait: 10_000, timeout: 20_000 })
   } catch (e) {
     if (e instanceof CompraObsoleta) return fallo(MSG_COMPRA_OBSOLETA)

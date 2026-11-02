@@ -6,7 +6,7 @@ import { useEnviarAccion } from '@/components/useEnviarAccion'
 import CamposDevolucion from '@/components/CamposDevolucion'
 import type { ActionResult } from '@/lib/action-result'
 import {
-  RESOLUCION_LABELS, TIPO_AYUDA, TIPO_LABELS, perdidaSugerida, resolucionesPara, planReembolso,
+  RESOLUCION_LABELS, TIPO_AYUDA, TIPO_LABELS, admitePieza, perdidaSugerida, resolucionesPara, planReembolso,
   type OrigenIncidencia, type Resolucion, type TipoIncidencia,
 } from '@/lib/incidencias'
 
@@ -62,8 +62,8 @@ function FormReportar({
 }: { itemId: number; tipos: TipoIncidencia[]; cantidadLinea: number; piezas: PiezaVista[]; reportar: Props['reportar']; cerrar: () => void }) {
   const [tipo, setTipo] = useState<TipoIncidencia>(tipos[0])
   const [pieza, setPieza] = useState('')
-  // Solo "no disponible" se anota sobre UNA pieza: el resto (dañada, incompleta…) es de unidades de la línea.
-  const porPieza = tipo === 'no_disponible' && piezas.length > 0
+  // "No disponible" y "no la mandó" se anotan sobre UNA pieza: el resto (dañada, incompleta…) es de unidades de la línea.
+  const porPieza = admitePieza(tipo) && piezas.length > 0
   const { enviar, isPending, error } = useEnviarAccion(fd => reportar(itemId, fd), cerrar)
   return (
     <form onSubmit={enviar} className="mt-1.5 p-2.5 bg-amber-50 border border-amber-200 rounded-lg space-y-2">
@@ -85,7 +85,7 @@ function FormReportar({
             <option value="">Todo el conjunto</option>
             {piezas.map(p => <option key={p.etiqueta} value={p.etiqueta}>{p.quantity}× {p.etiqueta}</option>)}
           </select>
-          {pieza && <p className="text-[10px] text-amber-700 mt-0.5">Las demás piezas siguen su curso: al editar el pedido quitás solo esta.</p>}
+          {pieza && tipo === 'no_disponible' && <p className="text-[10px] text-amber-700 mt-0.5">Las demás piezas siguen su curso: al editar el pedido quitás solo esta.</p>}
         </div>
       )}
       <p className="text-[11px] text-amber-800">{TIPO_AYUDA[tipo]}</p>

@@ -46,6 +46,8 @@ What separates the first two is whether goods pass through Shoppre's warehouse, 
 
 One SQL statement per batch: the guarded `UPDATE … WHERE shippingStatus = desde` (a double click is a no-op), the `PedidoItemEtapa` history row, and — for own-stock lines crossing `entregado` — the `Product.stock` credit/debit by pieces (`lib/stock-piezas.ts`; a bundle credits its pieces, resolved by `bajajCode`, or by name only when the name belongs to one product — an unresolvable piece refuses the whole delivery, never a half credit). Taking a line out of `entregado` when that stock was sold is refused. `pnpm check:etapas` tests this SQL against the Docker DB.
 
+**What the supplier didn't send**: open `sin_enviar` incidents (`sinEnviarDe`) are subtracted from the box count (`piezasAContar`, shown as "+N sin enviar"), a line not sent at all (`lineaNoViene`) is left out of "Marcar recibido" (received by hand when it shows up, after closing the incident as `llego`), and the items table tags the line. Costing and weight are not touched (the box was paid for those units).
+
 Before moving: cancelled orders don't move; an open `no_disponible` blocks buying, any open incident blocks delivery. **A client line stops at `en_venezuela` ("Recibido")**: the box refuses `entregado` for it (`seEntregaDesdeElPedido`) and the table doesn't offer it; it is delivered from the order with `confirmarEntrega` (see the `pedidos` skill). Taking one *out* of `entregado` is still allowed here, as a correction. Own stock is still delivered (= credited to stock) in the box.
 
 `/envios` shows real times per stage (`lib/etapas.ts`) once there is history; regressions and gaps are not measured as legs.

@@ -19,7 +19,7 @@ import { estadoLinea } from '@/lib/pedido-edicion'
 import { motivoDevolucionInvalida, motivoNoCancelable, resumenCancelacion } from '@/lib/pedido-cancelacion'
 import { crearReposicion, pasarAStockPropio, registrarEvento, SELECT_LINEA_MOVIBLE } from '@/lib/pedido-derivado'
 import {
-  RECLAMO_HORAS_DEFAULT, RESOLUCION_LABELS, TIPO_LABELS, bloqueaCompra, bloqueaEntrega, dentroDePlazo, esResolucion, esTipoIncidencia, etiquetaPieza,
+  RECLAMO_HORAS_DEFAULT, admitePieza, RESOLUCION_LABELS, TIPO_LABELS, bloqueaCompra, bloqueaEntrega, dentroDePlazo, esResolucion, esTipoIncidencia, etiquetaPieza,
   motivoResolucionInvalida, origenPara, perdidaSugerida, planReembolso, tiposPara,
   type TipoIncidencia,
 } from '@/lib/incidencias'
@@ -426,7 +426,7 @@ export async function reportarIncidencia(itemId: number, formData: FormData): Pr
   // En un conjunto casi nunca falta todo: falta UN SKU. Con `pieza` la cantidad sale de la pieza,
   // no se escribe (por eso puede venir vacía).
   const pieza = (formData.get('pieza') as string)?.trim() || null
-  if (pieza && tipo !== 'no_disponible') return fallo('Solo se anota una pieza concreta cuando no está disponible.')
+  if (pieza && !admitePieza(tipo)) return fallo('Solo se anota una pieza concreta cuando no está disponible o el proveedor no la mandó.')
   const cantidadEscrita = parseInt(String(formData.get('cantidad') ?? ''), 10)
   if (!pieza && (!Number.isInteger(cantidadEscrita) || cantidadEscrita < 1)) return fallo('La cantidad tiene que ser un entero ≥ 1.')
   const nota = (formData.get('nota') as string)?.trim() || null
@@ -466,8 +466,8 @@ export async function reportarIncidencia(itemId: number, formData: FormData): Pr
         const piezas = Array.isArray(it.bundleItems) ? (it.bundleItems as unknown as BundlePiece[]) : []
         const p = piezas.find(x => etiquetaPieza(x) === pieza)
         if (!p) throw new ErrorDeNegocio(`«${pieza}» no está en este conjunto (quizá ya se quitó). Recargá la página.`)
-        const repetida = await tx.incidencia.count({ where: { itemId, estado: 'abierta', tipo: 'no_disponible', pieza } })
-        if (repetida > 0) throw new ErrorDeNegocio(`«${pieza}» ya está marcada como no disponible.`)
+        const repetida = await tx.incidencia.count({ where: { itemId, estado: 'abierta', tipo, pieza } })
+        if (repetida > 0) throw new ErrorDeNegocio(`«${pieza}» ya está marcada como «${TIPO_LABELS[tipo]}».`)
         // Unidades de esa pieza que lleva la línea: por set × cantidad de sets.
         cantidad = p.quantity * it.quantity
         descripcion = `${descripcion} — ${pieza}`
