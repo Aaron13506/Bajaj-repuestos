@@ -157,9 +157,101 @@ export function textoSinEnviar(s: SinEnviar): string | null {
   return partes.length > 0 ? `${partes.join(' + ')} sin enviar` : null
 }
 
-/** La línea no viene en la caja: el proveedor no mandó ninguna de sus unidades. No se recibe. */
-export function lineaNoViene(quantity: number, s: SinEnviar): boolean {
-  return s.lineaEntera >= quantity
+/**
+ * La línea no viene en la caja: el proveedor no mandó ninguna de sus unidades. No se recibe. En un
+ * conjunto, también cuando falta TODO de cada uno de sus SKU (anotado SKU por SKU).
+ */
+export function lineaNoViene(
+  quantity: number,
+  s: SinEnviar,
+  piezas: { nameEs: string; bajajCode: string | null; quantity: number }[] = [],
+): boolean {
+  if (s.lineaEntera >= quantity) return true
+  if (piezas.length === 0) return false
+  const sets = Math.min(quantity, s.lineaEntera)
+  return piezas.every(p => p.quantity * sets + (s.porPieza.get(etiquetaPieza(p)) ?? 0) >= p.quantity * quantity)
+}
+
+/**
+ * Lo que se anota al marcar "no vino" SKU por SKU en una línea: una incidencia por SKU con
+ * unidades, o una sola de la línea entera cuando no vino nada de ningún SKU (así se reembolsa o se
+ * recibe como cualquier línea). `cantidades` va por etiquetaPieza; en una pieza suelta, la clave ''.
+ * Devuelve el error a mostrar si alguna cantidad no cabe.
+ */
+export function planNoVino(
+  linea: { quantity: number; piezas: { nameEs: string; bajajCode: string | null; quantity: number }[] },
+  cantidades: Map<string, number>,
+  yaAnotado: SinEnviar,
+): { ok: true; incidencias: { pieza: string | null; cantidad: number }[] } | { ok: false; error: string } {
+  const pedidas = [...cantidades.entries()].filter(([, n]) => n > 0)
+  if (pedidas.length === 0) return { ok: false, error: 'Poné cuántas unidades no vinieron de al menos un SKU.' }
+  for (const [, n] of pedidas) if (!Number.isInteger(n) || n < 0) return { ok: false, error: 'Las cantidades tienen que ser enteros ≥ 0.' }
+
+  if (linea.piezas.length === 0) {
+    const n = cantidades.get('') ?? 0
+    const quedan = linea.quantity - yaAnotado.lineaEntera
+    if (n > quedan) return { ok: false, error: `Quedan ${quedan} unidad(es) sin anotar: no pueden faltar ${n}.` }
+    return { ok: true, incidencias: [{ pieza: null, cantidad: n }] }
+  }
+
+  const sets = Math.min(linea.quantity, yaAnotado.lineaEntera)
+  const etiquetas = new Set(linea.piezas.map(etiquetaPieza))
+  for (const [e] of pedidas) if (!etiquetas.has(e)) return { ok: false, error: `«${e}» no está en este conjunto. Recargá la página.` }
+  let todo = yaAnotado.lineaEntera === 0
+  for (const p of linea.piezas) {
+    const e = etiquetaPieza(p)
+    const n = cantidades.get(e) ?? 0
+    const quedan = p.quantity * (linea.quantity - sets) - (yaAnotado.porPieza.get(e) ?? 0)
+    if (n > quedan) return { ok: false, error: `De «${e}» quedan ${Math.max(0, quedan)} unidad(es) sin anotar: no pueden faltar ${n}.` }
+    if (n !== p.quantity * linea.quantity || (yaAnotado.porPieza.get(e) ?? 0) > 0) todo = false
+  }
+  if (todo) return { ok: true, incidencias: [{ pieza: null, cantidad: linea.quantity }] }
+  return { ok: true, incidencias: pedidas.map(([pieza, cantidad]) => ({ pieza, cantidad })) }
+}
+
+/**
+ * Reembolsar `unidades` de UN SKU de un conjunto que el proveedor no mandó: el SKU baja en el
+ * snapshot (o sale, si no queda ninguno), y con él lo que cuenta la caja y lo que suma al stock.
+ * El snapshot guarda unidades POR SET, así que las que salen tienen que repartirse parejo entre los
+ * sets; si no, se rechaza. El costo que sale de la línea es lo que devolvió el proveedor (no se sabe
+ * cuánto de la compra fue ese SKU): lo que no devolvió queda en el costo de lo que sí llegó. Si el
+ * conjunto se queda sin piezas, la línea sale entera y su costo no devuelto queda como pérdida.
+ */
+export function planReembolsoPieza(
+  linea: { quantity: number; costRealUsd: number | null; piezas: { nameEs: string; bajajCode: string | null; quantity: number; groupName?: string }[] },
+  pieza: string,
+  unidades: number,
+  devueltoUsd: number,
+):
+  | { ok: true; piezasNuevas: typeof linea.piezas; quitaLinea: boolean; costRealNuevo: number | null; perdidaUsd: number }
+  | { ok: false; error: string } {
+  const i = linea.piezas.findIndex(p => etiquetaPieza(p) === pieza)
+  if (i < 0) return { ok: false, error: `«${pieza}» ya no está en este conjunto.` }
+  const p = linea.piezas[i]
+  const total = p.quantity * linea.quantity
+  if (unidades > total) return { ok: false, error: `El conjunto lleva ${total} unidad(es) de «${pieza}».` }
+  if ((total - unidades) % linea.quantity !== 0) {
+    return {
+      ok: false,
+      error: `Las ${linea.quantity} unidades del conjunto llevan ${p.quantity} de «${pieza}» cada una: ${unidades} no se reparten parejo entre ellas. ` +
+        `Reembolsá un múltiplo de ${linea.quantity} (o resolvelo como «Llegó» y ajustá a mano).`,
+    }
+  }
+  const porSet = (total - unidades) / linea.quantity
+  const piezasNuevas = porSet > 0
+    ? linea.piezas.map((x, k) => (k === i ? { ...x, quantity: porSet } : x))
+    : linea.piezas.filter((_, k) => k !== i)
+  const costo = linea.costRealUsd
+  if (piezasNuevas.length === 0) {
+    return { ok: true, piezasNuevas, quitaLinea: true, costRealNuevo: null, perdidaUsd: costo != null ? perdidaTrasDevolucion(costo, devueltoUsd) : 0 }
+  }
+  return {
+    ok: true,
+    piezasNuevas,
+    quitaLinea: false,
+    costRealNuevo: costo != null ? centavos(Math.max(0, costo - devueltoUsd)) : null,
+    perdidaUsd: 0,
+  }
 }
 
 // ── Una pieza de un conjunto ─────────────────────────────────────────────────────────────────
@@ -243,9 +335,13 @@ export function motivoResolucionInvalida(i: {
   }
   if (i.resolucion === 'reposicion' || i.resolucion === 'reembolso') {
     if (!i.linea) return 'La línea ya no está en el pedido: no hay de dónde reponer o reembolsar.'
-    // Reponer o reembolsar baja sets enteros: una sola pieza de un conjunto no se puede descontar así.
-    if (i.pieza) return 'Una pieza suelta de un conjunto no se repone ni se reembolsa sola: cerrala y anotá el problema sobre el conjunto entero.'
-    if (i.cantidad > i.linea.quantity) {
+    // Una pieza sola de un conjunto no se repone (se repone por sets); se reembolsa solo si el
+    // proveedor no la mandó (planReembolsoPieza).
+    if (i.pieza && (i.resolucion === 'reposicion' || i.tipo !== 'sin_enviar')) {
+      return 'Una pieza sola de un conjunto no se repone: cerrala y anotá el problema sobre el conjunto entero.'
+    }
+    // Una incidencia de pieza cuenta unidades de esa pieza, no sets: la valida planReembolsoPieza.
+    if (!i.pieza && i.cantidad > i.linea.quantity) {
       return `La incidencia es de ${i.cantidad} unidades pero la línea tiene ${i.linea.quantity}.`
     }
   }

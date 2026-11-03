@@ -19,7 +19,7 @@ import { groupBundlePieces, type BundlePiece } from '@/lib/bundle'
 import { limpiarNombre } from '@/lib/utils'
 import type { CambioItem } from '@/app/(pages)/envios/actions'
 import type { ActionResult } from '@/lib/action-result'
-import MarcarNoVino from '@/components/MarcarNoVino'
+import MarcarNoVino, { type SkuNoVino } from '@/components/MarcarNoVino'
 
 export interface EnvioItemRow {
   id: number
@@ -50,7 +50,10 @@ export interface EnvioItemRow {
   // Se le puede marcar desde acá que el proveedor no la mandó (pedido confirmado de cliente o propio,
   // que todavía no llegó a Venezuela). Las piezas de un conjunto, por si falta solo una.
   admiteNoVino: boolean
-  piezasEtiqueta: { etiqueta: string; quantity: number }[]
+  /** Los SKU de un conjunto, con lo ya anotado como "no vino" (vacío = pieza suelta). */
+  skusNoVino: SkuNoVino[]
+  /** Pieza suelta: unidades ya anotadas como "no vino". */
+  yaNoVino: number
 }
 
 interface Props {
@@ -614,8 +617,10 @@ export default function EnvioItemsTable({
                         )}
                         {noVino === it.id && marcarNoVino && (
                           <MarcarNoVino
+                            nombre={limpiarNombre(it.nombre)}
                             cantidad={it.quantity}
-                            piezas={it.piezasEtiqueta}
+                            piezas={it.skusNoVino}
+                            yaAnotadasLinea={it.yaNoVino}
                             marcar={fd => marcarNoVino(envioId, it.id, fd)}
                             cerrar={() => setNoVino(null)}
                           />
@@ -640,14 +645,14 @@ export default function EnvioItemsTable({
                       </td>
                       {/* Una pieza no se saca sola del envío; lo único por fila es avisar que no vino. */}
                       <td className="px-4 py-3 text-right">
-                        {it.admiteNoVino && marcarNoVino && noVino !== it.id && (
+                        {it.admiteNoVino && marcarNoVino && (
                           <button
                             type="button"
                             onClick={() => setNoVino(it.id)}
                             title="El proveedor no la mandó (o no toda): la caja no la espera al llegar"
-                            className="text-[11px] font-medium text-orange-700 hover:text-orange-900 hover:underline whitespace-nowrap"
+                            className="px-2 py-1 text-[11px] font-medium rounded-lg border border-orange-300 bg-white text-orange-700 hover:bg-orange-50 whitespace-nowrap"
                           >
-                            No vino
+                            Marcar «no vino»
                           </button>
                         )}
                       </td>

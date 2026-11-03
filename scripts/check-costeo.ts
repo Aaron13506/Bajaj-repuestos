@@ -47,7 +47,7 @@ import { describirOps, estadoLinea, permisoDeLinea, motivoEdicionSinCliente, pla
 import { devolucionSugerida, motivoDevolucionInvalida, motivoNoCancelable, resumenCancelacion } from '../lib/pedido-cancelacion'
 import {
   bloqueaCompra, bloqueaEntrega, cerradosPorEdicion, dentroDePlazo, etiquetaPieza, motivoResolucionInvalida, origenPara, perdidaSugerida, planReembolso,
-  resolucionesPara, tiposPara, sinEnviarDe, lineaNoViene, textoSinEnviar, admitePieza, tiposParaPropio, perdidaTrasDevolucion, type Resolucion,
+  resolucionesPara, tiposPara, sinEnviarDe, lineaNoViene, textoSinEnviar, admitePieza, tiposParaPropio, perdidaTrasDevolucion, planNoVino, planReembolsoPieza, type Resolucion,
 } from '../lib/incidencias'
 import { debeSaldo, motivoNoEntregable, saldoReal, seEntregaDesdeElPedido, situacionDeCobro } from '../lib/saldo-entrega'
 import { diasSinMoverse, tiempoDeCompraA, tiemposPorTramo } from '../lib/etapas'
@@ -1093,7 +1093,41 @@ console.log('\nINCIDENCIAS Y RECLAMOS')
   check('un 0 devuelto es un dato', si(motivoResolucionInvalida({ ...base, devueltoProveedorUsd: 0 }) === null), 1)
   check('propio: el reembolso del proveedor vale', si(motivoResolucionInvalida({ ...base, propio: true, devueltoProveedorUsd: 10 }) === null), 1)
   check('propio: no se repone', si(motivoResolucionInvalida({ ...base, resolucion: 'reposicion', propio: true, devueltoProveedorUsd: null }) != null), 1)
-  check('una pieza sola de un conjunto no se reembolsa', si(motivoResolucionInvalida({ ...base, devueltoProveedorUsd: 5, pieza: 'Bujía (B1)' }) != null), 1)
+  check('una pieza sola de un conjunto se reembolsa si no vino', si(motivoResolucionInvalida({ ...base, cantidad: 6, devueltoProveedorUsd: 5, pieza: 'Bujía (B1)' }) === null), 1)
+  check('una pieza sola de un conjunto no se repone', si(motivoResolucionInvalida({ ...base, resolucion: 'reposicion', devueltoProveedorUsd: null, pieza: 'Bujía (B1)' }) != null), 1)
+
+  // "No vino" SKU por SKU: un conjunto de 2 sets con 2 cables por set y 1 palanca por set.
+  const cable = { nameEs: 'Cable', bajajCode: 'C1', quantity: 2, groupName: 'G' }
+  const palanca = { nameEs: 'Palanca', bajajCode: 'P1', quantity: 1, groupName: 'G' }
+  const conj = { quantity: 2, piezas: [cable, palanca] }
+  const nada = sinEnviarDe([])
+  const m = (pares: [string, number][]) => new Map(pares)
+  const p1 = planNoVino(conj, m([['Cable (C1)', 3]]), nada)
+  check('no vino: 3 de 4 cables es una incidencia de ese SKU', si(p1.ok && p1.incidencias.length === 1 && p1.incidencias[0].pieza === 'Cable (C1)' && p1.incidencias[0].cantidad === 3), 1)
+  const p2 = planNoVino(conj, m([['Cable (C1)', 4], ['Palanca (P1)', 2]]), nada)
+  check('no vino nada de ningún SKU = la línea entera', si(p2.ok && p2.incidencias.length === 1 && p2.incidencias[0].pieza === null && p2.incidencias[0].cantidad === 2), 1)
+  check('no vino: no caben más de las que lleva', si(!planNoVino(conj, m([['Cable (C1)', 5]]), nada).ok), 1)
+  const ya3 = sinEnviarDe([{ tipo: 'sin_enviar', estado: 'abierta', cantidad: 3, pieza: 'Cable (C1)' }])
+  check('no vino: descuenta lo ya anotado', si(!planNoVino(conj, m([['Cable (C1)', 2]]), ya3).ok && planNoVino(conj, m([['Cable (C1)', 1]]), ya3).ok), 1)
+  check('no vino: vacío no anota nada', si(!planNoVino(conj, m([]), nada).ok), 1)
+  check('no vino: pieza suelta', si((() => { const r = planNoVino({ quantity: 5, piezas: [] }, m([['', 2]]), nada); return r.ok && r.incidencias[0].pieza === null && r.incidencias[0].cantidad === 2 })()), 1)
+  const todoPorSku = sinEnviarDe([
+    { tipo: 'sin_enviar', estado: 'abierta', cantidad: 4, pieza: 'Cable (C1)' },
+    { tipo: 'sin_enviar', estado: 'abierta', cantidad: 2, pieza: 'Palanca (P1)' },
+  ])
+  check('sin ningún SKU, la línea no viene', si(lineaNoViene(2, todoPorSku, conj.piezas)), 1)
+  check('con un SKU que sí vino, la línea viene', si(lineaNoViene(2, ya3, conj.piezas)), 0)
+
+  // Reembolsar un SKU: baja en el snapshot por set; lo devuelto sale del costo.
+  const r1 = planReembolsoPieza({ quantity: 2, costRealUsd: 30, piezas: conj.piezas }, 'Cable (C1)', 2, 8)
+  check('reembolso de SKU: 2 de 4 cables deja 1 por set', si(r1.ok && r1.piezasNuevas.find(p => p.bajajCode === 'C1')?.quantity === 1), 1)
+  check('reembolso de SKU: lo devuelto sale del costo', r1.ok ? (r1.costRealNuevo ?? -1) : -1, 22)
+  check('reembolso de SKU: sin pérdida (lo no devuelto queda en lo que llegó)', r1.ok ? r1.perdidaUsd : -1, 0)
+  check('reembolso de SKU: 3 de 4 no se reparte entre 2 sets', si(!planReembolsoPieza({ quantity: 2, costRealUsd: 30, piezas: conj.piezas }, 'Cable (C1)', 3, 0).ok), 1)
+  const r2 = planReembolsoPieza({ quantity: 2, costRealUsd: 30, piezas: conj.piezas }, 'Palanca (P1)', 2, 5)
+  check('reembolso de SKU: todo el SKU lo saca del conjunto', si(r2.ok && r2.piezasNuevas.length === 1 && !r2.quitaLinea), 1)
+  const r3 = planReembolsoPieza({ quantity: 1, costRealUsd: 10, piezas: [palanca] }, 'Palanca (P1)', 1, 4)
+  check('reembolso de SKU: sin piezas, la línea sale y lo no devuelto es pérdida', si(r3.ok && r3.quitaLinea && r3.perdidaUsd === 6), 1)
   check('pérdida = costo − lo que devolvió el proveedor', perdidaTrasDevolucion(10, 7.5), 2.5)
   check('si devolvió todo (o más) no hay pérdida', perdidaTrasDevolucion(10, 12), 0)
   check('entregada: solo reclamos, y el defecto de fábrica se admite', si(tiposPara(entregada).includes('defecto') && !tiposPara(entregada).includes('perdida')), 1)

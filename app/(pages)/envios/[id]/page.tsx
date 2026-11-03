@@ -591,7 +591,18 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     sinEnviar: textoSinEnviar(sinEnviarDe(it.incidencias)),
     admiteNoVino: (it.pedido.tipo === 'cliente' || it.pedido.tipo === 'propio') && it.pedido.status === 'pedido' && !it.isLanded &&
       tiposPara({ shippingStatus: it.shippingStatus, costRealUsd: it.costRealUsd != null ? Number(it.costRealUsd) : null }).includes('sin_enviar'),
-    piezasEtiqueta: ((it.bundleItems as BundlePiece[] | null) ?? []).map(p => ({ etiqueta: etiquetaPieza(p), quantity: p.quantity })),
+    ...(() => {
+      const se = sinEnviarDe(it.incidencias)
+      const sets = Math.min(it.quantity, se.lineaEntera)
+      return {
+        skusNoVino: ((it.bundleItems as BundlePiece[] | null) ?? []).map(p => ({
+          etiqueta: etiquetaPieza(p),
+          quantity: p.quantity,
+          yaAnotadas: p.quantity * sets + (se.porPieza.get(etiquetaPieza(p)) ?? 0),
+        })),
+        yaNoVino: se.lineaEntera,
+      }
+    })(),
   }))
 
   // Lo comprado que viaja en la caja, esté en la etapa que esté: la caja se cuenta cuando se
@@ -601,10 +612,10 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   // línea que no vino entera tampoco pasa a Recibido: se recibe a mano cuando llegue.
   const enCaja = envio.items.filter(it => !it.isLanded && it.shippingStatus !== 'pendiente')
   const sinEnviarPorItem = new Map(enCaja.map(it => [it.id, sinEnviarDe(it.incidencias)]))
-  const porRecibir = enCaja.filter(it =>
-    statusIndex(it.shippingStatus) < statusIndex('en_venezuela') && !lineaNoViene(it.quantity, sinEnviarPorItem.get(it.id)!))
-  const noVinieron = enCaja.filter(it =>
-    statusIndex(it.shippingStatus) < statusIndex('en_venezuela') && lineaNoViene(it.quantity, sinEnviarPorItem.get(it.id)!))
+  const noViene = (it: (typeof enCaja)[number]) =>
+    lineaNoViene(it.quantity, sinEnviarPorItem.get(it.id)!, (it.bundleItems as BundlePiece[] | null) ?? [])
+  const porRecibir = enCaja.filter(it => statusIndex(it.shippingStatus) < statusIndex('en_venezuela') && !noViene(it))
+  const noVinieron = enCaja.filter(it => statusIndex(it.shippingStatus) < statusIndex('en_venezuela') && noViene(it))
   const aContar = piezasAContar(enCaja.map(it => ({
     nombre: cabeceraDeLinea(it).nameEs,
     codigo: cabeceraDeLinea(it).bajajCode,
