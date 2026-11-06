@@ -27,7 +27,7 @@ export default async function DescontinuadosPage() {
   return (
     <div className="max-w-4xl space-y-6">
       <div>
-        <div className="flex items-center gap-3 mb-1">
+        <div className="flex flex-wrap items-center gap-3 mb-1">
           <Link href="/products" className="text-gray-500 hover:text-gray-600 text-sm">Productos</Link>
           <span aria-hidden="true" className="text-gray-300">/</span>
           <h1 className="text-2xl font-bold text-gray-900">Piezas descontinuadas</h1>
@@ -41,7 +41,7 @@ export default async function DescontinuadosPage() {
 
       <MarcarDescontinuados />
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
           <h2 className="text-sm font-semibold text-gray-900">
             Marcadas hoy: {marcadas.length}
@@ -75,7 +75,7 @@ export default async function DescontinuadosPage() {
               {marcadas.map(p => (
                 <tr key={p.id} className="hover:bg-gray-50">
                   <td className="px-4 py-2.5">
-                    <Link href={`/products/${p.id}`} className="text-gray-900 hover:text-blue-600">{p.nameEs}</Link>
+                    <Link href={`/products/${p.id}`} className="text-gray-900 hover:text-blue-600 break-words">{p.nameEs}</Link>
                     {p.bajajCode && <span className="ml-2 font-mono text-xs text-gray-500">{p.bajajCode}</span>}
                   </td>
                   <td className="px-3 py-2.5 text-xs text-gray-500 max-w-xs truncate" title={p.compatibleModels ?? ''}>
