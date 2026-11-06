@@ -57,7 +57,7 @@ Bajo / pendiente de los compartidos:
 - [x] `/products/[id]/edit` Editar producto
 - [x] `/products/import` Importar productos
 - [x] `/products/discontinued` Descontinuados
-- [ ] `/groups` Ensambles
+- [x] `/groups` Ensambles
 - [ ] `/ensambles/new` Nuevo ensamble
 - [ ] `/ensambles/[id]` Ensamble
 - [ ] `/ensambles/[id]/edit` Editar ensamble
@@ -95,6 +95,7 @@ Bajo / pendiente de los compartidos:
 | `/products/[id]/edit` | 55 | 97 | Hereda lo corregido en ProductForm/ModelPicker/PegarImagen (ver /products/new) y el título de pestaña. Breadcrumb en <nav> con un nivel a la ficha de la pieza (antes solo volvía al listado). "Editar producto" / "Guardar cambios" en minúscula. Verificado: ningún campo sin nombre. | Bajo: "Cancelar" del formulario vuelve al listado y no a la ficha (es navegación del componente compartido con "nuevo"). |
 | `/products/import` | 66 | 94 | Textarea del JSON asociado a su etiqueta. Botones "Copiar" con type=button y área de 24 px. Si el portapapeles falla se avisa (antes no pasaba nada) y "Copiado" se anuncia por role=status. El resultado de la importación es role=status. | Bajo: el resultado aparece debajo del formulario y en pantallas chicas puede quedar fuera de vista. |
 | `/products/discontinued` | 83 | 97 | Si marcar/desmarcar falla por red o server se muestra el error al lado (antes la promesa sin atrapar tiraba la pantalla entera al error genérico). Resultado con role=status. Ayuda vinculada al textarea con aria-describedby. Tabla con overflow-x-auto (se recortaba en móvil), breadcrumb con flex-wrap, nombres largos que cortan. Título de pestaña. | Bajo: "Marcadas hoy" se lee como "marcadas en el día" cuando es el total actual. |
+| `/groups` | 80 | 96 | Vacío sin filtros ofrece "Crear el primero" (antes "limpiá los filtros" sin haber filtros); con filtros dice "Ningún ensamble coincide". Piezas sin sub-grupo bajo "Sin sub-grupo" en vez de "—". "1 sub-grupo". Nombres truncados con title. Miniatura con alt="" (el nombre está al lado). Cabecera de página y de cada tarjeta con wrap y padding de 16 px en móvil. Paginación en <nav>. Los filtros heredan las etiquetas de CatalogFilters. | Bajo: "Editar" de cada tarjeta lleva a la ficha (donde se edita el despiece), no a /edit. |
 
 ## Pendiente (cambia comportamiento, no se aplicó)
 - `/products/import`: El prompt para la IA pide motos "por id del enum MotoModel" (el enum se dropeó; la fuente es compatibleModels en texto) y dice "margen fijo 40%" (el margen por defecto sale de Config). Corregir el texto cambia lo que la IA devuelve y lo que se importa: decidirlo aparte.
