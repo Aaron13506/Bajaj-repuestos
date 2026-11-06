@@ -330,12 +330,36 @@ export async function removePedido(envioId: number, pedidoId: number): Promise<A
 // Las dos filas de Envio se bloquean (en orden de id, para no cruzarse con otro movimiento al
 // revés) y el UPDATE va guardado por la caja y la etapa: si otra pestaña movió algo en el medio,
 // no se mueve nada.
+//
+// `destinoId = 'nueva'` crea la otra caja en el mismo paso: confirmada, con el proveedor, el modo,
+// el reenvío y la tarifa por kilo de esta. Es la forma normal de partir (no hace falta armarla
+// antes a mano); si la regla dice que no, la transacción se deshace y la caja no queda creada.
 export async function moverPedidoACaja(envioId: number, pedidoId: number, formData: FormData): Promise<ActionResult> {
-  const destinoId = parseInt((formData.get('destinoId') as string) ?? '')
-  if (!Number.isInteger(destinoId)) return fallo('Elegí a qué caja pasarlo.')
+  const destinoRaw = ((formData.get('destinoId') as string) ?? '').trim()
+  const nueva = destinoRaw === 'nueva'
+  let destinoId = parseInt(destinoRaw)
+  if (!nueva && !Number.isInteger(destinoId)) return fallo('Elegí a qué caja pasarlo.')
 
   return conErrorDeNegocio(async () => {
     await db.$transaction(async tx => {
+      if (nueva) {
+        await tx.$queryRaw`SELECT "id" FROM "Envio" WHERE "id" = ${envioId} FOR UPDATE`
+        const o = await tx.envio.findUnique({
+          where: { id: envioId },
+          select: { nombre: true, modo: true, supplierId: true, reenvio: true, tarifaKgInr: true, compraDeId: true },
+        })
+        if (!o) throw new ErrorDeNegocio('Esta caja ya no existe.')
+        const raiz = o.compraDeId ?? envioId
+        const partes = await tx.envio.count({ where: { OR: [{ id: raiz }, { compraDeId: raiz }] } })
+        const creada = await tx.envio.create({
+          data: {
+            nombre: `${o.nombre ?? `Caja #${envioId}`} · parte ${partes + 1}`,
+            modo: o.modo, estado: 'confirmado', supplierId: o.supplierId, reenvio: o.reenvio, tarifaKgInr: o.tarifaKgInr,
+          },
+          select: { id: true },
+        })
+        destinoId = creada.id
+      }
       const [a, b] = envioId < destinoId ? [envioId, destinoId] : [destinoId, envioId]
       await tx.$queryRaw`SELECT "id" FROM "Envio" WHERE "id" IN (${a}, ${b}) ORDER BY "id" FOR UPDATE`
       const cajas = await tx.envio.findMany({
