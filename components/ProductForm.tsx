@@ -193,7 +193,7 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Identificación</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <label className="block">
-            <span className="block text-sm font-medium text-gray-700 mb-1">Nombre (español) <span className="text-red-500">*</span></span>
+            <span className="block text-sm font-medium text-gray-700 mb-1">Nombre (español) <span className="text-red-600">*</span></span>
             <input name="nameEs" required defaultValue={d.nameEs ?? ''} placeholder="Ej: Pedal de freno trasero"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
             <p className="text-xs text-gray-500 mt-1">Se usa en presupuestos</p>
@@ -307,7 +307,7 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
           </label>
           <label className="block">
-            <span className="block text-sm font-medium text-gray-700 mb-1">Precio venta (USD) <span className="text-red-500">*</span></span>
+            <span className="block text-sm font-medium text-gray-700 mb-1">Precio venta (USD) <span className="text-red-600">*</span></span>
             <input ref={priceRef} name="price" type="number" min="0" step="0.01" required
               defaultValue={d.price != null ? parseFloat(d.price.toString()) : ''} onChange={recalcFromPrice}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />

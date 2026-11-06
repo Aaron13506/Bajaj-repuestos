@@ -352,7 +352,7 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
                       <p className="text-[11px] text-gray-500 font-mono">
                         {p.sku}
                         {(p.weightGrams == null || !(p.dimL && p.dimA && p.dimH)) && (
-                          <span className="ml-2 text-amber-600 font-sans">sin medidas</span>
+                          <span className="ml-2 text-amber-700 font-sans">sin medidas</span>
                         )}
                       </p>
                     </div>
@@ -419,7 +419,7 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
           <details className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <summary className="px-6 py-4 cursor-pointer font-semibold text-gray-900">
               Tarifas del supuesto
-              <span className={`ml-2 text-xs font-normal ${tarifasTocadas ? 'text-amber-600' : 'text-gray-500'}`}>
+              <span className={`ml-2 text-xs font-normal ${tarifasTocadas ? 'text-amber-700' : 'text-gray-500'}`}>
                 {tarifasTocadas ? 'modificadas — no se guardan' : 'las de Configuración'}
               </span>
             </summary>
@@ -863,7 +863,7 @@ function DetallePorPieza({ o, referencia }: { o: OpcionCompra; referencia: Opcio
                     {l.name}
                     {l.isLanded && <span className="ml-2 text-[10px] text-sky-700">puesta en VEN</span>}
                     {(l.missingWeight || l.missingDims) && (
-                      <span className="ml-2 text-[10px] text-amber-600">sin medidas</span>
+                      <span className="ml-2 text-[10px] text-amber-700">sin medidas</span>
                     )}
                   </td>
                   <td className="px-3 py-2 text-right font-mono text-gray-500">{l.quantity}</td>

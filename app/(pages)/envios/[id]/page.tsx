@@ -1587,7 +1587,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                       <td className="px-3 py-2.5 text-gray-900">
                         {r.name}
                         {r.missingPrice && (
-                          <span className="ml-2 text-xs text-amber-600">sin precio</span>
+                          <span className="ml-2 text-xs text-amber-700">sin precio</span>
                         )}
                       </td>
                       <td className="px-3 py-2.5 text-right font-mono text-gray-700">{r.qty}</td>

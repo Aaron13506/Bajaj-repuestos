@@ -145,7 +145,7 @@ export default async function PresupuestosPage({
               year: 'numeric',
             })}
             {validez && !validez.vencido && (
-              <span className={validez.diasRestantes <= 2 ? 'text-amber-600 font-medium' : ''}>
+              <span className={validez.diasRestantes <= 2 ? 'text-amber-700 font-medium' : ''}>
                 {' · '}{validez.diasRestantes === 0 ? 'vence hoy' : `vence en ${validez.diasRestantes} día${validez.diasRestantes === 1 ? '' : 's'}`}
               </span>
             )}
@@ -155,7 +155,7 @@ export default async function PresupuestosPage({
             <p className="text-xs text-gray-500 mt-1 font-mono">
               {log.chargeableKg.toFixed(2)} kg · {log.ft3.toFixed(2)} ft³
               {log.incompletas > 0 && (
-                <span className="text-amber-600 font-sans"> · {log.incompletas} sin medir</span>
+                <span className="text-amber-700 font-sans"> · {log.incompletas} sin medir</span>
               )}
             </p>
           )}
@@ -165,10 +165,10 @@ export default async function PresupuestosPage({
             <span className="font-semibold text-gray-900">${total.toFixed(2)}</span>
             {escalon != null && <span className="ml-1 text-[10px] font-semibold text-gray-500">BCV</span>}
             {!isCancelado && saldo != null && saldo > 0.005 && (
-              <p className="text-xs text-amber-600">Saldo ${saldo.toFixed(2)}</p>
+              <p className="text-xs text-amber-700">Saldo ${saldo.toFixed(2)}</p>
             )}
             {!isCancelado && saldo != null && saldo <= 0.005 && (
-              <p className="text-xs text-green-600">{saldo < -0.005 ? `A favor $${(-saldo).toFixed(2)}` : 'Pagado'}</p>
+              <p className="text-xs text-green-700">{saldo < -0.005 ? `A favor $${(-saldo).toFixed(2)}` : 'Pagado'}</p>
             )}
             {isCancelado && depositUsd != null && depositUsd > 0.005 && (
               <p className="text-xs text-red-600">Se quedó ${depositUsd.toFixed(2)}</p>

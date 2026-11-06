@@ -135,13 +135,13 @@ export function CostCells({ d, cfg, quantity, maritimo = true }: {
             {m.volumeM3.toFixed(3)}
             {multi && <span className="block text-sky-700">total: {(m.volumeM3 * quantity!).toFixed(3)}</span>}
           </>
-        ) : <span className="text-sky-500" title="Faltan dimensiones">—</span>}
+        ) : <span className="text-sky-700" title="Faltan dimensiones">—</span>}
       </td>
       <td className="px-4 py-3 text-right text-sky-800 bg-sky-50/50">
-        {fleteMar != null ? fmt(fleteMar) : <span className="text-sky-500" title="Faltan dimensiones">—</span>}
+        {fleteMar != null ? fmt(fleteMar) : <span className="text-sky-700" title="Faltan dimensiones">—</span>}
       </td>
       <td className="px-4 py-3 text-right font-semibold text-sky-900 bg-sky-50/50">
-        {m ? fmt(m.landedCostUsd) : <span className="text-sky-500" title="Faltan dimensiones">—</span>}
+        {m ? fmt(m.landedCostUsd) : <span className="text-sky-700" title="Faltan dimensiones">—</span>}
       </td>
       <td className="px-4 py-3 text-right font-medium text-sky-900 bg-sky-50/50">
         {m?.priceUsd != null ? (
@@ -152,13 +152,13 @@ export function CostCells({ d, cfg, quantity, maritimo = true }: {
             )}
           </>
         ) : (
-          <span className="text-sky-500" title={m ? 'Sin margen definido' : 'Faltan dimensiones'}>—</span>
+          <span className="text-sky-700" title={m ? 'Sin margen definido' : 'Faltan dimensiones'}>—</span>
         )}
       </td>
       {/* El Δ es el mismo para landed y para venta: el precio sale de aplicar el mismo
           margen sobre el landed, así que la proporción entre escenarios no cambia. */}
       <td className={`px-4 py-3 text-right font-semibold bg-sky-50/50 border-r-2 border-sky-200 ${
-        deltaPct == null ? 'text-sky-500' : deltaPct <= 0 ? 'text-green-700' : 'text-red-600'
+        deltaPct == null ? 'text-sky-700' : deltaPct <= 0 ? 'text-green-700' : 'text-red-600'
       }`}>
         {deltaPct == null ? '—' : `${deltaPct > 0 ? '+' : ''}${deltaPct.toFixed(0)}%`}
       </td>

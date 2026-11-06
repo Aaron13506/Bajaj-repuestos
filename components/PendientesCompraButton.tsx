@@ -201,7 +201,7 @@ export default function PendientesCompraButton({ envio, grupos, inrUsd, compra99
           🛒 Falta por comprar ({items} {items === 1 ? 'ítem' : 'ítems'} · {uds} u. · ≈ {usd(usdTotal)})
         </h2>
         <div className="flex items-center gap-2">
-          {aviso && <span className="text-xs text-green-600 font-medium">{aviso}</span>}
+          {aviso && <span className="text-xs text-green-700 font-medium">{aviso}</span>}
           <button
             type="button"
             onClick={async () => {
@@ -277,7 +277,7 @@ export default function PendientesCompraButton({ envio, grupos, inrUsd, compra99
                             </span>
                           )}
                           {r.unitInr == null && r.unitUsd == null && (
-                            <span className="ml-2 text-xs text-amber-600">sin precio</span>
+                            <span className="ml-2 text-xs text-amber-700">sin precio</span>
                           )}
                         </td>
                         <td className="px-3 py-2 text-right font-mono font-semibold text-gray-700 w-16">×{r.qty}</td>

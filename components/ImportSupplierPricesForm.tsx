@@ -133,7 +133,7 @@ export default function ImportSupplierPricesForm({ supplierId }: { supplierId: n
             <ul className="mt-3 space-y-1 text-sm text-gray-700 max-h-64 overflow-auto">
               {state.skipped.map((s, i) => (
                 <li key={i} className="flex gap-2">
-                  <span className="text-red-500 shrink-0">•</span>
+                  <span className="text-red-600 shrink-0">•</span>
                   <span><span className="font-mono">{s.sku}</span> — {s.message}</span>
                 </li>
               ))}

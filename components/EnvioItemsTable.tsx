@@ -429,7 +429,7 @@ export default function EnvioItemsTable({
           ) : guardando ? (
             <span className="text-gray-500">Guardando…</span>
           ) : guardadoOk ? (
-            <span className="text-green-600 font-medium">✓ Guardado</span>
+            <span className="text-green-700 font-medium">✓ Guardado</span>
           ) : (
             <span className="text-gray-300">Los cambios se guardan solos</span>
           )}

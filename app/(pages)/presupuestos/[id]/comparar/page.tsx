@@ -224,7 +224,7 @@ export default async function CompararProveedoresPage({ params }: { params: Prom
                   >
                     ${total.toFixed(2)}
                     {savings != null && savings !== 0 && (
-                      <span className={`block text-[11px] font-normal ${savings > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                      <span className={`block text-[11px] font-normal ${savings > 0 ? 'text-green-700' : 'text-red-600'}`}>
                         {savings > 0 ? '−' : '+'}${Math.abs(savings).toFixed(2)} vs 99rpm
                       </span>
                     )}

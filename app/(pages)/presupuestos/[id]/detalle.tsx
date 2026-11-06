@@ -351,7 +351,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                 target="_blank"
                 rel="noopener noreferrer"
                 title={avisoEstado}
-                className="text-sm text-green-600 hover:text-green-800"
+                className="text-sm text-green-700 hover:text-green-800"
               >
                 Avisar por WhatsApp · {compra!.lead.short}
               </a>
@@ -360,7 +360,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                 href={`https://wa.me/${tel}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-sm text-green-600 hover:text-green-800"
+                className="text-sm text-green-700 hover:text-green-800"
               >
                 WhatsApp
               </a>
@@ -665,7 +665,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
             </div>
           </div>
           {logistica.incompletas > 0 && (
-            <p className="text-xs text-amber-600 mt-4">
+            <p className="text-xs text-amber-700 mt-4">
               ⚠ {logistica.incompletas} de {logistica.piezas}{' '}
               {logistica.incompletas === 1 ? 'pieza no tiene' : 'piezas no tienen'} peso o
               medidas cargadas: el total real es mayor que éste.
@@ -977,7 +977,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                 <span className="text-sm font-semibold text-green-800">
                   Abonado
                   {presupuesto.paymentMethod && (
-                    <span className="font-normal text-green-600"> · {presupuesto.paymentMethod}</span>
+                    <span className="font-normal text-green-700"> · {presupuesto.paymentMethod}</span>
                   )}
                 </span>
                 <span className="text-right">

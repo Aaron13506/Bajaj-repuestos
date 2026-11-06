@@ -292,7 +292,7 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, onError, packQty, a
             {/* Nombres */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="block">
-                <span className={label}>Nombre (español) <span className="text-red-500">*</span></span>
+                <span className={label}>Nombre (español) <span className="text-red-600">*</span></span>
                 <input name="nameEs" required defaultValue={d.nameEs} className={input} />
               </label>
               <label className="block">
@@ -362,7 +362,7 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, onError, packQty, a
                       defaultValue={d.margin != null ? +(d.margin * 100).toFixed(6) : ''} onChange={recalcFromMargin} className={input} />
                   </label>
                   <label className="block">
-                    <span className={label}>Precio venta (USD) <span className="text-red-500">*</span></span>
+                    <span className={label}>Precio venta (USD) <span className="text-red-600">*</span></span>
                     <input ref={priceRef} name="price" type="number" min="0" step="0.01" required
                       defaultValue={d.price} onChange={recalcFromPrice} className={input} />
                   </label>

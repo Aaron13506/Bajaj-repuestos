@@ -321,7 +321,7 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
                     <p className="text-sm font-medium text-gray-900 truncate">{p.nameEs}</p>
                     <p className="text-[11px] text-gray-500">
                       {p.bajajCode && <span className="font-mono">{p.bajajCode} · </span>}
-                      {p.weightGrams != null ? `${p.weightGrams} g` : <span className="text-amber-600">sin peso</span>}
+                      {p.weightGrams != null ? `${p.weightGrams} g` : <span className="text-amber-700">sin peso</span>}
                     </p>
                   </div>
                   <input
@@ -526,7 +526,7 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
                   <div>
                     <p className="text-xs text-gray-500 mb-1">Facturable</p>
                     <p className={`text-lg font-bold font-mono ${
-                      (esCbm ? calc.minM3Applied : calc.minFt3Applied) ? 'text-amber-600' : 'text-sky-700'
+                      (esCbm ? calc.minM3Applied : calc.minFt3Applied) ? 'text-amber-700' : 'text-sky-700'
                     }`}>
                       {esCbm ? m3(calc.billableM3) : ft3(calc.billableFt3)}
                     </p>

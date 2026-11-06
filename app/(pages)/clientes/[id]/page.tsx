@@ -134,7 +134,7 @@ export default async function ClienteDetailPage({
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
           <p className="text-xs text-gray-500 mb-1">Saldo pendiente</p>
-          <p className={`text-xl font-bold font-mono ${saldo > 0.005 ? 'text-amber-600' : 'text-green-600'}`}>
+          <p className={`text-xl font-bold font-mono ${saldo > 0.005 ? 'text-amber-700' : 'text-green-700'}`}>
             ${saldo.toFixed(2)}
           </p>
         </div>
@@ -180,9 +180,9 @@ export default async function ClienteDetailPage({
                   <div className="text-right">
                     <span className="font-semibold text-gray-900">${total.toFixed(2)}</span>
                     {saldoPed != null && saldoPed > 0.005 && (
-                      <p className="text-xs text-amber-600">Saldo ${saldoPed.toFixed(2)}</p>
+                      <p className="text-xs text-amber-700">Saldo ${saldoPed.toFixed(2)}</p>
                     )}
-                    {saldoPed != null && saldoPed <= 0.005 && <p className="text-xs text-green-600">Pagado</p>}
+                    {saldoPed != null && saldoPed <= 0.005 && <p className="text-xs text-green-700">Pagado</p>}
                   </div>
                 </div>
               )

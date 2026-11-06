@@ -466,7 +466,7 @@ export default function EmbarqueMaritimo({
           <span className="text-xs font-mono text-gray-500">
             {volumenBorrador.toFixed(3)} / {minM3} m³ · {usd(ratePerM3)}/m³ · FOB {usd(fobUsd)}
             {sucio && volumenBorrador !== volumeM3 && (
-              <span className="text-amber-600"> · guardado: {volumeM3.toFixed(3)}</span>
+              <span className="text-amber-700"> · guardado: {volumeM3.toFixed(3)}</span>
             )}
           </span>
         </div>
@@ -669,10 +669,10 @@ export default function EmbarqueMaritimo({
                           <span className="font-mono">{vol(volumenMarcado)}</span> ·{' '}
                           <span className="font-mono">{usd(costoMarcado)}</span>
                           {sinMedidasMarcadas > 0 && (
-                            <span className="text-amber-600"> · {sinMedidasMarcadas} sin medidas (no suman volumen todavía)</span>
+                            <span className="text-amber-700"> · {sinMedidasMarcadas} sin medidas (no suman volumen todavía)</span>
                           )}
                           {bajoMinimoMarcadas.length > 0 && (
-                            <span className="text-amber-600">
+                            <span className="text-amber-700">
                               {' '}· {bajoMinimoMarcadas.length} bajo el mínimo del proveedor:{' '}
                               {bajoMinimoMarcadas.slice(0, 3).map(c => {
                                 const q = quantities[c.id] ?? c.quantity
@@ -784,7 +784,7 @@ export default function EmbarqueMaritimo({
                         {dims(r.dimL, r.dimA, r.dimH) && (
                           <span className="ml-2 font-mono">{dims(r.dimL, r.dimA, r.dimH)} cm</span>
                         )}
-                        {r.sinMedidas && <span className="ml-2 text-amber-600">sin medidas</span>}
+                        {r.sinMedidas && <span className="ml-2 text-amber-700">sin medidas</span>}
                         {yaLlevas > 0 && (
                           <span className="ml-2 font-medium text-cyan-700">ya llevás {yaLlevas} → {yaLlevas + paso}</span>
                         )}
@@ -848,7 +848,7 @@ export default function EmbarqueMaritimo({
               Contenido por SKU · {borrador.length} línea{borrador.length === 1 ? '' : 's'}
               {' · '}{borrador.reduce((s, l) => s + l.quantity, 0)} u. · {vol(volumenBorrador)}
               {' · '}{usd(borrador.reduce((s, l) => s + l.costoUnitUsd * l.quantity, 0))}
-              {sucio && <span className="ml-2 text-xs font-normal text-amber-600">con cambios sin guardar</span>}
+              {sucio && <span className="ml-2 text-xs font-normal text-amber-700">con cambios sin guardar</span>}
             </summary>
             <div className="flex justify-end px-4 py-2 border-t border-gray-100">
               {/* Copia el BORRADOR, no lo guardado: es lo que estás viendo en la tabla de
@@ -943,10 +943,10 @@ export default function EmbarqueMaritimo({
                       )}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono text-gray-500 text-xs">
-                      {dims(l.dimL, l.dimA, l.dimH) ?? <span className="text-amber-600">—</span>}
+                      {dims(l.dimL, l.dimA, l.dimH) ?? <span className="text-amber-700">—</span>}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono text-gray-700">
-                      {l.sinMedidas ? <span className="text-amber-600">—</span> : vol(l.volumeUnitM3 * l.quantity)}
+                      {l.sinMedidas ? <span className="text-amber-700">—</span> : vol(l.volumeUnitM3 * l.quantity)}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono text-gray-500">
                       {(l.weightUnitKg * l.quantity).toFixed(2)}

@@ -120,9 +120,9 @@ export default async function VentasPage({ searchParams }: { searchParams: Promi
                   <span className="font-semibold text-gray-900">${cobro.totalBcv.toFixed(2)}</span>
                   {cobro.escalonPct != null && <span className="ml-1 text-[10px] font-semibold text-gray-500">BCV</span>}
                   {cobro.saldoBcv > 0.005 ? (
-                    <p className="text-xs text-amber-600">Saldo ${cobro.saldoBcv.toFixed(2)}</p>
+                    <p className="text-xs text-amber-700">Saldo ${cobro.saldoBcv.toFixed(2)}</p>
                   ) : (
-                    <p className="text-xs text-green-600">{cobro.saldoBcv < -0.005 ? `A favor $${(-cobro.saldoBcv).toFixed(2)}` : 'Pagado'}</p>
+                    <p className="text-xs text-green-700">{cobro.saldoBcv < -0.005 ? `A favor $${(-cobro.saldoBcv).toFixed(2)}` : 'Pagado'}</p>
                   )}
                 </div>
                 <Link href={`/ventas/${v.id}`} className="text-sm text-blue-600 hover:text-blue-800">

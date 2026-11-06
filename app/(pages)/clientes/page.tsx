@@ -143,15 +143,15 @@ export default async function ClientesPage({
                   {c.telefono && (
                     <p className="text-xs text-gray-500 mt-1">
                       {c.telefono}
-                      {wa && <a href={`https://wa.me/${wa}`} target="_blank" rel="noopener noreferrer" className="ml-2 text-green-600 hover:underline">WhatsApp</a>}
+                      {wa && <a href={`https://wa.me/${wa}`} target="_blank" rel="noopener noreferrer" className="ml-2 text-green-700 hover:underline">WhatsApp</a>}
                     </p>
                   )}
                 </div>
                 <div className="flex items-center gap-4">
                   <div className="text-right">
                     <span className="font-semibold text-gray-900">${vendido.toFixed(2)}</span>
-                    {saldo > 0.005 && <p className="text-xs text-amber-600">Saldo ${saldo.toFixed(2)}</p>}
-                    {saldo <= 0.005 && vendido > 0 && <p className="text-xs text-green-600">Pagado</p>}
+                    {saldo > 0.005 && <p className="text-xs text-amber-700">Saldo ${saldo.toFixed(2)}</p>}
+                    {saldo <= 0.005 && vendido > 0 && <p className="text-xs text-green-700">Pagado</p>}
                   </div>
                   <Link href={`/clientes/${c.id}`} className="text-sm text-blue-600 hover:text-blue-800">
                     Ver

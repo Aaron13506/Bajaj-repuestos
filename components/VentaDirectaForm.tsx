@@ -474,7 +474,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
         {/* ── Derecha: cliente, piezas, cobro ── */}
         <div className="space-y-4">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 space-y-3">
-            <h2 className="font-semibold text-gray-900">Cliente <span className="text-red-500">*</span></h2>
+            <h2 className="font-semibold text-gray-900">Cliente <span className="text-red-600">*</span></h2>
             <select name="clienteId" value={clienteId} onChange={e => setClienteId(e.target.value)} required className={`w-full ${campo}`}>
               <option value="">Elegí un cliente…</option>
               {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}

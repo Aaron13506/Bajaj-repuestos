@@ -33,13 +33,13 @@ export default function EnsambleForm({ action, submitLabel, cancelHref, defaultV
             <p className="text-xs text-gray-500 mt-1">Opcional. Se usa en presupuestos; si falta, se muestra el nombre en inglés.</p>
           </label>
           <label className="block">
-            <span className="block text-sm font-medium text-gray-700 mb-1">Nombre (inglés) <span className="text-red-500">*</span></span>
+            <span className="block text-sm font-medium text-gray-700 mb-1">Nombre (inglés) <span className="text-red-600">*</span></span>
             <input name="nameEn" required defaultValue={d.nameEn ?? ''} placeholder="Ej: Rear Brake Assembly"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
             <p className="text-xs text-gray-500 mt-1">Obligatorio: el nombre del catálogo Bajaj / 99rpm</p>
           </label>
           <div role="group" aria-labelledby="ef-moto" aria-describedby="ef-moto-ayuda" className="sm:col-span-2">
-            <p id="ef-moto" className="block text-sm font-medium text-gray-700 mb-1">Moto <span className="text-red-500">*</span></p>
+            <p id="ef-moto" className="block text-sm font-medium text-gray-700 mb-1">Moto <span className="text-red-600">*</span></p>
             <ModelPicker value={d.models ?? []} />
             <p id="ef-moto-ayuda" className="text-xs text-gray-500 mt-1">
               Es lo que distingue dos ensambles con el mismo nombre. Casi siempre es una sola.

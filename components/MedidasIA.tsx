@@ -351,7 +351,7 @@ export default function MedidasIA({
                 <ul className="mt-2 space-y-1 text-sm text-gray-700">
                   {state.errors.map((err, i) => (
                     <li key={i} className="flex gap-2">
-                      <span className="text-red-500 shrink-0">•</span>
+                      <span className="text-red-600 shrink-0">•</span>
                       <span><span className="font-medium">{err.name}</span> — {err.message}</span>
                     </li>
                   ))}

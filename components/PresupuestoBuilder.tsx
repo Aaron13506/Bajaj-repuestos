@@ -1020,7 +1020,7 @@ export default function PresupuestoBuilder({
                                   <>
                                     <span className="text-gray-300">·</span>
                                     <span className={`font-mono font-semibold ${
-                                      margen >= 0.25 ? 'text-green-600' : margen >= 0 ? 'text-amber-600' : 'text-red-600'
+                                      margen >= 0.25 ? 'text-green-700' : margen >= 0 ? 'text-amber-700' : 'text-red-600'
                                     }`}>
                                       {(margen * 100).toFixed(0)}%
                                     </span>
@@ -1172,7 +1172,7 @@ export default function PresupuestoBuilder({
                       </span>
                       <span className="text-xl font-bold font-mono text-blue-700">
                         {costo ? `$${landedTotal.toFixed(2)}` : '—'}
-                        {costo && costo.sinPeso > 0 && <span className="text-amber-600 text-sm" title="Hay piezas sin peso: el landed real es mayor"> +?</span>}
+                        {costo && costo.sinPeso > 0 && <span className="text-amber-700 text-sm" title="Hay piezas sin peso: el landed real es mayor"> +?</span>}
                       </span>
                     </div>
                     <div className="flex justify-between text-xs text-gray-500 mt-0.5">
@@ -1235,8 +1235,8 @@ export default function PresupuestoBuilder({
                         <p className="text-[11px] text-gray-500">Margen</p>
                         <p className={`text-base font-bold font-mono ${
                           margenTotal == null ? 'text-gray-500'
-                            : margenTotal >= 0.25 ? 'text-green-600'
-                            : margenTotal >= 0 ? 'text-amber-600' : 'text-red-600'
+                            : margenTotal >= 0.25 ? 'text-green-700'
+                            : margenTotal >= 0 ? 'text-amber-700' : 'text-red-600'
                         }`}>
                           {margenTotal != null ? `${(margenTotal * 100).toFixed(1)}%` : '—'}
                         </p>
@@ -1332,7 +1332,7 @@ export default function PresupuestoBuilder({
             {isPropio ? (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Etiqueta / referencia <span className="text-red-500">*</span>
+                  Etiqueta / referencia <span className="text-red-600">*</span>
                 </label>
                 <input
                   type="text"
@@ -1347,7 +1347,7 @@ export default function PresupuestoBuilder({
               <div className="space-y-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Cliente <span className="text-red-500">*</span>
+                    Cliente <span className="text-red-600">*</span>
                   </label>
                   <input
                     type="text"
