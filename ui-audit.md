@@ -81,7 +81,7 @@ Bajo / pendiente de los compartidos:
 - [x] `/inventario` Inventario
 - [x] `/clientes` Clientes
 - [x] `/clientes/[id]` Cliente
-- [ ] `/config` Configuración
+- [x] `/config` Configuración
 
 ## Registro por pantalla
 
@@ -119,6 +119,7 @@ Bajo / pendiente de los compartidos:
 | `/inventario` | 82 | 96 | Buscador con aria-label, type=search, form role=search, foco visible y max-w-full (320 px fijos en móvil). Filtros (todo/aquí/en camino…) en role=group con aria-current y wrap. El 0 de Aquí / En camino pasa de gris 300 a 500: el cero es un dato (vacío no es cero) y no se leía. Ya tenía vacíos y tabla con overflow-x-auto. | — |
 | `/clientes` | 78 | 95 | Buscador con aria-label, form role=search, "Buscar" type=submit y wrap. Teléfono del alta con type=tel (teclado numérico en el teléfono). Filas con wrap, padding de 16 px y break-words en el nombre. WhatsApp avisa que abre en otra pestaña. Cabecera sin un flex que envolvía solo el h1. Verificado a 390 px: 42 clientes, sin desborde, 0 campos sin nombre y sin errores. | Bajo: "Ver" y "Eliminar" repetidos sin el nombre del cliente. Con 42 clientes no hay paginación (todavía no hace falta). |
 | `/clientes/[id]` | 68 | 95 | La página no tenía h1: el nombre estaba solo en las migas. Ahora hay migas en <nav> y un h1 con el nombre (break-words). Acciones (WhatsApp, + Presupuesto) con wrap y aviso de pestaña nueva. Teléfono type=tel. Totales en 1 columna en móvil (3 columnas a 390 px apretaban montos de 5 cifras). Filas de pedidos con wrap y padding de 16 px. Tabla de pagos con overflow-x-auto. Verificado #2 a 390 px: sin desborde, 0 campos sin nombre y sin errores. | — |
+| `/config` | 55 | 95 | Los <label> no estaban asociados a su campo (27 campos sin nombre accesible): ahora usan htmlFor/id y la ayuda va enlazada con aria-describedby. La clave técnica (bcv_brecha_pct…) queda aria-hidden para no ensuciar el nombre. Un valor fuera de rango ahora se marca en su propio campo (aria-invalid y borde rojo), no solo en el aviso de arriba. Avisos de guardado con role=status. Secciones con padding de 16 px en móvil. Verificado con ?invalido=bcv_brecha_pct: 0 de 27 campos sin nombre, el campo marcado lee etiqueta y ayuda, sin desborde y sin errores. | — |
 
 ## Pendiente (cambia comportamiento, no se aplicó)
 - `/products/import`: El prompt para la IA pide motos "por id del enum MotoModel" (el enum se dropeó; la fuente es compatibleModels en texto) y dice "margen fijo 40%" (el margen por defecto sale de Config). Corregir el texto cambia lo que la IA devuelve y lo que se importa: decidirlo aparte.
