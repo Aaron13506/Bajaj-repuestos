@@ -53,6 +53,7 @@ import { debeSaldo, motivoNoEntregable, saldoReal, seEntregaDesdeElPedido, situa
 import { diasSinMoverse, tiempoDeCompraA, tiemposPorTramo } from '../lib/etapas'
 import { leerDevolucion } from '../lib/devolucion'
 import { motivoNoCambiaReenvio, tarifaEquilibrioKgInr } from '../lib/reenvio'
+import { compraTrasMover, motivoNoMueve, type CajaParaMover } from '../lib/mover-caja'
 import { leerTrackingsTramo, MAX_TRACKINGS_POR_TRAMO } from '../lib/tracking'
 import { cajasQueSeFacturan, leerCajasEtapa, medidasDeCajas, resumenCajas, type CampoCaja } from '../lib/cajas-envio'
 import { buscarCouriers, courierDeFila, cuerpoTracker, datosDeTracking, esEstadoFinal, fechaCourier, listaDeCouriers, numeroParaShip24, resolverCourier, errorDeFila } from '../lib/ship24'
@@ -1413,6 +1414,41 @@ console.log('\nREENVÍO POR KILO  (₹/kg cotizado por caja + gastos fijos, sin 
   check('gastos fijos más caros que Shoppre: equilibrio 0, no negativo',
     tarifaEquilibrioKgInr({ shoppreUsd: 10, chargeableKg: 5, gastosFijosInr: 5000, inrUsd: 94.95 })!, 0)
   check('caja sin kilos: sin equilibrio', tarifaEquilibrioKgInr({ shoppreUsd: 10, chargeableKg: 0, gastosFijosInr: 0, inrUsd: 94.95 }) == null ? 1 : 0, 1)
+}
+
+console.log('\nMOVER UN PRESUPUESTO A OTRA CAJA (partir en el depósito)')
+{
+  const caja = (c: Partial<CajaParaMover> = {}): CajaParaMover => ({
+    id: 1, modo: 'aereo', estado: 'confirmado', supplierId: null, reenvio: 'shoppre', despachaProveedor: false,
+    lineas: [{ shippingStatus: 'en_shoppre', isLanded: false }], fleteAereoPagado: false,
+    compraDeId: null, tieneHijas: false, ...c,
+  })
+  const no = (o: Partial<CajaParaMover>, d: Partial<CajaParaMover>) => (motivoNoMueve(caja(o), caja({ id: 2, ...d })) != null ? 1 : 0)
+  check('las dos en el depósito: se puede', no({}, {}), 0)
+  check('destino vacío recién confirmado: se puede', no({}, { lineas: [] }), 0)
+  check('comprada camino al depósito: se puede', no({ lineas: [{ shippingStatus: 'camino_shoppre', isLanded: false }] }, {}), 0)
+  check('la misma caja: no', motivoNoMueve(caja(), caja()) != null ? 1 : 0, 1)
+  check('otro proveedor: no', no({}, { supplierId: 5 }), 1)
+  check('otro modo: no', no({}, { modo: 'express' }), 1)
+  check('otro reenvío: no', no({}, { reenvio: 'por_kilo' }), 1)
+  check('destino en borrador: no', no({}, { estado: 'borrador' }), 1)
+  check('origen en borrador: no (se quita y se agrega)', no({ estado: 'borrador' }, {}), 1)
+  check('origen ya camino a USA: no', no({ lineas: [{ shippingStatus: 'camino_usa', isLanded: false }] }, {}), 1)
+  check('destino ya camino a USA: no', no({}, { lineas: [{ shippingStatus: 'camino_usa', isLanded: false }] }), 1)
+  check('express ya camino a Venezuela: no', no({ modo: 'express', lineas: [{ shippingStatus: 'camino_venezuela', isLanded: false }] }, { modo: 'express' }), 1)
+  check('una línea landed en Venezuela no cuenta', no({ lineas: [{ shippingStatus: 'en_venezuela', isLanded: true }] }, {}), 0)
+  check('flete facturado no impide (es un número a corregir)', no({}, {}), 0)
+  check('flete pagado en el origen: no', no({ fleteAereoPagado: true }, {}), 1)
+  check('flete pagado en el destino: no', no({}, { fleteAereoPagado: true }), 1)
+  check('proveedor que despacha él: no', no({ despachaProveedor: true }, {}), 1)
+  check('marítimo: no', no({ modo: 'maritimo_cbm' }, { modo: 'maritimo_cbm' }), 1)
+  check('destino de otra compra partida: no', no({}, { compraDeId: 9 }), 1)
+  check('destino raíz de otra compra: no', no({}, { tieneHijas: true }), 1)
+  check('hija devolviendo a la raíz: se puede', no({ compraDeId: 2 }, { tieneHijas: true }), 0)
+  check('entre hermanas: se puede', no({ compraDeId: 9 }, { compraDeId: 9 }), 0)
+  check('caja suelta → nueva: la nueva pasa a la compra del origen', compraTrasMover({ id: 1, compraDeId: null }, { id: 2, compraDeId: null }) ?? -1, 1)
+  check('hija → nueva: apunta a la raíz (plana)', compraTrasMover({ id: 2, compraDeId: 1 }, { id: 3, compraDeId: null }) ?? -1, 1)
+  check('hija → raíz: la raíz sigue sin compraDeId', compraTrasMover({ id: 2, compraDeId: 1 }, { id: 1, compraDeId: null }) ?? -1, -1)
 }
 
 console.log('\nCAMBIAR EL REENVÍO DE UNA CAJA')

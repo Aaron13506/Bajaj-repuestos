@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import Link from 'next/link'
+import { Fragment } from 'react'
 import { notFound } from 'next/navigation'
 import DeleteButton from '@/components/DeleteButton'
 import EnvioItemsTable, { type EnvioItemRow } from '@/components/EnvioItemsTable'
@@ -19,6 +20,8 @@ import { inboundDe, inboundMeta } from '@/lib/inbound'
 import { reenvioDe, reenvioMeta, motivoNoCambiaReenvio, tarifaEquilibrioKgInr } from '@/lib/reenvio'
 import { modoDeEnvio, MODOS } from '@/lib/modo'
 import { motivoExpressNoAprobable, topeDeCaja } from '@/lib/express'
+import { contextoCosteo, costearAereo, ENVIO_COSTEO_INCLUDE } from '@/lib/costo-envios'
+import { motivoNoMueve, type CajaParaMover } from '@/lib/mover-caja'
 import EnvioMaritimo from './maritimo'
 import { lookupDeConjuntos, expandCostPieces, repartirCostoReal } from '@/lib/envio-build'
 import { financiamientoEnvio, type FinanciamientoEnvio } from '@/lib/financiamiento-envio'
@@ -62,6 +65,7 @@ import {
   registrarPagoProveedor,
   confirmarCajaAerea,
   volverCajaABorrador,
+  moverPedidoACaja,
 } from '../actions'
 
 const usd = (n: number) => `$${n.toFixed(2)}`
@@ -136,9 +140,18 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   // Los dos carriles son documentos distintos, no variantes del mismo: el marítimo lleva
   // mercancía propia (EnvioLinea) y se arma pieza por pieza, el aéreo agrupa pedidos de
   // cliente. Se bifurca acá arriba en vez de llenar la ficha de condicionales.
-  const ruta = await db.envio.findUnique({ where: { id }, select: { modo: true } })
+  const ruta = await db.envio.findUnique({ where: { id }, select: { modo: true, compraDeId: true } })
   if (!ruta) notFound()
   if (ruta.modo === 'maritimo_cbm') return <EnvioMaritimo envioId={id} />
+  // Las cajas de la misma compra (una caja partida en el depósito, ver lib/mover-caja.ts): lo
+  // debido y lo pagado al proveedor se leen juntos, porque el giro fue uno.
+  const raizCompra = ruta.compraDeId ?? id
+  const familia = await db.envio.findMany({
+    where: { OR: [{ id: raizCompra }, { compraDeId: raizCompra }] },
+    select: { id: true, nombre: true },
+    orderBy: { id: 'asc' },
+  })
+  const idsCompra = familia.map(f => f.id)
 
   const [envio, cfgRows, sinAsignar, suppliers, pedidosCaja, despiece99, repartidos, egresosCaja, itemsPendientesCosto, pagosFlete, couriers] = await Promise.all([
     db.envio.findUnique({
@@ -231,7 +244,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     db.movimiento.groupBy({
       by: ['tipo'],
       where: {
-        envioId: id,
+        envioId: { in: idsCompra },
         OR: [
           { tipo: 'egreso', categoria: { in: [...CATEGORIAS_PAGO_PROVEEDOR] } },
           { tipo: 'ingreso', categoria: { in: [...CATEGORIAS_REEMBOLSO_PROVEEDOR] } },
@@ -397,6 +410,17 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   const calcNeto = calc.caja.medido
     ? calcEnvio(items, cfg, { proveedor, modo: modoEnvio, reenvio: reenvioCaja })
     : null
+
+  // El giro de las OTRAS cajas de esta compra (caja partida): lo pagado se lee junto, así que
+  // lo debido también. Solo existe si la caja se partió.
+  const otrasCompra = idsCompra.filter(x => x !== id)
+  let giroOtrasUsd = 0
+  if (otrasCompra.length > 0) {
+    const cajasCompra = await db.envio.findMany({ where: { id: { in: otrasCompra } }, include: ENVIO_COSTEO_INCLUDE })
+    const ctxCompra = await contextoCosteo(cajasCompra)
+    giroOtrasUsd = cajasCompra.reduce((t, c) => t + (costearAereo(c, ctxCompra).calc.giro?.costoTotalUsd ?? 0), 0)
+  }
+  const giroCompraUsd = (calc.giro?.costoTotalUsd ?? 0) + giroOtrasUsd
 
   // Contenido de la caja consolidado por SKU (o nombre si no tiene SKU), separado por origen.
   // Cada pieza se valora como la valora el costeo: el precio del proveedor de su línea (USD)
@@ -722,6 +746,51 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     fleteAereoPagado: pagosFlete.some(m => m.categoria === TRAMOS_FLETE.aereo.categoria),
   })
 
+  // A qué cajas se puede pasar un presupuesto (caja partida en el depósito, ver lib/mover-caja.ts):
+  // las confirmadas del mismo proveedor, modo y reenvío que sean de esta compra o de ninguna. La
+  // acción lo vuelve a revisar todo con las filas bloqueadas.
+  const origenMover: CajaParaMover = {
+    id, modo: envio.modo, estado: envio.estado, supplierId: envio.supplierId, reenvio: envio.reenvio,
+    despachaProveedor: inboundCaja === 'cotizado',
+    lineas: envio.items.map(it => ({ shippingStatus: it.shippingStatus, isLanded: it.isLanded })),
+    fleteAereoPagado: pagosFlete.some(m => m.categoria === TRAMOS_FLETE.aereo.categoria),
+    compraDeId: envio.compraDeId,
+    tieneHijas: raizCompra === id && familia.length > 1,
+  }
+  const candidatasMover = await db.envio.findMany({
+    where: {
+      id: { not: id }, modo: envio.modo, supplierId: envio.supplierId, reenvio: envio.reenvio, estado: 'confirmado',
+      OR: [{ id: raizCompra }, { compraDeId: raizCompra }, { compraDeId: null, partes: { none: {} } }],
+    },
+    select: {
+      id: true, nombre: true, modo: true, estado: true, supplierId: true, reenvio: true, compraDeId: true,
+      items: { select: { shippingStatus: true, isLanded: true } },
+      movimientos: { where: { tipo: 'egreso', categoria: TRAMOS_FLETE.aereo.categoria }, select: { id: true } },
+      _count: { select: { partes: true } },
+    },
+    orderBy: { id: 'desc' },
+  })
+  const motivosMover = candidatasMover.map(c => ({
+    c,
+    motivo: motivoNoMueve(origenMover, {
+      id: c.id, modo: c.modo, estado: c.estado, supplierId: c.supplierId, reenvio: c.reenvio,
+      despachaProveedor: inboundCaja === 'cotizado', lineas: c.items,
+      fleteAereoPagado: c.movimientos.length > 0, compraDeId: c.compraDeId, tieneHijas: c._count.partes > 0,
+    }),
+  }))
+  const destinosMover = motivosMover
+    .filter(m => m.motivo == null)
+    .map(({ c }) => ({ id: c.id, nombre: c.nombre ?? `Caja #${c.id}` }))
+  // Lo que depende solo de esta caja (borrador, ya salió, flete pagado), contra una caja ideal.
+  const motivoOrigen = motivoNoMueve(origenMover, {
+    ...origenMover, id: -1, estado: 'confirmado', lineas: [], fleteAereoPagado: false, tieneHijas: false,
+  })
+  const motivoNoMover = destinosMover.length > 0
+    ? null
+    : motivoOrigen
+      ?? motivosMover[0]?.motivo
+      ?? 'Para partir la caja, creá otra del mismo proveedor y reenvío y confirmala: ahí podés pasarle presupuestos.'
+
   // Una fila por tramo que existe en ESTA caja. En una caja que despacha el proveedor no hay
   // flete aéreo que cargar: ese tramo es `tramoUsd` y se le paga a él dentro del giro.
   const pagosDe = (categoria: string) =>
@@ -793,8 +862,8 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     { texto: `Comprada ${compradas}/${envio.items.length}`, hecho: envio.items.length > 0 && compradas === envio.items.length },
     { texto: 'Pesada', hecho: calc.caja.medido },
   ]
-  if (calc.giro && calc.giro.costoTotalUsd > 0) {
-    pasos.push({ texto: 'Proveedor pagado', hecho: pagadoProveedor >= calc.giro.costoTotalUsd - 0.01 })
+  if (calc.giro && giroCompraUsd > 0) {
+    pasos.push({ texto: 'Proveedor pagado', hecho: pagadoProveedor >= giroCompraUsd - 0.01 })
   }
   if (!esCbm) {
     if (inboundCaja !== 'cotizado') {
@@ -1565,9 +1634,21 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                 <p className="text-xs text-gray-500">
                   Pagado: <span className="font-mono font-semibold text-gray-700">{usd(pagadoProveedor)}</span>
                   {' de '}
-                  <span className="font-mono">{usd(calc.giro.costoTotalUsd)}</span>
-                  {calc.giro.costoTotalUsd - pagadoProveedor > 0.01 && (
-                    <> — faltan <span className="font-mono font-semibold text-amber-700">{usd(calc.giro.costoTotalUsd - pagadoProveedor)}</span></>
+                  <span className="font-mono">{usd(giroCompraUsd)}</span>
+                  {giroCompraUsd - pagadoProveedor > 0.01 && (
+                    <> — faltan <span className="font-mono font-semibold text-amber-700">{usd(giroCompraUsd - pagadoProveedor)}</span></>
+                  )}
+                  {otrasCompra.length > 0 && (
+                    <span className="block mt-1">
+                      Es una sola compra con{' '}
+                      {familia.filter(f => f.id !== id).map((f, i) => (
+                        <Fragment key={f.id}>
+                          {i > 0 && ', '}
+                          <Link href={`/envios/${f.id}`} className="text-blue-600 hover:underline">{f.nombre ?? `caja #${f.id}`}</Link>
+                        </Fragment>
+                      ))}
+                      : lo pagado y lo debido son de todas juntas.
+                    </span>
                   )}
                 </p>
                 {!esBorrador && <RegistrarPagoProveedorForm action={registrarPagoProveedor.bind(null, envio.id)} methods={METODOS_PAGO_EGRESO} />}
@@ -1599,6 +1680,9 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
             quitar={removePedido}
             marcarNoVino={marcarNoVino}
             bloqueada={esBorrador}
+            mover={moverPedidoACaja}
+            destinos={destinosMover}
+            motivoNoMover={motivoNoMover}
           />
 
           {/* Lo pendiente de comprar, listo para copiar o bajar en CSV */}
