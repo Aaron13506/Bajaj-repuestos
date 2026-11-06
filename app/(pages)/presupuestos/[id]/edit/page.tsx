@@ -95,14 +95,14 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
   return (
     <div>
       <div className="mb-6">
-        <div className="flex items-center gap-2 mb-1">
+        <nav aria-label="Ruta" className="flex items-center gap-2 mb-1">
           <Link href={`/presupuestos/${id}`} className="text-gray-500 hover:text-gray-600 text-sm">
             Presupuesto #{id}
           </Link>
           <span aria-hidden="true" className="text-gray-300">/</span>
           <span className="text-sm text-gray-600">Editar</span>
-        </div>
-        <h1 className="text-2xl font-bold text-gray-900">
+        </nav>
+        <h1 className="text-2xl font-bold text-gray-900 text-balance break-words">
           {presupuesto.tipo === 'propio' ? 'Editar stock propio' : confirmado ? 'Editar pedido' : 'Editar presupuesto'} — {presupuesto.clientName}
         </h1>
         {confirmado && (
