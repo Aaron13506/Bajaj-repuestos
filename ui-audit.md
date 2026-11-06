@@ -123,3 +123,4 @@ Bajo / pendiente de los compartidos:
 
 ## Pendiente (cambia comportamiento, no se aplicó)
 - `/products/import`: El prompt para la IA pide motos "por id del enum MotoModel" (el enum se dropeó; la fuente es compatibleModels en texto) y dice "margen fijo 40%" (el margen por defecto sale de Config). Corregir el texto cambia lo que la IA devuelve y lo que se importa: decidirlo aparte.
+- `/presupuestos/[id]/comparar`: el "−$X vs 99rpm" del total compara sumas con distinto set de líneas cuando a un proveedor le falta el costo de alguna (ahora se ve "sin N líneas", pero el ahorro sigue saliendo de restar totales no comparables). Arreglarlo es cambiar la cuenta (comparar solo las líneas que tienen costo en ambos): decidirlo aparte.
