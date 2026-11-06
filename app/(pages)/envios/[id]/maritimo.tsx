@@ -304,13 +304,13 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
   return (
     <div className="max-w-5xl space-y-4">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <nav aria-label="Ruta" className="flex items-center gap-2 mb-1">
             <Link href="/envios" className="text-gray-500 hover:text-gray-600 text-sm">Envíos</Link>
             <span aria-hidden="true" className="text-gray-300">/</span>
             <span className="text-sm text-gray-600">#{envio.id}</span>
-          </div>
+          </nav>
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-2xl font-bold text-gray-900">{nombreEmbarque}</h1>
             <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-cyan-100 text-cyan-800">
@@ -345,7 +345,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
             )}
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2">
           {!esBorrador && lineas.length > 0 && <BotonConteo yaRecibida={esEntregado} />}
           {esBorrador ? (
             <FormConResultado action={cerrarEmbarque.bind(null, envio.id)}>
@@ -493,7 +493,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
             {envio.supplierId != null && (
               <div>
                 <p className="text-xs text-gray-500 mb-1">Comisiones del giro</p>
-                <p className={`text-xl font-bold font-mono ${embarque.cargada ? 'text-gray-900' : 'text-gray-300'}`}>
+                <p className={`text-xl font-bold font-mono ${embarque.cargada ? 'text-gray-900' : 'text-gray-500'}`}>
                   {!embarque.salienteCargada && !embarque.entranteCargada
                     ? 'sin cargar'
                     : usd(embarque.comisionUsd)}
@@ -531,6 +531,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
             >
               <div>
                 <label
+                  htmlFor="comision-saliente"
                   className="block text-xs font-medium text-gray-600 mb-1"
                   title="Lo que MI banco cobró por emitir el giro. Vacío = todavía no lo sé; 0 = no cobró nada"
                 >
@@ -540,6 +541,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
                   type="number"
                   step="0.01"
                   min="0"
+                  id="comision-saliente"
                   name="comisionSalienteUsd"
                   defaultValue={comisionSalienteUsd ?? ''}
                   placeholder="sin cargar"
@@ -551,6 +553,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
               </div>
               <div>
                 <label
+                  htmlFor="comision-entrante"
                   className="block text-xs font-medium text-gray-600 mb-1"
                   title="Lo que le descontaron a ÉL al acreditar y tuviste que completarle. Vacío = todavía no lo sé; 0 = le llegó completo"
                 >
@@ -560,6 +563,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
                   type="number"
                   step="0.01"
                   min="0"
+                  id="comision-entrante"
                   name="comisionEntranteUsd"
                   defaultValue={comisionEntranteUsd ?? ''}
                   placeholder="sin cargar"
@@ -666,7 +670,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
                       <ChipDescontinuada activo={l.descontinuada} />
                       {l.bajajCode && <span className="ml-2 font-mono text-xs text-gray-500">{l.bajajCode}</span>}
                       {l.altCode && (
-                        <span className="ml-1 font-mono text-xs text-gray-300" title="El otro código de la misma pieza">
+                        <span className="ml-1 font-mono text-xs text-gray-500" title="El otro código de la misma pieza">
                           / {l.altCode}
                         </span>
                       )}

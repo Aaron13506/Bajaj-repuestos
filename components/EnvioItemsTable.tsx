@@ -102,7 +102,7 @@ function Th({
 }) {
   const activa = orden.campo === campo
   return (
-    <th className={`py-2 font-semibold ${className}`}>
+    <th aria-sort={activa ? (orden.dir === 'asc' ? 'ascending' : 'descending') : undefined} className={`py-2 font-semibold ${className}`}>
       <button
         type="button"
         onClick={() => onClick(campo)}
@@ -112,7 +112,7 @@ function Th({
         }`}
       >
         {children}
-        <span className={activa ? 'text-blue-600' : 'text-gray-300'}>
+        <span aria-hidden="true" className={activa ? 'text-blue-600' : 'text-gray-500'}>
           {activa ? (orden.dir === 'asc' ? '▲' : '▼') : '↕'}
         </span>
       </button>
@@ -378,7 +378,7 @@ export default function EnvioItemsTable({
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
-      <div className="px-6 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between gap-3">
+      <div className="px-4 sm:px-6 py-3 border-b border-gray-100 bg-gray-50 flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
           Ítems en el envío ({visibles.length}) · {comprados} comprados
         </h2>
@@ -386,6 +386,7 @@ export default function EnvioItemsTable({
           {visibles.length > 0 && (
             <div className="flex items-center gap-2">
               <select
+                aria-label="Mover todas las líneas a la etapa"
                 disabled={guardando || bloqueada}
                 value=""
                 onChange={e => { if (e.target.value) moverTodo(e.target.value) }}
@@ -424,15 +425,18 @@ export default function EnvioItemsTable({
           >
             {todoAbierto ? 'Contraer todo' : 'Expandir todo'}
           </button>
-          {error ? (
-            <span className="text-red-600 font-medium">{error}</span>
-          ) : guardando ? (
-            <span className="text-gray-500">Guardando…</span>
-          ) : guardadoOk ? (
-            <span className="text-green-700 font-medium">✓ Guardado</span>
-          ) : (
-            <span className="text-gray-300">Los cambios se guardan solos</span>
-          )}
+          {/* Autoguardado: el estado se anuncia, si no el lector no se entera de que guardó o falló. */}
+          <span role="status">
+            {error ? (
+              <span className="text-red-600 font-medium">{error}</span>
+            ) : guardando ? (
+              <span className="text-gray-500">Guardando…</span>
+            ) : guardadoOk ? (
+              <span className="text-green-700 font-medium">✓ Guardado</span>
+            ) : (
+              <span className="text-gray-500">Los cambios se guardan solos</span>
+            )}
+          </span>
         </div>
       </div>
       {aviso && (
@@ -505,6 +509,7 @@ export default function EnvioItemsTable({
                   <td className="px-3 py-2 text-right font-mono text-xs text-gray-500">{usd(ventaGrupo)}</td>
                   <td className="px-3 py-2">
                     <select
+                      aria-label={`Etapa de todo el pedido #${pedidoId} (${its[0].clientName})`}
                       disabled={guardando || bloqueada}
                       value={statusComun === undefined ? MIXTO : statusComun}
                       onChange={e => {
@@ -592,6 +597,7 @@ export default function EnvioItemsTable({
                       <td className="px-3 py-3 text-right font-mono text-gray-700">{usd(it.venta)}</td>
                       <td className="px-3 py-3">
                         <select
+                          aria-label={`Etapa de ${limpiarNombre(it.nombre)}`}
                           disabled={guardando || bloqueada}
                           value={v.shippingStatus}
                           onChange={e => aplicarA([it], { shippingStatus: e.target.value })}

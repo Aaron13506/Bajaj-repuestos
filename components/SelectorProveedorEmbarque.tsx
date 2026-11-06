@@ -37,6 +37,7 @@ export default function SelectorProveedorEmbarque({
     <span className="inline-flex items-center gap-1.5 text-xs bg-gray-100 rounded-full pl-2.5 pr-1 py-0.5">
       <span className="text-gray-500">Proveedor</span>
       <select
+        aria-label="Proveedor"
         value={supplierId ?? ''}
         disabled={pending}
         onChange={e => {

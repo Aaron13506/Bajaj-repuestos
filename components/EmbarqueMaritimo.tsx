@@ -149,7 +149,7 @@ const chipMotos = (compatibleModels: string | null) => {
 function CodigoAlterno({ code }: { code: string | null }) {
   if (!code) return null
   return (
-    <span className="ml-1 text-xs font-mono text-gray-300" title="El otro código de la misma pieza">
+    <span className="ml-1 text-xs font-mono text-gray-500" title="El otro código de la misma pieza">
       / {code}
     </span>
   )
@@ -503,6 +503,7 @@ export default function EmbarqueMaritimo({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
           <select
+            aria-label="Moto"
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             value={modelFilter}
             onChange={e => { setModelFilter(e.target.value); selectAssembly(null) }}
@@ -511,7 +512,8 @@ export default function EmbarqueMaritimo({
             {models.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
           <input
-            type="text"
+            type="search"
+            aria-label="Buscar ensamble"
             value={asmSearch}
             onChange={e => setAsmSearch(e.target.value)}
             placeholder="Buscar ensamble por nombre o código…"
@@ -647,6 +649,7 @@ export default function EmbarqueMaritimo({
                                 value={quantities[c.id] ?? c.quantity}
                                 onChange={e => setQuantities(prev => ({ ...prev, [c.id]: parseInt(e.target.value) || 1 }))}
                                 onClick={e => e.stopPropagation()}
+                                aria-label={`Cantidad de ${c.child.nameEs}`}
                                 disabled={!checked[c.id]}
                                 className="w-14 border border-gray-200 rounded px-2 py-0.5 text-sm text-center disabled:opacity-40 shrink-0"
                               />
@@ -729,7 +732,8 @@ export default function EmbarqueMaritimo({
         <h2 className="font-semibold text-gray-900 mb-3">Agregar una pieza suelta</h2>
         <div className="relative">
           <input
-            type="text"
+            type="search"
+            aria-label="Buscar pieza"
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Buscar por nombre o código…"
@@ -768,7 +772,7 @@ export default function EmbarqueMaritimo({
                       <p className="text-xs text-gray-500 truncate">
                         {r.bajajCode && <span className="font-mono">{r.bajajCode}</span>}
                         {r.altCode && (
-                          <span className="ml-1 font-mono text-gray-300" title="El otro código de la misma pieza">
+                          <span className="ml-1 font-mono text-gray-500" title="El otro código de la misma pieza">
                             / {r.altCode}
                           </span>
                         )}
@@ -919,6 +923,7 @@ export default function EmbarqueMaritimo({
                       <input
                         type="number"
                         min={l.moq && l.moq > 1 ? l.moq : 1}
+                        aria-label={`Cantidad de ${l.nameEs}`}
                         value={l.quantity}
                         disabled={guardando}
                         onChange={e => {
@@ -959,10 +964,11 @@ export default function EmbarqueMaritimo({
                         type="button"
                         disabled={guardando}
                         onClick={() => editar(prev => prev.filter(x => x.id !== l.id))}
-                        className="text-gray-300 hover:text-red-500 transition-colors"
+                        className="p-1 -m-1 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
                         title="Quitar (se puede deshacer)"
+                        aria-label={`Quitar ${l.nameEs}`}
                       >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg aria-hidden="true" className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
                       </button>
@@ -1056,7 +1062,7 @@ export default function EmbarqueMaritimo({
                 </>
               )}
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={deshacer}

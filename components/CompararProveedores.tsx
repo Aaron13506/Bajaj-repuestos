@@ -160,7 +160,7 @@ export default function CompararProveedores({
                   </td>
                   <td className="py-2.5 px-2 text-right font-mono font-semibold text-gray-900">{usd(o.totalUsd)}</td>
                   <td className={`py-2.5 pl-2 text-right font-mono font-semibold ${
-                    o.esActual ? 'text-gray-300' : delta < 0 ? 'text-green-700' : 'text-red-600'
+                    o.esActual ? 'text-gray-500' : delta < 0 ? 'text-green-700' : 'text-red-600'
                   }`}>
                     {o.esActual ? '—' : `${delta < 0 ? '−' : '+'}${usd(Math.abs(delta)).slice(1)}`}
                   </td>

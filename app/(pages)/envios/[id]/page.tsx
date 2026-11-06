@@ -749,15 +749,15 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   return (
     <div className="max-w-screen-2xl">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4 mb-6">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
+      <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
+        <div className="min-w-0">
+          <nav aria-label="Ruta" className="flex items-center gap-2 mb-1">
             <Link href="/envios" className="text-gray-500 hover:text-gray-600 text-sm">Envíos</Link>
             <span aria-hidden="true" className="text-gray-300">/</span>
             <span className="text-sm text-gray-600">#{envio.id}</span>
-          </div>
+          </nav>
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-2xl font-bold text-gray-900">{envio.nombre ?? `Envío #${envio.id}`}</h1>
+            <h1 className="text-2xl font-bold text-gray-900 break-words">{envio.nombre ?? `Envío #${envio.id}`}</h1>
             {/* Modo con el que se costeó esta caja. Se congeló al crearla, así que puede
                 diferir del modo global activo — de ahí que se muestre siempre. */}
             <span
@@ -818,7 +818,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2">
           {!esBorrador && aContar.length > 0 && <BotonConteo yaRecibida={porRecibir.length === 0} />}
           {/* El flete ya no se "guarda": la lista de envíos lo calcula en vivo con el mismo
               costeo que esta ficha (lib/costo-envios). Una copia guardada quedaba vieja en
@@ -1283,13 +1283,15 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                     className="w-28 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </label>
-                <label className="block">
-                  <span className="block text-xs font-medium text-gray-600 mb-1">Caja L × A × H (cm)</span>
+                {/* Tres campos: un <label> solo nombraría el primero. */}
+                <div role="group" aria-labelledby="caja-medidas">
+                  <span id="caja-medidas" className="block text-xs font-medium text-gray-600 mb-1">Caja L × A × H (cm)</span>
                   <div className="flex items-center gap-1">
                     {(['cajaL', 'cajaA', 'cajaH'] as const).map((f, i) => (
                       <div key={f} className="flex items-center gap-1">
-                        {i > 0 && <span className="text-gray-300 text-sm">×</span>}
+                        {i > 0 && <span aria-hidden="true" className="text-gray-500 text-sm">×</span>}
                         <input
+                          aria-label={['Largo', 'Ancho', 'Alto'][i] + ' (cm)'}
                           type="number" step="0.01" min="0" name={f}
                           defaultValue={envio[f] ?? ''}
                           placeholder="0"
@@ -1298,7 +1300,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                       </div>
                     ))}
                   </div>
-                </label>
+                </div>
                 <PendingButton
                   className="px-4 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                 >
@@ -1357,7 +1359,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                         <td className="py-2 font-sans text-gray-600">Cobrable max(W,V)</td>
                         <td className="py-2 text-right text-gray-500">{kg(calcNeto!.air.chargeableKg)}</td>
                         <td className="py-2 text-right text-blue-700 font-semibold">{kg(calc.air.chargeableKg)}</td>
-                        <td className="py-2 text-right text-gray-300">—</td>
+                        <td className="py-2 text-right text-gray-500">—</td>
                       </tr>
                     )}
                   </tbody>
@@ -1420,10 +1422,11 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                     campo vacío al lado invitaría a cargarlo dos veces. */}
                 {inboundCaja === 'cotizado' && (
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                    <label htmlFor="tramo-usd" className="block text-xs font-medium text-gray-600 mb-1">
                       Envío + impuestos (USD)
                     </label>
                     <input
+                      id="tramo-usd"
                       type="number"
                       step="0.01"
                       min="0"
@@ -1441,6 +1444,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                     para poder anotar la otra. */}
                 <div>
                   <label
+                    htmlFor="comision-saliente"
                     className="block text-xs font-medium text-gray-600 mb-1"
                     title="Lo que MI banco cobró por emitir el giro. Vacío = todavía no lo sé; 0 = no cobró nada"
                   >
@@ -1450,6 +1454,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                     type="number"
                     step="0.01"
                     min="0"
+                    id="comision-saliente"
                     name="comisionSalienteUsd"
                     defaultValue={comisionSalienteUsd ?? ''}
                     placeholder="sin cargar"
@@ -1461,6 +1466,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                 </div>
                 <div>
                   <label
+                    htmlFor="comision-entrante"
                     className="block text-xs font-medium text-gray-600 mb-1"
                     title="Lo que le descontaron a ÉL al acreditar y tuviste que completarle. Vacío = todavía no lo sé; 0 = le llegó completo"
                   >
@@ -1470,6 +1476,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                     type="number"
                     step="0.01"
                     min="0"
+                    id="comision-entrante"
                     name="comisionEntranteUsd"
                     defaultValue={comisionEntranteUsd ?? ''}
                     placeholder="sin cargar"
@@ -1750,10 +1757,10 @@ function QuienPonePlata({ f }: { f: FinanciamientoEnvio }) {
       <p className="text-sm flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="text-gray-500">Costo de la caja</span>
         <span className="font-mono font-bold text-gray-900">{usd(f.costoUsd)}</span>
-        <span className="text-gray-300">=</span>
+        <span className="text-gray-500">=</span>
         <Parte label="Clientes" valor={f.clientes.costoUsd} tono="text-gray-900" />
-        {f.propio.costoUsd > 0 && <><span className="text-gray-300">+</span><Parte label="Stock propio" valor={f.propio.costoUsd} tono="text-sky-700" /></>}
-        {f.sinAprobar.costoUsd > 0 && <><span className="text-gray-300">+</span><Parte label="Sin aprobar" valor={f.sinAprobar.costoUsd} tono="text-amber-700" /></>}
+        {f.propio.costoUsd > 0 && <><span className="text-gray-500">+</span><Parte label="Stock propio" valor={f.propio.costoUsd} tono="text-sky-700" /></>}
+        {f.sinAprobar.costoUsd > 0 && <><span className="text-gray-500">+</span><Parte label="Sin aprobar" valor={f.sinAprobar.costoUsd} tono="text-amber-700" /></>}
       </p>
       <p className="text-sm mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="text-gray-500">Adelantos que la cubren</span>
@@ -1767,10 +1774,10 @@ function QuienPonePlata({ f }: { f: FinanciamientoEnvio }) {
       <p className="text-sm mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="text-gray-500">De tu bolsillo hasta entregar</span>
         <span className="font-mono font-bold text-lg text-amber-700">{usd(f.bolsilloUsd)}</span>
-        <span className="text-gray-300">=</span>
+        <span className="text-gray-500">=</span>
         <Parte label="clientes por cobrar" valor={f.clientes.porCobrarUsd} tono="text-gray-900" />
-        {f.propio.costoUsd > 0 && <><span className="text-gray-300">+</span><Parte label="inventario tuyo" valor={f.propio.costoUsd} tono="text-sky-700" /></>}
-        {f.sinAprobar.costoUsd > 0 && <><span className="text-gray-300">+</span><Parte label="riesgo" valor={f.sinAprobar.costoUsd} tono="text-amber-700" /></>}
+        {f.propio.costoUsd > 0 && <><span className="text-gray-500">+</span><Parte label="inventario tuyo" valor={f.propio.costoUsd} tono="text-sky-700" /></>}
+        {f.sinAprobar.costoUsd > 0 && <><span className="text-gray-500">+</span><Parte label="riesgo" valor={f.sinAprobar.costoUsd} tono="text-amber-700" /></>}
       </p>
       {f.clientes.pedidos > 0 && (
         <p className="text-xs mt-2">

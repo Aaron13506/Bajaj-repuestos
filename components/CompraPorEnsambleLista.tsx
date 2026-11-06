@@ -66,7 +66,7 @@ export default function CompraPorEnsambleLista({ datos }: { datos: CompraPorEnsa
                 <ul className="divide-y divide-gray-50">
                   {b.piezas.map((p, i) => (
                     <li key={i} className="px-3 py-1.5 flex items-center gap-2 text-sm">
-                      <span className="text-gray-300 select-none">☐</span>
+                      <span aria-hidden="true" className="text-gray-500 select-none">☐</span>
                       <span className="font-mono text-xs text-gray-700 w-8 text-right shrink-0">{p.base}×</span>
                       <span className="font-mono text-xs text-gray-500 w-28 shrink-0">{p.sku ?? '—'}</span>
                       <span className="flex-1 text-gray-900 truncate" title={p.name}>{p.name}</span>
