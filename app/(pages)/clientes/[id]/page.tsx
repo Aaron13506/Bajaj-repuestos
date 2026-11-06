@@ -48,11 +48,15 @@ export default async function ClienteDetailPage({
 
   return (
     <div className="max-w-3xl">
-      <div className="flex items-center gap-2 mb-6">
-        <Link href="/clientes" className="text-gray-500 hover:text-gray-600 text-sm">Clientes</Link>
-        <span aria-hidden="true" className="text-gray-300">/</span>
-        <span className="text-sm text-gray-600">{cliente.nombre}</span>
-        <span className="ml-auto flex items-center gap-2">
+      {/* La página no tenía h1: el nombre vivía solo en las migas. */}
+      <div className="flex flex-wrap items-end justify-between gap-3 mb-6">
+        <div className="min-w-0">
+          <nav aria-label="Ruta" className="mb-1">
+            <Link href="/clientes" className="text-gray-500 hover:text-gray-600 text-sm">Clientes</Link>
+          </nav>
+          <h1 className="text-2xl font-bold text-gray-900 break-words">{cliente.nombre}</h1>
+        </div>
+        <span className="flex flex-wrap items-center gap-2">
           {wa && (
             <a
               href={`https://wa.me/${wa}`}
@@ -60,7 +64,7 @@ export default async function ClienteDetailPage({
               rel="noopener noreferrer"
               className="px-3 py-1.5 text-sm border border-green-300 text-green-700 rounded-lg hover:bg-green-50"
             >
-              WhatsApp
+              WhatsApp<span className="sr-only"> (abre en otra pestaña)</span>
             </a>
           )}
           <Link
@@ -80,8 +84,8 @@ export default async function ClienteDetailPage({
 
       {/* Datos del cliente */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
-        <div className="flex items-start justify-between gap-4">
-          <FormConResultado action={updateCliente.bind(null, cliente.id)} className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <FormConResultado action={updateCliente.bind(null, cliente.id)} className="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="block">
               <span className="block text-xs font-medium text-gray-500 mb-1">Nombre</span>
               <input
@@ -94,6 +98,7 @@ export default async function ClienteDetailPage({
             <label className="block">
               <span className="block text-xs font-medium text-gray-500 mb-1">Teléfono</span>
               <input
+                type="tel"
                 name="telefono"
                 defaultValue={cliente.telefono ?? ''}
                 className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -122,11 +127,11 @@ export default async function ClienteDetailPage({
       </div>
 
       {/* Totales */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-6">
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
           <p className="text-xs text-gray-500 mb-1">Total vendido</p>
           <p className="text-xl font-bold font-mono text-gray-900">${vendido.toFixed(2)}</p>
-          <p className="text-[10px] text-gray-500 mt-0.5">solo pedidos confirmados</p>
+          <p className="text-[11px] text-gray-500 mt-0.5">solo pedidos confirmados</p>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
           <p className="text-xs text-gray-500 mb-1">Total adelantado</p>
@@ -160,7 +165,7 @@ export default async function ClienteDetailPage({
               // tampoco: lo que dejó se decidió al cancelarlo.
               const saldoPed = !isPresupuesto && !isCancelado && depositUsd != null ? total - depositUsd : null
               return (
-                <div key={p.id} className="px-6 py-3 flex items-center justify-between hover:bg-gray-50">
+                <div key={p.id} className="px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 hover:bg-gray-50">
                   <div>
                     <Link href={`/presupuestos/${p.id}`} className="text-sm font-medium text-gray-900 hover:text-blue-600">
                       #{p.id}
@@ -192,7 +197,7 @@ export default async function ClienteDetailPage({
       </div>
 
       {/* Estado de cuenta */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mt-6">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto mt-6">
         <div className="px-6 py-3 border-b border-gray-100 bg-gray-50">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
             Pagos y devoluciones ({movimientos.length})
