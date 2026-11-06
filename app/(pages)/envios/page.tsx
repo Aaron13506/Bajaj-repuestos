@@ -93,7 +93,7 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
               {tramos.map(t => (
                 <li key={t.tramo} className="flex justify-between gap-2">
                   <span>{SHIPPING_STATUSES.find(s => s.value === t.desde)?.short} → {SHIPPING_STATUSES.find(s => s.value === t.hacia)?.short}</span>
-                  <span className="font-mono">{t.medianaDias.toFixed(1)} d <span className="text-gray-300">({t.n})</span></span>
+                  <span className="font-mono">{t.medianaDias.toFixed(1)} d <span className="text-gray-500">({t.n})</span></span>
                 </li>
               ))}
             </ul>
@@ -110,11 +110,11 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
             <Link
               key={e.id}
               href={`/envios/${e.id}`}
-              className="flex items-center justify-between gap-4 rounded-xl border-2 border-cyan-300 bg-cyan-50 px-5 py-4 hover:bg-cyan-100 transition-colors"
+              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-xl border-2 border-cyan-300 bg-cyan-50 px-4 sm:px-5 py-4 hover:bg-cyan-100 transition-colors"
             >
-              <div>
-                <p className="font-semibold text-cyan-900">
-                  🚢 {e.nombre ?? `Embarque #${e.id}`}
+              <div className="min-w-0">
+                <p className="font-semibold text-cyan-900 break-words">
+                  <span aria-hidden="true">🚢</span> {e.nombre ?? `Embarque #${e.id}`}
                   <span className="ml-2 text-xs font-normal text-cyan-700">en borrador · seguí llenándolo</span>
                 </p>
                 <p className="text-xs text-cyan-700 mt-0.5">
@@ -157,12 +157,13 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
           >
             <input type="hidden" name="modo" value={r.modo} />
             <div>
-              <h2 className="font-semibold text-gray-900">{r.icono} {r.titulo}</h2>
+              <h2 className="font-semibold text-gray-900"><span aria-hidden="true">{r.icono}</span> {r.titulo}</h2>
               <p className="text-xs text-gray-500 mt-1">{r.desc}</p>
             </div>
             <input
               type="text"
               name="nombre"
+              aria-label={`Nombre del ${r.modo === 'aereo' ? 'envío aéreo' : 'embarque marítimo'} (opcional)`}
               placeholder={r.placeholder}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
@@ -228,7 +229,7 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
         {sinAsignar} {sinAsignar === 1 ? 'ítem sin asignar' : 'ítems sin asignar'} a un envío.
       </p>
 
-      <div className="flex gap-2 mb-4 border-b border-gray-200">
+      <nav aria-label="Envíos por estado" className="flex gap-2 mb-4 border-b border-gray-200">
         {[
           { href: '/envios', label: 'En curso', n: enCurso.length, activa: !verLlegaron },
           { href: '/envios?ver=llegaron', label: 'Llegaron', n: llegaron.length, activa: verLlegaron },
@@ -236,6 +237,7 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
           <Link
             key={t.href}
             href={t.href}
+            aria-current={t.activa ? 'page' : undefined}
             className={`px-3 py-2 text-sm -mb-px border-b-2 ${
               t.activa ? 'border-blue-600 text-blue-700 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
@@ -243,7 +245,7 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
             {t.label} <span className="text-xs text-gray-500">({t.n})</span>
           </Link>
         ))}
-      </div>
+      </nav>
 
       {envios.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-500">
@@ -276,14 +278,14 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
             return (
             <div
               key={e.id}
-              className="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-4 flex items-center justify-between gap-4"
+              className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2"
             >
               <div className="min-w-0">
                 <div className="flex items-center gap-3 flex-wrap">
                   <span className="text-xs font-mono text-gray-500">#{e.id}</span>
                   <Link
                     href={`/envios/${e.id}`}
-                    className="font-semibold text-gray-900 hover:text-blue-600"
+                    className="font-semibold text-gray-900 hover:text-blue-600 break-words"
                   >
                     {e.nombre ?? (esMar ? `Embarque #${e.id}` : `Envío #${e.id}`)}
                   </Link>
@@ -336,7 +338,7 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
                 </div>
                 {summary && summary.comprados > 0 && (
                   <div className="mt-2 flex items-center gap-2 max-w-xs">
-                    <div className="h-1.5 flex-1 bg-gray-100 rounded-full overflow-hidden">
+                    <div aria-hidden="true" className="h-1.5 flex-1 bg-gray-100 rounded-full overflow-hidden">
                       <div
                         className={`h-full rounded-full ${summary.allDelivered ? 'bg-green-500' : 'bg-blue-500'}`}
                         style={{ width: `${pct}%` }}
@@ -347,14 +349,14 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
                     )}
                   </div>
                 )}
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-gray-500 mt-1 break-words">
                   {new Date(e.createdAt).toLocaleDateString('es-VE', {
                     day: '2-digit', month: 'short', year: 'numeric',
                   })}
                   {e.notas && ` · ${e.notas}`}
                 </p>
               </div>
-              <div className="flex items-center gap-4 shrink-0">
+              <div className="flex items-center gap-4">
                 {costo && (costo.lineas > 0) && (
                   <div className="text-right text-xs text-gray-500 leading-tight">
                     <p>
