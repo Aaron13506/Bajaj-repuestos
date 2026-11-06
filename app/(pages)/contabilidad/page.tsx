@@ -119,7 +119,7 @@ export default async function ContabilidadPage({ searchParams }: Props) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Contabilidad</h1>
         <Link
           href="/contabilidad/comprar"
@@ -130,13 +130,13 @@ export default async function ContabilidadPage({ searchParams }: Props) {
       </div>
 
       {pendientesCosto.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-6 text-sm text-amber-800 flex items-center justify-between">
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-6 text-sm text-amber-800 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
           <span>
             <strong>{pendientesCosto.length}</strong> {pendientesCosto.length === 1 ? 'ítem' : 'ítems'} de pedidos
             confirmados sin costo real cargado todavía — a medida que vayas comprando, registralo
             acá para que quede en el libro.
           </span>
-          <Link href="/contabilidad/comprar" className="font-semibold underline shrink-0 ml-3">
+          <Link href="/contabilidad/comprar" className="font-semibold underline shrink-0">
             Cargar
           </Link>
         </div>
@@ -238,7 +238,7 @@ export default async function ContabilidadPage({ searchParams }: Props) {
 
       {/* El detalle de cobrar y de lo comprometido, plegado: lo principal de la página es el libro. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6 items-start">
-        <details className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <details className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
           <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-gray-500 uppercase tracking-wide">
             Por cobrar <span className="normal-case font-normal text-gray-500">· {porCobrar.length} pedidos · {usd(totalPorCobrar)}</span>
           </summary>
@@ -270,7 +270,7 @@ export default async function ContabilidadPage({ searchParams }: Props) {
           )}
         </details>
 
-        <details className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <details className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
           <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-gray-500 uppercase tracking-wide">
             Gastos por venir <span className="normal-case font-normal text-gray-500">· {porVenir.cajas.length} cajas · {usd(totalPorVenir)}</span>
           </summary>
@@ -354,39 +354,39 @@ export default async function ContabilidadPage({ searchParams }: Props) {
           </h2>
           {/* Separar por períodos: un filtro de fecha de lectura, sin nada que persistir
               aparte — se pega directo sobre Movimiento.fecha (ver rangoLibro arriba). */}
-          <form className="flex items-end gap-2">
+          <form role="search" aria-label="Filtrar el libro" className="flex flex-wrap items-end gap-2">
             <label className="block">
-              <span className="block text-[10px] text-gray-500 mb-0.5">Desde</span>
+              <span className="block text-[11px] text-gray-500 mb-0.5">Desde</span>
               <input
                 type="date" name="desde" defaultValue={filtroDesde ?? ''}
                 className="border border-gray-300 rounded-lg px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </label>
             <label className="block">
-              <span className="block text-[10px] text-gray-500 mb-0.5">Hasta</span>
+              <span className="block text-[11px] text-gray-500 mb-0.5">Hasta</span>
               <input
                 type="date" name="hasta" defaultValue={filtroHasta ?? ''}
                 className="border border-gray-300 rounded-lg px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </label>
             <label className="block">
-              <span className="block text-[10px] text-gray-500 mb-0.5">Cuenta</span>
+              <span className="block text-[11px] text-gray-500 mb-0.5">Cuenta</span>
               <select name="cuenta" defaultValue={sp.cuenta ?? ''} className="border border-gray-300 rounded-lg px-2 py-1 text-xs">
                 <option value="">Todas</option>
                 {CUENTAS.map(c => <option key={c} value={c}>{CUENTA_LABELS[c]}</option>)}
               </select>
             </label>
             <label className="block">
-              <span className="block text-[10px] text-gray-500 mb-0.5">Categoría</span>
+              <span className="block text-[11px] text-gray-500 mb-0.5">Categoría</span>
               <select name="categoria" defaultValue={sp.categoria ?? ''} className="border border-gray-300 rounded-lg px-2 py-1 text-xs">
                 <option value="">Todas</option>
                 {Object.entries(CATEGORIA_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
             </label>
             <label className="block">
-              <span className="block text-[10px] text-gray-500 mb-0.5">Pedido</span>
+              <span className="block text-[11px] text-gray-500 mb-0.5">Pedido</span>
               <input
-                name="pedido" defaultValue={sp.pedido ?? ''} placeholder="#"
+                name="pedido" inputMode="numeric" defaultValue={sp.pedido ?? ''} placeholder="#"
                 className="w-16 border border-gray-300 rounded-lg px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </label>
