@@ -328,8 +328,8 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
   return (
     <div className="max-w-5xl">
 
-      <div className="flex items-start justify-between gap-4 mb-6">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
+        <div className="min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <Link href={`/${ruta}`} className="text-gray-500 hover:text-gray-600 text-sm">
               {isVenta ? 'Ventas' : 'Presupuestos'}
@@ -337,8 +337,8 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
             <span aria-hidden="true" className="text-gray-300">/</span>
             <span className="text-sm text-gray-600">#{presupuesto.id}</span>
           </div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-gray-900">{presupuesto.clientName}</h1>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h1 className="text-2xl font-bold text-gray-900 break-words">{presupuesto.clientName}</h1>
             {presupuesto.clienteId && (
               <Link href={`/clientes/${presupuesto.clienteId}`} className="text-sm text-blue-600 hover:text-blue-800">
                 Ver cliente →
@@ -378,7 +378,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+        <div className="flex items-center gap-2 min-w-0 flex-wrap justify-end">
           {perdido && (
             <FormConResultado action={reabrirPresupuesto.bind(null, id)} className="flex items-center gap-2">
               <PendingButton pendingLabel="Reabriendo…" className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">
@@ -456,7 +456,9 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                 <DevolverClienteForm action={devolverAlCliente.bind(null, id)} maximo={saldoAFavor} tasaSugerida={tasaDevolucion} />
               )}
               {noCancelable ? (
-                <span className="text-xs text-gray-500 cursor-help select-none" title={noCancelable}>🔒 No se puede cancelar</span>
+                <span className="text-xs text-gray-500 cursor-help select-none" title={noCancelable}>
+                  <span aria-hidden="true">🔒</span> No se puede cancelar<span className="sr-only">: {noCancelable}</span>
+                </span>
               ) : (
                 <CancelarPedidoForm
                   action={cancelarPedido.bind(null, id)}
@@ -471,7 +473,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
             </>
           )}
           {!isPropio && !isPresupuesto && !isCancelado && (
-            <div className="relative flex items-center gap-2">
+            <div className="relative flex flex-wrap items-center gap-2">
               <RegistrarPagoClienteForm
                 action={registrarPagoPedido.bind(null, id)}
                 methods={METODOS_PAGO_INGRESO}
@@ -534,7 +536,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
             />
           ) : noEliminable ? (
             <span className="text-sm text-gray-500 cursor-help select-none" title={noEliminable}>
-              🔒 No se puede eliminar
+              <span aria-hidden="true">🔒</span> No se puede eliminar<span className="sr-only">: {noEliminable}</span>
             </span>
           ) : (
             <DeleteButton
@@ -740,7 +742,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
             </span>
           </div>
           <div className="flex items-center gap-3">
-            <div className="h-2 flex-1 bg-gray-100 rounded-full overflow-hidden">
+            <div aria-hidden="true" className="h-2 flex-1 bg-gray-100 rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full ${compra.allDelivered ? 'bg-green-500' : 'bg-blue-500'}`}
                 style={{ width: `${Math.round((compra.leadIndex / (SHIPPING_STATUSES.length - 1)) * 100)}%` }}
@@ -753,7 +755,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
           {compra.pendientes > 0 && (
             <p className="text-xs text-gray-500 mt-3">
               Faltan comprar {compra.pendientes} {compra.pendientes === 1 ? 'pieza' : 'piezas'}.{' '}
-              <Link href="/compras" className="text-blue-600 hover:underline">Ir a Por comprar</Link>
+              <Link href="/contabilidad/comprar" className="text-blue-600 hover:underline">Ir a Por comprar</Link>
             </p>
           )}
         </div>
@@ -772,11 +774,11 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
       )}
 
       {/* Items table */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto mb-4">
         <table className="w-full">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50">
-              <th className="w-16 px-3 py-3" />
+              <th className="w-16 px-3 py-3"><span className="sr-only">Foto</span></th>
               <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                 Pieza
               </th>
@@ -913,7 +915,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                                       del conjunto, mostrar el total acá lo aplicaba dos veces. */}
                                   {p.quantity}× {p.nameEs}
                                   {p.bajajCode && (
-                                    <span className="ml-1.5 font-mono text-gray-300">{p.bajajCode}</span>
+                                    <span className="ml-1.5 font-mono text-gray-500">{p.bajajCode}</span>
                                   )}
                                 </li>
                               ))}
@@ -1003,7 +1005,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
       </div>
 
       {incidenciasSinLinea.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-3 mb-4">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 sm:px-6 py-3 mb-4">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Problemas de piezas que ya no están en el pedido</h2>
           <ul className="text-xs text-gray-600 space-y-1">
             {incidenciasSinLinea.map(i => (
@@ -1018,7 +1020,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
       )}
 
       {presupuesto.eventos.length > 0 && (
-        <details className="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-3 mb-4">
+        <details className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 sm:px-6 py-3 mb-4">
           <summary className="text-xs font-semibold uppercase tracking-wide text-gray-500 cursor-pointer">
             Historial del pedido ({presupuesto.eventos.length})
           </summary>
@@ -1038,7 +1040,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
       {/* Términos: los mismos que van al PDF (ver getTerminos), visibles acá para
           poder revisarlos antes de mandarlo. */}
       {terminos && (
-        <details className="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-3">
+        <details className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 sm:px-6 py-3">
           <summary className="text-xs font-semibold uppercase tracking-wide text-gray-500 cursor-pointer">
             Términos y condiciones
           </summary>
