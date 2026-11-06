@@ -74,22 +74,27 @@ export default async function ProveedorPage({ params }: { params: Promise<{ id: 
 
   return (
     <div className="max-w-2xl">
-      <div className="flex items-start justify-between gap-4 mb-6">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
+      <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
+        <div className="min-w-0">
+          <nav aria-label="Ruta" className="flex flex-wrap items-center gap-2 mb-1">
             <Link href={`/presupuestos/${id}`} className="text-gray-500 hover:text-gray-600 text-sm">
               {pedido.clientName}
             </Link>
             <span aria-hidden="true" className="text-gray-300">/</span>
             <span className="text-sm text-gray-600">Para proveedor</span>
-          </div>
+          </nav>
           <h1 className="text-2xl font-bold text-gray-900">Orden para proveedor</h1>
         </div>
         <ProveedorPdfButton fileName={fileName} data={{ clientName: pedido.clientName, lines, totalQty }} />
       </div>
 
       {/* Items table */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
+      {lines.length === 0 ? (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 mb-4 text-center text-sm text-gray-500">
+          Este pedido no tiene piezas para pedirle al proveedor.
+        </div>
+      ) : (
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto mb-4">
         <table className="w-full">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50">
@@ -108,7 +113,7 @@ export default async function ProveedorPage({ params }: { params: Promise<{ id: 
             {lines.map(line => (
               <tr key={line.sku + line.name} className="hover:bg-gray-50">
                 <td className="px-4 py-3 text-sm font-mono text-gray-700 align-top">{line.sku}</td>
-                <td className="px-4 py-3 text-sm text-gray-900 align-top">{line.name}</td>
+                <td className="px-4 py-3 text-sm text-gray-900 align-top break-words">{line.name}</td>
                 <td className="px-4 py-3 text-center text-sm font-semibold text-gray-900 align-top">
                   {line.quantity}
                 </td>
@@ -117,6 +122,7 @@ export default async function ProveedorPage({ params }: { params: Promise<{ id: 
           </tbody>
         </table>
       </div>
+      )}
 
       {/* Total */}
       <div className="flex justify-end mb-4">

@@ -68,7 +68,7 @@ Bajo / pendiente de los compartidos:
 - [x] `/presupuestos/[id]` Detalle de presupuesto/pedido
 - [x] `/presupuestos/[id]/edit` Editar presupuesto
 - [x] `/presupuestos/[id]/comparar` Comparar proveedores
-- [ ] `/presupuestos/[id]/proveedor` Orden al proveedor
+- [x] `/presupuestos/[id]/proveedor` Orden al proveedor
 - [ ] `/ventas` Ventas del depósito
 - [ ] `/ventas/new` Nueva venta
 - [ ] `/ventas/[id]` Venta
@@ -106,6 +106,7 @@ Bajo / pendiente de los compartidos:
 | `/presupuestos/[id]` | 66 | 93 | "Ir a Por comprar" llevaba a /compras, que no existe (404): ahora va a /contabilidad/comprar, igual que la tarjeta del inicio. Cabecera y filas de acciones con wrap (a 390 px los botones se salían de la pantalla; verificado #5 y #18 sin scroll horizontal). Tabla de piezas con overflow-x-auto y columna de foto con nombre sr-only. "No se puede cancelar / eliminar" lleva el motivo en texto para lector de pantalla (antes solo title). Barra de avance aria-hidden (el texto al lado ya dice N de M). Código Bajaj del desglose gris 300 → 500. Padding de 16 px en móvil. | No se pudo ver un presupuesto abierto ni uno cancelado: la copia local no tiene ninguno. Bajo: el motivo del candado sigue sin verse por teclado para quien ve. |
 | `/presupuestos/[id]/edit` | 85 | 96 | Hereda los arreglos del armador. Ruta de migas dentro de <nav aria-label="Ruta">. Título con balance/break-words (incluye el nombre del cliente). Verificado #5 con piezas: 0 campos sin nombre y sin scroll horizontal a 390 px. | — |
 | `/presupuestos/[id]/comparar` | 72 | 94 | Totales: si a un proveedor le faltan líneas (sin SKU o sin peso), el total lo dice ("sin N líneas") y una nota explica el —; antes el total más bajo podía serlo solo por sumar menos piezas. "—" con texto para lector de pantalla. La celda más barata dice "(el más barato)" en sr-only (antes solo verde). Vacío si no hay piezas. Migas en <nav>, cabecera sin flex vacío, "/suppliers" → "Proveedores". Verificado #5 sin scroll horizontal y sin errores en consola. | Medio (comportamiento): el "vs 99rpm" compara totales con distinto set de líneas cuando falta alguna; habría que comparar solo las líneas comunes. |
+| `/presupuestos/[id]/proveedor` | 80 | 95 | PrintButton (compartido con el PDF del presupuesto): type=button, ícono aria-hidden y el motivo del fallo como texto role=alert (antes solo title). Vacío si el pedido no tiene piezas. Tabla con overflow-x-auto y nombres con break-words. Migas en <nav>, cabecera con wrap. Verificado #5: 4 filas, sin scroll horizontal ni errores de hidratación. | Bajo: encabezados en inglés (SKU/Part/Qty) a propósito, porque es para el proveedor. |
 
 ## Pendiente (cambia comportamiento, no se aplicó)
 - `/products/import`: El prompt para la IA pide motos "por id del enum MotoModel" (el enum se dropeó; la fuente es compatibleModels en texto) y dice "margen fijo 40%" (el margen por defecto sale de Config). Corregir el texto cambia lo que la IA devuelve y lo que se importa: decidirlo aparte.
