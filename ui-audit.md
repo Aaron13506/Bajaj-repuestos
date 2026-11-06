@@ -49,7 +49,7 @@ Bajo / pendiente de los compartidos:
 
 ## Pantallas
 
-- [ ] `/` Inicio (dashboard)
+- [x] `/` Inicio (dashboard)
 - [ ] `/buscar` Búsqueda
 - [ ] `/products` Catálogo
 - [ ] `/products/new` Nuevo producto
@@ -87,6 +87,7 @@ Bajo / pendiente de los compartidos:
 
 | Pantalla | Rams antes | Rams después | Cambios | Pendiente |
 |---|---|---|---|---|
+| `/` | 83 | 97 | Listas cortadas en 8 muestran "Ver N más →" hacia la pantalla completa; plurales reales ("1 pedido", "6 líneas") en vez de "pedido(s)"; nombre truncado con title; h1 con text-balance. | Bajo: la tarjeta en alerta se distingue por color (el detalle en texto ya dice por qué); el valor de "Por comprar" en monoespaciada mezcla texto. |
 
 ## Pendiente (cambia comportamiento, no se aplicó)
 

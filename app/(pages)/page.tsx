@@ -14,6 +14,9 @@ export const metadata = { title: 'Inicio' }
 // "Stock bajo" sobre miles de piezas en cero en un negocio por encargo era ruido.
 
 const usd = (n: number) => `$${n.toFixed(2)}`
+const pl = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`
+// Cada lista muestra hasta este número; el resto se ve en la pantalla de la lista completa.
+const MAX_FILAS = 8
 const dec = (v: { toString(): string } | null) => (v != null ? parseFloat(v.toString()) : null)
 // Presupuestos que vencen en estos días o menos: hay que llamar al cliente antes.
 const DIAS_AVISO_VENCE = 2
@@ -89,28 +92,28 @@ export default async function DashboardPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Para hacer hoy</h1>
+      <h1 className="text-2xl font-bold text-gray-900 mb-6 text-balance">Para hacer hoy</h1>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <Tarjeta
           href="/contabilidad"
           titulo="Entregado sin pagar"
           valor={usd(totalSinPagar)}
-          detalle={`${d.entregadoSinPagar.length} pedido(s): ya se llevaron la pieza`}
+          detalle={`${pl(d.entregadoSinPagar.length, 'pedido', 'pedidos')}: ya se llevaron la pieza`}
           alerta={d.entregadoSinPagar.length > 0}
         />
         <Tarjeta
           href="/contabilidad/comprar"
           titulo="Por comprar"
-          valor={`${d.porComprar.lineas} líneas`}
-          detalle={`en ${d.porComprar.pedidos} pedido(s)${d.porComprar.sinCaja > 0 ? ` · ${d.porComprar.sinCaja} sin caja` : ''}`}
+          valor={pl(d.porComprar.lineas, 'línea', 'líneas')}
+          detalle={`en ${pl(d.porComprar.pedidos, 'pedido', 'pedidos')}${d.porComprar.sinCaja > 0 ? ` · ${d.porComprar.sinCaja} sin caja` : ''}`}
           alerta={d.porComprar.lineas > 0}
         />
         <Tarjeta
           href="/contabilidad"
           titulo="Deuda con proveedores"
           valor={usd(d.deuda)}
-          detalle={`${d.cuentas.pendientes.length} caja(s) por pagar${d.cuentas.sobrepagadas.length > 0 ? ` · ${d.cuentas.sobrepagadas.length} sobrepagada(s)` : ''}`}
+          detalle={`${pl(d.cuentas.pendientes.length, 'caja', 'cajas')} por pagar${d.cuentas.sobrepagadas.length > 0 ? ` · ${pl(d.cuentas.sobrepagadas.length, 'sobrepagada', 'sobrepagadas')}` : ''}`}
           alerta={d.cuentas.sobrepagadas.length > 0}
         />
         <Tarjeta
@@ -122,29 +125,31 @@ export default async function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Lista titulo="Cobrar: entregado sin pagar" vacio="Nadie se llevó piezas sin pagar.">
-          {d.entregadoSinPagar.slice(0, 8).map(p => (
+        <Lista titulo="Cobrar: entregado sin pagar" vacio="Nadie se llevó piezas sin pagar." total={d.entregadoSinPagar.length} verTodo="/contabilidad">
+          {d.entregadoSinPagar.slice(0, MAX_FILAS).map(p => (
             <Fila key={p.id} href={`/presupuestos/${p.id}`} izq={`#${p.id} ${p.clientName}`} sub={SITUACION_LABELS[p.situacion]} der={usd(p.saldo)} />
           ))}
         </Lista>
 
-        <Lista titulo={`Cajas paradas (${DIAS_CAJA_PARADA}+ días sin moverse)`} vacio="Todas las cajas se movieron hace poco.">
-          {d.paradas.slice(0, 8).map(c => (
-            <Fila key={c.id} href={`/envios/${c.id}`} izq={c.nombre} sub={c.proveedor ?? undefined} der={`${c.dias} días`} />
+        <Lista titulo={`Cajas paradas (${DIAS_CAJA_PARADA}+ días sin moverse)`} vacio="Todas las cajas se movieron hace poco." total={d.paradas.length} verTodo="/envios">
+          {d.paradas.slice(0, MAX_FILAS).map(c => (
+            <Fila key={c.id} href={`/envios/${c.id}`} izq={c.nombre} sub={c.proveedor ?? undefined} der={pl(c.dias, 'día', 'días')} />
           ))}
         </Lista>
 
         <Lista
           titulo="Presupuestos por vencer"
           vacio="Ninguno vence en los próximos días."
-          pie={d.vencidos > 0 ? <Link href="/presupuestos" className="text-xs text-red-600 hover:underline">{d.vencidos} vencido(s) sin respuesta: renovar o marcar perdido</Link> : null}
+          total={d.porVencer.length}
+          verTodo="/presupuestos"
+          pie={d.vencidos > 0 ? <Link href="/presupuestos" className="text-xs text-red-600 hover:underline">{pl(d.vencidos, 'vencido', 'vencidos')} sin respuesta: renovar o marcar perdido</Link> : null}
         >
-          {d.porVencer.slice(0, 8).map(p => (
+          {d.porVencer.slice(0, MAX_FILAS).map(p => (
             <Fila
               key={p.id}
               href={`/presupuestos/${p.id}`}
               izq={`#${p.id} ${p.clientName}`}
-              der={p.v.diasRestantes === 0 ? 'vence hoy' : `${p.v.diasRestantes} día(s)`}
+              der={p.v.diasRestantes === 0 ? 'vence hoy' : pl(p.v.diasRestantes, 'día', 'días')}
             />
           ))}
         </Lista>
@@ -165,13 +170,18 @@ function Tarjeta({ href, titulo, valor, detalle, alerta = false }: {
   )
 }
 
-function Lista({ titulo, vacio, pie, children }: {
-  titulo: string; vacio: string; pie?: React.ReactNode; children: React.ReactNode[]
+function Lista({ titulo, vacio, pie, total, verTodo, children }: {
+  titulo: string; vacio: string; pie?: React.ReactNode; total: number; verTodo: string; children: React.ReactNode[]
 }) {
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
       <h2 className="font-semibold text-gray-900 mb-3 text-sm">{titulo}</h2>
       {children.length === 0 ? <p className="text-sm text-gray-500 py-2">{vacio}</p> : <div className="divide-y divide-gray-50">{children}</div>}
+      {total > children.length && (
+        <Link href={verTodo} className="mt-2 inline-block text-xs text-blue-600 hover:underline">
+          Ver {total - children.length} más →
+        </Link>
+      )}
       {pie && <div className="mt-3">{pie}</div>}
     </div>
   )
@@ -181,7 +191,7 @@ function Fila({ href, izq, sub, der }: { href: string; izq: string; sub?: string
   return (
     <Link href={href} className="flex items-center justify-between py-2 hover:bg-gray-50 -mx-2 px-2 rounded">
       <span className="min-w-0">
-        <span className="block text-sm text-gray-800 truncate">{izq}</span>
+        <span className="block text-sm text-gray-800 truncate" title={izq}>{izq}</span>
         {sub && <span className="block text-xs text-gray-500">{sub}</span>}
       </span>
       <span className="text-sm font-mono text-gray-700 shrink-0 ml-3">{der}</span>
