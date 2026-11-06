@@ -43,9 +43,7 @@ export default async function ClientesPage({
 
   return (
     <div className="max-w-3xl">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Clientes</h1>
-      </div>
+      <h1 className="text-2xl font-bold text-gray-900 mb-6">Clientes</h1>
 
       <p className="text-sm text-gray-500 mb-6">
         Cada cliente agrupa todos sus presupuestos y pedidos, para ver de un vistazo
@@ -88,7 +86,7 @@ export default async function ClientesPage({
         <label className="flex-1 min-w-[180px]">
           <span className="block text-sm font-medium text-gray-800 mb-1">Teléfono (opcional)</span>
           <input
-            type="text"
+            type="tel"
             name="telefono"
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
@@ -100,20 +98,21 @@ export default async function ClientesPage({
         </PendingButton>
       </FormConResultado>
 
-      <form className="mb-4 flex gap-2">
+      <form role="search" className="mb-4 flex flex-wrap gap-2">
         <input
           type="search"
           name="q"
+          aria-label="Buscar por nombre o teléfono"
           defaultValue={q}
           placeholder="Buscar por nombre o teléfono…"
-          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         />
-        <button className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">Buscar</button>
+        <button type="submit" className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">Buscar</button>
         {q && <Link href="/clientes" className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700">Limpiar</Link>}
       </form>
 
       {clientes.length === 0 && q ? (
-        <p className="text-sm text-gray-500 py-6 text-center">Ningún cliente coincide con &quot;{q}&quot;.</p>
+        <p className="text-sm text-gray-500 py-6 text-center break-words">Ningún cliente coincide con &quot;{q}&quot;.</p>
       ) : clientes.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-500">
           <p className="text-lg">Sin clientes todavía</p>
@@ -128,11 +127,11 @@ export default async function ClientesPage({
             return (
               <div
                 key={c.id}
-                className="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-4 flex items-center justify-between"
+                className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2"
               >
-                <div>
-                  <div className="flex items-center gap-3">
-                    <Link href={`/clientes/${c.id}`} className="font-semibold text-gray-900 hover:text-blue-600">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <Link href={`/clientes/${c.id}`} className="font-semibold text-gray-900 hover:text-blue-600 break-words">
                       {c.nombre}
                     </Link>
                     <span className="text-xs text-gray-500">
@@ -143,7 +142,7 @@ export default async function ClientesPage({
                   {c.telefono && (
                     <p className="text-xs text-gray-500 mt-1">
                       {c.telefono}
-                      {wa && <a href={`https://wa.me/${wa}`} target="_blank" rel="noopener noreferrer" className="ml-2 text-green-700 hover:underline">WhatsApp</a>}
+                      {wa && <a href={`https://wa.me/${wa}`} target="_blank" rel="noopener noreferrer" className="ml-2 text-green-700 hover:underline">WhatsApp<span className="sr-only"> (abre en otra pestaña)</span></a>}
                     </p>
                   )}
                 </div>
