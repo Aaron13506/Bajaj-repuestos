@@ -32,12 +32,14 @@ export default function SimularTabs({ compra, ruta }: { compra: ReactNode; ruta:
 
   return (
     <div>
-      <div className="flex flex-wrap gap-2 mb-6">
+      {/* Botones con aria-pressed y no role=tab: el patrón de pestañas exige flechas y foco móvil. */}
+      <div role="group" aria-label="Qué simular" className="flex flex-wrap gap-2 mb-6">
         {TABS.map(t => (
           <button
             key={t.id}
             type="button"
             onClick={() => setTab(t.id)}
+            aria-pressed={tab === t.id}
             className={`text-left px-4 py-2.5 rounded-lg border-2 transition-colors ${
               tab === t.id
                 ? 'border-blue-500 bg-blue-50'

@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState, useMemo, useState, useTransition } from 'react'
+import { useActionState, useMemo, useState, useTransition, useId } from 'react'
 import { useFormStatus } from 'react-dom'
 import { resolverLista, cargarPedido, type ListaResuelta } from '@/app/(pages)/simular/actions'
 import {
@@ -92,6 +92,7 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
   const [piezas, setPiezas] = useState<PiezaCompra[]>([])
   const [pedidoId, setPedidoId] = useState<number | null>(null)
   const [cargando, startCarga] = useTransition()
+  const [errorCarga, setErrorCarga] = useState(false)
 
   const [montos, setMontos] = useState<Record<string, MontosProveedor>>({})
   const [tarifas, setTarifas] = useState<Record<string, string>>({})
@@ -133,7 +134,15 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
 
   function elegirPedido(id: number) {
     setPedidoId(id)
-    startCarga(async () => adoptar(await cargarPedido(id)))
+    setErrorCarga(false)
+    // Sin el catch, un fallo de red tiraba toda la página a la pantalla de error.
+    startCarga(async () => {
+      try {
+        adoptar(await cargarPedido(id))
+      } catch {
+        setErrorCarga(true)
+      }
+    })
   }
 
   function limpiar() {
@@ -239,6 +248,7 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
               ) : (
                 <div className="flex flex-wrap items-center gap-3">
                   <select
+                    aria-label="Presupuesto"
                     value={pedidoId ?? ''}
                     onChange={e => (e.target.value === '' ? limpiar() : elegirPedido(parseInt(e.target.value)))}
                     className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white min-w-72 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -250,8 +260,11 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
                       </option>
                     ))}
                   </select>
-                  {cargando && <span className="text-xs text-gray-500">Resolviendo piezas…</span>}
-                  {pedidoElegido && !cargando && (
+                  <span role="status" className="text-xs">
+                    {cargando ? <span className="text-gray-500">Resolviendo piezas…</span>
+                      : errorCarga && <span className="text-red-600">No se pudo cargar el presupuesto. Elegilo de nuevo.</span>}
+                  </span>
+                  {pedidoElegido && !cargando && !errorCarga && (
                     <span className="text-xs text-gray-500">
                       Vendido en <span className="font-mono">{usd(pedidoElegido.saleTotal)}</span>. Los conjuntos
                       entran expandidos a sus piezas reales.
@@ -361,13 +374,15 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
                       min={1}
                       value={p.qty}
                       onChange={e => setQty(p.productId, parseInt(e.target.value))}
+                      aria-label={`Cantidad de ${p.nombre}`}
                       className="w-16 border border-gray-200 rounded px-2 py-0.5 text-sm text-center shrink-0"
                     />
                     <button
                       type="button"
                       onClick={() => quitar(p.productId)}
-                      className="text-gray-300 hover:text-red-500 shrink-0 px-1"
+                      className="text-gray-500 hover:text-red-600 hover:bg-red-50 rounded shrink-0 px-1.5 py-0.5"
                       title="Quitar"
+                      aria-label={`Quitar ${p.nombre}`}
                     >
                       ✕
                     </button>
@@ -430,8 +445,9 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {TARIFAS.map(t => (
                   <div key={t.key}>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">{t.label}</label>
+                    <label htmlFor={`tarifa-${t.key}`} className="block text-xs font-medium text-gray-600 mb-1">{t.label}</label>
                     <input
+                      id={`tarifa-${t.key}`}
                       type="number"
                       step={t.step}
                       value={tarifas[t.key] ?? ''}
@@ -802,10 +818,12 @@ function CampoMonto({
   value: number | null
   onChange: (v: string) => void
 }) {
+  const id = useId()
   return (
     <div>
-      <label className="block text-xs font-medium text-gray-600 mb-1" title={hint}>{label}</label>
+      <label htmlFor={id} className="block text-xs font-medium text-gray-600 mb-1" title={hint}>{label}</label>
       <input
+        id={id}
         type="number"
         step="0.01"
         min="0"
@@ -874,7 +892,7 @@ function DetallePorPieza({ o, referencia }: { o: OpcionCompra; referencia: Opcio
                   {comparable && (
                     <td className="px-6 py-2 text-right font-mono">
                       {delta == null ? (
-                        <span className="text-gray-300">—</span>
+                        <span className="text-gray-500">—</span>
                       ) : (
                         <span className={delta >= 0 ? 'text-green-700' : 'text-red-700'}>
                           {delta >= 0 ? '−' : '+'}{usd(Math.abs(delta))}

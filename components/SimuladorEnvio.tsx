@@ -305,8 +305,9 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
                   <button
                     type="button"
                     onClick={() => removePedido(ped.id)}
-                    className="text-gray-300 hover:text-red-500 shrink-0 px-1"
+                    className="text-gray-500 hover:text-red-600 hover:bg-red-50 rounded shrink-0 px-1.5 py-0.5"
                     title="Quitar"
+                    aria-label={`Quitar presupuesto #${ped.id}`}
                   >
                     ✕
                   </button>
@@ -329,13 +330,15 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
                     min={1}
                     value={quantity}
                     onChange={e => updateQty(p.id, parseInt(e.target.value) || 1)}
+                    aria-label={`Cantidad de ${p.nameEs}`}
                     className="w-14 border border-gray-200 rounded px-2 py-0.5 text-sm text-center shrink-0"
                   />
                   <button
                     type="button"
                     onClick={() => removeManual(p.id)}
-                    className="text-gray-300 hover:text-red-500 shrink-0 px-1"
+                    className="text-gray-500 hover:text-red-600 hover:bg-red-50 rounded shrink-0 px-1.5 py-0.5"
                     title="Quitar"
+                    aria-label={`Quitar ${p.nameEs}`}
                   >
                     ✕
                   </button>
@@ -371,9 +374,10 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
             </label>
 
             <div className="relative">
-              <label className="block text-xs font-medium text-gray-600 mb-1">Sumar una pieza suelta</label>
+              <label htmlFor="sim-pieza" className="block text-xs font-medium text-gray-600 mb-1">Sumar una pieza suelta</label>
               <input
-                type="text"
+                id="sim-pieza"
+                type="search"
                 placeholder="Buscar por nombre o código…"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
@@ -398,6 +402,9 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
                     </button>
                   ))}
                 </div>
+              )}
+              {search.trim() && filtered.length === 0 && (
+                <p role="status" className="text-xs text-gray-500 mt-1">No hay piezas para sumar que coincidan con &quot;{search.trim()}&quot;.</p>
               )}
             </div>
           </div>
