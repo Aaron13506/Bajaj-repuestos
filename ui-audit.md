@@ -63,7 +63,7 @@ Bajo / pendiente de los compartidos:
 - [x] `/ensambles/[id]/edit` Editar ensamble
 - [x] `/suppliers` Proveedores
 - [x] `/suppliers/[id]/import` Importar precios
-- [ ] `/presupuestos` Presupuestos
+- [x] `/presupuestos` Presupuestos
 - [ ] `/presupuestos/new` Nuevo presupuesto
 - [ ] `/presupuestos/[id]` Detalle de presupuesto/pedido
 - [ ] `/presupuestos/[id]/edit` Editar presupuesto
@@ -101,6 +101,7 @@ Bajo / pendiente de los compartidos:
 | `/ensambles/[id]` | 47 | 94 | El botón de cada pieza dice "Quitar" (decía "Eliminar" y solo la saca del ensamble). AddComponentForm: buscador y select con nombre, aviso de "ninguna coincide" y de falla de búsqueda (antes callado / rechazo sin atrapar). MedidasIA (compartido con presupuestos y envíos): el <h2> envuelve al botón (antes un h2 dentro del button), aria-expanded, flecha aria-hidden; buscador con nombre y resultado role=status; ensamble activo con aria-pressed; textarea asociado con useId; copiar con aviso de fallo y "Copiado" anunciado; botones de 24 px; resultado role=status. Peso/medidas faltantes en red-600 (red-400 no llegaba a 4,5:1). Cabecera con wrap, h1 que corta, link externo avisado, "1 pieza". | Bajo: "Editar"/"Quitar" repetidos en cada fila sin el nombre de la pieza en el nombre accesible. |
 | `/suppliers` | 88 | 97 | Cada proveedor es role=group con su nombre (los campos repetían "Nombre/Origen/FOB" sin decir de cuál). Ayuda del FOB visible y enlazada con aria-describedby (antes solo en title, invisible en teclado y teléfono). "1 precio cargado". Fila de acciones con wrap y padding de 16 px en móvil. Link interno a Configuración con <Link>. | Bajo: la explicación menciona ?proveedor=id (jerga de URL). |
 | `/suppliers/[id]/import` | 63 | 95 | Textarea asociado a su etiqueta. Copiar con type=button, área de 24 px, aviso si el portapapeles falla y "Copiado" anunciado. Resultado con role=status. Título con wrap/balance (incluye el nombre del proveedor). Título de pestaña. | Bajo: el resultado aparece debajo del formulario. |
+| `/presupuestos` | 60 | 95 | Buscador con aria-label y form role=search. Pestaña activa con aria-current="page". El 🔒 de "no se puede eliminar" lleva el motivo en texto para lector de pantalla y sube a gris 500 (antes solo title en gris 300). Filas y cabecera con flex-wrap y padding de 16 px: verificado a 390 px sin scroll horizontal. Vacío con enlace "Crear el primer presupuesto". "Presupuestos y pedidos" en minúscula. | Bajo: el motivo del candado sigue sin verse por teclado para quien ve (es un span, no un control); "Ver" repetido en cada fila. |
 
 ## Pendiente (cambia comportamiento, no se aplicó)
 - `/products/import`: El prompt para la IA pide motos "por id del enum MotoModel" (el enum se dropeó; la fuente es compatibleModels en texto) y dice "margen fijo 40%" (el margen por defecto sale de Config). Corregir el texto cambia lo que la IA devuelve y lo que se importa: decidirlo aparte.
