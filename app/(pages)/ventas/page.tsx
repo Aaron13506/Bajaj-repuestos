@@ -43,7 +43,7 @@ export default async function VentasPage({ searchParams }: { searchParams: Promi
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Ventas</h1>
           <p className="text-sm text-gray-500 mt-1">Lo que vendiste del depósito, en el momento y sin caja.</p>
@@ -64,19 +64,20 @@ export default async function VentasPage({ searchParams }: { searchParams: Promi
       )}
 
       {filas.length > 0 && (
-        <form className="flex flex-wrap items-center gap-2 mb-4">
+        <form role="search" className="flex flex-wrap items-center gap-2 mb-4">
           <input
             type="search"
             name="q"
+            aria-label="Buscar por cliente o número"
             defaultValue={q}
             placeholder="Cliente o #número…"
-            className="w-56 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-56 max-w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
-          <select name="mes" defaultValue={sp.mes ?? ''} className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
+          <select name="mes" aria-label="Mes" defaultValue={sp.mes ?? ''} className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
             <option value="">Todos los meses</option>
             {meses.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
-          <button className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">Filtrar</button>
+          <button type="submit" className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">Filtrar</button>
           {(q || sp.mes) && <Link href="/ventas" className="text-sm text-gray-500 hover:text-gray-700">Limpiar</Link>}
         </form>
       )}
@@ -87,22 +88,25 @@ export default async function VentasPage({ searchParams }: { searchParams: Promi
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-500">
           <p className="text-lg">Sin ventas</p>
           <p className="text-sm mt-1">Cuando vendas algo que ya tenés en el depósito, aparece acá.</p>
+          <p className="text-sm mt-3">
+            <Link href="/ventas/new" className="text-blue-600 hover:underline">Registrar una venta</Link>
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
           {visibles.map(({ v, cobro, margen }) => (
-            <div key={v.id} className="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-4 flex items-center justify-between">
-              <div>
-                <div className="flex items-center gap-3">
+            <div key={v.id} className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                   <span className="text-xs font-mono text-gray-500">#{v.id}</span>
-                  <Link href={`/ventas/${v.id}`} className="font-semibold text-gray-900 hover:text-blue-600">
+                  <Link href={`/ventas/${v.id}`} className="font-semibold text-gray-900 hover:text-blue-600 break-words">
                     {v.clientName}
                   </Link>
                   <span className="text-xs text-gray-500">
                     {v.items.length} {v.items.length === 1 ? 'pieza' : 'piezas'}
                   </span>
                 </div>
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-gray-500 mt-1 break-words">
                   {new Date(v.createdAt).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' })}
                   {v.notas && ` · ${v.notas}`}
                 </p>
