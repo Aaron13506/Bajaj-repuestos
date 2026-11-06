@@ -93,7 +93,7 @@ export function CostCells({ d, cfg, quantity, maritimo = true }: {
       {hasSupplierOverride && (
         <span className="block text-sky-700" title="Precio del proveedor elegido — solo aplica por barco">
           🚢 ${d.priceUsd!.toFixed(2)}
-          {multi && <span className="block text-sky-400">total: ${(d.priceUsd! * quantity!).toFixed(2)}</span>}
+          {multi && <span className="block text-sky-700">total: ${(d.priceUsd! * quantity!).toFixed(2)}</span>}
         </span>
       )}
     </td>
@@ -133,32 +133,32 @@ export function CostCells({ d, cfg, quantity, maritimo = true }: {
         {m?.volumeM3 != null ? (
           <>
             {m.volumeM3.toFixed(3)}
-            {multi && <span className="block text-sky-400">total: {(m.volumeM3 * quantity!).toFixed(3)}</span>}
+            {multi && <span className="block text-sky-700">total: {(m.volumeM3 * quantity!).toFixed(3)}</span>}
           </>
-        ) : <span className="text-sky-300" title="Faltan dimensiones">—</span>}
+        ) : <span className="text-sky-500" title="Faltan dimensiones">—</span>}
       </td>
       <td className="px-4 py-3 text-right text-sky-800 bg-sky-50/50">
-        {fleteMar != null ? fmt(fleteMar) : <span className="text-sky-300" title="Faltan dimensiones">—</span>}
+        {fleteMar != null ? fmt(fleteMar) : <span className="text-sky-500" title="Faltan dimensiones">—</span>}
       </td>
       <td className="px-4 py-3 text-right font-semibold text-sky-900 bg-sky-50/50">
-        {m ? fmt(m.landedCostUsd) : <span className="text-sky-300" title="Faltan dimensiones">—</span>}
+        {m ? fmt(m.landedCostUsd) : <span className="text-sky-500" title="Faltan dimensiones">—</span>}
       </td>
       <td className="px-4 py-3 text-right font-medium text-sky-900 bg-sky-50/50">
         {m?.priceUsd != null ? (
           <>
             {fmt(m.priceUsd)}
             {multi && (
-              <span className="block text-[11px] font-normal text-sky-400">total: {fmt(m.priceUsd * quantity!)}</span>
+              <span className="block text-[11px] font-normal text-sky-700">total: {fmt(m.priceUsd * quantity!)}</span>
             )}
           </>
         ) : (
-          <span className="text-sky-300" title={m ? 'Sin margen definido' : 'Faltan dimensiones'}>—</span>
+          <span className="text-sky-500" title={m ? 'Sin margen definido' : 'Faltan dimensiones'}>—</span>
         )}
       </td>
       {/* El Δ es el mismo para landed y para venta: el precio sale de aplicar el mismo
           margen sobre el landed, así que la proporción entre escenarios no cambia. */}
       <td className={`px-4 py-3 text-right font-semibold bg-sky-50/50 border-r-2 border-sky-200 ${
-        deltaPct == null ? 'text-sky-300' : deltaPct <= 0 ? 'text-green-700' : 'text-red-600'
+        deltaPct == null ? 'text-sky-500' : deltaPct <= 0 ? 'text-green-700' : 'text-red-600'
       }`}>
         {deltaPct == null ? '—' : `${deltaPct > 0 ? '+' : ''}${deltaPct.toFixed(0)}%`}
       </td>
@@ -201,21 +201,22 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
     <>
       <tr className={`hover:bg-gray-50 transition-colors ${optimistic ? 'opacity-60' : ''}`}>
         <td className="px-4 py-3 font-mono text-xs text-gray-500">{d.bajajCode ?? '—'}</td>
-        <td className="px-4 py-3 font-medium text-gray-900 max-w-[180px] truncate">
+        <td className="px-4 py-3 font-medium text-gray-900 max-w-[300px] truncate">
           <span className="flex items-center gap-1.5">
             {canExpand && (
               <button
                 type="button"
                 onClick={() => setExpanded((v) => !v)}
                 aria-expanded={expanded}
-                title={expanded ? 'Ocultar ensambles' : 'Ver ensambles'}
-                className="shrink-0 text-gray-500 hover:text-gray-700 transition-transform w-4"
+                aria-label={expanded ? 'Ocultar ensambles' : 'Ver ensambles'}
+                className="shrink-0 -ml-1 size-6 inline-flex items-center justify-center rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100"
               >
-                <span className={`inline-block transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
+                <span aria-hidden="true" className={`inline-block text-xs transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
               </button>
             )}
             <Link
               href={`/products/${d.id}`}
+              title={d.nameEs}
               className={`hover:text-blue-600 transition-colors truncate ${d.descontinuada ? 'text-gray-500 line-through' : ''}`}
             >
               {d.nameEs}
@@ -233,7 +234,7 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
             )}
           </span>
           {d.nameEn && (
-            <span className="block text-xs font-normal text-gray-500 truncate">{d.nameEn}</span>
+            <span className="block text-xs font-normal text-gray-500 truncate" title={d.nameEn}>{d.nameEn}</span>
           )}
           {errorGuardado && (
             <span role="alert" className="block text-xs font-normal text-red-600 whitespace-normal">
