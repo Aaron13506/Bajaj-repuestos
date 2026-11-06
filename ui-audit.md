@@ -77,7 +77,7 @@ Bajo / pendiente de los compartidos:
 - [x] `/simular` Simular aéreo
 - [x] `/contabilidad` Contabilidad
 - [x] `/contabilidad/comprar` Registrar compras
-- [ ] `/resultados` Resultados
+- [x] `/resultados` Resultados
 - [ ] `/inventario` Inventario
 - [ ] `/clientes` Clientes
 - [ ] `/clientes/[id]` Cliente
@@ -115,6 +115,7 @@ Bajo / pendiente de los compartidos:
 | `/simular` | 50 | 92 | A quién le compro (CompararCompra): selector de presupuesto, cantidades y Quitar con el nombre de la pieza, las 5 tarifas con htmlFor y los 5 montos (CampoMonto) con useId. Antes 13 campos sin nombre. La carga de un presupuesto ahora tiene catch: un fallo de red mandaba la página entera a la pantalla de error; ahora sale un aviso en una línea role=status. Por dónde lo traigo (SimuladorEnvio): buscador con htmlFor y type=search, aviso si no hay piezas para sumar, cantidad y Quitar con nombre. Botones de pestaña con aria-pressed dentro de un role=group. ✕ y — gris 300 → 500. Verificado en las dos pestañas con un presupuesto cargado: 0 campos sin nombre, sin desborde y sin errores en consola. | Bajo: tras un fallo de carga hay que elegir otro presupuesto y volver al mismo (el select no reintenta solo). |
 | `/contabilidad` | 80 | 94 | Filtro del libro con wrap (antes una sola fila de 5 campos dentro del contenedor que desliza, así que en móvil el filtro también se iba de lado) y role=search; etiquetas de 10 → 11 px; Pedido con inputMode numérico. Por cobrar / Gastos por venir con overflow-x-auto para que un nombre largo no rompa la tarjeta. Aviso de ítems sin costo y cabecera con wrap. Verificado a 390 px con todos los <details> abiertos: sin desborde, 0 campos sin nombre, sin gris 300/400. | Bajo: la tabla del libro es ancha (whitespace-nowrap) y en móvil solo desliza. |
 | `/contabilidad/comprar` | 70 | 95 | RegistrarCompraPicker: las 12 casillas tenían nombre vacío. "Seleccionar todo" ahora es un <label> que se puede clickear entero, la de cada pedido dice "Seleccionar todo el pedido #N (cliente)" y la de cada pieza lleva su nombre. Botón de desplegar pedido con aria-expanded y ▶ aria-hidden. Tabla con overflow-x-auto y cabecera con wrap. Verificado: 0 campos sin nombre, también con el formulario de pago abierto (4 campos), y sin desborde a 390 px. | No se probó registrar una compra (escribe en el libro). |
+| `/resultados` | 86 | 95 | Chips de estado en un role=group, con aria-current en el activo (antes el activo era solo color). Los marcadores "+N?" y "+?" (sin costo) llevan su explicación en sr-only; antes vivía solo en title. Ya tenía tablas con overflow-x-auto y vacíos. Verificado a 390 px: sin desborde y sin campos sin nombre. | Bajo: las ayudas de los encabezados (Se quedó, Gastos, Convertir Bs) siguen solo en title. |
 
 ## Pendiente (cambia comportamiento, no se aplicó)
 - `/products/import`: El prompt para la IA pide motos "por id del enum MotoModel" (el enum se dropeó; la fuente es compatibleModels en texto) y dice "margen fijo 40%" (el margen por defecto sale de Config). Corregir el texto cambia lo que la IA devuelve y lo que se importa: decidirlo aparte.
