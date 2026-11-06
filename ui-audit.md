@@ -54,7 +54,7 @@ Bajo / pendiente de los compartidos:
 - [x] `/products` Catálogo
 - [x] `/products/new` Nuevo producto
 - [x] `/products/[id]` Ficha de producto
-- [ ] `/products/[id]/edit` Editar producto
+- [x] `/products/[id]/edit` Editar producto
 - [ ] `/products/import` Importar productos
 - [ ] `/products/discontinued` Descontinuados
 - [ ] `/groups` Ensambles
@@ -92,6 +92,7 @@ Bajo / pendiente de los compartidos:
 | `/products` | 37 | 94 | CatalogFilters (compartido con otras listas): aria-label en modelo, categoría, búsqueda y peso; búsqueda type=search; "Buscando…" con role=status. Vacío con filtros dice "Ningún producto coincide" + Limpiar filtros (antes ofrecía "Agregar el primero"). Botón ▶ de ensambles con aria-label y 24 px. Columna de nombre a 300 px (el nombre en español se leía "Prot…") y title en los truncados. Texto celeste de la ruta marítima a sky-700/500 por contraste. Cabecera y paginación con flex-wrap (móvil); paginación en <nav>. "g" con abbr "Peso en gramos". | Bajo: "Editar"/"Eliminar" repetidos en cada fila sin el nombre de la pieza en el nombre accesible; el color del stock (rojo/amarillo/verde) acompaña al número. |
 | `/products/new` | 66 | 95 | ProductForm: "Motos" y "Foto" como role=group con aria-labelledby; filtro y select de "Ensamble padre" con nombre (htmlFor + aria-label). ModelPicker: botón de familia con aria-pressed (antes "todas marcadas" era solo color) y cada familia como grupo con nombre (la casilla decía solo "BS6"). PegarImagen: la zona enfocable para pegar tiene rol, nombre y aria-busy. FichaProductoIA: textarea con nombre y resultado con role=status. Separadores "/" del breadcrumb aria-hidden en las 18 pantallas que lo usan. Títulos de pestaña en las 13 páginas que no tenían (WCAG 2.4.2). "Nuevo producto" en minúscula como el resto. | Bajo: el "*" de obligatorio se lee como asterisco; los botones "Nuevo Producto" del listado siguen en mayúscula inicial. |
 | `/products/[id]` | 63 | 95 | Peso y ₹ en 0 se muestran (antes "—", contra la regla vacío ≠ cero); medidas parciales con "?" en lo que falta en vez de esconderlas todas. AddToAssemblyForm: buscador y select con nombre; avisa "Ningún ensamble coincide" cuando la búsqueda volvió vacía y "No se pudo buscar" si falló (antes quedaba callado; un rechazo quedaba sin atrapar). "Grupo: X · 2×" sin el punto colgando cuando no hay grupo. Cabecera con min-w-0/flex-wrap y h1 que corta palabras largas. Link a la fuente avisa que abre otra pestaña. Título de pestaña "Producto". | Bajo: el desglose es una lista de div y no un <dl>; el título de pestaña no incluye el nombre de la pieza (costaría otra consulta por render). |
+| `/products/[id]/edit` | 55 | 97 | Hereda lo corregido en ProductForm/ModelPicker/PegarImagen (ver /products/new) y el título de pestaña. Breadcrumb en <nav> con un nivel a la ficha de la pieza (antes solo volvía al listado). "Editar producto" / "Guardar cambios" en minúscula. Verificado: ningún campo sin nombre. | Bajo: "Cancelar" del formulario vuelve al listado y no a la ficha (es navegación del componente compartido con "nuevo"). |
 
 ## Pendiente (cambia comportamiento, no se aplicó)
 
