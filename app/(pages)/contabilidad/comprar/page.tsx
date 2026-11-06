@@ -15,7 +15,7 @@ export default async function ComprarPage() {
         <Link href="/contabilidad" className="text-gray-500 hover:text-gray-600 text-sm">
           Contabilidad
         </Link>
-        <span className="text-gray-300">/</span>
+        <span aria-hidden="true" className="text-gray-300">/</span>
         <h1 className="text-2xl font-bold text-gray-900">Registrar compra</h1>
       </div>
       <p className="text-sm text-gray-500 mb-6 max-w-2xl">

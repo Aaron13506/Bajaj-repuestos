@@ -3,6 +3,8 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import ImportSupplierPricesForm from '@/components/ImportSupplierPricesForm'
 
+export const metadata = { title: 'Importar precios' }
+
 export default async function ImportSupplierPricesPage({ params }: { params: Promise<{ id: string }> }) {
   const id = parseInt((await params).id)
   if (isNaN(id)) notFound()
@@ -14,7 +16,7 @@ export default async function ImportSupplierPricesPage({ params }: { params: Pro
     <div className="max-w-3xl">
       <div className="flex items-center gap-3 mb-6">
         <Link href="/suppliers" className="text-gray-500 hover:text-gray-600 text-sm">Proveedores</Link>
-        <span className="text-gray-300">/</span>
+        <span aria-hidden="true" className="text-gray-300">/</span>
         <h1 className="text-2xl font-bold text-gray-900">Importar precios — {supplier.name}</h1>
       </div>
       <p className="text-sm text-gray-500 mb-6">

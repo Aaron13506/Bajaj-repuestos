@@ -12,6 +12,8 @@ import { calcLanded } from '@/lib/calc'
 import { getSupplierPriceMap } from '@/lib/suppliers'
 import { toConfigMap } from '@/lib/config'
 
+export const metadata = { title: 'Producto' }
+
 export default async function ProductDetailPage({
   params,
   searchParams,
@@ -86,7 +88,7 @@ export default async function ProductDetailPage({
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Link href="/products" className="text-gray-500 hover:text-gray-600 text-sm">Productos</Link>
-            <span className="text-gray-300">/</span>
+            <span aria-hidden="true" className="text-gray-300">/</span>
             <span className="text-sm text-gray-600">{product.nameEs}</span>
           </div>
           <div className="flex items-center gap-2 flex-wrap">

@@ -215,8 +215,8 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
             <p className="text-xs text-gray-500 mt-1">El otro número con que la cotiza algún proveedor; se busca por los dos</p>
           </label>
-          <div className="sm:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Motos</label>
+          <div role="group" aria-labelledby="pf-motos" className="sm:col-span-2">
+            <p id="pf-motos" className="block text-sm font-medium text-gray-700 mb-1">Motos</p>
             <ModelPicker key={pickerKey} value={models} />
           </div>
           <label className="sm:col-span-2">
@@ -224,8 +224,8 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
             <input name="sourceUrl" type="url" defaultValue={d.sourceUrl ?? ''} placeholder="https://..."
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
           </label>
-          <div className="sm:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Foto</label>
+          <div role="group" aria-labelledby="pf-foto" className="sm:col-span-2">
+            <p id="pf-foto" className="block text-sm font-medium text-gray-700 mb-1">Foto</p>
             <PegarImagen inicial={d.imageUrl} />
           </div>
         </div>
@@ -237,14 +237,16 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Asignar a un ensamble</h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="sm:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Ensamble padre</label>
+              <label htmlFor="pf-ensamble" className="block text-sm font-medium text-gray-700 mb-1">Ensamble padre</label>
               <input
+                type="search"
+                aria-label="Filtrar ensambles"
                 value={groupSearch}
                 onChange={e => setGroupSearch(e.target.value)}
                 placeholder="Filtrar ensambles..."
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 mb-1"
               />
-              <select name="ensambleId"
+              <select id="pf-ensamble" name="ensambleId"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                 <option value="">Sin ensamble padre</option>
                 {filteredGroups.map(g => (

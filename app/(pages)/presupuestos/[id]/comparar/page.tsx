@@ -16,6 +16,8 @@ interface Column {
   name: string
 }
 
+export const metadata = { title: 'Comparar proveedores' }
+
 export default async function CompararProveedoresPage({ params }: { params: Promise<{ id: string }> }) {
   const id = parseInt((await params).id)
   if (isNaN(id)) notFound()
@@ -134,7 +136,7 @@ export default async function CompararProveedoresPage({ params }: { params: Prom
             <Link href={`/presupuestos/${id}`} className="text-gray-500 hover:text-gray-600 text-sm">
               {pedido.clientName}
             </Link>
-            <span className="text-gray-300">/</span>
+            <span aria-hidden="true" className="text-gray-300">/</span>
             <span className="text-sm text-gray-600">Comparar proveedores</span>
           </div>
           <h1 className="text-2xl font-bold text-gray-900">Comparar costo de origen por proveedor</h1>

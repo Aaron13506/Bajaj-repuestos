@@ -334,7 +334,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
             <Link href={`/${ruta}`} className="text-gray-500 hover:text-gray-600 text-sm">
               {isVenta ? 'Ventas' : 'Presupuestos'}
             </Link>
-            <span className="text-gray-300">/</span>
+            <span aria-hidden="true" className="text-gray-300">/</span>
             <span className="text-sm text-gray-600">#{presupuesto.id}</span>
           </div>
           <div className="flex items-center gap-3">

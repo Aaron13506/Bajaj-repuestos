@@ -11,6 +11,8 @@ interface Line {
   quantity: number
 }
 
+export const metadata = { title: 'Orden al proveedor' }
+
 export default async function ProveedorPage({ params }: { params: Promise<{ id: string }> }) {
   const id = parseInt((await params).id)
   if (isNaN(id)) notFound()
@@ -78,7 +80,7 @@ export default async function ProveedorPage({ params }: { params: Promise<{ id: 
             <Link href={`/presupuestos/${id}`} className="text-gray-500 hover:text-gray-600 text-sm">
               {pedido.clientName}
             </Link>
-            <span className="text-gray-300">/</span>
+            <span aria-hidden="true" className="text-gray-300">/</span>
             <span className="text-sm text-gray-600">Para proveedor</span>
           </div>
           <h1 className="text-2xl font-bold text-gray-900">Orden para proveedor</h1>

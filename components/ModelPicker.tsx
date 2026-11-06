@@ -61,12 +61,14 @@ export default function ModelPicker({ value, name = 'models', dense = false }: P
               <button
                 type="button"
                 onClick={() => toggleFamily(family)}
+                aria-pressed={allOn}
                 title={allOn ? `Desmarcar todas las ${family}` : `Marcar todas las ${family}`}
                 className={`shrink-0 font-semibold text-left w-14 ${allOn ? 'text-blue-600' : 'text-gray-500 hover:text-gray-800'}`}
               >
                 {family}
               </button>
-              <div className="flex flex-wrap gap-x-3 gap-y-1">
+              {/* La familia nombra al grupo: sola, la casilla dice "BS6" y no se sabe de qué moto. */}
+              <div role="group" aria-label={family} className="flex flex-wrap gap-x-3 gap-y-1">
                 {inFamily.map(m => (
                   <label key={m.id} className="flex items-center gap-1.5 cursor-pointer">
                     <input

@@ -6,6 +6,8 @@ import { createProduct } from '../actions'
 import { nombreEnsamble } from '@/lib/linea-pedido'
 import { toConfigMap, margenPorDefecto } from '@/lib/config'
 
+export const metadata = { title: 'Nuevo producto' }
+
 export default async function NewProductPage() {
   const [groups, configRows] = await Promise.all([
     db.ensamble.findMany({
@@ -22,8 +24,8 @@ export default async function NewProductPage() {
     <div className="max-w-2xl">
       <div className="flex items-center gap-3 mb-6">
         <Link href="/products" className="text-gray-500 hover:text-gray-600 text-sm">Productos</Link>
-        <span className="text-gray-300">/</span>
-        <h1 className="text-2xl font-bold text-gray-900">Nuevo Producto</h1>
+        <span aria-hidden="true" className="text-gray-300">/</span>
+        <h1 className="text-2xl font-bold text-gray-900">Nuevo producto</h1>
       </div>
       <ProductForm
         action={createProduct}

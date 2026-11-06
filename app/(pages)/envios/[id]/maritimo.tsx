@@ -308,7 +308,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Link href="/envios" className="text-gray-500 hover:text-gray-600 text-sm">Envíos</Link>
-            <span className="text-gray-300">/</span>
+            <span aria-hidden="true" className="text-gray-300">/</span>
             <span className="text-sm text-gray-600">#{envio.id}</span>
           </div>
           <div className="flex items-center gap-2 flex-wrap">

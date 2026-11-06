@@ -10,6 +10,8 @@ export const dynamic = 'force-dynamic'
 
 const fecha = (d: Date) => d.toISOString().slice(0, 10)
 
+export const metadata = { title: 'Descontinuadas' }
+
 export default async function DescontinuadosPage() {
   const [marcadas, total] = await Promise.all([
     db.product.findMany({
@@ -27,7 +29,7 @@ export default async function DescontinuadosPage() {
       <div>
         <div className="flex items-center gap-3 mb-1">
           <Link href="/products" className="text-gray-500 hover:text-gray-600 text-sm">Productos</Link>
-          <span className="text-gray-300">/</span>
+          <span aria-hidden="true" className="text-gray-300">/</span>
           <h1 className="text-2xl font-bold text-gray-900">Piezas descontinuadas</h1>
         </div>
         <p className="text-sm text-gray-500">
