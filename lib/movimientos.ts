@@ -522,6 +522,7 @@ export async function cuentasPorPagar(): Promise<CuentasPorPagar> {
         nombre: true,
         modo: true,
         supplierId: true,
+        compraDeId: true,
         tramoUsd: true,
         comisionSalienteUsd: true,
         comisionEntranteUsd: true,
@@ -613,13 +614,33 @@ export async function cuentasPorPagar(): Promise<CuentasPorPagar> {
     }
   })
 
+  // Una caja partida en el depósito (lib/mover-caja.ts) sigue siendo UNA compra: el giro fue
+  // uno y sus pagos quedan en la caja donde se anotaron. Por caja, una figuraría sobrepagada y
+  // la otra debiendo lo mismo; se suman en la fila de la raíz.
+  const raizDe = new Map(envios.map(e => [e.id, e.compraDeId ?? e.id]))
+  const porCompra = new Map<number, EnvioPendiente>()
+  for (const f of filas) {
+    const raiz = raizDe.get(f.envioId) ?? f.envioId
+    const acc = porCompra.get(raiz)
+    if (!acc) { porCompra.set(raiz, { ...f, envioId: raiz }); continue }
+    acc.debido += f.debido
+    acc.pagado += f.pagado
+    acc.pendiente += f.pendiente
+    acc.itemsSinCosto += f.itemsSinCosto
+  }
+  for (const f of porCompra.values()) {
+    const raiz = envios.find(e => e.id === f.envioId)
+    if (raiz) f.nombre = raiz.nombre
+  }
+  const compras = [...porCompra.values()]
+
   return {
-    pendientes: filas
+    pendientes: compras
       .filter(f => f.pendiente > 0.01 || f.itemsSinCosto > 0)
       .sort((a, b) => b.pendiente - a.pendiente),
     // Con piezas sin costo el debido es un piso: haber pagado "de más" contra un piso no
     // prueba nada todavía, así que esas cajas siguen en pendientes.
-    sobrepagadas: filas
+    sobrepagadas: compras
       .filter(f => f.pendiente < -0.01 && f.itemsSinCosto === 0)
       .sort((a, b) => a.pendiente - b.pendiente),
   }
