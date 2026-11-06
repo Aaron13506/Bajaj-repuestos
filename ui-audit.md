@@ -50,7 +50,7 @@ Bajo / pendiente de los compartidos:
 ## Pantallas
 
 - [x] `/` Inicio (dashboard)
-- [ ] `/buscar` Búsqueda
+- [x] `/buscar` Búsqueda
 - [ ] `/products` Catálogo
 - [ ] `/products/new` Nuevo producto
 - [ ] `/products/[id]` Ficha de producto
@@ -88,6 +88,7 @@ Bajo / pendiente de los compartidos:
 | Pantalla | Rams antes | Rams después | Cambios | Pendiente |
 |---|---|---|---|---|
 | `/` | 83 | 97 | Listas cortadas en 8 muestran "Ver N más →" hacia la pantalla completa; plurales reales ("1 pedido", "6 líneas") en vez de "pedido(s)"; nombre truncado con title; h1 con text-balance. | Bajo: la tarjeta en alerta se distingue por color (el detalle en texto ya dice por qué); el valor de "Por comprar" en monoespaciada mezcla texto. |
+| `/buscar` | 76 | 97 | Campo con aria-label y form role=search; estado inicial que explica qué busca y el atajo #123; sin resultados sugiere qué probar (y el texto largo se corta); grupos topados en 15 lo dicen; nombres truncados con title. | Bajo: los grupos topados no enlazan a la lista completa filtrada. |
 
 ## Pendiente (cambia comportamiento, no se aplicó)
 
