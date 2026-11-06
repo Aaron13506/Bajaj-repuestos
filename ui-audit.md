@@ -64,7 +64,7 @@ Bajo / pendiente de los compartidos:
 - [x] `/suppliers` Proveedores
 - [x] `/suppliers/[id]/import` Importar precios
 - [x] `/presupuestos` Presupuestos
-- [ ] `/presupuestos/new` Nuevo presupuesto
+- [x] `/presupuestos/new` Nuevo presupuesto
 - [ ] `/presupuestos/[id]` Detalle de presupuesto/pedido
 - [ ] `/presupuestos/[id]/edit` Editar presupuesto
 - [ ] `/presupuestos/[id]/comparar` Comparar proveedores
@@ -102,6 +102,7 @@ Bajo / pendiente de los compartidos:
 | `/suppliers` | 88 | 97 | Cada proveedor es role=group con su nombre (los campos repetían "Nombre/Origen/FOB" sin decir de cuál). Ayuda del FOB visible y enlazada con aria-describedby (antes solo en title, invisible en teclado y teléfono). "1 precio cargado". Fila de acciones con wrap y padding de 16 px en móvil. Link interno a Configuración con <Link>. | Bajo: la explicación menciona ?proveedor=id (jerga de URL). |
 | `/suppliers/[id]/import` | 63 | 95 | Textarea asociado a su etiqueta. Copiar con type=button, área de 24 px, aviso si el portapapeles falla y "Copiado" anunciado. Resultado con role=status. Título con wrap/balance (incluye el nombre del proveedor). Título de pestaña. | Bajo: el resultado aparece debajo del formulario. |
 | `/presupuestos` | 60 | 95 | Buscador con aria-label y form role=search. Pestaña activa con aria-current="page". El 🔒 de "no se puede eliminar" lleva el motivo en texto para lector de pantalla y sube a gris 500 (antes solo title en gris 300). Filas y cabecera con flex-wrap y padding de 16 px: verificado a 390 px sin scroll horizontal. Vacío con enlace "Crear el primer presupuesto". "Presupuestos y pedidos" en minúscula. | Bajo: el motivo del candado sigue sin verse por teclado para quien ve (es un span, no un control); "Ver" repetido en cada fila. |
+| `/presupuestos/new` | 52 | 92 | Armador: 12 campos sin nombre ahora tienen etiqueta (moto, buscadores con type=search, cantidades y precio por línea con el nombre de la pieza, cliente/referencia con htmlFor, teléfono type=tel). Botones de quitar (✕ e ícono) con aria-label por pieza, gris 500 y área más grande. Chip de compatibilidad con aria-expanded. Búsqueda de pieza: try/catch y línea role=status ("Ninguna pieza coincide", "Lo que coincide ya está en el presupuesto", "No se pudo buscar"); antes un rechazo quedaba sin aviso y la búsqueda vacía no decía nada. Miniaturas del buscador con alt="" (el nombre está al lado). Textos gris 300 → 500. Verificado: 0 campos sin nombre; búsqueda vacía y con resultados. | Medio: el desplegable de resultados no es un combobox (sin flechas ni aria-activedescendant). Bajo: la grilla de dos columnas no se revisó a 390 px. |
 
 ## Pendiente (cambia comportamiento, no se aplicó)
 - `/products/import`: El prompt para la IA pide motos "por id del enum MotoModel" (el enum se dropeó; la fuente es compatibleModels en texto) y dice "margen fijo 40%" (el margen por defecto sale de Config). Corregir el texto cambia lo que la IA devuelve y lo que se importa: decidirlo aparte.

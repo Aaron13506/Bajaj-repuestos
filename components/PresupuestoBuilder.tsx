@@ -152,6 +152,9 @@ export default function PresupuestoBuilder({
   const [cart, setCart] = useState<CartItem[]>(() => initialItems.map(i => ({ ...i, touched: true })))
   const [search, setSearch] = useState('')
   const [encontrados, setEncontrados] = useState<Product[]>([])
+  // Término de la última búsqueda de pieza que volvió, y si falló: para poder decir "no hay"
+  // (o "no se pudo buscar") en vez de no mostrar nada.
+  const [piezaBuscada, setPiezaBuscada] = useState<{ q: string; error: boolean }>({ q: '', error: false })
   const [modelFilter, setModelFilter] = useState('')
   const [asmSearch, setAsmSearch] = useState('')
   const [clientName, setClientName] = useState(initialClientName)
@@ -540,8 +543,12 @@ export default function PresupuestoBuilder({
     if (terminoPieza.length < 2) return
     let cancelled = false
     const t = setTimeout(async () => {
-      const rows = await searchProducts(terminoPieza)
-      if (!cancelled) setEncontrados(rows)
+      try {
+        const rows = await searchProducts(terminoPieza)
+        if (!cancelled) { setEncontrados(rows); setPiezaBuscada({ q: terminoPieza, error: false }) }
+      } catch {
+        if (!cancelled) setPiezaBuscada({ q: terminoPieza, error: true })
+      }
     }, 250)
     return () => { cancelled = true; clearTimeout(t) }
   }, [terminoPieza])
@@ -637,6 +644,7 @@ export default function PresupuestoBuilder({
             {/* Filtros: moto + buscador, para no listar los ~1400 ensambles planos */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
               <select
+                aria-label="Moto"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 value={modelFilter}
                 onChange={e => {
@@ -650,7 +658,8 @@ export default function PresupuestoBuilder({
                 ))}
               </select>
               <input
-                type="text"
+                type="search"
+                aria-label="Buscar ensamble"
                 value={asmSearch}
                 onChange={e => setAsmSearch(e.target.value)}
                 placeholder="Buscar por nombre, código o SKU de una pieza..."
@@ -796,12 +805,13 @@ export default function PresupuestoBuilder({
                                       setCompatOpen(prev => ({ ...prev, [comp.id]: !prev[comp.id] }))
                                     }}
                                     title={formatModels(compat.extras)}
+                                    aria-expanded={!!compatShown}
                                     className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
                                   >
-                                    {compat.label} <span className={`inline-block transition-transform ${compatShown ? 'rotate-180' : ''}`}>▾</span>
+                                    {compat.label} <span aria-hidden="true" className={`inline-block transition-transform ${compatShown ? 'rotate-180' : ''}`}>▾</span>
                                   </button>
                                 ) : (
-                                  <span className="ml-2 text-[10px] text-gray-300">solo esta moto</span>
+                                  <span className="ml-2 text-[10px] text-gray-500">solo esta moto</span>
                                 ))}
                                 {compatShown && (
                                   <span className="block mt-0.5 text-[11px] text-amber-700/80 leading-snug">
@@ -820,6 +830,7 @@ export default function PresupuestoBuilder({
                                   }))
                                 }
                                 onClick={e => e.stopPropagation()}
+                                aria-label={`Cantidad de ${comp.product.nameEs}`}
                                 disabled={!checked[comp.id] || bloqueada}
                                 className="w-14 border border-gray-200 rounded px-2 py-0.5 text-sm text-center disabled:opacity-40"
                               />
@@ -869,7 +880,8 @@ export default function PresupuestoBuilder({
             <h2 className="font-semibold text-gray-900 mb-3">Agregar pieza individual</h2>
             <div className="relative">
               <input
-                type="text"
+                type="search"
+                aria-label="Buscar pieza"
                 placeholder="Buscar por nombre o código (pieza o ensamble)..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
@@ -890,7 +902,7 @@ export default function PresupuestoBuilder({
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={p.imageUrl}
-                          alt={p.nameEs}
+                          alt=""
                           className="w-10 h-10 object-contain rounded border border-gray-100 bg-white shrink-0"
                         />
                       ) : (
@@ -917,6 +929,17 @@ export default function PresupuestoBuilder({
                 </div>
               )}
             </div>
+            <p role="status" className="text-xs mt-1">
+              {terminoPieza.length >= 2 && piezaBuscada.q === terminoPieza && (
+                piezaBuscada.error
+                  ? <span className="text-red-600">No se pudo buscar. Probá de nuevo.</span>
+                  : filteredProducts.length === 0 && (
+                    <span className="text-gray-500">
+                      {searchResults.length > 0 ? 'Lo que coincide ya está en el presupuesto.' : `Ninguna pieza coincide con "${terminoPieza}".`}
+                    </span>
+                  )
+              )}
+            </p>
           </div>
         </div>
 
@@ -1052,6 +1075,7 @@ export default function PresupuestoBuilder({
                           disabled={item.restriccion?.puedeQuitar === false}
                           value={item.quantity}
                           onChange={e => updateCartQty(claveLinea(item), parseInt(e.target.value) || 1)}
+                          aria-label={item.bundleItems ? `Cantidad de conjuntos de ${item.nameEs}` : `Cantidad de ${item.nameEs}`}
                           title={item.bundleItems ? 'Cantidad de conjuntos (multiplica cada pieza del desglose)' : undefined}
                           className="w-14 border border-gray-200 rounded px-2 py-0.5 text-sm text-center shrink-0 disabled:bg-gray-50 disabled:text-gray-400"
                         />
@@ -1066,6 +1090,7 @@ export default function PresupuestoBuilder({
                                 value={item.unitPrice}
                                 disabled={item.restriccion?.puedeCambiarPrecio === false}
                                 onChange={e => updateCartPrice(claveLinea(item), parseFloat(e.target.value))}
+                                aria-label={`Precio por set de ${item.nameEs}`}
                                 className="w-20 border border-gray-200 rounded px-2 py-0.5 text-sm text-right font-mono disabled:bg-gray-50 disabled:text-gray-400"
                                 title="Precio del conjunto (por set)"
                               />
@@ -1085,10 +1110,11 @@ export default function PresupuestoBuilder({
                           type="button"
                           onClick={() => removeFromCart(claveLinea(item))}
                           disabled={item.restriccion?.puedeQuitar === false}
-                          className="text-gray-300 hover:text-red-500 transition-colors shrink-0 disabled:opacity-20 disabled:hover:text-gray-300 disabled:cursor-not-allowed"
+                          className="-m-1 p-1 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0 disabled:opacity-30 disabled:hover:text-gray-500 disabled:hover:bg-transparent disabled:cursor-not-allowed"
                           title={item.restriccion?.puedeQuitar === false ? 'Ya se entregó: no se puede quitar' : 'Quitar'}
+                          aria-label={`Quitar ${item.nameEs}`}
                         >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg aria-hidden="true" className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                           </svg>
                         </button>
@@ -1118,11 +1144,12 @@ export default function PresupuestoBuilder({
                                           updateBundlePieceQty(claveLinea(item), pieceIndex, parseInt(e.target.value) || 1)
                                         }
                                         title="Cantidad de esta pieza por set"
+                                        aria-label={`Cantidad de ${p.nameEs} por set`}
                                         className="w-12 border border-gray-200 rounded px-1 py-0.5 text-xs text-center shrink-0"
                                       />
                                       <span className={`truncate ${noHay ? 'text-amber-800 font-medium' : ''}`}>× {p.nameEs}</span>
                                       {p.bajajCode && (
-                                        <span className="font-mono text-gray-300 shrink-0">{p.bajajCode}</span>
+                                        <span className="font-mono text-gray-500 shrink-0">{p.bajajCode}</span>
                                       )}
                                       {noHay && (
                                         <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800">
@@ -1130,7 +1157,7 @@ export default function PresupuestoBuilder({
                                         </span>
                                       )}
                                       {item.quantity > 1 && (
-                                        <span className="text-gray-300 shrink-0">
+                                        <span className="text-gray-500 shrink-0">
                                           → {p.quantity * item.quantity} total
                                         </span>
                                       )}
@@ -1145,7 +1172,8 @@ export default function PresupuestoBuilder({
                                               ? 'Es la única pieza: quitá la línea'
                                               : 'Quitar esta pieza del conjunto'
                                         }
-                                        className="ml-auto shrink-0 text-gray-300 hover:text-red-500 disabled:opacity-30 disabled:hover:text-gray-300 px-1"
+                                        aria-label={`Quitar ${p.nameEs} del conjunto`}
+                                        className="ml-auto shrink-0 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 disabled:opacity-30 disabled:hover:text-gray-500 disabled:hover:bg-transparent px-1.5 py-0.5"
                                       >
                                         ✕
                                       </button>
@@ -1331,10 +1359,11 @@ export default function PresupuestoBuilder({
 
             {isPropio ? (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="pb-referencia" className="block text-sm font-medium text-gray-700 mb-1">
                   Etiqueta / referencia <span className="text-red-600">*</span>
                 </label>
                 <input
+                  id="pb-referencia"
                   type="text"
                   value={clientName}
                   onChange={e => setClientName(e.target.value)}
@@ -1346,10 +1375,11 @@ export default function PresupuestoBuilder({
             ) : (
               <div className="space-y-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="pb-cliente" className="block text-sm font-medium text-gray-700 mb-1">
                     Cliente <span className="text-red-600">*</span>
                   </label>
                   <input
+                    id="pb-cliente"
                     type="text"
                     list="clientes-lista"
                     value={clienteTexto}
@@ -1374,9 +1404,10 @@ export default function PresupuestoBuilder({
                 </div>
                 {clienteId === '__new__' && (
                   <input
-                    type="text"
                     value={nuevoTelefono}
                     onChange={e => setNuevoTelefono(e.target.value)}
+                    type="tel"
+                    aria-label="Teléfono del cliente nuevo (opcional)"
                     placeholder="Teléfono del cliente nuevo (opcional)"
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
