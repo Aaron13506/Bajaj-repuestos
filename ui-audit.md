@@ -71,7 +71,7 @@ Bajo / pendiente de los compartidos:
 - [x] `/presupuestos/[id]/proveedor` Orden al proveedor
 - [x] `/ventas` Ventas del depósito
 - [x] `/ventas/new` Nueva venta
-- [ ] `/ventas/[id]` Venta
+- [x] `/ventas/[id]` Venta
 - [ ] `/envios` Envíos y embarques
 - [ ] `/envios/[id]` Caja aérea / embarque marítimo
 - [ ] `/simular` Simular aéreo
@@ -109,6 +109,7 @@ Bajo / pendiente de los compartidos:
 | `/presupuestos/[id]/proveedor` | 80 | 95 | PrintButton (compartido con el PDF del presupuesto): type=button, ícono aria-hidden y el motivo del fallo como texto role=alert (antes solo title). Vacío si el pedido no tiene piezas. Tabla con overflow-x-auto y nombres con break-words. Migas en <nav>, cabecera con wrap. Verificado #5: 4 filas, sin scroll horizontal ni errores de hidratación. | Bajo: encabezados en inglés (SKU/Part/Qty) a propósito, porque es para el proveedor. |
 | `/ventas` | 74 | 95 | Buscador y selector de mes con aria-label, form role=search, "Filtrar" type=submit. Vacío con enlace "Registrar una venta". Filas y cabecera con wrap, padding de 16 px en móvil y break-words en cliente y notas. Verificado a 390 px: 2 filas, sin scroll horizontal y 0 campos sin nombre. | Bajo: "Ver" repetido sin el nombre del cliente. |
 | `/ventas/new` | 55 | 93 | VentaDirectaForm: 5 campos visibles sin nombre más los que aparecen después (moto, buscadores con type=search, cliente con aria-labelledby, cliente nuevo nombre/teléfono tel, nota, cantidad/precio/costo por línea con el nombre de la pieza, "Cobrado" con htmlFor). Quitar con el nombre de la pieza y área más grande. Búsqueda de pieza con try/catch y línea role=status ("No tenés en stock nada que coincida" / "No se pudo buscar"). La carga de piezas de un ensamble ahora tiene catch y aviso role=alert (antes un rechazo sin manejar dejaba la lista vacía, como si no hubiera piezas). "ya agregado" azul 500 → 700. Miniaturas con alt="". Verificado: 0 campos sin nombre, aviso de búsqueda vacía, sin scroll horizontal a 390 px. | Medio: el desplegable de resultados no es un combobox (sin flechas). No se probó una venta completa (crea movimientos). |
+| `/ventas/[id]` | 93 | 93 | Sin código propio: reutiliza detalle.tsx con ruta="ventas", así que hereda los arreglos de /presupuestos/[id]. Verificado #59 a 390 px: migas "Ventas", sin scroll horizontal, 0 campos sin nombre, sin texto gris 300/400. | — |
 
 ## Pendiente (cambia comportamiento, no se aplicó)
 - `/products/import`: El prompt para la IA pide motos "por id del enum MotoModel" (el enum se dropeó; la fuente es compatibleModels en texto) y dice "margen fijo 40%" (el margen por defecto sale de Config). Corregir el texto cambia lo que la IA devuelve y lo que se importa: decidirlo aparte.
