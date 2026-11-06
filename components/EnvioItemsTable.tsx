@@ -78,6 +78,8 @@ interface Props {
   // lib/mover-caja.ts). `destinos` son las cajas que la regla acepta; vacío = `motivoNoMover`.
   mover?: (envioId: number, pedidoId: number, formData: FormData) => Promise<ActionResult>
   destinos?: { id: number; nombre: string }[]
+  /** Ofrecer "Caja nueva": la acción crea la otra caja (misma compra) y le pasa el presupuesto. */
+  puedeCajaNueva?: boolean
   motivoNoMover?: string | null
 }
 
@@ -169,6 +171,7 @@ export default function EnvioItemsTable({
   bloqueada = false,
   mover,
   destinos = [],
+  puedeCajaNueva = false,
   motivoNoMover = null,
 }: Props) {
   // La línea con el formulario "No vino" abierto (una a la vez).
@@ -341,8 +344,10 @@ export default function EnvioItemsTable({
     })
   }
 
-  function moverPresupuesto(pedidoId: number, clientName: string, destinoId: number) {
-    const destino = destinos.find(d => d.id === destinoId)
+  function moverPresupuesto(pedidoId: number, clientName: string, destinoId: number | 'nueva') {
+    const destino = destinoId === 'nueva'
+      ? { nombre: 'una caja nueva (mismo proveedor y reenvío, ya confirmada)' }
+      : destinos.find(d => d.id === destinoId)
     if (!mover || !destino) return
     if (!confirm(
       `¿Pasar el presupuesto de ${clientName} a ${destino.nombre}? ` +
@@ -578,12 +583,14 @@ export default function EnvioItemsTable({
                     >
                       Quitar
                     </button>
-                    {mover && destinos.length > 0 && (
+                    {mover && (destinos.length > 0 || puedeCajaNueva) && (
                       <select
                         value=""
                         disabled={guardando}
                         onChange={e => {
-                          const destinoId = parseInt(e.target.value)
+                          const v = e.target.value
+                          if (v === 'nueva') return moverPresupuesto(pedidoId, its[0].clientName, 'nueva')
+                          const destinoId = parseInt(v)
                           if (Number.isInteger(destinoId)) moverPresupuesto(pedidoId, its[0].clientName, destinoId)
                         }}
                         title="Pasarlo a otra caja con la etapa que tiene"
@@ -591,10 +598,18 @@ export default function EnvioItemsTable({
                       >
                         <option value="">Mover a…</option>
                         {destinos.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+                        {puedeCajaNueva && <option value="nueva">＋ Caja nueva</option>}
                       </select>
                     )}
-                    {mover && destinos.length === 0 && motivoNoMover && !bloqueada && (
-                      <span title={motivoNoMover} className="ml-2 text-xs text-gray-300 cursor-help">Mover</span>
+                    {/* Botón y no tooltip: en el teléfono no hay hover y el motivo no se veía. */}
+                    {mover && destinos.length === 0 && !puedeCajaNueva && motivoNoMover && !bloqueada && (
+                      <button
+                        type="button"
+                        onClick={() => setError(`No se puede mover: ${motivoNoMover}`)}
+                        className="ml-2 text-xs text-gray-400 underline decoration-dotted"
+                      >
+                        Mover
+                      </button>
                     )}
                   </td>
                 </tr>

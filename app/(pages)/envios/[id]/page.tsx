@@ -785,11 +785,9 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   const motivoOrigen = motivoNoMueve(origenMover, {
     ...origenMover, id: -1, estado: 'confirmado', lineas: [], fleteAereoPagado: false, tieneHijas: false,
   })
-  const motivoNoMover = destinosMover.length > 0
-    ? null
-    : motivoOrigen
-      ?? motivosMover[0]?.motivo
-      ?? 'Para partir la caja, creá otra del mismo proveedor y reenvío y confirmala: ahí podés pasarle presupuestos.'
+  // Si esta caja se puede partir, siempre se ofrece "Caja nueva" (la acción la crea en el mismo
+  // paso); el motivo solo se muestra cuando es ESTA caja la que no se puede partir.
+  const motivoNoMover = motivoOrigen
 
   // Una fila por tramo que existe en ESTA caja. En una caja que despacha el proveedor no hay
   // flete aéreo que cargar: ese tramo es `tramoUsd` y se le paga a él dentro del giro.
@@ -1682,6 +1680,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
             bloqueada={esBorrador}
             mover={moverPedidoACaja}
             destinos={destinosMover}
+            puedeCajaNueva={motivoOrigen == null}
             motivoNoMover={motivoNoMover}
           />
 
