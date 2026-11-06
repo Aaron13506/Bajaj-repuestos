@@ -96,11 +96,12 @@ export default async function InventarioPage({ searchParams }: Props) {
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-        <div className="flex gap-1">
+        <div role="group" aria-label="Qué mostrar" className="flex flex-wrap gap-1">
           {FILTROS.map(f => (
             <Link
               key={f.value}
               href={hrefFiltro(f.value)}
+              aria-current={filtro === f.value ? 'page' : undefined}
               className={`text-xs font-semibold px-3 py-1.5 rounded-lg ${
                 filtro === f.value ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
               }`}
@@ -109,13 +110,15 @@ export default async function InventarioPage({ searchParams }: Props) {
             </Link>
           ))}
         </div>
-        <form action="/inventario" className="flex gap-2">
+        <form action="/inventario" role="search" className="flex gap-2 max-w-full">
           {filtro !== 'todo' && <input type="hidden" name="ver" value={filtro} />}
           <input
+            type="search"
             name="q"
+            aria-label="Buscar pieza, SKU, moto o ensamble"
             defaultValue={q}
             placeholder="Buscar pieza, SKU, moto o ensamble…"
-            className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-80"
+            className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-80 max-w-full focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </form>
       </div>
@@ -163,10 +166,10 @@ export default async function InventarioPage({ searchParams }: Props) {
                         </div>
                       )}
                     </td>
-                    <td className={`px-3 py-2 text-right font-mono ${f.aqui > 0 ? 'text-gray-900 font-semibold' : f.aqui < 0 ? 'text-red-600' : 'text-gray-300'}`}>
+                    <td className={`px-3 py-2 text-right font-mono ${f.aqui > 0 ? 'text-gray-900 font-semibold' : f.aqui < 0 ? 'text-red-600' : 'text-gray-500'}`}>
                       {f.aqui}
                     </td>
-                    <td className={`px-3 py-2 text-right font-mono ${camino > 0 ? 'text-blue-700 font-semibold' : 'text-gray-300'}`}>
+                    <td className={`px-3 py-2 text-right font-mono ${camino > 0 ? 'text-blue-700 font-semibold' : 'text-gray-500'}`}>
                       {camino}
                       {f.caminoAereo > 0 && f.caminoMaritimo > 0 && (
                         <div className="text-[10px] text-gray-500 font-normal">✈️ {f.caminoAereo} · 🚢 {f.caminoMaritimo}</div>
