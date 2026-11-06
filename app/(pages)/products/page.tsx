@@ -166,7 +166,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
         {products.length === 0 ? (
-          <div className="text-center py-16 text-gray-400">
+          <div className="text-center py-16 text-gray-500">
             <p className="text-lg">Sin productos</p>
             <p className="text-sm mt-1">
               <Link href="/products/new" className="text-blue-600 hover:underline">Agregar el primero</Link>

@@ -660,7 +660,7 @@ export default function PresupuestoBuilder({
 
             <div className="border border-gray-300 rounded-lg mb-1 max-h-80 overflow-y-auto divide-y divide-gray-50">
               {filteredAssemblies.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-6">
+                <p className="text-sm text-gray-500 text-center py-6">
                   {searchingPieces ? 'Buscando…' : 'Sin resultados'}
                 </p>
               ) : (
@@ -688,7 +688,7 @@ export default function PresupuestoBuilder({
                     )}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-900 truncate">{a.nameEs}</p>
-                      <p className="text-xs text-gray-400 truncate">{formatModels(a.models)}</p>
+                      <p className="text-xs text-gray-500 truncate">{formatModels(a.models)}</p>
                       {/* Por qué apareció: el SKU buscado es de una pieza de adentro,
                           no del ensamble. Sin esto la fila parece no tener relación. */}
                       {match && (
@@ -702,7 +702,7 @@ export default function PresupuestoBuilder({
                 })
               )}
             </div>
-            <p className="text-xs text-gray-400 mb-4">
+            <p className="text-xs text-gray-500 mb-4">
               {filteredAssemblies.length} ensamble{filteredAssemblies.length === 1 ? '' : 's'}
               {modelFilter || asmSearch ? ' (filtrado)' : ''} de {assemblies.length}.
             </p>
@@ -723,12 +723,12 @@ export default function PresupuestoBuilder({
                   </div>
                 )}
                 {loadingComps && !selectedComponents ? (
-                  <p className="text-sm text-gray-400 py-6 text-center">Cargando piezas…</p>
+                  <p className="text-sm text-gray-500 py-6 text-center">Cargando piezas…</p>
                 ) : (
                 <div className="space-y-4 max-h-96 overflow-y-auto pr-1">
                   {Array.from(groups.entries()).map(([groupName, items]) => (
                     <div key={groupName}>
-                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
                         {groupName}
                       </p>
                       <div className="space-y-0.5">
@@ -770,7 +770,7 @@ export default function PresupuestoBuilder({
                                 </span>
                                 <ChipDescontinuada activo={nls} />
                                 {comp.product.bajajCode && (
-                                  <span className="ml-2 text-xs font-mono text-gray-400">
+                                  <span className="ml-2 text-xs font-mono text-gray-500">
                                     {comp.product.bajajCode}
                                   </span>
                                 )}
@@ -855,7 +855,7 @@ export default function PresupuestoBuilder({
                     Agregar piezas sueltas
                   </button>
                 </div>
-                <p className="mt-2 text-xs text-gray-400">
+                <p className="mt-2 text-xs text-gray-500">
                   <span className="font-medium text-gray-500">Conjunto:</span> una línea a precio único (editable, por defecto la suma de las piezas elegidas) con las piezas listadas debajo.
                   {' · '}
                   <span className="font-medium text-gray-500">Piezas sueltas:</span> cada pieza con su propio precio.
@@ -901,7 +901,7 @@ export default function PresupuestoBuilder({
                           <span className={p.descontinuada ? 'text-gray-500 line-through' : 'text-gray-900'}>{p.nameEs}</span>
                           <ChipDescontinuada activo={p.descontinuada} />
                         </p>
-                        <p className="text-xs text-gray-400 truncate">
+                        <p className="text-xs text-gray-500 truncate">
                           {p.bajajCode && <span className="font-mono">{p.bajajCode}</span>}
                           {p.bajajCode && (p.models?.length ?? 0) > 0 && ' · '}
                           {formatModels(p.models ?? [])}
@@ -928,7 +928,7 @@ export default function PresupuestoBuilder({
             <h2 className="font-semibold text-gray-900 mb-4">
               {isPropio ? (isEditing ? 'Piezas del stock' : 'Stock propio') : (isEditing ? 'Piezas del presupuesto' : 'Presupuesto')}
               {cart.length > 0 && (
-                <span className="ml-2 text-xs font-normal text-gray-400">
+                <span className="ml-2 text-xs font-normal text-gray-500">
                   {cart.length} {cart.length === 1 ? 'pieza' : 'piezas'}
                 </span>
               )}
@@ -938,7 +938,7 @@ export default function PresupuestoBuilder({
               <p className="text-[11px] bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-2.5 py-2 mb-2">{avisoBloqueo}</p>
             )}
             {cart.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-10">
+              <p className="text-sm text-gray-500 text-center py-10">
                 Seleccioná piezas para agregar al presupuesto
               </p>
             ) : (
@@ -961,7 +961,7 @@ export default function PresupuestoBuilder({
                           />
                         )}
                         <div className="flex-1 min-w-0">
-                          <p className={`text-sm font-medium truncate ${item.descontinuada ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
+                          <p className={`text-sm font-medium truncate ${item.descontinuada ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
                             {item.nameEs}
                             <ChipDescontinuada activo={item.descontinuada} />
                             <StockBadge productId={item.productId} posiciones={posiciones} className="ml-2" />
@@ -974,7 +974,7 @@ export default function PresupuestoBuilder({
                           {(item.bajajCode || modelo) && (
                             <div className="flex items-center gap-1.5 min-w-0">
                               {item.bajajCode && (
-                                <span className="text-xs font-mono text-gray-400 shrink-0">{item.bajajCode}</span>
+                                <span className="text-xs font-mono text-gray-500 shrink-0">{item.bajajCode}</span>
                               )}
                               {modelo && (
                                 <span
@@ -982,7 +982,7 @@ export default function PresupuestoBuilder({
                                   className={`text-[10px] px-1.5 py-0.5 rounded truncate ${
                                     modelo.count === 1
                                       ? 'bg-gray-100 text-gray-700 font-medium'
-                                      : 'bg-gray-50 text-gray-400'
+                                      : 'bg-gray-50 text-gray-500'
                                   }`}
                                 >
                                   {modelo.label}
@@ -1058,7 +1058,7 @@ export default function PresupuestoBuilder({
                         {item.bundleItems ? (
                           <div className="flex items-center gap-1.5 shrink-0">
                             <div className="flex items-center">
-                              <span className="text-sm text-gray-400">$</span>
+                              <span className="text-sm text-gray-500">$</span>
                               <input
                                 type="number"
                                 min={0}
@@ -1098,7 +1098,7 @@ export default function PresupuestoBuilder({
                           {groupBundlePieces(item.bundleItems).map(([groupName, pieces]) => (
                             <div key={groupName}>
                               {groupName !== '—' && (
-                                <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
                                   {groupName}
                                 </p>
                               )}
@@ -1168,7 +1168,7 @@ export default function PresupuestoBuilder({
                     <div className="flex justify-between items-center">
                       <span className="font-bold text-gray-900">
                         Landed
-                        {costeando && <span className="ml-2 text-xs font-normal text-gray-400">calculando…</span>}
+                        {costeando && <span className="ml-2 text-xs font-normal text-gray-500">calculando…</span>}
                       </span>
                       <span className="text-xl font-bold font-mono text-blue-700">
                         {costo ? `$${landedTotal.toFixed(2)}` : '—'}
@@ -1195,52 +1195,52 @@ export default function PresupuestoBuilder({
                     <div className="flex items-center justify-between">
                       <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
                         ✈️ Costo por la ruta aérea
-                        {costeando && <span className="ml-2 font-normal normal-case text-gray-400">calculando…</span>}
+                        {costeando && <span className="ml-2 font-normal normal-case text-gray-500">calculando…</span>}
                       </h3>
                       {costo.proveedor && (
-                        <span className="text-[11px] text-gray-400 font-mono">{costo.proveedor}</span>
+                        <span className="text-[11px] text-gray-500 font-mono">{costo.proveedor}</span>
                       )}
                     </div>
 
                     <div className={`grid gap-3 ${isPropio ? 'grid-cols-2' : 'grid-cols-3'}`}>
                       <div>
-                        <p className="text-[11px] text-gray-400">{isPropio ? 'Peso real' : 'Peso'}</p>
+                        <p className="text-[11px] text-gray-500">{isPropio ? 'Peso real' : 'Peso'}</p>
                         <p className={`text-base font-bold font-mono ${isPropio && costo.weightKg >= costo.volKg ? 'text-green-700' : 'text-gray-900'}`}>{costo.weightKg.toFixed(2)} kg</p>
                       </div>
                       {isPropio ? (
                         <>
                           {/* Lo que rinde es que el peso real le gane al volumétrico (como en la caja, /envios). */}
                           <div>
-                            <p className="text-[11px] text-gray-400">Volumétrico</p>
+                            <p className="text-[11px] text-gray-500">Volumétrico</p>
                             <p className={`text-base font-bold font-mono ${costo.volKg > costo.weightKg ? 'text-red-700' : 'text-gray-900'}`}>{costo.volKg.toFixed(2)} kg</p>
                             {costo.weightKg > 0 && (
-                              <p className="text-[10px] text-gray-400">
+                              <p className="text-[10px] text-gray-500">
                                 V/W {((costo.volKg / costo.weightKg) * 100).toFixed(0)}% · {costo.weightKg >= costo.volKg ? 'atado por peso' : 'atado por volumen'}
                               </p>
                             )}
                           </div>
                           <div>
-                            <p className="text-[11px] text-gray-400">Volumen</p>
+                            <p className="text-[11px] text-gray-500">Volumen</p>
                             <p className="text-base font-bold font-mono text-gray-900">{costo.ft3.toFixed(2)} ft³</p>
-                            <p className="text-[10px] text-gray-400 font-mono">{costo.cbm.toFixed(3)} CBM</p>
+                            <p className="text-[10px] text-gray-500 font-mono">{costo.cbm.toFixed(3)} CBM</p>
                           </div>
                         </>
                       ) : (
                         <div>
-                          <p className="text-[11px] text-gray-400">Landed</p>
+                          <p className="text-[11px] text-gray-500">Landed</p>
                           <p className="text-base font-bold font-mono text-gray-900">${landedTotal.toFixed(2)}</p>
                         </div>
                       )}
                       <div>
-                        <p className="text-[11px] text-gray-400">Margen</p>
+                        <p className="text-[11px] text-gray-500">Margen</p>
                         <p className={`text-base font-bold font-mono ${
-                          margenTotal == null ? 'text-gray-400'
+                          margenTotal == null ? 'text-gray-500'
                             : margenTotal >= 0.25 ? 'text-green-600'
                             : margenTotal >= 0 ? 'text-amber-600' : 'text-red-600'
                         }`}>
                           {margenTotal != null ? `${(margenTotal * 100).toFixed(1)}%` : '—'}
                         </p>
-                        <p className="text-[10px] text-gray-400">ganancia ${(total - landedTotal).toFixed(2)}</p>
+                        <p className="text-[10px] text-gray-500">ganancia ${(total - landedTotal).toFixed(2)}</p>
                       </div>
                     </div>
 
@@ -1280,10 +1280,10 @@ export default function PresupuestoBuilder({
                 {isPropio && coverage.length > 0 && (
                   <div className="mt-4 pt-3 border-t border-gray-100">
                     <div className="flex items-baseline justify-between mb-2">
-                      <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                         Cobertura por moto
                       </h3>
-                      <span className="text-[11px] text-gray-400">
+                      <span className="text-[11px] text-gray-500">
                         {coverage.length} moto{coverage.length === 1 ? '' : 's'}
                       </span>
                     </div>
@@ -1315,7 +1315,7 @@ export default function PresupuestoBuilder({
                         </div>
                       ))}
                     </div>
-                    <p className="mt-2 text-[11px] text-gray-400 leading-snug">
+                    <p className="mt-2 text-[11px] text-gray-500 leading-snug">
                       Cada pieza cuenta en todas las motos que cubre (líneas · unidades).
                       Lo que armaste para una moto ya deja parte de las otras resuelto.
                     </p>
@@ -1366,7 +1366,7 @@ export default function PresupuestoBuilder({
                     ))}
                   </datalist>
                   {clienteFijo && (
-                    <p className="text-[11px] text-gray-400 mt-1">El pedido ya está confirmado: el cliente no se cambia.</p>
+                    <p className="text-[11px] text-gray-500 mt-1">El pedido ya está confirmado: el cliente no se cambia.</p>
                   )}
                   {clienteId === '__new__' && (
                     <p className="text-[11px] text-amber-700 mt-1">No hay un cliente con ese nombre: se crea uno nuevo al guardar.</p>
@@ -1384,8 +1384,8 @@ export default function PresupuestoBuilder({
               </div>
             )}
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Notas</label>
+            <label className="block">
+              <span className="block text-sm font-medium text-gray-700 mb-1">Notas</span>
               <textarea
                 value={notas}
                 onChange={e => setNotas(e.target.value)}
@@ -1393,7 +1393,7 @@ export default function PresupuestoBuilder({
                 rows={2}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
-            </div>
+            </label>
 
             {nlsEnCarrito.length > 0 && (
               <p className="text-[11px] bg-red-50 border border-red-200 text-red-900 rounded-lg px-2.5 py-2 mb-2">

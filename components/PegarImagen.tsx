@@ -93,7 +93,7 @@ export default function PegarImagen({ inicial }: { inicial?: string | null }) {
           {subiendo
             ? 'Subiendo…'
             : <span>Hacé clic acá y pegá la foto con <kbd className="rounded border border-gray-300 bg-gray-50 px-1 font-mono text-xs">Ctrl+V</kbd><br />
-                <span className="text-xs text-gray-400">En la web: clic derecho sobre la imagen → &quot;Copiar imagen&quot;</span></span>}
+                <span className="text-xs text-gray-500">En la web: clic derecho sobre la imagen → &quot;Copiar imagen&quot;</span></span>}
         </div>
         {url && (
           <div className="flex shrink-0 flex-col items-center gap-1">

@@ -160,7 +160,7 @@ function Tarjeta({ href, titulo, valor, detalle, alerta = false }: {
     <Link href={href} className={`block bg-white rounded-xl p-5 shadow-sm border hover:shadow ${alerta ? 'border-amber-200' : 'border-gray-100'}`}>
       <p className="text-sm text-gray-500">{titulo}</p>
       <p className={`text-2xl font-bold mt-1 font-mono ${alerta ? 'text-amber-700' : 'text-gray-900'}`}>{valor}</p>
-      <p className="text-xs text-gray-400 mt-1">{detalle}</p>
+      <p className="text-xs text-gray-500 mt-1">{detalle}</p>
     </Link>
   )
 }
@@ -171,7 +171,7 @@ function Lista({ titulo, vacio, pie, children }: {
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
       <h2 className="font-semibold text-gray-900 mb-3 text-sm">{titulo}</h2>
-      {children.length === 0 ? <p className="text-sm text-gray-400 py-2">{vacio}</p> : <div className="divide-y divide-gray-50">{children}</div>}
+      {children.length === 0 ? <p className="text-sm text-gray-500 py-2">{vacio}</p> : <div className="divide-y divide-gray-50">{children}</div>}
       {pie && <div className="mt-3">{pie}</div>}
     </div>
   )
@@ -182,7 +182,7 @@ function Fila({ href, izq, sub, der }: { href: string; izq: string; sub?: string
     <Link href={href} className="flex items-center justify-between py-2 hover:bg-gray-50 -mx-2 px-2 rounded">
       <span className="min-w-0">
         <span className="block text-sm text-gray-800 truncate">{izq}</span>
-        {sub && <span className="block text-xs text-gray-400">{sub}</span>}
+        {sub && <span className="block text-xs text-gray-500">{sub}</span>}
       </span>
       <span className="text-sm font-mono text-gray-700 shrink-0 ml-3">{der}</span>
     </Link>

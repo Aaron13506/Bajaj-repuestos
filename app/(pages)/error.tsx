@@ -24,7 +24,7 @@ export default function ErrorDePagina({
         plata, fijate si ya quedó registrada. Si sigue pasando, avisá con este código.
       </p>
       {error.digest && (
-        <p className="text-xs font-mono text-gray-400 select-all">código: {error.digest}</p>
+        <p className="text-xs font-mono text-gray-500 select-all">código: {error.digest}</p>
       )}
       <button
         type="button"

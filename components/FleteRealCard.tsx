@@ -68,8 +68,8 @@ export default function FleteRealCard({ filas, methods }: { filas: FilaFlete[]; 
                 </p>
 
                 <FormConResultado action={f.guardar} className="flex items-end gap-2">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Facturado (USD)</label>
+                  <label className="block">
+                    <span className="block text-xs font-medium text-gray-600 mb-1">Facturado (USD)</span>
                     <input
                       // Se vuelve a armar cuando cambia lo guardado, para que el campo muestre siempre el dato real.
                       key={`${f.tramo}-${f.facturadoUsd ?? ''}`}
@@ -78,14 +78,14 @@ export default function FleteRealCard({ filas, methods }: { filas: FilaFlete[]; 
                       placeholder="0.00"
                       className="w-32 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
-                  </div>
+                  </label>
                   <PendingButton className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
                     Guardar
                   </PendingButton>
                 </FormConResultado>
 
                 <div className="text-xs">
-                  <p className="text-gray-400 mb-1">Calculado</p>
+                  <p className="text-gray-500 mb-1">Calculado</p>
                   <p className="font-mono text-gray-600">
                     {usd(f.calculadoUsd)}
                     {dif != null && (
@@ -111,7 +111,7 @@ export default function FleteRealCard({ filas, methods }: { filas: FilaFlete[]; 
                 </div>
               </div>
 
-              {f.nota && <p className="text-xs text-gray-400 mt-2">{f.nota}</p>}
+              {f.nota && <p className="text-xs text-gray-500 mt-2">{f.nota}</p>}
 
               {f.pagos.length > 0 && (
                 <ul className="mt-3 space-y-1">
@@ -119,7 +119,7 @@ export default function FleteRealCard({ filas, methods }: { filas: FilaFlete[]; 
                     <li key={p.id} className="flex items-center gap-3 text-xs text-gray-600">
                       <span className="font-mono">{fecha(p.fecha)}</span>
                       <span className="font-mono font-semibold">{usd(p.monto)}</span>
-                      {p.metodoPago && <span className="text-gray-400">{p.metodoPago}</span>}
+                      {p.metodoPago && <span className="text-gray-500">{p.metodoPago}</span>}
                       <DeleteButton
                         action={f.deshacer.bind(null, p.id)}
                         label="deshacer"

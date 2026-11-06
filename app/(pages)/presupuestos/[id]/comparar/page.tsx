@@ -131,7 +131,7 @@ export default async function CompararProveedoresPage({ params }: { params: Prom
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <Link href={`/presupuestos/${id}`} className="text-gray-400 hover:text-gray-600 text-sm">
+            <Link href={`/presupuestos/${id}`} className="text-gray-500 hover:text-gray-600 text-sm">
               {pedido.clientName}
             </Link>
             <span className="text-gray-300">/</span>
@@ -163,7 +163,7 @@ export default async function CompararProveedoresPage({ params }: { params: Prom
               {columns.map(col => (
                 <th key={col.id ?? 'base'} className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide border-l border-gray-100">
                   {col.name}
-                  <span className="block text-[10px] font-normal normal-case text-gray-400">landed · base</span>
+                  <span className="block text-[10px] font-normal normal-case text-gray-500">landed · base</span>
                 </th>
               ))}
             </tr>
@@ -193,10 +193,10 @@ export default async function CompararProveedoresPage({ params }: { params: Prom
                         {b != null ? (
                           <>
                             ${b.landedUsd.toFixed(2)}
-                            <span className="block text-[11px] font-normal text-gray-400">
+                            <span className="block text-[11px] font-normal text-gray-500">
                               ×{line.quantity} = ${(b.landedUsd * line.quantity).toFixed(2)}
                             </span>
-                            <span className="block text-[11px] font-normal text-gray-400">
+                            <span className="block text-[11px] font-normal text-gray-500">
                               base ${b.baseUsd.toFixed(2)}
                             </span>
                           </>

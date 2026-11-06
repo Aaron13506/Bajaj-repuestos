@@ -521,7 +521,7 @@ export default function EmbarqueMaritimo({
 
         <div className="border border-gray-300 rounded-lg mb-1 max-h-72 overflow-y-auto divide-y divide-gray-50">
           {filteredAssemblies.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-6">Sin resultados</p>
+            <p className="text-sm text-gray-500 text-center py-6">Sin resultados</p>
           ) : (
             filteredAssemblies.slice(0, 200).map(a => (
               <button
@@ -540,13 +540,13 @@ export default function EmbarqueMaritimo({
                 )}
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-900 truncate">{a.nameEs}</p>
-                  <p className="text-xs text-gray-400 truncate">{a.compatibleModels}</p>
+                  <p className="text-xs text-gray-500 truncate">{a.compatibleModels}</p>
                 </div>
               </button>
             ))
           )}
         </div>
-        <p className="text-xs text-gray-400 mb-4">
+        <p className="text-xs text-gray-500 mb-4">
           {filteredAssemblies.length} ensamble{filteredAssemblies.length === 1 ? '' : 's'}
           {modelFilter || asmSearch ? ' (filtrado)' : ''} de {assemblies.length}
           {filteredAssemblies.length > 200 && ' · mostrando los primeros 200, afiná el filtro'}
@@ -563,16 +563,16 @@ export default function EmbarqueMaritimo({
                 nameEs={selectedAssembly.nameEs}
               />
             ) : (
-              <p className="text-xs text-gray-400 mb-4">Este ensamble no tiene despiece cargado.</p>
+              <p className="text-xs text-gray-500 mb-4">Este ensamble no tiene despiece cargado.</p>
             )}
             {loadingComps && !componentes ? (
-              <p className="text-sm text-gray-400 py-6 text-center">Cargando piezas…</p>
+              <p className="text-sm text-gray-500 py-6 text-center">Cargando piezas…</p>
             ) : (
               <>
                 <div className="space-y-4 max-h-96 overflow-y-auto pr-1">
                   {Array.from(grupos.entries()).map(([groupName, items]) => (
                     <div key={groupName}>
-                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{groupName}</p>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{groupName}</p>
                       <div className="space-y-0.5">
                         {items.map(c => {
                           const yaLlevas = yaEnCaja.get(c.child.id) ?? 0
@@ -600,7 +600,7 @@ export default function EmbarqueMaritimo({
                                 </span>
                                 <ChipDescontinuada activo={c.child.descontinuada} />
                                 {c.child.bajajCode && (
-                                  <span className="ml-2 text-xs font-mono text-gray-400">{c.child.bajajCode}</span>
+                                  <span className="ml-2 text-xs font-mono text-gray-500">{c.child.bajajCode}</span>
                                 )}
                                 <CodigoAlterno code={c.child.altCode} />
                                 <ChipMoq
@@ -635,10 +635,10 @@ export default function EmbarqueMaritimo({
                               <span className="text-[11px] font-mono text-gray-500 w-16 text-right shrink-0" title="Costo de compra unitario">
                                 {c.child.costoUsd != null ? usd(c.child.costoUsd) : '—'}
                               </span>
-                              <span className="text-[11px] font-mono text-gray-400 w-24 text-right shrink-0" title="L×A×H en cm">
+                              <span className="text-[11px] font-mono text-gray-500 w-24 text-right shrink-0" title="L×A×H en cm">
                                 {dims(c.child.dimL, c.child.dimA, c.child.dimH) ?? '—'}
                               </span>
-                              <span className="text-[11px] font-mono text-gray-400 w-20 text-right shrink-0" title="Volumen de la línea">
+                              <span className="text-[11px] font-mono text-gray-500 w-20 text-right shrink-0" title="Volumen de la línea">
                                 {c.child.sinMedidas ? '—' : vol(c.child.volumeM3 * (quantities[c.id] ?? c.quantity))}
                               </span>
                               <input
@@ -765,7 +765,7 @@ export default function EmbarqueMaritimo({
                             (una arandela de US$0,01 con set de 250 son 250 arandelas). */}
                         <ChipMoq moq={r.moq} costoUsd={r.costoUsd} />
                       </p>
-                      <p className="text-xs text-gray-400 truncate">
+                      <p className="text-xs text-gray-500 truncate">
                         {r.bajajCode && <span className="font-mono">{r.bajajCode}</span>}
                         {r.altCode && (
                           <span className="ml-1 font-mono text-gray-300" title="El otro código de la misma pieza">
@@ -827,7 +827,7 @@ export default function EmbarqueMaritimo({
             </div>
           )}
         </div>
-        <p className="text-xs text-gray-400 mt-2">
+        <p className="text-xs text-gray-500 mt-2">
           Es mercancía tuya: solo producto y cantidad. El precio de venta sale del catálogo cuando la caja llega.
         </p>
       </div>
@@ -837,7 +837,7 @@ export default function EmbarqueMaritimo({
           99rpm abierto al lado). Las dos plegadas: mientras se arma, lo que se mira es el
           navegador de arriba, y el título ya dice cuánto llevás. */}
       {borrador.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-400">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-500">
           <p className="text-lg">El embarque está vacío</p>
           <p className="text-sm mt-1">Buscá piezas arriba para empezar a llenarlo.</p>
         </div>
@@ -892,7 +892,7 @@ export default function EmbarqueMaritimo({
                           nueva
                         </span>
                       )}
-                      {l.bajajCode && <span className="ml-2 font-mono text-xs text-gray-400">{l.bajajCode}</span>}
+                      {l.bajajCode && <span className="ml-2 font-mono text-xs text-gray-500">{l.bajajCode}</span>}
                       <CodigoAlterno code={l.altCode} />
                       <ChipMoq moq={l.moq} cantidad={l.quantity} />
                       <StockBadge productId={l.productId} posiciones={posiciones} className="ml-2" />

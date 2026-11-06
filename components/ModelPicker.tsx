@@ -77,7 +77,7 @@ export default function ModelPicker({ value, name = 'models', dense = false }: P
                     />
                     <span className={selected.has(m.id) ? 'text-gray-900' : 'text-gray-500'}>
                       {m.variant}
-                      {m.years && <span className="text-gray-400"> {m.years}</span>}
+                      {m.years && <span className="text-gray-500"> {m.years}</span>}
                     </span>
                   </label>
                 ))}
@@ -87,7 +87,7 @@ export default function ModelPicker({ value, name = 'models', dense = false }: P
         })}
       </div>
 
-      <p className={`mt-1 text-gray-400 ${dense ? 'text-[10px]' : 'text-xs'}`}>
+      <p className={`mt-1 text-gray-500 ${dense ? 'text-[10px]' : 'text-xs'}`}>
         {selected.size === 0
           ? 'Sin motos — la pieza no va a aparecer en ningún filtro por moto.'
           : formatModels([...selected])}

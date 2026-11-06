@@ -52,41 +52,41 @@ export default function MontoBs({
 
   return (
     <div className="space-y-2">
-      <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">{etiqueta}</label>
+      <label className="block">
+        <span className="block text-xs font-medium text-gray-600 mb-1">{etiqueta}</span>
         <div className="flex items-center">
-          <span className="text-sm text-gray-400 mr-1">Bs</span>
+          <span className="text-sm text-gray-500 mr-1">Bs</span>
           <input
-            type="number" name={`montoBs${sufijo}`} min={0.01} step="0.01" required={requerido} autoFocus={autoFocus}
+            type="number" name={`montoBs${sufijo}`} min={0.01} step="0.01" required={requerido} data-autofocus={autoFocus || undefined}
             value={bs} onChange={e => setBs(e.target.value)} className={cls}
           />
         </div>
-      </div>
+      </label>
       {interna ? (
         <input type="hidden" name={`tasaBs${sufijo}`} value={tasa} />
       ) : (
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">{etiquetaTasa} (Bs por USD)</label>
+        <label className="block">
+          <span className="block text-xs font-medium text-gray-600 mb-1">{etiquetaTasa} (Bs por USD)</span>
           <input
             type="number" name={`tasaBs${sufijo}`} min={0.0001} step="0.0001" required={completo}
             value={tasa} onChange={e => setTasa(e.target.value)} className={cls}
           />
-        </div>
+        </label>
       )}
-      <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">Equivale a ({unidad}) <span className="font-normal text-gray-400">opcional</span></label>
+      <label className="block">
+        <span className="block text-xs font-medium text-gray-600 mb-1">Equivale a ({unidad}) <span className="font-normal text-gray-500">opcional</span></span>
         <input
           type="number" name={`equivalenteUsd${sufijo}`} min={0.01} step="0.01" value={equiv} onChange={e => setEquiv(e.target.value)} className={cls}
           placeholder={b > 0 && t > 0 ? (b / t).toFixed(2) : 'Si te lo dieron por un monto redondo'}
         />
-      </div>
+      </label>
       <p className="text-[11px] text-gray-500">
         {dolares != null ? <>= <span className="font-mono font-semibold text-gray-700">{usd(dolares)}</span> {unidad}</> : 'Los dólares salen de dividir los Bs entre la tasa.'}
         {conEquiv && t > 0 && (
           // Que se vea cuánto se aparta de la tasa: un typo en el equivalente le acredita de más.
           <span className="text-amber-700"> · a la tasa eran Bs {bsFmt(eq * t)} ({bsFmt(b - eq * t)} Bs de diferencia)</span>
         )}
-        {interna && !conEquiv && <span className="text-gray-400"> · {etiquetaTasa.toLowerCase()} {bsFmt(tasaSugerida)}</span>}
+        {interna && !conEquiv && <span className="text-gray-500"> · {etiquetaTasa.toLowerCase()} {bsFmt(tasaSugerida)}</span>}
       </p>
       {sugerido != null && sugerido > 0 && t > 0 && (
         <button

@@ -65,16 +65,16 @@ export default function AddToAssemblyForm({ productId, action }: Props) {
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Grupo dentro del ensamble</label>
+        <label className="block">
+          <span className="block text-xs font-medium text-gray-600 mb-1">Grupo dentro del ensamble</span>
           <input
             name="groupName"
             placeholder="Ej: Fasteners, Spring..."
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Cantidad</label>
+        </label>
+        <label className="block">
+          <span className="block text-xs font-medium text-gray-600 mb-1">Cantidad</span>
           <input
             name="quantity"
             type="number"
@@ -82,7 +82,7 @@ export default function AddToAssemblyForm({ productId, action }: Props) {
             defaultValue="1"
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
-        </div>
+        </label>
       </div>
 
       <PendingButton

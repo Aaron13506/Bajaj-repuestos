@@ -146,7 +146,7 @@ export default async function ContabilidadPage({ searchParams }: Props) {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
           <div className="flex items-center justify-between mb-1">
-            <p className="text-xs text-gray-400">Saldo de caja</p>
+            <p className="text-xs text-gray-500">Saldo de caja</p>
             <AperturaCajaForm
               action={guardarAperturaCaja}
               actual={apertura ? { desde: apertura.desde.toISOString().slice(0, 10), saldoInicial: apertura.saldoInicial, cuenta: apertura.cuenta } : null}
@@ -155,7 +155,7 @@ export default async function ContabilidadPage({ searchParams }: Props) {
           <p className={`text-2xl font-bold font-mono ${saldoTotal >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
             {usd(saldoTotal)}
           </p>
-          <p className="text-[11px] text-gray-400 mt-1">
+          <p className="text-[11px] text-gray-500 mt-1">
             {apertura
               ? `${usd(apertura.saldoInicial)} apertura (${fechaCorta(apertura.desde)}) + ${usd(caja.ingresos)} ingresos − ${usd(caja.egresos)} egresos`
               : `${usd(caja.ingresos)} ingresos − ${usd(caja.egresos)} egresos`}
@@ -178,7 +178,7 @@ export default async function ContabilidadPage({ searchParams }: Props) {
               </li>
             ))}
             {apertura && !apertura.cuenta && (
-              <li className="flex justify-between text-[11px] text-gray-400">
+              <li className="flex justify-between text-[11px] text-gray-500">
                 <span>Apertura</span>
                 <span className="font-mono">{usd(apertura.saldoInicial)}</span>
               </li>
@@ -187,33 +187,33 @@ export default async function ContabilidadPage({ searchParams }: Props) {
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
           <div className="flex items-center justify-between mb-1">
-            <p className="text-xs text-gray-400">Valor de inventario</p>
+            <p className="text-xs text-gray-500">Valor de inventario</p>
             <Link href="/inventario" className="text-[11px] text-blue-600 hover:underline">ver piezas</Link>
           </div>
           <p className="text-2xl font-bold font-mono text-gray-900">
             {usd(inventario.aqui.valorUsd + inventario.camino.valorUsd)}
           </p>
-          <p className="text-[11px] text-gray-400 mt-1">
+          <p className="text-[11px] text-gray-500 mt-1">
             {usd(inventario.aqui.valorUsd)} aquí ({inventario.aqui.productos} productos)
             {' + '}{usd(inventario.camino.valorUsd)} en camino
           </p>
           {inventario.camino.unidades > 0 && (
-            <p className="text-[11px] text-gray-400">
+            <p className="text-[11px] text-gray-500">
               en camino: {inventario.camino.unidades} u. en{' '}
               {inventario.camino.aereo.cajas + inventario.camino.maritimo.cajas} caja{inventario.camino.aereo.cajas + inventario.camino.maritimo.cajas === 1 ? '' : 's'} confirmada{inventario.camino.aereo.cajas + inventario.camino.maritimo.cajas === 1 ? '' : 's'}
               {inventario.camino.incompleto && ' · estimado, faltan datos de alguna caja'}
             </p>
           )}
           {inventario.aqui.sinCosto > 0 && (
-            <p className="text-[11px] text-gray-400">
+            <p className="text-[11px] text-gray-500">
               {inventario.aqui.sinCosto} sin costo cargado, no están en la suma
             </p>
           )}
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-          <p className="text-xs text-gray-400 mb-1">Por cobrar</p>
+          <p className="text-xs text-gray-500 mb-1">Por cobrar</p>
           <p className="text-2xl font-bold font-mono text-amber-700">{usd(totalPorCobrar)}</p>
-          <p className="text-[11px] text-gray-400 mt-1">{porCobrar.length} pedidos con saldo</p>
+          <p className="text-[11px] text-gray-500 mt-1">{porCobrar.length} pedidos con saldo</p>
           {sinPagarEntregado > 0.005 && (
             <p className="text-[11px] text-red-600 font-semibold mt-0.5">
               {usd(sinPagarEntregado)} ya entregado sin pagar
@@ -221,9 +221,9 @@ export default async function ContabilidadPage({ searchParams }: Props) {
           )}
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-          <p className="text-xs text-gray-400 mb-1">Gastos por venir</p>
+          <p className="text-xs text-gray-500 mb-1">Gastos por venir</p>
           <p className="text-2xl font-bold font-mono text-amber-700">{usd(totalPorVenir)}</p>
-          <p className="text-[11px] text-gray-400 mt-1">
+          <p className="text-[11px] text-gray-500 mt-1">
             flete y proveedor de {porVenir.cajas.length} caja{porVenir.cajas.length === 1 ? '' : 's'} en curso
             {sobrepagadas.length > 0 && (
               <span className="text-red-600"> · {sobrepagadas.length} sobrepagada{sobrepagadas.length === 1 ? '' : 's'}</span>
@@ -240,10 +240,10 @@ export default async function ContabilidadPage({ searchParams }: Props) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6 items-start">
         <details className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-gray-500 uppercase tracking-wide">
-            Por cobrar <span className="normal-case font-normal text-gray-400">· {porCobrar.length} pedidos · {usd(totalPorCobrar)}</span>
+            Por cobrar <span className="normal-case font-normal text-gray-500">· {porCobrar.length} pedidos · {usd(totalPorCobrar)}</span>
           </summary>
           {porCobrar.length === 0 ? (
-            <p className="text-sm text-gray-400 px-5 py-4 border-t border-gray-100">Nada pendiente de cobrar.</p>
+            <p className="text-sm text-gray-500 px-5 py-4 border-t border-gray-100">Nada pendiente de cobrar.</p>
           ) : (
             <table className="w-full text-sm border-t border-gray-100">
               <tbody className="divide-y divide-gray-50">
@@ -262,7 +262,7 @@ export default async function ContabilidadPage({ searchParams }: Props) {
                       </span>
                     </td>
                     <td className="px-5 py-2 text-right font-mono text-amber-700">{usd(p.falta)}</td>
-                    <td className="px-5 py-2 text-right text-xs text-gray-400">de {usd(p.total)}</td>
+                    <td className="px-5 py-2 text-right text-xs text-gray-500">de {usd(p.total)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -272,10 +272,10 @@ export default async function ContabilidadPage({ searchParams }: Props) {
 
         <details className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-gray-500 uppercase tracking-wide">
-            Gastos por venir <span className="normal-case font-normal text-gray-400">· {porVenir.cajas.length} cajas · {usd(totalPorVenir)}</span>
+            Gastos por venir <span className="normal-case font-normal text-gray-500">· {porVenir.cajas.length} cajas · {usd(totalPorVenir)}</span>
           </summary>
           {porVenir.cajas.length === 0 ? (
-            <p className="text-sm text-gray-400 px-5 py-4 border-t border-gray-100">Ninguna caja en curso con gastos pendientes.</p>
+            <p className="text-sm text-gray-500 px-5 py-4 border-t border-gray-100">Ninguna caja en curso con gastos pendientes.</p>
           ) : (
             <table className="w-full text-sm border-t border-gray-100">
               <tbody className="divide-y divide-gray-50">
@@ -287,10 +287,10 @@ export default async function ContabilidadPage({ searchParams }: Props) {
                       </Link>
                     </td>
                     <td className="px-5 py-2 text-right font-mono text-amber-700">
-                      {g.incompleto && <span className="text-gray-400" title="Estimado de piso: faltan pesos, medidas o costos">≥ </span>}
+                      {g.incompleto && <span className="text-gray-500" title="Estimado de piso: faltan pesos, medidas o costos">≥ </span>}
                       {usd(g.totalUsd)}
                     </td>
-                    <td className="px-5 py-2 text-right text-xs text-gray-400">
+                    <td className="px-5 py-2 text-right text-xs text-gray-500">
                       {[g.fletePorPagarUsd > 0.005 && `flete ${usd(g.fletePorPagarUsd)} ${g.fleteEstimado ? 'estimado' : 'facturado'}`, g.proveedorPorPagarUsd > 0.005 && `proveedor ${usd(g.proveedorPorPagarUsd)}`].filter(Boolean).join(' · ')}
                     </td>
                   </tr>
@@ -312,10 +312,10 @@ export default async function ContabilidadPage({ searchParams }: Props) {
                         <Link href={`/envios/${e.envioId}`} className="text-blue-600 hover:underline">
                           {e.nombre ?? `Envío #${e.envioId}`}
                         </Link>
-                        <span className="text-xs text-gray-400 ml-1">· {e.supplierName}</span>
+                        <span className="text-xs text-gray-500 ml-1">· {e.supplierName}</span>
                       </td>
                       <td className="px-5 py-2 text-right font-mono text-red-700">+{usd(-e.pendiente)}</td>
-                      <td className="px-5 py-2 text-right text-xs text-gray-400">
+                      <td className="px-5 py-2 text-right text-xs text-gray-500">
                         {usd(e.pagado)} pagado de {usd(e.debido)}
                       </td>
                     </tr>
@@ -355,41 +355,41 @@ export default async function ContabilidadPage({ searchParams }: Props) {
           {/* Separar por períodos: un filtro de fecha de lectura, sin nada que persistir
               aparte — se pega directo sobre Movimiento.fecha (ver rangoLibro arriba). */}
           <form className="flex items-end gap-2">
-            <div>
-              <label className="block text-[10px] text-gray-400 mb-0.5">Desde</label>
+            <label className="block">
+              <span className="block text-[10px] text-gray-500 mb-0.5">Desde</span>
               <input
                 type="date" name="desde" defaultValue={filtroDesde ?? ''}
                 className="border border-gray-300 rounded-lg px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
-            </div>
-            <div>
-              <label className="block text-[10px] text-gray-400 mb-0.5">Hasta</label>
+            </label>
+            <label className="block">
+              <span className="block text-[10px] text-gray-500 mb-0.5">Hasta</span>
               <input
                 type="date" name="hasta" defaultValue={filtroHasta ?? ''}
                 className="border border-gray-300 rounded-lg px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
-            </div>
-            <div>
-              <label className="block text-[10px] text-gray-400 mb-0.5">Cuenta</label>
+            </label>
+            <label className="block">
+              <span className="block text-[10px] text-gray-500 mb-0.5">Cuenta</span>
               <select name="cuenta" defaultValue={sp.cuenta ?? ''} className="border border-gray-300 rounded-lg px-2 py-1 text-xs">
                 <option value="">Todas</option>
                 {CUENTAS.map(c => <option key={c} value={c}>{CUENTA_LABELS[c]}</option>)}
               </select>
-            </div>
-            <div>
-              <label className="block text-[10px] text-gray-400 mb-0.5">Categoría</label>
+            </label>
+            <label className="block">
+              <span className="block text-[10px] text-gray-500 mb-0.5">Categoría</span>
               <select name="categoria" defaultValue={sp.categoria ?? ''} className="border border-gray-300 rounded-lg px-2 py-1 text-xs">
                 <option value="">Todas</option>
                 {Object.entries(CATEGORIA_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
-            </div>
-            <div>
-              <label className="block text-[10px] text-gray-400 mb-0.5">Pedido</label>
+            </label>
+            <label className="block">
+              <span className="block text-[10px] text-gray-500 mb-0.5">Pedido</span>
               <input
                 name="pedido" defaultValue={sp.pedido ?? ''} placeholder="#"
                 className="w-16 border border-gray-300 rounded-lg px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
-            </div>
+            </label>
             <button type="submit" className="px-3 py-1 text-xs border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
               Filtrar
             </button>
@@ -404,7 +404,7 @@ export default async function ContabilidadPage({ searchParams }: Props) {
           </form>
         </div>
         {movimientos.length === 0 ? (
-          <p className="text-sm text-gray-400 px-5 py-6">
+          <p className="text-sm text-gray-500 px-5 py-6">
             {hayFiltro ? 'Nada con esos filtros.' : 'Todavía no hay movimientos cargados.'}
           </p>
         ) : (
@@ -436,7 +436,7 @@ export default async function ContabilidadPage({ searchParams }: Props) {
                     {/* En Bs manda lo que pasó por el banco; los dólares son lo que abonó, de referencia. */}
                     {m.tipo === 'ingreso' ? '+' : '−'}{m.montoBs != null ? `Bs ${m.montoBs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : usd(m.monto)}
                     {m.montoBs != null && (
-                      <span className="block text-[10px] font-normal text-gray-400">{usd(m.monto)}</span>
+                      <span className="block text-[10px] font-normal text-gray-500">{usd(m.monto)}</span>
                     )}
                   </td>
                   <td className="px-4 py-2 text-right">

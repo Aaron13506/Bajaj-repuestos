@@ -37,8 +37,8 @@ export default function ConversionForm({ action, valor }: Props) {
     >
       <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Pasar a USDT</h2>
       <div className="flex flex-wrap items-end gap-3">
-        <div>
-          <label className="block text-sm font-medium text-gray-800 mb-1">Desde</label>
+        <label className="block">
+          <span className="block text-sm font-medium text-gray-800 mb-1">Desde</span>
           <select
             name="desde" value={desde} onChange={e => setDesde(e.target.value as typeof desde)}
             className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -46,35 +46,35 @@ export default function ConversionForm({ action, valor }: Props) {
             <option value="banco_bs">Banco (Bs)</option>
             <option value="efectivo_usd">Efectivo USD</option>
           </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-800 mb-1">{enBs ? 'Bs que di' : '$ en efectivo que di'}</label>
+        </label>
+        <label className="block">
+          <span className="block text-sm font-medium text-gray-800 mb-1">{enBs ? 'Bs que di' : '$ en efectivo que di'}</span>
           <input
             type="number" name="dado" min={0.01} step="0.01" required value={dado} onChange={e => setDado(e.target.value)}
             className="w-40 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-800 mb-1">USDT que recibí</label>
+        </label>
+        <label className="block">
+          <span className="block text-sm font-medium text-gray-800 mb-1">USDT que recibí</span>
           <input
             type="number" name="usdt" min={0.01} step="0.01" required value={usdt} onChange={e => setUsdt(e.target.value)}
             className="w-40 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-800 mb-1">Fecha</label>
+        </label>
+        <label className="block">
+          <span className="block text-sm font-medium text-gray-800 mb-1">Fecha</span>
           <CampoFecha
             name="fecha"
             className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
-        </div>
-        <div className="flex-1 min-w-[160px]">
-          <label className="block text-sm font-medium text-gray-800 mb-1">Nota (opcional)</label>
+        </label>
+        <label className="flex-1 min-w-[160px]">
+          <span className="block text-sm font-medium text-gray-800 mb-1">Nota (opcional)</span>
           <input
             type="text" name="descripcion"
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
-        </div>
+        </label>
         <button
           type="submit" disabled={isPending}
           className="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors"
@@ -97,7 +97,7 @@ export default function ConversionForm({ action, valor }: Props) {
               : <span className="text-green-700">ganaste {usd(-c.costoUsd)} ({nf(-c.costoPct, 1)}%).</span>}
         </p>
       ) : (
-        <p className="text-xs text-gray-400 mt-3">
+        <p className="text-xs text-gray-500 mt-3">
           Escribí lo que diste y lo que recibiste, y ves cuánto costó (o cuánto salió a favor).
         </p>
       )}

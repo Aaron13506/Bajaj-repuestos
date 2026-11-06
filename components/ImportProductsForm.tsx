@@ -127,7 +127,7 @@ export default function ImportProductsForm() {
             </button>
           </div>
           <pre className="text-xs text-gray-600 whitespace-pre-wrap bg-gray-50 rounded-lg p-3 max-h-72 overflow-auto font-mono">{SCHEMA_EXAMPLE}</pre>
-          <p className="text-xs text-gray-400 mt-3 mb-1">O piezas sueltas (array plano):</p>
+          <p className="text-xs text-gray-500 mt-3 mb-1">O piezas sueltas (array plano):</p>
           <pre className="text-xs text-gray-600 whitespace-pre-wrap bg-gray-50 rounded-lg p-3 overflow-auto font-mono">{FLAT_EXAMPLE}</pre>
         </div>
       </div>
@@ -144,7 +144,7 @@ export default function ImportProductsForm() {
             placeholder={SCHEMA_EXAMPLE}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y"
           />
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-xs text-gray-500 mt-1">
             Soporta un ensamble con subgrupos, varios (<span className="font-mono">groups</span>) o piezas sueltas (array).
             El precio se calcula desde <span className="font-mono">priceInr</span> + peso + margen; si no hay datos queda en <span className="font-mono">$0</span> para completar luego.
           </p>

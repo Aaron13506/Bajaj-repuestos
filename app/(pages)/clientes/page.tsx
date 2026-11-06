@@ -75,8 +75,8 @@ export default async function ClientesPage({
         action={createCliente}
         className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8 flex flex-wrap items-end gap-3"
       >
-        <div className="flex-1 min-w-[180px]">
-          <label className="block text-sm font-medium text-gray-800 mb-1">Nombre</label>
+        <label className="flex-1 min-w-[180px]">
+          <span className="block text-sm font-medium text-gray-800 mb-1">Nombre</span>
           <input
             type="text"
             name="nombre"
@@ -84,15 +84,15 @@ export default async function ClientesPage({
             placeholder="Ej: Andry Marcano"
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
-        </div>
-        <div className="flex-1 min-w-[180px]">
-          <label className="block text-sm font-medium text-gray-800 mb-1">Teléfono (opcional)</label>
+        </label>
+        <label className="flex-1 min-w-[180px]">
+          <span className="block text-sm font-medium text-gray-800 mb-1">Teléfono (opcional)</span>
           <input
             type="text"
             name="telefono"
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
-        </div>
+        </label>
         <PendingButton
           className="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
         >
@@ -113,9 +113,9 @@ export default async function ClientesPage({
       </form>
 
       {clientes.length === 0 && q ? (
-        <p className="text-sm text-gray-400 py-6 text-center">Ningún cliente coincide con &quot;{q}&quot;.</p>
+        <p className="text-sm text-gray-500 py-6 text-center">Ningún cliente coincide con &quot;{q}&quot;.</p>
       ) : clientes.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-400">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-500">
           <p className="text-lg">Sin clientes todavía</p>
           <p className="text-sm mt-1">Se crean automáticamente al elegir &quot;+ Nuevo cliente&quot; en un presupuesto, o agregalos acá.</p>
         </div>
@@ -135,13 +135,13 @@ export default async function ClientesPage({
                     <Link href={`/clientes/${c.id}`} className="font-semibold text-gray-900 hover:text-blue-600">
                       {c.nombre}
                     </Link>
-                    <span className="text-xs text-gray-400">
+                    <span className="text-xs text-gray-500">
                       {confirmados} {confirmados === 1 ? 'pedido' : 'pedidos'}
                       {sinConfirmar > 0 && ` · ${sinConfirmar} sin aprobar`}
                     </span>
                   </div>
                   {c.telefono && (
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className="text-xs text-gray-500 mt-1">
                       {c.telefono}
                       {wa && <a href={`https://wa.me/${wa}`} target="_blank" rel="noopener noreferrer" className="ml-2 text-green-600 hover:underline">WhatsApp</a>}
                     </p>

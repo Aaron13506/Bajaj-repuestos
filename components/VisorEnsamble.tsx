@@ -25,6 +25,9 @@ export default function VisorEnsamble({ src, nameEs, bajajCode }: Props) {
   const [abierto, setAbierto] = useState(false)
   const [zoom, setZoom] = useState(1)
   const scrollRef = useRef<HTMLDivElement>(null)
+  // <dialog> con showModal(): fondo inerte, foco adentro, Escape nativo y, al cerrar con
+  // close(), el foco vuelve a la miniatura.
+  const dialogRef = useRef<HTMLDialogElement>(null)
   // Punto del diagrama donde se hizo click, en proporción (0–1) de la imagen. Al ampliar se
   // centra la vista ahí: si no, el zoom salta al centro del dibujo y se pierde la pieza que
   // se estaba mirando, que es justamente lo que se quería ver de cerca.
@@ -32,13 +35,14 @@ export default function VisorEnsamble({ src, nameEs, bajajCode }: Props) {
 
   const cerrar = useCallback(() => { setAbierto(false); setZoom(1) }, [])
 
-  // Esc para cerrar y +/− para el zoom: con la imagen a pantalla completa el mouse está
-  // sobre el dibujo, no sobre los botones.
+  // +/− para el zoom (Escape lo maneja el <dialog>): con la imagen a pantalla completa el
+  // mouse está sobre el dibujo, no sobre los botones.
   useEffect(() => {
     if (!abierto) return
+    const d = dialogRef.current
+    if (d && !d.open) d.showModal()
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') cerrar()
-      else if (e.key === '+' || e.key === '=') setZoom(z => Math.min(ZOOM_MAX, z + 1))
+      if (e.key === '+' || e.key === '=') setZoom(z => Math.min(ZOOM_MAX, z + 1))
       else if (e.key === '-' || e.key === '_') setZoom(z => Math.max(1, z - 1))
     }
     window.addEventListener('keydown', onKey)
@@ -85,9 +89,12 @@ export default function VisorEnsamble({ src, nameEs, bajajCode }: Props) {
       </button>
 
       {abierto && (
-        <div
-          className="fixed inset-0 z-50 bg-black/90 flex flex-col"
-          onClick={cerrar}
+        <dialog
+          ref={dialogRef}
+          aria-label={`Despiece: ${nameEs}`}
+          onClose={cerrar}
+          onClick={() => dialogRef.current?.close()}
+          className="fixed inset-0 m-0 h-dvh w-screen max-h-none max-w-none bg-black/90 flex flex-col p-0"
         >
           <div
             className="flex items-center justify-between gap-3 px-4 py-3 shrink-0 border-b border-white/10"
@@ -95,7 +102,7 @@ export default function VisorEnsamble({ src, nameEs, bajajCode }: Props) {
           >
             <div className="min-w-0">
               <p className="text-sm font-medium text-white truncate">{nameEs}</p>
-              {bajajCode && <p className="text-xs font-mono text-white/50">{bajajCode}</p>}
+              {bajajCode && <p className="text-xs font-mono text-white/70">{bajajCode}</p>}
             </div>
             <div className="flex items-center gap-2 shrink-0">
               {NIVELES.map(n => (
@@ -103,6 +110,8 @@ export default function VisorEnsamble({ src, nameEs, bajajCode }: Props) {
                   key={n}
                   type="button"
                   onClick={() => setZoom(n)}
+                  aria-pressed={zoom === n}
+                  aria-label={`Zoom ${n}×`}
                   className={`px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors ${
                     zoom === n
                       ? 'bg-white text-gray-900 border-white'
@@ -114,7 +123,7 @@ export default function VisorEnsamble({ src, nameEs, bajajCode }: Props) {
               ))}
               <button
                 type="button"
-                onClick={cerrar}
+                onClick={() => dialogRef.current?.close()}
                 className="px-3 py-1 text-xs font-medium rounded-lg border border-white/25 text-white/80 hover:bg-white/10 transition-colors"
               >
                 Cerrar (Esc)
@@ -143,10 +152,10 @@ export default function VisorEnsamble({ src, nameEs, bajajCode }: Props) {
             />
           </div>
 
-          <p className="shrink-0 px-4 py-2 text-[11px] text-white/40 text-center">
+          <p className="shrink-0 px-4 py-2 text-[11px] text-white/70 text-center">
             Click sobre la pieza para acercar ahí · click afuera para cerrar
           </p>
-        </div>
+        </dialog>
       )}
     </>
   )

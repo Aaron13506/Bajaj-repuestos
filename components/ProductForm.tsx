@@ -192,38 +192,38 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
       <section>
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Identificación</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Nombre (español) <span className="text-red-500">*</span></label>
+          <label className="block">
+            <span className="block text-sm font-medium text-gray-700 mb-1">Nombre (español) <span className="text-red-500">*</span></span>
             <input name="nameEs" required defaultValue={d.nameEs ?? ''} placeholder="Ej: Pedal de freno trasero"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            <p className="text-xs text-gray-400 mt-1">Se usa en presupuestos</p>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Nombre (inglés)</label>
+            <p className="text-xs text-gray-500 mt-1">Se usa en presupuestos</p>
+          </label>
+          <label className="block">
+            <span className="block text-sm font-medium text-gray-700 mb-1">Nombre (inglés)</span>
             <input name="nameEn" defaultValue={d.nameEn ?? ''} placeholder="Ej: Rear Brake Pedal"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            <p className="text-xs text-gray-400 mt-1">Referencia interna / catálogo Bajaj</p>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Código Bajaj</label>
+            <p className="text-xs text-gray-500 mt-1">Referencia interna / catálogo Bajaj</p>
+          </label>
+          <label className="block">
+            <span className="block text-sm font-medium text-gray-700 mb-1">Código Bajaj</span>
             <input name="bajajCode" defaultValue={d.bajajCode ?? ''} placeholder="Ej: JR161036"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Código alterno</label>
+          </label>
+          <label className="block">
+            <span className="block text-sm font-medium text-gray-700 mb-1">Código alterno</span>
             <input name="altSku" defaultValue={d.altSku ?? ''} placeholder="Ej: JR233069"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            <p className="text-xs text-gray-400 mt-1">El otro número con que la cotiza algún proveedor; se busca por los dos</p>
-          </div>
+            <p className="text-xs text-gray-500 mt-1">El otro número con que la cotiza algún proveedor; se busca por los dos</p>
+          </label>
           <div className="sm:col-span-2">
             <label className="block text-sm font-medium text-gray-700 mb-1">Motos</label>
             <ModelPicker key={pickerKey} value={models} />
           </div>
-          <div className="sm:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1">URL fuente</label>
+          <label className="sm:col-span-2">
+            <span className="block text-sm font-medium text-gray-700 mb-1">URL fuente</span>
             <input name="sourceUrl" type="url" defaultValue={d.sourceUrl ?? ''} placeholder="https://..."
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-          </div>
+          </label>
           <div className="sm:col-span-2">
             <label className="block text-sm font-medium text-gray-700 mb-1">Foto</label>
             <PegarImagen inicial={d.imageUrl} />
@@ -254,12 +254,12 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
                 ))}
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Sub-grupo</label>
+            <label className="block">
+              <span className="block text-sm font-medium text-gray-700 mb-1">Sub-grupo</span>
               <input name="parentGroupName" placeholder="Ej: Fasteners, Spring..."
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-              <p className="text-xs text-gray-400 mt-1">El grupo dentro del ensamble</p>
-            </div>
+              <p className="text-xs text-gray-500 mt-1">El grupo dentro del ensamble</p>
+            </label>
           </div>
         </section>
       )}
@@ -268,16 +268,16 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
       <section>
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Descripción</h2>
         <div className="space-y-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Descripción</label>
+          <label className="block">
+            <span className="block text-sm font-medium text-gray-700 mb-1">Descripción</span>
             <textarea name="description" rows={2} defaultValue={d.description ?? ''}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Notas / variantes</label>
+          </label>
+          <label className="block">
+            <span className="block text-sm font-medium text-gray-700 mb-1">Notas / variantes</span>
             <textarea name="notes" rows={2} defaultValue={d.notes ?? ''} placeholder="Variantes, observaciones..."
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none" />
-          </div>
+          </label>
         </div>
       </section>
 
@@ -285,31 +285,31 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
       <section>
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Precios</h2>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Precio India (₹)</label>
+          <label className="block">
+            <span className="block text-sm font-medium text-gray-700 mb-1">Precio India (₹)</span>
             <input ref={priceInrRef} name="priceInr" type="number" min="0" step="1" defaultValue={d.priceInr ?? ''}
               onChange={recalcFromCost}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Costo landed (USD)</label>
+          </label>
+          <label className="block">
+            <span className="block text-sm font-medium text-gray-700 mb-1">Costo landed (USD)</span>
             <input ref={landedRef} name="landedCostUsd" type="number" min="0" step="0.01" readOnly tabIndex={-1}
               defaultValue={d.landedCostUsd ?? ''}
               className="w-full border border-gray-200 bg-gray-50 text-gray-600 rounded-lg px-3 py-2 text-sm cursor-not-allowed" />
-            <p className="text-xs text-gray-400 mt-1">Auto: INR + envío + seguro</p>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Margen (%)</label>
+            <p className="text-xs text-gray-500 mt-1">Auto: INR + envío + seguro</p>
+          </label>
+          <label className="block">
+            <span className="block text-sm font-medium text-gray-700 mb-1">Margen (%)</span>
             <input ref={marginRef} name="margin" type="number" min="0" max="99" step="any"
               defaultValue={d.margin != null ? +(d.margin * 100).toFixed(4) : ''} onChange={recalcFromMargin}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Precio venta (USD) <span className="text-red-500">*</span></label>
+          </label>
+          <label className="block">
+            <span className="block text-sm font-medium text-gray-700 mb-1">Precio venta (USD) <span className="text-red-500">*</span></span>
             <input ref={priceRef} name="price" type="number" min="0" step="0.01" required
               defaultValue={d.price != null ? parseFloat(d.price.toString()) : ''} onChange={recalcFromPrice}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-          </div>
+          </label>
         </div>
         <label className="flex items-center gap-2 mt-3 cursor-pointer">
           <input ref={lockRef} type="checkbox" name="priceLocked" value="true" defaultChecked={d.priceLocked ?? false}
@@ -318,7 +318,7 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
             Precio fijo — no recalcular al cargar medidas/costos (el margen se ajusta solo)
           </span>
         </label>
-        <p className="text-xs text-gray-400 mt-2">
+        <p className="text-xs text-gray-500 mt-2">
           El precio se calcula solo desde el costo y el margen. Podés sobrescribir el margen o el precio y el otro se ajusta.
         </p>
       </section>
@@ -333,36 +333,36 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
           Es lo que pesa el transportista — con la pieza pelada el flete siempre sale de menos.
         </p>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Peso del bulto (g)</label>
+          <label className="block">
+            <span className="block text-sm font-medium text-gray-700 mb-1">Peso del bulto (g)</span>
             <input ref={weightRef} name="weightGrams" type="number" min="0" step="0.1" defaultValue={d.weightGrams ?? ''}
               onChange={recalcFromCost}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Largo (cm)</label>
+          </label>
+          <label className="block">
+            <span className="block text-sm font-medium text-gray-700 mb-1">Largo (cm)</span>
             <input ref={dimLRef} name="dimL" type="number" min="0" step="0.01" defaultValue={d.dimL ?? ''}
               onChange={recalcFromCost}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Ancho (cm)</label>
+          </label>
+          <label className="block">
+            <span className="block text-sm font-medium text-gray-700 mb-1">Ancho (cm)</span>
             <input ref={dimARef} name="dimA" type="number" min="0" step="0.01" defaultValue={d.dimA ?? ''}
               onChange={recalcFromCost}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Alto (cm)</label>
+          </label>
+          <label className="block">
+            <span className="block text-sm font-medium text-gray-700 mb-1">Alto (cm)</span>
             <input ref={dimHRef} name="dimH" type="number" min="0" step="0.01" defaultValue={d.dimH ?? ''}
               onChange={recalcFromCost}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Stock</label>
+          </label>
+          <label className="block">
+            <span className="block text-sm font-medium text-gray-700 mb-1">Stock</span>
             <input type="hidden" name="stockCargado" value={d.stock ?? 0} />
             <input name="stock" type="number" min="0" defaultValue={d.stock ?? 0}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-          </div>
+          </label>
         </div>
         <label className="flex items-center gap-2 mt-3 cursor-pointer">
           <input type="checkbox" name="medido" value="true" defaultChecked={d.medidoAt != null}
@@ -370,11 +370,11 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
           <span className="text-xs text-gray-600">
             Pesada y medida a mano
             {d.medidoAt
-              ? <span className="text-gray-400"> — el {fechaMedido(d.medidoAt)}</span>
-              : <span className="text-gray-400"> — sin tildar, peso y medidas son estimados</span>}
+              ? <span className="text-gray-500"> — el {fechaMedido(d.medidoAt)}</span>
+              : <span className="text-gray-500"> — sin tildar, peso y medidas son estimados</span>}
           </span>
         </label>
-        <p className="text-xs text-gray-400 mt-1">
+        <p className="text-xs text-gray-500 mt-1">
           Tildala cuando la pieza pasó por la balanza y la cinta. La carga de medidas con IA no pisa
           una pieza medida.
         </p>

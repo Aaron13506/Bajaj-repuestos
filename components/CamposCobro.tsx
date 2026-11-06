@@ -47,9 +47,9 @@ export default function CamposCobro({ methods, modoBcv, saldo, tasaBs, requerido
           <>
             <label className="block text-xs font-medium text-gray-600 mb-1">Monto ({unidad})</label>
             <div className="flex items-center">
-              <span className="text-sm text-gray-400 mr-1">$</span>
+              <span className="text-sm text-gray-500 mr-1">$</span>
               <input
-                type="number" name="monto" min={requerido ? 0.01 : 0} step="0.01" required={requerido} autoFocus
+                type="number" name="monto" min={requerido ? 0.01 : 0} step="0.01" required={requerido} data-autofocus
                 value={monto} onChange={e => setMonto(e.target.value)}
                 className={`${cls} font-mono`}
               />
@@ -57,18 +57,18 @@ export default function CamposCobro({ methods, modoBcv, saldo, tasaBs, requerido
           </>
         )}
         {saldoMetodo > 0.005 && (
-          <p className="text-[11px] text-gray-400 mt-1">
+          <p className="text-[11px] text-gray-500 mt-1">
             Saldo: ${saldoMetodo.toFixed(2)}{modoBcv && (enBs ? ' a tasa BCV' : ' en divisas')}
           </p>
         )}
       </div>
 
-      <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">Método de pago</label>
+      <label className="block">
+        <span className="block text-xs font-medium text-gray-600 mb-1">Método de pago</span>
         <select name="metodoPago" value={metodo} onChange={e => setMetodo(e.target.value)} className={cls}>
           {methods.map(m => <option key={m} value={m}>{m}</option>)}
         </select>
-      </div>
+      </label>
     </>
   )
 }

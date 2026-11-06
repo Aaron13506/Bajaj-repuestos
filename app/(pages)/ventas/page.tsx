@@ -82,9 +82,9 @@ export default async function VentasPage({ searchParams }: { searchParams: Promi
       )}
 
       {filas.length > 0 && visibles.length === 0 ? (
-        <p className="text-sm text-gray-400 py-6 text-center">Ninguna venta coincide con el filtro.</p>
+        <p className="text-sm text-gray-500 py-6 text-center">Ninguna venta coincide con el filtro.</p>
       ) : filas.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-400">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-500">
           <p className="text-lg">Sin ventas</p>
           <p className="text-sm mt-1">Cuando vendas algo que ya tenés en el depósito, aparece acá.</p>
         </div>
@@ -94,31 +94,31 @@ export default async function VentasPage({ searchParams }: { searchParams: Promi
             <div key={v.id} className="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-4 flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-3">
-                  <span className="text-xs font-mono text-gray-400">#{v.id}</span>
+                  <span className="text-xs font-mono text-gray-500">#{v.id}</span>
                   <Link href={`/ventas/${v.id}`} className="font-semibold text-gray-900 hover:text-blue-600">
                     {v.clientName}
                   </Link>
-                  <span className="text-xs text-gray-400">
+                  <span className="text-xs text-gray-500">
                     {v.items.length} {v.items.length === 1 ? 'pieza' : 'piezas'}
                   </span>
                 </div>
-                <p className="text-xs text-gray-400 mt-1">
+                <p className="text-xs text-gray-500 mt-1">
                   {new Date(v.createdAt).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' })}
                   {v.notas && ` · ${v.notas}`}
                 </p>
               </div>
               <div className="flex items-center gap-6">
                 <div className="text-right">
-                  <p className="text-xs text-gray-400">Margen</p>
+                  <p className="text-xs text-gray-500">Margen</p>
                   {/* Nunca es null: una venta no se guarda sin costo (motivoNoVendible). */}
                   <p className="text-sm font-semibold text-gray-700">
                     ${margen.margenUsd!.toFixed(2)}
-                    {margen.margenPct != null && <span className="ml-1 text-xs font-normal text-gray-400">{margen.margenPct.toFixed(0)}%</span>}
+                    {margen.margenPct != null && <span className="ml-1 text-xs font-normal text-gray-500">{margen.margenPct.toFixed(0)}%</span>}
                   </p>
                 </div>
                 <div className="text-right">
                   <span className="font-semibold text-gray-900">${cobro.totalBcv.toFixed(2)}</span>
-                  {cobro.escalonPct != null && <span className="ml-1 text-[10px] font-semibold text-gray-400">BCV</span>}
+                  {cobro.escalonPct != null && <span className="ml-1 text-[10px] font-semibold text-gray-500">BCV</span>}
                   {cobro.saldoBcv > 0.005 ? (
                     <p className="text-xs text-amber-600">Saldo ${cobro.saldoBcv.toFixed(2)}</p>
                   ) : (

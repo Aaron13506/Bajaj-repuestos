@@ -87,7 +87,7 @@ export function CostCells({ d, cfg, quantity, maritimo = true }: {
       {d.priceInr ? (
         <>
           ₹{d.priceInr}
-          {multi && <span className="block text-gray-400">total: ₹{d.priceInr * quantity!}</span>}
+          {multi && <span className="block text-gray-500">total: ₹{d.priceInr * quantity!}</span>}
         </>
       ) : !hasSupplierOverride ? '—' : null}
       {hasSupplierOverride && (
@@ -108,7 +108,7 @@ export function CostCells({ d, cfg, quantity, maritimo = true }: {
       <td className="px-4 py-3 text-right font-medium text-gray-900">
         {fmt(saleUsd)}
         {multi && (
-          <span className="block text-[11px] font-normal text-gray-400">total: {fmt(saleUsd * quantity!)}</span>
+          <span className="block text-[11px] font-normal text-gray-500">total: {fmt(saleUsd * quantity!)}</span>
         )}
       </td>
       <td className="px-4 py-3 text-right font-medium text-gray-900">
@@ -209,7 +209,7 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
                 onClick={() => setExpanded((v) => !v)}
                 aria-expanded={expanded}
                 title={expanded ? 'Ocultar ensambles' : 'Ver ensambles'}
-                className="shrink-0 text-gray-400 hover:text-gray-700 transition-transform w-4"
+                className="shrink-0 text-gray-500 hover:text-gray-700 transition-transform w-4"
               >
                 <span className={`inline-block transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
               </button>
@@ -233,7 +233,7 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
             )}
           </span>
           {d.nameEn && (
-            <span className="block text-xs font-normal text-gray-400 truncate">{d.nameEn}</span>
+            <span className="block text-xs font-normal text-gray-500 truncate">{d.nameEn}</span>
           )}
           {errorGuardado && (
             <span role="alert" className="block text-xs font-normal text-red-600 whitespace-normal">
@@ -303,10 +303,10 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
                 <li key={e.id} className="flex flex-wrap items-center gap-x-2 text-gray-700">
                   <span className="text-gray-300">└</span>
                   <Link href={`/ensambles/${e.id}`} className="hover:text-blue-600 transition-colors">{e.nameEs}</Link>
-                  {e.models.length > 0 && <span className="text-gray-400">{formatModels(e.models)}</span>}
-                  {e.quantity > 1 && <span className="text-gray-400">×{e.quantity}</span>}
+                  {e.models.length > 0 && <span className="text-gray-500">{formatModels(e.models)}</span>}
+                  {e.quantity > 1 && <span className="text-gray-500">×{e.quantity}</span>}
                   {e.grupos.map((g) => (
-                    <span key={g} className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{g}</span>
+                    <span key={g} className="text-[10px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">{g}</span>
                   ))}
                 </li>
               ))}

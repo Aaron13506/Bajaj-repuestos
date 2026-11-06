@@ -81,7 +81,7 @@ export default function CompararProveedores({
       <div className="overflow-x-auto">
         <table className="w-full text-sm whitespace-nowrap">
           <thead>
-            <tr className="border-b border-gray-100 text-xs text-gray-400 uppercase tracking-wide">
+            <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
               <th className="text-left py-2 pr-3 font-semibold">Proveedor</th>
               <th className="text-right py-2 px-2 font-semibold" title="Cuántas piezas del embarque cotiza. Las que no, caen al precio base de 99rpm">
                 Cobertura
@@ -153,7 +153,7 @@ export default function CompararProveedores({
                   <td className="py-2.5 px-2 text-right font-mono text-gray-500">
                     {usd(o.fobUsd)}
                     {o.fobPorDefecto && (
-                      <span className="block text-[10px] text-gray-400" title="Este proveedor no tiene FOB propio cargado">
+                      <span className="block text-[10px] text-gray-500" title="Este proveedor no tiene FOB propio cargado">
                         default
                       </span>
                     )}
@@ -211,7 +211,7 @@ export default function CompararProveedores({
                       <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1">
                         {faltantes.map(p => (
                           <li key={p.productId} className="text-xs text-gray-700 flex gap-2 min-w-0">
-                            <span className="font-mono text-gray-400 shrink-0">{p.bajajCode ?? '—'}</span>
+                            <span className="font-mono text-gray-500 shrink-0">{p.bajajCode ?? '—'}</span>
                             <span className="truncate">{p.nameEs}</span>
                             <span className="ml-auto font-mono text-gray-500 shrink-0">×{p.quantity}</span>
                             {sinPrecio.has(p.productId) && (
@@ -236,7 +236,7 @@ export default function CompararProveedores({
         <p role="alert" className="text-xs text-red-600">{error}</p>
       )}
 
-      <p className="text-xs text-gray-400">
+      <p className="text-xs text-gray-500">
         El flete puede diferir entre proveedores: el que cotiza puesto en Venezuela no manda esa pieza en el
         contenedor, así que no ocupa volumen. El mínimo facturable de la naviera se aplica igual en todos.
       </p>

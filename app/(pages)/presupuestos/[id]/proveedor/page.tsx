@@ -75,7 +75,7 @@ export default async function ProveedorPage({ params }: { params: Promise<{ id: 
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <Link href={`/presupuestos/${id}`} className="text-gray-400 hover:text-gray-600 text-sm">
+            <Link href={`/presupuestos/${id}`} className="text-gray-500 hover:text-gray-600 text-sm">
               {pedido.clientName}
             </Link>
             <span className="text-gray-300">/</span>

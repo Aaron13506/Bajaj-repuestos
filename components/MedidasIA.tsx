@@ -176,7 +176,7 @@ export default function MedidasIA({
               : `${gruposPendientes.length} de ${resumen.length} ${resumen.length === 1 ? 'grupo' : 'grupos'} con piezas sin medir. Se trabaja de a un ensamble.`}
           </p>
         </div>
-        <span className="text-gray-400 text-sm">{open ? '▲' : '▼'}</span>
+        <span className="text-gray-500 text-sm">{open ? '▲' : '▼'}</span>
       </button>
 
       {open && activo && (
@@ -237,7 +237,7 @@ export default function MedidasIA({
                   title={g.subtitulo ?? undefined}
                 >
                   {g.faltan === 0 ? '✓ ' : ''}{g.titulo}
-                  <span className={`ml-1.5 ${g.key === activo?.key ? 'text-blue-100' : 'text-gray-400'}`}>
+                  <span className={`ml-1.5 ${g.key === activo?.key ? 'text-blue-100' : 'text-gray-500'}`}>
                     {g.faltan > 0 ? `${g.faltan}/${g.piezas.length}` : g.piezas.length}
                   </span>
                 </button>
@@ -251,7 +251,7 @@ export default function MedidasIA({
               <div className="flex items-center justify-between mb-2 gap-2">
                 <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide truncate">
                   {activo.titulo}
-                  <span className="ml-2 font-normal normal-case text-gray-400">
+                  <span className="ml-2 font-normal normal-case text-gray-500">
                     {piezasVisibles.length} {piezasVisibles.length === 1 ? 'pieza' : 'piezas'}
                   </span>
                 </h3>
@@ -277,7 +277,7 @@ export default function MedidasIA({
                 </p>
               )}
               {piezasVisibles.length === 0 ? (
-                <p className="text-xs text-gray-400 py-2">
+                <p className="text-xs text-gray-500 py-2">
                   {medidasAMano === (activo?.piezas.length ?? 0)
                     ? 'Todo este grupo está pesado y medido a mano.'
                     : <>Este grupo ya está completo. Destildá &quot;solo faltantes&quot; para recargar medidas igual.</>}
@@ -304,7 +304,7 @@ export default function MedidasIA({
             {ensambleId != null && <input type="hidden" name="ensambleId" value={ensambleId} />}
             {revalidate && <input type="hidden" name="revalidate" value={revalidate} />}
             <label className="block text-sm font-medium text-gray-700">Pegá la respuesta de la IA</label>
-            <p className="text-xs text-gray-400 -mt-1">
+            <p className="text-xs text-gray-500 -mt-1">
               Podés pegar la respuesta completa (razonamiento + fuentes + JSON); se extrae el bloque{' '}
               <span className="font-mono">json</span> solo. Las piezas se buscan por{' '}
               <span className="font-mono">bajajCode</span> o <span className="font-mono">id</span>, así que no importa

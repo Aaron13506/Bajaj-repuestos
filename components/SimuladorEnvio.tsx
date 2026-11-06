@@ -283,7 +283,7 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="px-5 pt-5 pb-3">
             <h2 className="font-semibold text-gray-900">Qué traés</h2>
-            <p className="text-xs text-gray-400 mt-0.5">
+            <p className="text-xs text-gray-500 mt-0.5">
               Presupuestos ya creados, piezas sueltas, o las dos cosas en la misma caja.
               Nada de esto se guarda.
             </p>
@@ -299,7 +299,7 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">{ped.clientName}</p>
-                    <p className="text-[11px] text-gray-400">{pedidoPieces(ped)} piezas · vendido {usd(ped.saleTotal)}</p>
+                    <p className="text-[11px] text-gray-500">{pedidoPieces(ped)} piezas · vendido {usd(ped.saleTotal)}</p>
                   </div>
                   <span className="text-sm font-mono text-gray-600 shrink-0">{usd(landedByPedido.get(ped.id) ?? 0)}</span>
                   <button
@@ -319,7 +319,7 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">{p.nameEs}</p>
-                    <p className="text-[11px] text-gray-400">
+                    <p className="text-[11px] text-gray-500">
                       {p.bajajCode && <span className="font-mono">{p.bajajCode} · </span>}
                       {p.weightGrams != null ? `${p.weightGrams} g` : <span className="text-amber-600">sin peso</span>}
                     </p>
@@ -346,8 +346,8 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
 
           {/* Sumar algo */}
           <div className="px-5 py-4 space-y-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Sumar un presupuesto</label>
+            <label className="block">
+              <span className="block text-xs font-medium text-gray-600 mb-1">Sumar un presupuesto</span>
               <select
                 value=""
                 onChange={e => e.target.value !== '' && addPedido(parseInt(e.target.value))}
@@ -368,7 +368,7 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
                   </option>
                 ))}
               </select>
-            </div>
+            </label>
 
             <div className="relative">
               <label className="block text-xs font-medium text-gray-600 mb-1">Sumar una pieza suelta</label>
@@ -390,9 +390,9 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
                     >
                       <div className="min-w-0">
                         <span className="text-sm font-medium text-gray-900">{p.nameEs}</span>
-                        {p.bajajCode && <span className="ml-2 text-xs font-mono text-gray-400">{p.bajajCode}</span>}
+                        {p.bajajCode && <span className="ml-2 text-xs font-mono text-gray-500">{p.bajajCode}</span>}
                       </div>
-                      <span className="text-xs text-gray-400 shrink-0">
+                      <span className="text-xs text-gray-500 shrink-0">
                         {p.weightGrams != null ? `${p.weightGrams} g` : 'sin peso'}
                       </span>
                     </button>
@@ -407,7 +407,7 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
       {/* ── Derecha: resultado del cálculo ── */}
       <div className="space-y-4">
         {isEmpty ? (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-400">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-500">
             <p className="text-lg">Supuesto vacío</p>
             <p className="text-sm mt-1">Agregá presupuestos o piezas a la izquierda para ver el costo aproximado.</p>
           </div>
@@ -483,7 +483,7 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
                 <button
                   type="button"
                   onClick={() => setVerLegacy(true)}
-                  className="mt-2 text-xs text-gray-400 hover:text-blue-600"
+                  className="mt-2 text-xs text-gray-500 hover:text-blue-600"
                 >
                   Ver también el escenario viejo por ft³ ({usd(calcMaritimo.landedUsd)})
                 </button>
@@ -518,13 +518,13 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">Volumen real</p>
+                    <p className="text-xs text-gray-500 mb-1">Volumen real</p>
                     <p className="text-lg font-bold font-mono text-gray-900">
                       {esCbm ? m3(calc.volumeM3) : ft3(calc.volumeFt3)}
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">Facturable</p>
+                    <p className="text-xs text-gray-500 mb-1">Facturable</p>
                     <p className={`text-lg font-bold font-mono ${
                       (esCbm ? calc.minM3Applied : calc.minFt3Applied) ? 'text-amber-600' : 'text-sky-700'
                     }`}>
@@ -532,13 +532,13 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">{esCbm ? 'Tarifa / m³' : 'Tarifa / ft³'}</p>
+                    <p className="text-xs text-gray-500 mb-1">{esCbm ? 'Tarifa / m³' : 'Tarifa / ft³'}</p>
                     <p className="text-lg font-bold font-mono text-gray-900">
                       {usd(esCbm ? calc.cbmRatePerM3 : calc.maritimePerFt3)}
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">Flete marítimo</p>
+                    <p className="text-xs text-gray-500 mb-1">Flete marítimo</p>
                     <p className="text-lg font-bold font-mono text-blue-700">{usd(calc.maritimeUsd)}</p>
                   </div>
                 </div>
@@ -606,19 +606,19 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div>
-                  <p className="text-xs text-gray-400 mb-1">Peso real (ΣW)</p>
+                  <p className="text-xs text-gray-500 mb-1">Peso real (ΣW)</p>
                   <p className={`text-lg font-bold font-mono ${calc.binding === 'weight' ? 'text-green-700' : 'text-gray-900'}`}>{kg(calc.realKg)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-400 mb-1">Volumétrico (ΣV)</p>
+                  <p className="text-xs text-gray-500 mb-1">Volumétrico (ΣV)</p>
                   <p className={`text-lg font-bold font-mono ${calc.binding === 'volume' ? 'text-red-700' : 'text-gray-900'}`}>{kg(calc.volKg)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-400 mb-1">Cobrable max(W,V)</p>
+                  <p className="text-xs text-gray-500 mb-1">Cobrable max(W,V)</p>
                   <p className="text-lg font-bold font-mono text-blue-700">{kg(calc.chargeableKg)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-400 mb-1">Aéreo / kg</p>
+                  <p className="text-xs text-gray-500 mb-1">Aéreo / kg</p>
                   <p className="text-lg font-bold font-mono text-gray-900">{usd(calc.airPerKgUsd)}</p>
                 </div>
               </div>
@@ -710,7 +710,7 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
                       <dt className="font-semibold text-gray-700">Margen bruto</dt>
                       <dd className={`font-semibold font-mono ${saleTotal - calc.landedUsd >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                         {usd(saleTotal - calc.landedUsd)}{' '}
-                        <span className="text-xs text-gray-400">
+                        <span className="text-xs text-gray-500">
                           ({((1 - calc.landedUsd / saleTotal) * 100).toFixed(0)}%)
                         </span>
                       </dd>
@@ -747,7 +747,7 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
                     <tr key={i} className="hover:bg-gray-50">
                       <td className="px-6 py-2.5">
                         <span className="text-gray-900">{l.name}</span>
-                        {l.quantity > 1 && <span className="text-xs text-gray-400"> ×{l.quantity}</span>}
+                        {l.quantity > 1 && <span className="text-xs text-gray-500"> ×{l.quantity}</span>}
                       </td>
                       {esMaritimo ? (
                         <td className="px-3 py-2.5 text-right font-mono text-gray-600">{l.ft3.toFixed(3)}</td>
@@ -803,7 +803,7 @@ function ModoButton({
         </span>
       </div>
       <p className="text-xs text-gray-500 mt-0.5 leading-snug">{sub}</p>
-      <p className={`mt-2 font-mono font-bold ${active ? 'text-blue-700' : 'text-gray-400'}`}>{total}</p>
+      <p className={`mt-2 font-mono font-bold ${active ? 'text-blue-700' : 'text-gray-500'}`}>{total}</p>
     </button>
   )
 }

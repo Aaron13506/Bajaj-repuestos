@@ -196,7 +196,7 @@ export default function ConteoCaja({
               <tr key={p.clave} className={dif != null && dif !== 0 ? 'bg-red-50/60' : ''}>
                 <td className="px-6 py-2">
                   <span className="text-gray-900">{limpiarNombre(p.nombre)}</span>
-                  {p.codigo && <span className="ml-2 font-mono text-[10px] text-gray-400">{p.codigo}</span>}
+                  {p.codigo && <span className="ml-2 font-mono text-[10px] text-gray-500">{p.codigo}</span>}
                   {p.estimada && (
                     <button
                       type="button"

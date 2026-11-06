@@ -3,8 +3,8 @@
 // consulta la DB remota, en vez de quedarse "congelado" esperando la respuesta.
 export default function Loading() {
   return (
-    <div className="animate-pulse space-y-6">
-      <div className="h-8 w-64 bg-gray-200 rounded-lg" />
+    <div role="status" aria-label="Cargando la página" className="motion-safe:animate-pulse space-y-6">
+      <div className="h-8 w-64 max-w-full bg-gray-200 rounded-lg" />
       <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-3">
         <div className="h-4 w-1/3 bg-gray-100 rounded" />
         <div className="h-4 w-1/2 bg-gray-100 rounded" />
@@ -15,8 +15,8 @@ export default function Loading() {
           <div key={i} className="h-5 bg-gray-100 rounded" style={{ width: `${90 - i * 8}%` }} />
         ))}
       </div>
-      <div className="flex items-center gap-2 text-sm text-gray-400">
-        <span className="inline-block w-4 h-4 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" />
+      <div className="flex items-center gap-2 text-sm text-gray-500">
+        <span aria-hidden="true" className="inline-block w-4 h-4 border-2 border-gray-300 border-t-blue-500 rounded-full motion-safe:animate-spin" />
         Cargando…
       </div>
     </div>

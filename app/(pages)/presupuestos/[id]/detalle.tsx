@@ -331,7 +331,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <Link href={`/${ruta}`} className="text-gray-400 hover:text-gray-600 text-sm">
+            <Link href={`/${ruta}`} className="text-gray-500 hover:text-gray-600 text-sm">
               {isVenta ? 'Ventas' : 'Presupuestos'}
             </Link>
             <span className="text-gray-300">/</span>
@@ -456,7 +456,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                 <DevolverClienteForm action={devolverAlCliente.bind(null, id)} maximo={saldoAFavor} tasaSugerida={tasaDevolucion} />
               )}
               {noCancelable ? (
-                <span className="text-xs text-gray-400 cursor-help select-none" title={noCancelable}>🔒 No se puede cancelar</span>
+                <span className="text-xs text-gray-500 cursor-help select-none" title={noCancelable}>🔒 No se puede cancelar</span>
               ) : (
                 <CancelarPedidoForm
                   action={cancelarPedido.bind(null, id)}
@@ -533,7 +533,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
               confirmMessage={`¿Anular la venta a "${presupuesto.clientName}"? Las piezas vuelven al depósito y se sacan sus cobros del libro. Si el cliente ya se llevó la mercancía y hay que devolverle plata, no es esto: anotá un egreso aparte.`}
             />
           ) : noEliminable ? (
-            <span className="text-sm text-gray-400 cursor-help select-none" title={noEliminable}>
+            <span className="text-sm text-gray-500 cursor-help select-none" title={noEliminable}>
               🔒 No se puede eliminar
             </span>
           ) : (
@@ -602,14 +602,14 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-4">
         <div className="flex justify-between text-sm">
           <div>
-            <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Cliente</p>
+            <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Cliente</p>
             <p className="font-semibold text-gray-900 text-base">{presupuesto.clientName}</p>
           </div>
           <div className="text-right">
-            <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">{isPresupuesto ? 'Cotizado' : 'Fecha'}</p>
+            <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">{isPresupuesto ? 'Cotizado' : 'Fecha'}</p>
             <p className="text-gray-700">{isPresupuesto ? fecha : fmtDate(presupuesto.createdAt)}</p>
             {isPresupuesto && (
-              <p className={`text-xs mt-1 ${vencido ? 'text-red-600 font-semibold' : 'text-gray-400'}`}>
+              <p className={`text-xs mt-1 ${vencido ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>
                 {vencido ? `Venció el ${validez}` : `Válido hasta ${validez}`}
               </p>
             )}
@@ -617,7 +617,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
         </div>
         {presupuesto.notas && (
           <div className="mt-4 pt-4 border-t border-gray-100">
-            <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Notas</p>
+            <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Notas</p>
             <p className="text-sm text-gray-700">{presupuesto.notas}</p>
           </div>
         )}
@@ -633,7 +633,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div>
-              <p className="text-xs text-gray-400 mb-1">Peso real</p>
+              <p className="text-xs text-gray-500 mb-1">Peso real</p>
               <p className={`text-xl font-bold font-mono ${
                 logistica.realKg >= logistica.volKg ? 'text-green-700' : 'text-gray-900'
               }`}>
@@ -641,7 +641,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-400 mb-1">Volumétrico</p>
+              <p className="text-xs text-gray-500 mb-1">Volumétrico</p>
               <p className={`text-xl font-bold font-mono ${
                 logistica.volKg > logistica.realKg ? 'text-red-700' : 'text-gray-900'
               }`}>
@@ -649,17 +649,17 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-400 mb-1">Cobrable max(W,V)</p>
+              <p className="text-xs text-gray-500 mb-1">Cobrable max(W,V)</p>
               <p className="text-xl font-bold font-mono text-blue-700">
                 {logistica.chargeableKg.toFixed(2)} kg
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-400 mb-1">Volumen</p>
+              <p className="text-xs text-gray-500 mb-1">Volumen</p>
               <p className="text-xl font-bold font-mono text-gray-900">
                 {logistica.ft3.toFixed(2)} ft³
               </p>
-              <p className="text-xs text-gray-400 mt-0.5 font-mono">
+              <p className="text-xs text-gray-500 mt-0.5 font-mono">
                 {logistica.cbm.toFixed(3)} CBM
               </p>
             </div>
@@ -695,20 +695,20 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
           </div>
           <div className="grid grid-cols-3 gap-4 text-sm">
             <div>
-              <p className="text-xs text-gray-400 mb-0.5">Vendido (reales)</p>
+              <p className="text-xs text-gray-500 mb-0.5">Vendido (reales)</p>
               <p className="font-mono font-semibold text-gray-900">${margen.ventaUsd.toFixed(2)}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-400 mb-0.5">Costo puesto acá</p>
+              <p className="text-xs text-gray-500 mb-0.5">Costo puesto acá</p>
               <p className="font-mono font-semibold text-gray-900">
                 ${margen.costoUsd.toFixed(2)}
                 {margen.sinCosto > 0 && <span className="text-amber-700" title={`${margen.sinCosto} línea(s) sin costo`}> +?</span>}
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-400 mb-0.5">Margen</p>
+              <p className="text-xs text-gray-500 mb-0.5">Margen</p>
               {margen.margenUsd == null ? (
-                <p className="font-mono text-gray-400">—</p>
+                <p className="font-mono text-gray-500">—</p>
               ) : (
                 <p className={`font-mono font-semibold ${margen.margenUsd < 0 ? 'text-red-700' : 'text-green-700'}`}>
                   {margen.margenUsd < 0 ? '−' : ''}${Math.abs(margen.margenUsd).toFixed(2)}
@@ -817,7 +817,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                     {(item.cab.bajajCode || modelo) && (
                       <p className="flex items-center gap-1.5 flex-wrap">
                         {item.cab.bajajCode && (
-                          <span className="text-xs font-mono text-gray-400">{item.cab.bajajCode}</span>
+                          <span className="text-xs font-mono text-gray-500">{item.cab.bajajCode}</span>
                         )}
                         {modelo && (
                           <span
@@ -825,7 +825,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                             className={`text-[10px] px-1.5 py-0.5 rounded ${
                               modelo.count === 1
                                 ? 'bg-gray-100 text-gray-700 font-medium'
-                                : 'bg-gray-50 text-gray-400'
+                                : 'bg-gray-50 text-gray-500'
                             }`}
                           >
                             {modelo.label}
@@ -839,7 +839,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                           {shippingStatusMeta(item.shippingStatus).icon} {shippingStatusMeta(item.shippingStatus).short}
                         </span>
                         {item.compradoAt && (
-                          <span className="text-[10px] text-gray-400">
+                          <span className="text-[10px] text-gray-500">
                             {item.origen === 'china' ? '🇨🇳' : '🇮🇳'} {item.supplier?.name ?? '99rpm'}
                           </span>
                         )}
@@ -886,11 +886,11 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                     )}
                     {!isPresupuesto && item.etapas.length > 0 && (
                       <details className="mt-1">
-                        <summary className="text-[10px] text-gray-400 cursor-pointer hover:text-gray-600">Recorrido ({item.etapas.length})</summary>
+                        <summary className="text-[10px] text-gray-500 cursor-pointer hover:text-gray-600">Recorrido ({item.etapas.length})</summary>
                         <ul className="mt-1 text-[11px] text-gray-500 space-y-0.5">
                           {item.etapas.map((e, k) => (
                             <li key={k}>
-                              <span className="font-mono text-gray-400">{e.at.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', timeZone: 'America/Caracas' })}</span>{' '}
+                              <span className="font-mono text-gray-500">{e.at.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', timeZone: 'America/Caracas' })}</span>{' '}
                               {shippingStatusMeta(e.desde).short} → <strong>{shippingStatusMeta(e.hacia).short}</strong>
                             </li>
                           ))}
@@ -902,7 +902,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                         {groupBundlePieces(bundlePieces).map(([groupName, pieces]) => (
                           <div key={groupName}>
                             {groupName !== '—' && (
-                              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
                                 {groupName}
                               </p>
                             )}
@@ -993,7 +993,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                 </span>
               </div>
               {presupuesto.depositAt && (
-                <p className="text-xs text-gray-400 px-3">
+                <p className="text-xs text-gray-500 px-3">
                   Adelanto del {new Date(presupuesto.depositAt).toLocaleDateString('es-VE', { day: '2-digit', month: 'long', year: 'numeric' })}
                 </p>
               )}
@@ -1010,7 +1010,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
               <li key={i.id}>
                 {TIPO_LABELS[i.tipo as keyof typeof TIPO_LABELS] ?? i.tipo} · {i.cantidad}× «{i.descripcion}»
                 {i.perdidaUsd != null && Number(i.perdidaUsd) > 0 && <span className="text-red-700"> · pérdida ${Number(i.perdidaUsd).toFixed(2)}</span>}
-                {i.nota && <span className="text-gray-400"> — {i.nota}</span>}
+                {i.nota && <span className="text-gray-500"> — {i.nota}</span>}
               </li>
             ))}
           </ul>
@@ -1025,7 +1025,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
           <ul className="mt-3 space-y-2">
             {presupuesto.eventos.map(e => (
               <li key={e.id} className="text-xs text-gray-600 flex gap-3">
-                <span className="font-mono text-gray-400 shrink-0 w-24">
+                <span className="font-mono text-gray-500 shrink-0 w-24">
                   {e.createdAt.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: '2-digit', timeZone: 'America/Caracas' })}
                 </span>
                 <span className="whitespace-pre-line">{e.detalle}</span>

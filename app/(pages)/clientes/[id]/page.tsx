@@ -49,7 +49,7 @@ export default async function ClienteDetailPage({
   return (
     <div className="max-w-3xl">
       <div className="flex items-center gap-2 mb-6">
-        <Link href="/clientes" className="text-gray-400 hover:text-gray-600 text-sm">Clientes</Link>
+        <Link href="/clientes" className="text-gray-500 hover:text-gray-600 text-sm">Clientes</Link>
         <span className="text-gray-300">/</span>
         <span className="text-sm text-gray-600">{cliente.nombre}</span>
         <span className="ml-auto flex items-center gap-2">
@@ -82,32 +82,32 @@ export default async function ClienteDetailPage({
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
         <div className="flex items-start justify-between gap-4">
           <FormConResultado action={updateCliente.bind(null, cliente.id)} className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Nombre</label>
+            <label className="block">
+              <span className="block text-xs font-medium text-gray-500 mb-1">Nombre</span>
               <input
                 name="nombre"
                 defaultValue={cliente.nombre}
                 required
                 className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Teléfono</label>
+            </label>
+            <label className="block">
+              <span className="block text-xs font-medium text-gray-500 mb-1">Teléfono</span>
               <input
                 name="telefono"
                 defaultValue={cliente.telefono ?? ''}
                 className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-medium text-gray-500 mb-1">Notas</label>
+            </label>
+            <label className="sm:col-span-2">
+              <span className="block text-xs font-medium text-gray-500 mb-1">Notas</span>
               <textarea
                 name="notas"
                 defaultValue={cliente.notas ?? ''}
                 rows={2}
                 className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
-            </div>
+            </label>
             <div className="sm:col-span-2">
               <PendingButton className="text-sm text-blue-600 hover:text-blue-800 font-medium">
                 Guardar
@@ -124,16 +124,16 @@ export default async function ClienteDetailPage({
       {/* Totales */}
       <div className="grid grid-cols-3 gap-4 mb-6">
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-          <p className="text-xs text-gray-400 mb-1">Total vendido</p>
+          <p className="text-xs text-gray-500 mb-1">Total vendido</p>
           <p className="text-xl font-bold font-mono text-gray-900">${vendido.toFixed(2)}</p>
-          <p className="text-[10px] text-gray-400 mt-0.5">solo pedidos confirmados</p>
+          <p className="text-[10px] text-gray-500 mt-0.5">solo pedidos confirmados</p>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-          <p className="text-xs text-gray-400 mb-1">Total adelantado</p>
+          <p className="text-xs text-gray-500 mb-1">Total adelantado</p>
           <p className="text-xl font-bold font-mono text-gray-900">${adelantado.toFixed(2)}</p>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-          <p className="text-xs text-gray-400 mb-1">Saldo pendiente</p>
+          <p className="text-xs text-gray-500 mb-1">Saldo pendiente</p>
           <p className={`text-xl font-bold font-mono ${saldo > 0.005 ? 'text-amber-600' : 'text-green-600'}`}>
             ${saldo.toFixed(2)}
           </p>
@@ -148,7 +148,7 @@ export default async function ClienteDetailPage({
           </h2>
         </div>
         {cliente.pedidos.length === 0 ? (
-          <p className="px-6 py-6 text-sm text-gray-400">Este cliente todavía no tiene pedidos.</p>
+          <p className="px-6 py-6 text-sm text-gray-500">Este cliente todavía no tiene pedidos.</p>
         ) : (
           <div className="divide-y divide-gray-50">
             {cliente.pedidos.map(p => {
@@ -165,7 +165,7 @@ export default async function ClienteDetailPage({
                     <Link href={`/presupuestos/${p.id}`} className="text-sm font-medium text-gray-900 hover:text-blue-600">
                       #{p.id}
                     </Link>
-                    <span className="ml-2 text-xs text-gray-400">
+                    <span className="ml-2 text-xs text-gray-500">
                       {p.items.length} {p.items.length === 1 ? 'pieza' : 'piezas'}
                     </span>
                     <span className={`ml-2 text-xs font-semibold px-2 py-0.5 rounded-full ${
@@ -173,7 +173,7 @@ export default async function ClienteDetailPage({
                     }`}>
                       {isCancelado ? 'Cancelado' : isPresupuesto ? 'Presupuesto' : 'Pedido'}
                     </span>
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className="text-xs text-gray-500 mt-1">
                       {new Date(p.createdAt).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' })}
                     </p>
                   </div>
@@ -199,7 +199,7 @@ export default async function ClienteDetailPage({
           </h2>
         </div>
         {movimientos.length === 0 ? (
-          <p className="px-6 py-6 text-sm text-gray-400">Todavía no hay pagos registrados de este cliente.</p>
+          <p className="px-6 py-6 text-sm text-gray-500">Todavía no hay pagos registrados de este cliente.</p>
         ) : (
           <table className="w-full text-sm">
             <tbody className="divide-y divide-gray-50">
@@ -213,12 +213,12 @@ export default async function ClienteDetailPage({
                   </td>
                   <td className="px-2 py-2 text-gray-700">
                     {CATEGORIA_LABELS[m.categoria as keyof typeof CATEGORIA_LABELS] ?? m.categoria}
-                    {m.metodoPago && <span className="text-xs text-gray-400"> · {m.metodoPago}</span>}
+                    {m.metodoPago && <span className="text-xs text-gray-500"> · {m.metodoPago}</span>}
                   </td>
                   <td className={`px-6 py-2 text-right font-mono font-semibold ${m.tipo === 'ingreso' ? 'text-green-700' : 'text-red-700'}`}>
                     {m.tipo === 'ingreso' ? '+' : '−'}${m.monto.toFixed(2)}
                     {m.montoBs != null && (
-                      <span className="block text-[10px] font-normal text-gray-400">
+                      <span className="block text-[10px] font-normal text-gray-500">
                         Bs {m.montoBs.toLocaleString('es-VE', { maximumFractionDigits: 2 })}
                       </span>
                     )}

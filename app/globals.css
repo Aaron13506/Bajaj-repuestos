@@ -6,12 +6,28 @@
   * {
     box-sizing: border-box;
   }
+
+  /* Plata, pesos y cantidades: con cifras de ancho fijo las columnas alinean por el punto. */
+  table {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Los spinners y esqueletos (animate-spin/pulse) se apagan para quien pidió menos movimiento. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
 
 /* Los documentos que se le mandan al cliente (presupuesto, pedido, orden de
    proveedor) se generan como PDF con jsPDF —ver lib/pdf/—, no con Ctrl+P. Acá queda
    solo lo mínimo para que imprimir CUALQUIER página no salga roto: el shell usa
-   h-screen + overflow-auto, que si no recorta todo a un viewport. El maquetado de los
+   h-dvh + overflow-auto, que si no recorta todo a un viewport. El maquetado de los
    documentos vive en lib/pdf y en ningún otro lado. */
 @media print {
   @page {

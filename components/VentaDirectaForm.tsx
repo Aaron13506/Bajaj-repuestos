@@ -281,7 +281,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                   <div key={p.id} className="flex items-center gap-3 px-3 py-2">
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-900 truncate">{p.nameEs}</p>
-                      <p className="text-xs text-gray-400 truncate">
+                      <p className="text-xs text-gray-500 truncate">
                         {p.bajajCode && <span className="font-mono">{p.bajajCode} · </span>}hay {p.stock} · {usd(p.price)}
                       </p>
                     </div>
@@ -298,7 +298,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
 
             <div className="border border-gray-300 rounded-lg mb-1 max-h-72 overflow-y-auto divide-y divide-gray-50">
               {filas.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-6">
+                <p className="text-sm text-gray-500 text-center py-6">
                   {buscandoPiezas ? 'Buscando…' : ensambles.length === 0 ? 'No hay ninguna pieza en el depósito.' : 'Sin resultados'}
                 </p>
               ) : (
@@ -317,7 +317,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                       )}
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 truncate">{a.nombre}</p>
-                        <p className="text-xs text-gray-400 truncate">{formatModels(a.models)}</p>
+                        <p className="text-xs text-gray-500 truncate">{formatModels(a.models)}</p>
                         <p className="text-[11px] text-emerald-700 truncate">
                           tenés: {a.piezas.map(p => `${p.nameEs} (${p.stock})`).join(', ')}
                         </p>
@@ -335,7 +335,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                 })
               )}
             </div>
-            <p className="text-xs text-gray-400 mb-4">
+            <p className="text-xs text-gray-500 mb-4">
               {filas.length} ensamble{filas.length === 1 ? '' : 's'} con piezas en el depósito
               {modelFilter || asmSearch ? ' (filtrado)' : ''}.
             </p>
@@ -349,7 +349,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                   )}
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-gray-900 truncate">{seleccionado.nombre}</p>
-                    <p className="text-xs text-gray-400">Solo las piezas que tenés en el depósito.</p>
+                    <p className="text-xs text-gray-500">Solo las piezas que tenés en el depósito.</p>
                   </div>
                 </div>
                 {seleccionado.ids.length > 1 && (
@@ -379,12 +379,12 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                   </div>
                 )}
                 {cargando && !componentes ? (
-                  <p className="text-sm text-gray-400 py-6 text-center">Cargando piezas…</p>
+                  <p className="text-sm text-gray-500 py-6 text-center">Cargando piezas…</p>
                 ) : (
                   <div className="space-y-4 max-h-80 overflow-y-auto pr-1">
                     {Array.from(grupos.entries()).map(([nombre, items]) => (
                       <div key={nombre}>
-                        {nombre !== '—' && <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{nombre}</p>}
+                        {nombre !== '—' && <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{nombre}</p>}
                         <div className="space-y-0.5">
                           {items.map(c => {
                             const ya = enCarrito(c.product.id)
@@ -397,11 +397,11 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                                 />
                                 <span className="flex-1 min-w-0 text-sm text-gray-900">
                                   {c.product.nameEs}
-                                  {c.product.bajajCode && <span className="ml-2 text-xs font-mono text-gray-400">{c.product.bajajCode}</span>}
+                                  {c.product.bajajCode && <span className="ml-2 text-xs font-mono text-gray-500">{c.product.bajajCode}</span>}
                                   {ya && <span className="ml-2 text-xs text-blue-500">ya agregado</span>}
                                   <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">hay {c.product.stock}</span>
                                   {c.product.models.length > 0 && (
-                                    <span className="block text-[11px] text-gray-400">sirve en {formatModels(c.product.models)}</span>
+                                    <span className="block text-[11px] text-gray-500">sirve en {formatModels(c.product.models)}</span>
                                   )}
                                 </span>
                                 <input
@@ -454,7 +454,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                       )}
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 truncate">{p.nameEs}</p>
-                        <p className="text-xs text-gray-400 truncate">
+                        <p className="text-xs text-gray-500 truncate">
                           {p.bajajCode && <span className="font-mono">{p.bajajCode}</span>}
                           {p.bajajCode && p.models.length > 0 && ' · '}
                           {formatModels(p.models)}
@@ -486,21 +486,21 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                 <input type="text" name="nuevoClienteTelefono" placeholder="Teléfono (opcional)" className={`w-full ${campo}`} />
               </div>
             )}
-            <p className="text-[11px] text-gray-400">La venta queda a su nombre en su ficha de cliente.</p>
+            <p className="text-[11px] text-gray-500">La venta queda a su nombre en su ficha de cliente.</p>
             <input type="text" name="notas" placeholder="Nota (opcional)" className={`w-full ${campo}`} />
           </div>
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
             <h2 className="font-semibold text-gray-900 mb-3">
               Piezas a vender
-              {lineas.length > 0 && <span className="ml-2 text-xs font-normal text-gray-400">{lineas.length} {lineas.length === 1 ? 'pieza' : 'piezas'}</span>}
+              {lineas.length > 0 && <span className="ml-2 text-xs font-normal text-gray-500">{lineas.length} {lineas.length === 1 ? 'pieza' : 'piezas'}</span>}
             </h2>
             {lineas.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-8">Buscá a la izquierda lo que se lleva el cliente.</p>
+              <p className="text-sm text-gray-500 text-center py-8">Buscá a la izquierda lo que se lleva el cliente.</p>
             ) : (
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-left text-xs text-gray-400">
+                  <tr className="text-left text-xs text-gray-500">
                     <th className="py-1 font-medium">Pieza</th>
                     <th className="py-1 font-medium w-16">Cant.</th>
                     <th className="py-1 font-medium w-24">Precio</th>
@@ -515,7 +515,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                       <tr key={l.pieza.id} className="align-top">
                         <td className="py-2 pr-2">
                           {l.pieza.nameEs}
-                          <span className="block text-[11px] text-gray-400">
+                          <span className="block text-[11px] text-gray-500">
                             {l.pieza.bajajCode ?? 'sin código'} · hay {l.pieza.stock}
                             {cant > l.pieza.stock && <span className="text-red-600 font-semibold"> · no alcanza</span>}
                             {l.pieza.costoUnitUsd == null && <span className="text-amber-700"> · sin costo cargado: escribilo</span>}
@@ -524,7 +524,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                         <td className="py-2 pr-1"><input type="number" min={1} max={l.pieza.stock} step={1} value={l.cantidad} onChange={e => cambiar(l.pieza.id, 'cantidad', e.target.value)} className="w-14 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono" /></td>
                         <td className="py-2 pr-1"><input type="number" min={0} step="0.01" value={l.precio} onChange={e => cambiar(l.pieza.id, 'precio', e.target.value)} className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono" /></td>
                         <td className="py-2 pr-1"><input type="number" min={0.01} step="0.01" value={l.costo} onChange={e => cambiar(l.pieza.id, 'costo', e.target.value)} className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono" /></td>
-                        <td className="py-2 text-right"><button type="button" onClick={() => setLineas(ls => ls.filter(x => x.pieza.id !== l.pieza.id))} className="text-gray-400 hover:text-red-600" aria-label="Quitar">×</button></td>
+                        <td className="py-2 text-right"><button type="button" onClick={() => setLineas(ls => ls.filter(x => x.pieza.id !== l.pieza.id))} className="text-gray-500 hover:text-red-600" aria-label="Quitar">×</button></td>
                       </tr>
                     )
                   })}
@@ -554,10 +554,10 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                 sufijo="" metodos={metodos} metodoInicial={metodos[0]} cobro={cobro} yaCobrado={0}
                 modoBcv={modoBcv} tasaBcv={tasaBcv} tasaDirecta={tasaDirecta} onReal={setCobrado1}
               />
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Fecha</label>
+              <label className="block">
+                <span className="block text-xs font-medium text-gray-600 mb-1">Fecha</span>
                 <CampoFecha name="fecha" className={campo} />
-              </div>
+              </label>
             </div>
             {segundo ? (
               <div className="flex flex-wrap items-start gap-4 border-t border-gray-100 mt-4 pt-4">
@@ -577,7 +577,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
             <div className="border-t border-gray-100 mt-4 pt-3 space-y-2">
               <label className="flex items-center gap-2 text-xs text-gray-600">
                 <input type="checkbox" checked={conVuelto} onChange={e => setConVuelto(e.target.checked)} className="rounded border-gray-300" />
-                Le di vuelto{sobra > 0 && <span className="text-gray-400">(pagó {usd(sobra)} de más)</span>}
+                Le di vuelto{sobra > 0 && <span className="text-gray-500">(pagó {usd(sobra)} de más)</span>}
               </label>
               {conVuelto && (
                 <div className="w-64">
@@ -591,7 +591,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                 </div>
               )}
             </div>
-            <p className="text-[11px] text-gray-400 mt-2">
+            <p className="text-[11px] text-gray-500 mt-2">
               Dejá el monto vacío si todavía no pagó: queda por cobrar y lo registrás después desde el pedido.
             </p>
           </div>
@@ -604,7 +604,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
               {isPending ? 'Registrando…' : 'Registrar venta'}
             </button>
             {!listo && (
-              <span className="text-xs text-gray-400">
+              <span className="text-xs text-gray-500">
                 {lineas.length === 0 ? 'Agregá al menos una pieza.'
                   : excedeStock ? 'Hay una cantidad mayor al stock.'
                   : !completas ? 'Completá cantidad, precio y costo de cada pieza.'
@@ -647,12 +647,12 @@ function FilaCobro({ sufijo, metodos, metodoInicial, cobro, yaCobrado, modoBcv, 
 
   return (
     <>
-      <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">{sufijo ? 'Otro método' : 'Método de pago'}</label>
+      <label className="block">
+        <span className="block text-xs font-medium text-gray-600 mb-1">{sufijo ? 'Otro método' : 'Método de pago'}</span>
         <select name={`metodoPago${sufijo}`} value={metodo} onChange={e => setMetodo(e.target.value)} className={campo}>
           {metodos.map(m => <option key={m} value={m}>{m}</option>)}
         </select>
-      </div>
+      </label>
       {enBs ? (
         <div className="w-48">
           <MontoBs

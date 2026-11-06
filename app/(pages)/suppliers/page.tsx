@@ -116,7 +116,7 @@ export default async function SuppliersPage() {
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 divide-y divide-gray-100">
         {suppliers.length === 0 ? (
-          <div className="text-center py-16 text-gray-400">
+          <div className="text-center py-16 text-gray-500">
             <p className="text-lg">Sin proveedores todavía</p>
             <p className="text-sm mt-1">Todos los precios usan a 99rpm como base.</p>
           </div>
@@ -132,7 +132,7 @@ export default async function SuppliersPage() {
               <div key={s.id} className="px-6 py-4">
                 <FormConResultado action={renameSupplier.bind(null, s.id)} className="flex flex-wrap items-end gap-3">
                   <label className="flex-1 min-w-[10rem]">
-                    <span className="block text-xs text-gray-400 mb-1">Nombre</span>
+                    <span className="block text-xs text-gray-500 mb-1">Nombre</span>
                     <input
                       name="name"
                       defaultValue={s.name}
@@ -141,7 +141,7 @@ export default async function SuppliersPage() {
                     />
                   </label>
                   <label>
-                    <span className="block text-xs text-gray-400 mb-1">Origen</span>
+                    <span className="block text-xs text-gray-500 mb-1">Origen</span>
                     <select
                       name="origen"
                       defaultValue={s.origen}
@@ -152,7 +152,7 @@ export default async function SuppliersPage() {
                     </select>
                   </label>
                   <label title={meta.hint}>
-                    <span className="block text-xs text-gray-400 mb-1">Entrada a USA</span>
+                    <span className="block text-xs text-gray-500 mb-1">Entrada a USA</span>
                     <select
                       name="inbound"
                       defaultValue={inbound}
@@ -164,7 +164,7 @@ export default async function SuppliersPage() {
                     </select>
                   </label>
                   <label title="FOB propio en USD por embarque marítimo. Vacío = usa el default global de Config">
-                    <span className="block text-xs text-gray-400 mb-1">FOB $</span>
+                    <span className="block text-xs text-gray-500 mb-1">FOB $</span>
                     <input
                       name="fobUsd"
                       type="number"
@@ -182,10 +182,10 @@ export default async function SuppliersPage() {
                   </PendingButton>
                 </FormConResultado>
                 <div className="flex items-center gap-4 mt-2">
-                  <span className="text-xs text-gray-400">
+                  <span className="text-xs text-gray-500">
                     {s._count.prices} {s._count.prices === 1 ? 'precio' : 'precios'} cargados
                   </span>
-                  <span className="text-xs text-gray-400">
+                  <span className="text-xs text-gray-500">
                     {meta.icon} {meta.label}
                     {inbound === 'cotizado' && ' · el total del tramo se carga en cada envío'}
                   </span>
@@ -197,7 +197,7 @@ export default async function SuppliersPage() {
                     Importar JSON
                   </Link>
                   {enUso ? (
-                    <span className="text-xs text-gray-400 max-w-xs text-right" title={enUso}>
+                    <span className="text-xs text-gray-500 max-w-xs text-right" title={enUso}>
                       🔒 {enUso}
                     </span>
                   ) : (

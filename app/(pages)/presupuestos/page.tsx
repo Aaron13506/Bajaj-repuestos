@@ -103,14 +103,14 @@ export default async function PresupuestosPage({
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-4 flex items-center justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <span className="text-xs font-mono text-gray-400">#{p.id}</span>
+            <span className="text-xs font-mono text-gray-500">#{p.id}</span>
             <Link
               href={`/presupuestos/${p.id}`}
               className="font-semibold text-gray-900 hover:text-blue-600"
             >
               {p.clientName}
             </Link>
-            <span className="text-xs text-gray-400">
+            <span className="text-xs text-gray-500">
               {p.items.length} {p.items.length === 1 ? 'pieza' : 'piezas'}
             </span>
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
@@ -127,7 +127,7 @@ export default async function PresupuestosPage({
               {isPropio ? 'Stock propio' : isCancelado ? 'Cancelado' : perdido ? 'Perdido' : vencido ? 'Vencido' : isPresupuesto ? 'Presupuesto' : 'Pedido'}
             </span>
             {p.origenMotivo && (
-              <span className="text-xs text-gray-400">{p.origenMotivo === 'reposicion' ? '↻ reposición' : '↩ sobrante'} de #{p.origenId}</span>
+              <span className="text-xs text-gray-500">{p.origenMotivo === 'reposicion' ? '↻ reposición' : '↩ sobrante'} de #{p.origenId}</span>
             )}
             {/* Avance de compra: solo tiene sentido una vez confirmado. Un pedido puede
                 estar comprado a medias, así que se muestra la etapa más atrasada. */}
@@ -138,7 +138,7 @@ export default async function PresupuestosPage({
               </span>
             )}
           </div>
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-xs text-gray-500 mt-1">
             {new Date(p.createdAt).toLocaleDateString('es-VE', {
               day: '2-digit',
               month: 'short',
@@ -163,7 +163,7 @@ export default async function PresupuestosPage({
         <div className="flex items-center gap-4">
           <div className="text-right">
             <span className="font-semibold text-gray-900">${total.toFixed(2)}</span>
-            {escalon != null && <span className="ml-1 text-[10px] font-semibold text-gray-400">BCV</span>}
+            {escalon != null && <span className="ml-1 text-[10px] font-semibold text-gray-500">BCV</span>}
             {!isCancelado && saldo != null && saldo > 0.005 && (
               <p className="text-xs text-amber-600">Saldo ${saldo.toFixed(2)}</p>
             )}
@@ -229,7 +229,7 @@ export default async function PresupuestosPage({
               ver === t.id ? 'border-blue-600 text-blue-700 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
-            {t.label} <span className="text-xs text-gray-400">({conteo[t.id]})</span>
+            {t.label} <span className="text-xs text-gray-500">({conteo[t.id]})</span>
           </Link>
         ))}
         <form className="ml-auto flex items-center gap-2 pb-2">
@@ -246,12 +246,12 @@ export default async function PresupuestosPage({
       </div>
 
       {todosSinFiltro.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-400">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-500">
           <p className="text-lg">Sin presupuestos</p>
           <p className="text-sm mt-1">Creá tu primer presupuesto para un cliente.</p>
         </div>
       ) : conteo[ver] === 0 ? (
-        <p className="text-sm text-gray-400 py-6 text-center">{q ? `Nada coincide con "${q}" acá.` : 'No hay nada en esta pestaña.'}</p>
+        <p className="text-sm text-gray-500 py-6 text-center">{q ? `Nada coincide con "${q}" acá.` : 'No hay nada en esta pestaña.'}</p>
       ) : ver === 'abiertos' ? (
         <div className="space-y-3">{presupuestos.map(p => <Row key={p.id} p={p} />)}</div>
       ) : ver === 'pedidos' ? (
@@ -278,11 +278,11 @@ export default async function PresupuestosPage({
               <span className="font-mono font-semibold text-gray-700">
                 {propiosTotal.chargeableKg.toFixed(2)} kg
               </span>
-              <span className="text-gray-400"> cobrables · </span>
+              <span className="text-gray-500"> cobrables · </span>
               <span className="font-mono font-semibold text-gray-700">
                 {propiosTotal.ft3.toFixed(2)} ft³
               </span>
-              <span className="text-gray-400">
+              <span className="text-gray-500">
                 {' '}({propiosTotal.realKg.toFixed(2)} kg reales
                 {propiosTotal.incompletas > 0 && `, ${propiosTotal.incompletas} piezas sin medir`})
               </span>

@@ -66,9 +66,9 @@ export default async function InventarioPage({ searchParams }: Props) {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-          <p className="text-xs text-gray-400 mb-1">Aquí</p>
+          <p className="text-xs text-gray-500 mb-1">Aquí</p>
           <p className="text-2xl font-bold font-mono text-gray-900">{usd(inv.aqui.valorUsd)}</p>
-          <p className="text-[11px] text-gray-400 mt-1">
+          <p className="text-[11px] text-gray-500 mt-1">
             {inv.aqui.unidades} u. · {inv.aqui.productos} productos · a costo de reposición
           </p>
           {inv.aqui.sinCosto > 0 && (
@@ -76,14 +76,14 @@ export default async function InventarioPage({ searchParams }: Props) {
           )}
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-          <p className="text-xs text-gray-400 mb-1">En camino</p>
+          <p className="text-xs text-gray-500 mb-1">En camino</p>
           <p className="text-2xl font-bold font-mono text-gray-900">{usd(inv.camino.valorUsd)}</p>
-          <p className="text-[11px] text-gray-400 mt-1">
+          <p className="text-[11px] text-gray-500 mt-1">
             {inv.camino.unidades} u.
             {inv.camino.aereo.cajas > 0 && ` · ✈️ ${usd(inv.camino.aereo.valorUsd)} en ${inv.camino.aereo.cajas} caja${inv.camino.aereo.cajas === 1 ? '' : 's'}`}
             {inv.camino.maritimo.cajas > 0 && ` · 🚢 ${usd(inv.camino.maritimo.valorUsd)} en ${inv.camino.maritimo.cajas} embarque${inv.camino.maritimo.cajas === 1 ? '' : 's'}`}
           </p>
-          <p className="text-[11px] text-gray-400">puesto en Venezuela: mercancía + flete + cargos</p>
+          <p className="text-[11px] text-gray-500">puesto en Venezuela: mercancía + flete + cargos</p>
           {inv.camino.incompleto && (
             <p className="text-[11px] text-amber-700">Estimado: a alguna caja le falta el peso real o una factura</p>
           )}
@@ -121,7 +121,7 @@ export default async function InventarioPage({ searchParams }: Props) {
       </div>
 
       {filas.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-400">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-500">
           <p className="text-lg">{inv.filas.length === 0 ? 'No hay mercancía propia ni en camino' : 'Nada con ese filtro'}</p>
           {inv.filas.length === 0 && (
             <p className="text-sm mt-1">
@@ -152,14 +152,14 @@ export default async function InventarioPage({ searchParams }: Props) {
                       <Link href={`/products/${f.productId}`} className="font-medium text-gray-900 hover:text-blue-600">
                         {f.nameEs}
                       </Link>
-                      <div className="text-[11px] text-gray-400">
+                      <div className="text-[11px] text-gray-500">
                         <span className="font-mono">{f.bajajCode ?? 'sin SKU'}</span>
                         {modelos.length > 0 && <> · {formatModels(modelos)}</>}
                       </div>
                       {f.ensambles.length > 0 && (
                         <div className="text-xs text-gray-500" title={f.ensambles.join(', ')}>
                           va en {f.ensambles.slice(0, 2).join(', ')}
-                          {f.ensambles.length > 2 && <span className="text-gray-400"> +{f.ensambles.length - 2}</span>}
+                          {f.ensambles.length > 2 && <span className="text-gray-500"> +{f.ensambles.length - 2}</span>}
                         </div>
                       )}
                     </td>
@@ -169,7 +169,7 @@ export default async function InventarioPage({ searchParams }: Props) {
                     <td className={`px-3 py-2 text-right font-mono ${camino > 0 ? 'text-blue-700 font-semibold' : 'text-gray-300'}`}>
                       {camino}
                       {f.caminoAereo > 0 && f.caminoMaritimo > 0 && (
-                        <div className="text-[10px] text-gray-400 font-normal">✈️ {f.caminoAereo} · 🚢 {f.caminoMaritimo}</div>
+                        <div className="text-[10px] text-gray-500 font-normal">✈️ {f.caminoAereo} · 🚢 {f.caminoMaritimo}</div>
                       )}
                     </td>
                     <td className="px-3 py-2 text-right font-mono text-gray-700">

@@ -65,13 +65,13 @@ export default async function ConfigPage({
           <span className="text-sm font-medium text-gray-800">
             {meta.label}
           </span>
-          <span className="ml-2 font-mono text-xs text-gray-400">{key}</span>
+          <span className="ml-2 font-mono text-xs text-gray-500">{key}</span>
         </label>
         {/* La ayuda es la del código, no la `description` de la fila: esa la escribió el
             seed y quedó vieja (la de shoppre_member todavía pedía escribir "true"). */}
         <p className="text-xs text-gray-500 mb-2">{meta.hint}</p>
         {meta.cron && (
-          <p className="text-xs text-gray-400 mb-2">
+          <p className="text-xs text-gray-500 mb-2">
             {stored?.updatedAt
               ? `Actualizado ${haceTiempo(stored.updatedAt)} — cron horario (pnpm fx:update)`
               : 'Todavía no lo actualizó el cron'}

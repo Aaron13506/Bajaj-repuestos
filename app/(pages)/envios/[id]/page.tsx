@@ -750,7 +750,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <Link href="/envios" className="text-gray-400 hover:text-gray-600 text-sm">Envíos</Link>
+            <Link href="/envios" className="text-gray-500 hover:text-gray-600 text-sm">Envíos</Link>
             <span className="text-gray-300">/</span>
             <span className="text-sm text-gray-600">#{envio.id}</span>
           </div>
@@ -807,7 +807,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                       ? 'bg-green-100 text-green-700'
                       : p === proximoPaso
                         ? 'bg-amber-100 text-amber-800'
-                        : 'bg-gray-100 text-gray-400'
+                        : 'bg-gray-100 text-gray-500'
                   }`}
                 >
                   {p.hecho ? '✓' : p === proximoPaso ? '●' : '○'} {p.texto}
@@ -829,7 +829,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
       </div>
 
       {items.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-400 mb-8">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-500 mb-8">
           <p className="text-lg">Este envío está vacío</p>
           <p className="text-sm mt-1">Agregá ítems abajo para calcular el peso cobrable y el costo.</p>
         </div>
@@ -855,21 +855,21 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div>
-                <p className="text-xs text-gray-400 mb-1">Volumen real</p>
+                <p className="text-xs text-gray-500 mb-1">Volumen real</p>
                 <p className="text-xl font-bold font-mono text-gray-900">{m3(calc.volumeM3)}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-400 mb-1">Facturable</p>
+                <p className="text-xs text-gray-500 mb-1">Facturable</p>
                 <p className={`text-xl font-bold font-mono ${calc.minM3Applied ? 'text-amber-700' : 'text-gray-900'}`}>
                   {m3(calc.billableM3)}
                 </p>
               </div>
               <div>
-                <p className="text-xs text-gray-400 mb-1">Tarifa</p>
-                <p className="text-xl font-bold font-mono text-gray-900">{usd(calc.cbmRatePerM3)}<span className="text-xs text-gray-400">/m³</span></p>
+                <p className="text-xs text-gray-500 mb-1">Tarifa</p>
+                <p className="text-xl font-bold font-mono text-gray-900">{usd(calc.cbmRatePerM3)}<span className="text-xs text-gray-500">/m³</span></p>
               </div>
               <div>
-                <p className="text-xs text-gray-400 mb-1">Costo real / m³</p>
+                <p className="text-xs text-gray-500 mb-1">Costo real / m³</p>
                 <p className="text-xl font-bold font-mono text-blue-700">
                   {calc.volumeM3 > 0 ? usd((calc.maritimeUsd + calc.fobUsd) / calc.volumeM3) : '—'}
                 </p>
@@ -940,19 +940,19 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               <>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">Piezas</p>
+                    <p className="text-xs text-gray-500 mb-1">Piezas</p>
                     <p className="text-xl font-bold font-mono text-gray-900">{calc.tramo.leg.items}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">Peso real</p>
+                    <p className="text-xs text-gray-500 mb-1">Peso real</p>
                     <p className="text-xl font-bold font-mono text-gray-900">{kg(calc.tramo.leg.realKg)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">Volumétrico</p>
+                    <p className="text-xs text-gray-500 mb-1">Volumétrico</p>
                     <p className="text-xl font-bold font-mono text-gray-900">{kg(calc.tramo.leg.volKg)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">Facturado / kg</p>
+                    <p className="text-xs text-gray-500 mb-1">Facturado / kg</p>
                     <p className="text-xl font-bold font-mono text-gray-900">{usd(calc.tramo.leg.costPerKgUsd)}</p>
                   </div>
                 </div>
@@ -962,24 +962,24 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                 </p>
               </>
             ) : calc.air.items === 0 ? (
-              <p className="text-sm text-gray-400">No hay piezas que viajen por {reenvioLabel} en este envío.</p>
+              <p className="text-sm text-gray-500">No hay piezas que viajen por {reenvioLabel} en este envío.</p>
             ) : (
               <>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">Peso real (ΣW)</p>
+                    <p className="text-xs text-gray-500 mb-1">Peso real (ΣW)</p>
                     <p className={`text-xl font-bold font-mono ${calc.air.binding === 'weight' ? 'text-green-700' : 'text-gray-900'}`}>{kg(calc.air.realKg)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">Volumétrico (ΣV)</p>
+                    <p className="text-xs text-gray-500 mb-1">Volumétrico (ΣV)</p>
                     <p className={`text-xl font-bold font-mono ${calc.air.binding === 'volume' ? 'text-red-700' : 'text-gray-900'}`}>{kg(calc.air.volKg)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">Cobrable max(W,V)</p>
+                    <p className="text-xs text-gray-500 mb-1">Cobrable max(W,V)</p>
                     <p className="text-xl font-bold font-mono text-blue-700">{kg(calc.air.chargeableKg)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">Aéreo / kg</p>
+                    <p className="text-xs text-gray-500 mb-1">Aéreo / kg</p>
                     <p className="text-xl font-bold font-mono text-gray-900">{usd(calc.air.costPerKgUsd)}</p>
                   </div>
                 </div>
@@ -1071,8 +1071,8 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                 {porKilo && (
                   <div className="mt-4 rounded-lg border border-gray-200 p-3">
                     <FormConResultado action={guardarTarifaKg.bind(null, envio.id)} className="flex flex-wrap items-end gap-3">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Tarifa cotizada (₹ por kg)</label>
+                      <label className="block">
+                        <span className="block text-xs font-medium text-gray-600 mb-1">Tarifa cotizada (₹ por kg)</span>
                         <input
                           type="number"
                           step="0.01"
@@ -1082,7 +1082,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                           placeholder="0.00"
                           className="w-36 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         />
-                      </div>
+                      </label>
                       <PendingButton className="px-3 py-1.5 rounded-lg bg-gray-800 text-white text-sm font-medium hover:bg-gray-900 disabled:opacity-50">
                         Guardar
                       </PendingButton>
@@ -1238,7 +1238,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                     <dd className={`font-semibold font-mono ${financiamiento.margenTotalUsd >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                       {usd(financiamiento.margenTotalUsd)}
                       {' '}
-                      <span className="text-xs text-gray-400">
+                      <span className="text-xs text-gray-500">
                         ({((financiamiento.margenTotalUsd / financiamiento.ventaTotalUsd) * 100).toFixed(0)}%)
                       </span>
                     </dd>
@@ -1272,17 +1272,17 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
 
             <FormConResultado action={saveMedidasCaja.bind(null, envio.id)}>
               <div className="flex flex-wrap items-end gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Peso real (kg)</label>
+                <label className="block">
+                  <span className="block text-xs font-medium text-gray-600 mb-1">Peso real (kg)</span>
                   <input
                     type="number" step="0.01" min="0" name="pesoRealKg"
                     defaultValue={medidas.pesoKg ?? ''}
                     placeholder={calc.netRealKg > 0 ? calc.netRealKg.toFixed(2) : '0.00'}
                     className="w-28 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Caja L × A × H (cm)</label>
+                </label>
+                <label className="block">
+                  <span className="block text-xs font-medium text-gray-600 mb-1">Caja L × A × H (cm)</span>
                   <div className="flex items-center gap-1">
                     {(['cajaL', 'cajaA', 'cajaH'] as const).map((f, i) => (
                       <div key={f} className="flex items-center gap-1">
@@ -1296,7 +1296,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                       </div>
                     ))}
                   </div>
-                </div>
+                </label>
                 <PendingButton
                   className="px-4 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                 >
@@ -1307,20 +1307,20 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
 
             {/* Guía: solo se anota. Sirve para encontrar la caja cuando el cliente pregunta dónde está su pieza. */}
             <FormConResultado action={guardarGuia.bind(null, envio.id)} className="mt-5 pt-4 border-t border-gray-100 flex flex-wrap items-end gap-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Guía / tracking</label>
+              <label className="block">
+                <span className="block text-xs font-medium text-gray-600 mb-1">Guía / tracking</span>
                 <input
                   type="text" name="guia" defaultValue={envio.guia ?? ''} placeholder="Ej: SHP-64898"
                   className="w-48 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Transportista</label>
+              </label>
+              <label className="block">
+                <span className="block text-xs font-medium text-gray-600 mb-1">Transportista</span>
                 <input
                   type="text" name="transportista" defaultValue={envio.transportista ?? ''} placeholder="Ej: Shoppre / DHL"
                   className="w-40 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
-              </div>
+              </label>
               <PendingButton className="px-4 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
                 Guardar guía
               </PendingButton>
@@ -1330,7 +1330,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               <div className="mt-5">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-xs text-gray-400 uppercase tracking-wide">
+                    <tr className="text-xs text-gray-500 uppercase tracking-wide">
                       <th className="text-left font-medium pb-1"></th>
                       <th className="text-right font-medium pb-1">Suma de piezas</th>
                       <th className="text-right font-medium pb-1">Caja real</th>
@@ -1340,20 +1340,20 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                   <tbody className="font-mono">
                     <tr className="border-t border-gray-100">
                       <td className="py-2 font-sans text-gray-600">Peso</td>
-                      <td className="py-2 text-right text-gray-400">{kg(calc.netRealKg)}</td>
+                      <td className="py-2 text-right text-gray-500">{kg(calc.netRealKg)}</td>
                       <td className="py-2 text-right text-gray-900 font-semibold">{kg(calc.realKg)}</td>
                       <td className="py-2 text-right text-amber-700">{kg(calc.realKg - calc.netRealKg)}</td>
                     </tr>
                     <tr className="border-t border-gray-100">
                       <td className="py-2 font-sans text-gray-600">Volumen</td>
-                      <td className="py-2 text-right text-gray-400">{m3(calc.netVolumeM3)}</td>
+                      <td className="py-2 text-right text-gray-500">{m3(calc.netVolumeM3)}</td>
                       <td className="py-2 text-right text-gray-900 font-semibold">{m3(calc.volumeM3)}</td>
                       <td className="py-2 text-right text-amber-700">{m3(calc.volumeM3 - calc.netVolumeM3)}</td>
                     </tr>
                     {!esCbm && (
                       <tr className="border-t border-gray-100">
                         <td className="py-2 font-sans text-gray-600">Cobrable max(W,V)</td>
-                        <td className="py-2 text-right text-gray-400">{kg(calcNeto!.air.chargeableKg)}</td>
+                        <td className="py-2 text-right text-gray-500">{kg(calcNeto!.air.chargeableKg)}</td>
                         <td className="py-2 text-right text-blue-700 font-semibold">{kg(calc.air.chargeableKg)}</td>
                         <td className="py-2 text-right text-gray-300">—</td>
                       </tr>
@@ -1401,7 +1401,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                   {meta.icon} {meta.label}
                 </span>
               </div>
-              <p className="text-xs text-gray-400 mb-4">
+              <p className="text-xs text-gray-500 mb-4">
                 Le girás <span className="font-mono font-semibold text-gray-600">{usd(calc.giro.montoUsd)}</span>
                 {' '}({usd(calc.giro.mercanciaUsd)} de mercancía
                 {calc.giro.tramoUsd > 0 && ` + ${usd(calc.giro.tramoUsd)} de envío`}).
@@ -1430,7 +1430,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                       placeholder="0.00"
                       className="w-40 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
-                    <p className="text-[11px] text-gray-400 mt-1">el total que te pasó, DDP</p>
+                    <p className="text-[11px] text-gray-500 mt-1">el total que te pasó, DDP</p>
                   </div>
                 )}
                 {/* Las dos puntas del giro. Van separadas porque se saben en momentos
@@ -1453,7 +1453,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                     placeholder="sin cargar"
                     className="w-40 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
-                  <p className="text-[11px] text-gray-400 mt-1">
+                  <p className="text-[11px] text-gray-500 mt-1">
                     lo que te cobró tu banco por girar {usd(calc.giro.montoUsd)}
                   </p>
                 </div>
@@ -1473,7 +1473,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                     placeholder="sin cargar"
                     className="w-40 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
-                  <p className="text-[11px] text-gray-400 mt-1">
+                  <p className="text-[11px] text-gray-500 mt-1">
                     lo que le descontaron al recibir y le completaste
                   </p>
                 </div>
@@ -1608,7 +1608,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                     <td className="px-6 py-3 text-right">
                       <span className="font-bold font-mono text-blue-700">{usd(buyTotalUsd)}</span>
                       {buyTotalInr > 0 && (
-                        <span className="block text-xs text-gray-400 font-mono">
+                        <span className="block text-xs text-gray-500 font-mono">
                           {Math.round(buyTotalInr).toLocaleString('es-VE')} INR a {inrUsd}
                         </span>
                       )}
@@ -1672,7 +1672,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
           )}
         </div>
         {confirmadosSinAsignar.length === 0 ? (
-          <p className="px-6 py-6 text-sm text-gray-400">
+          <p className="px-6 py-6 text-sm text-gray-500">
             No hay pedidos confirmados con ítems sin asignar.
           </p>
         ) : (
@@ -1702,7 +1702,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
           </h2>
         </div>
         {presupuestosSinAsignar.length === 0 ? (
-          <p className="px-6 py-6 text-sm text-gray-400">
+          <p className="px-6 py-6 text-sm text-gray-500">
             No hay presupuestos pendientes. <Link href="/presupuestos/new" className="text-blue-600 hover:underline">Creá uno</Link>.
           </p>
         ) : (
@@ -1757,7 +1757,7 @@ function QuienPonePlata({ f }: { f: FinanciamientoEnvio }) {
         <span className="text-gray-500">Adelantos que la cubren</span>
         <span className="font-mono font-semibold text-green-700">{usd(f.adelantosUsd)}</span>
         {f.pedidosPartidos > 0 && (
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-gray-500">
             ({f.pedidosPartidos === 1 ? 'un pedido está partido' : `${f.pedidosPartidos} pedidos están partidos`} entre cajas: el adelanto cuenta en proporción)
           </span>
         )}

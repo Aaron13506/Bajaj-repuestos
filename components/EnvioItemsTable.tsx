@@ -427,7 +427,7 @@ export default function EnvioItemsTable({
           {error ? (
             <span className="text-red-600 font-medium">{error}</span>
           ) : guardando ? (
-            <span className="text-gray-400">Guardando…</span>
+            <span className="text-gray-500">Guardando…</span>
           ) : guardadoOk ? (
             <span className="text-green-600 font-medium">✓ Guardado</span>
           ) : (
@@ -480,13 +480,13 @@ export default function EnvioItemsTable({
                       )}
                       className="flex items-center gap-2 text-left group whitespace-nowrap"
                     >
-                      <span className={`text-gray-400 text-[10px] transition-transform shrink-0 ${abierto ? 'rotate-90' : ''}`}>
+                      <span className={`text-gray-500 text-[10px] transition-transform shrink-0 ${abierto ? 'rotate-90' : ''}`}>
                         ▶
                       </span>
                       <span className="text-sm font-semibold text-gray-800 group-hover:text-blue-600">
                         {its[0].clientName}
                       </span>
-                      <span className="text-[10px] text-gray-400">
+                      <span className="text-[10px] text-gray-500">
                         #{pedidoId} · {its.length} {its.length === 1 ? 'conjunto' : 'conjuntos'}
                       </span>
                       {resumen && (
@@ -541,9 +541,9 @@ export default function EnvioItemsTable({
                       <td className="px-6 py-3 pl-12">
                         <p>
                           <span className="text-gray-900 font-medium">{limpiarNombre(it.nombre)}</span>
-                          {it.quantity > 1 && <span className="text-xs text-gray-400"> ×{it.quantity}</span>}
+                          {it.quantity > 1 && <span className="text-xs text-gray-500"> ×{it.quantity}</span>}
                           {it.bajajCode && (
-                            <span className="ml-2 font-mono text-[10px] text-gray-400">{it.bajajCode}</span>
+                            <span className="ml-2 font-mono text-[10px] text-gray-500">{it.bajajCode}</span>
                           )}
                           {esLanded && (
                             <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">
@@ -564,7 +564,7 @@ export default function EnvioItemsTable({
                             {groupBundlePieces(it.piezas).map(([grupo, ps]) => (
                               <div key={grupo}>
                                 {grupo !== '—' && (
-                                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
                                     {limpiarNombre(grupo)}
                                   </p>
                                 )}
@@ -576,7 +576,7 @@ export default function EnvioItemsTable({
                                       </span>{' '}
                                       {limpiarNombre(p.nameEs)}
                                       {p.bajajCode && (
-                                        <span className="ml-1.5 font-mono text-[10px] text-gray-400">
+                                        <span className="ml-1.5 font-mono text-[10px] text-gray-500">
                                           {p.bajajCode}
                                         </span>
                                       )}
@@ -602,7 +602,7 @@ export default function EnvioItemsTable({
                           ))}
                         </select>
                         {it.shippingStatusAt && (
-                          <p className="text-[10px] text-gray-400 mt-1">desde {fecha(it.shippingStatusAt)}</p>
+                          <p className="text-[10px] text-gray-500 mt-1">desde {fecha(it.shippingStatusAt)}</p>
                         )}
                       </td>
                       {/* Sin acción por fila: una pieza no se saca sola del envío. */}
@@ -617,7 +617,7 @@ export default function EnvioItemsTable({
       </table>
 
       {visibles.length === 0 && (
-        <p className="px-6 py-8 text-center text-sm text-gray-400">
+        <p className="px-6 py-8 text-center text-sm text-gray-500">
           No quedan ítems en este envío.
         </p>
       )}

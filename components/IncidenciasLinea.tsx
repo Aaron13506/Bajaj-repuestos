@@ -79,14 +79,14 @@ function FormReportar({
         )}
       </div>
       {porPieza && (
-        <div>
-          <label className="block text-[11px] font-medium text-amber-900 mb-0.5">¿Cuál pieza del conjunto?</label>
+        <label className="block">
+          <span className="block text-[11px] font-medium text-amber-900 mb-0.5">¿Cuál pieza del conjunto?</span>
           <select name="pieza" value={pieza} onChange={e => setPieza(e.target.value)} className={cls}>
             <option value="">Todo el conjunto</option>
             {piezas.map(p => <option key={p.etiqueta} value={p.etiqueta}>{p.quantity}× {p.etiqueta}</option>)}
           </select>
           {pieza && <p className="text-[10px] text-amber-700 mt-0.5">Las demás piezas siguen su curso: al editar el pedido quitás solo esta.</p>}
-        </div>
+        </label>
       )}
       <p className="text-[11px] text-amber-800">{TIPO_AYUDA[tipo]}</p>
       <input type="text" name="nota" placeholder="Nota (opcional)" className={cls} />
@@ -131,11 +131,11 @@ function FormResolver({
           <p className="text-[11px] text-gray-600">
             Bajan {inc.cantidad} unidad(es) del pedido (${plan.bajaVentaUsd.toFixed(2)}). Lo que se pagó por ellas sale de la línea y queda como pérdida del pedido.
           </p>
-          <div>
-            <label className="block text-[11px] font-medium text-gray-600 mb-0.5">Pérdida (USD)</label>
+          <label className="block">
+            <span className="block text-[11px] font-medium text-gray-600 mb-0.5">Pérdida (USD)</span>
             <input type="number" name="perdidaUsd" min={0} step="0.01" defaultValue={sugerida.toFixed(2)} className={`${cls} font-mono`} />
-            <p className="text-[10px] text-gray-400 mt-0.5">Lo que costaron esas unidades. Bajalo si el proveedor te devolvió parte.</p>
-          </div>
+            <p className="text-[10px] text-gray-500 mt-0.5">Lo que costaron esas unidades. Bajalo si el proveedor te devolvió parte.</p>
+          </label>
           {pedido.depositUsd > 0.005 && (
             <CamposDevolucion sugerido={leSobra} maximo={pedido.depositUsd} tasaSugerida={tasaSugerida} etiqueta="Devolverle al cliente (USD reales)" />
           )}
@@ -186,7 +186,7 @@ export default function IncidenciasLinea({ itemId, tipos, piezas = [], editarHre
           </span>
         ))}
         {tipos.length > 0 && !reportando && (
-          <button type="button" onClick={() => setReportando(true)} className="text-[10px] text-gray-400 hover:text-amber-700">
+          <button type="button" onClick={() => setReportando(true)} className="text-[10px] text-gray-500 hover:text-amber-700">
             ⚠ Reportar problema
           </button>
         )}

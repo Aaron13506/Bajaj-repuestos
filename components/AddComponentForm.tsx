@@ -65,8 +65,8 @@ export default function AddComponentForm({ ensambleId, existingGroups, action }:
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Grupo</label>
+        <label className="block">
+          <span className="block text-xs font-medium text-gray-600 mb-1">Grupo</span>
           <input
             name="groupName"
             list="existing-groups"
@@ -76,9 +76,9 @@ export default function AddComponentForm({ ensambleId, existingGroups, action }:
           <datalist id="existing-groups">
             {existingGroups.map(g => <option key={g} value={g} />)}
           </datalist>
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Cantidad</label>
+        </label>
+        <label className="block">
+          <span className="block text-xs font-medium text-gray-600 mb-1">Cantidad</span>
           <input
             name="quantity"
             type="number"
@@ -86,7 +86,7 @@ export default function AddComponentForm({ ensambleId, existingGroups, action }:
             defaultValue="1"
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
-        </div>
+        </label>
       </div>
 
       <PendingButton

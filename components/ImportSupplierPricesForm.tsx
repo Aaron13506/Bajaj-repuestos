@@ -80,7 +80,7 @@ export default function ImportSupplierPricesForm({ supplierId }: { supplierId: n
             </button>
           </div>
           <pre className="text-xs text-gray-600 whitespace-pre-wrap bg-gray-50 rounded-lg p-3 overflow-auto font-mono">{ARRAY_EXAMPLE}</pre>
-          <p className="text-xs text-gray-400 mt-3 mb-1">O un mapa plano sku → precio:</p>
+          <p className="text-xs text-gray-500 mt-3 mb-1">O un mapa plano sku → precio:</p>
           <pre className="text-xs text-gray-600 whitespace-pre-wrap bg-gray-50 rounded-lg p-3 overflow-auto font-mono">{MAP_EXAMPLE}</pre>
         </div>
       </div>
@@ -97,7 +97,7 @@ export default function ImportSupplierPricesForm({ supplierId }: { supplierId: n
             placeholder={ARRAY_EXAMPLE}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y"
           />
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-xs text-gray-500 mt-1">
             El SKU se matchea contra el código Bajaj del catálogo. Los que no coincidan quedan listados abajo.
           </p>
         </div>

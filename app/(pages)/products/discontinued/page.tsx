@@ -26,7 +26,7 @@ export default async function DescontinuadosPage() {
     <div className="max-w-4xl space-y-6">
       <div>
         <div className="flex items-center gap-3 mb-1">
-          <Link href="/products" className="text-gray-400 hover:text-gray-600 text-sm">Productos</Link>
+          <Link href="/products" className="text-gray-500 hover:text-gray-600 text-sm">Productos</Link>
           <span className="text-gray-300">/</span>
           <h1 className="text-2xl font-bold text-gray-900">Piezas descontinuadas</h1>
         </div>
@@ -43,7 +43,7 @@ export default async function DescontinuadosPage() {
         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
           <h2 className="text-sm font-semibold text-gray-900">
             Marcadas hoy: {marcadas.length}
-            <span className="font-normal text-gray-400"> de {total} productos</span>
+            <span className="font-normal text-gray-500"> de {total} productos</span>
           </h2>
           {conStock.length > 0 && (
             <span
@@ -56,7 +56,7 @@ export default async function DescontinuadosPage() {
         </div>
 
         {marcadas.length === 0 ? (
-          <p className="p-10 text-center text-gray-400 text-sm">
+          <p className="p-10 text-center text-gray-500 text-sm">
             Ninguna pieza marcada. Pegá códigos arriba, o corré el scrape de 99rpm para que las traiga rotuladas.
           </p>
         ) : (
@@ -74,15 +74,15 @@ export default async function DescontinuadosPage() {
                 <tr key={p.id} className="hover:bg-gray-50">
                   <td className="px-4 py-2.5">
                     <Link href={`/products/${p.id}`} className="text-gray-900 hover:text-blue-600">{p.nameEs}</Link>
-                    {p.bajajCode && <span className="ml-2 font-mono text-xs text-gray-400">{p.bajajCode}</span>}
+                    {p.bajajCode && <span className="ml-2 font-mono text-xs text-gray-500">{p.bajajCode}</span>}
                   </td>
                   <td className="px-3 py-2.5 text-xs text-gray-500 max-w-xs truncate" title={p.compatibleModels ?? ''}>
                     {p.compatibleModels ?? '—'}
                   </td>
-                  <td className={`px-3 py-2.5 text-right font-mono ${p.stock > 0 ? 'text-amber-700 font-semibold' : 'text-gray-400'}`}>
+                  <td className={`px-3 py-2.5 text-right font-mono ${p.stock > 0 ? 'text-amber-700 font-semibold' : 'text-gray-500'}`}>
                     {p.stock}
                   </td>
-                  <td className="px-4 py-2.5 text-right font-mono text-xs text-gray-400">
+                  <td className="px-4 py-2.5 text-right font-mono text-xs text-gray-500">
                     {p.discontinuedAt ? fecha(p.discontinuedAt) : '—'}
                   </td>
                 </tr>

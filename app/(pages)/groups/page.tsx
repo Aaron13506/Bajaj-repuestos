@@ -109,7 +109,7 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
       )}
 
       {groups.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-400">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-500">
           <p className="text-lg">Sin ensambles</p>
           <p className="text-sm mt-1">
             {hasFilters ? 'Probá con otros filtros o ' : 'Creá uno con «Nuevo ensamble», o '}
@@ -150,7 +150,7 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
                     </div>
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
-                    <span className="text-xs text-gray-400">
+                    <span className="text-xs text-gray-500">
                       {group.componentes.length} {group.componentes.length === 1 ? 'pieza' : 'piezas'}
                       {subGroups.size > 0 && ` · ${subGroups.size} sub-grupos`}
                     </span>
@@ -165,17 +165,17 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
                   <div className="divide-y divide-gray-50">
                     {Array.from(subGroups.entries()).map(([subGroup, items]) => (
                       <div key={subGroup} className="px-6 py-3">
-                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{subGroup}</p>
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{subGroup}</p>
                         <div className="space-y-1">
                           {items.map((comp) => (
                             <div key={comp.id} className="flex items-center justify-between text-sm">
                               <div className="flex items-center gap-2 min-w-0">
-                                <span className="text-gray-400 text-xs w-5 text-right shrink-0">{comp.quantity}×</span>
+                                <span className="text-gray-500 text-xs w-5 text-right shrink-0">{comp.quantity}×</span>
                                 <Link href={`/products/${comp.product.id}`} className="text-gray-800 hover:text-blue-600 truncate">
                                   {comp.product.nameEs}
                                 </Link>
                                 {comp.product.bajajCode && (
-                                  <span className="text-xs font-mono text-gray-400 shrink-0">{comp.product.bajajCode}</span>
+                                  <span className="text-xs font-mono text-gray-500 shrink-0">{comp.product.bajajCode}</span>
                                 )}
                               </div>
                               <span className="text-gray-500 text-xs shrink-0">

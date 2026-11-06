@@ -241,7 +241,7 @@ export default function PendientesCompraButton({ envio, grupos, inrUsd, compra99
                   <span className="font-semibold text-gray-600">
                     {bandera(g.origen)} {g.proveedor}
                     {esCompra99 && !porSku && (
-                      <span className="ml-2 font-normal text-gray-400">
+                      <span className="ml-2 font-normal text-gray-500">
                         se compra entrando al ensamble y tildando piezas
                       </span>
                     )}

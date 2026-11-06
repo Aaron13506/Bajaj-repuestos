@@ -63,7 +63,7 @@ export default async function BuscarPage({ searchParams }: { searchParams: Promi
         />
       </form>
 
-      {q && total === 0 && <p className="text-sm text-gray-400">Nada coincide con &quot;{q}&quot;.</p>}
+      {q && total === 0 && <p className="text-sm text-gray-500">Nada coincide con &quot;{q}&quot;.</p>}
 
       <div className="space-y-6">
         <Grupo titulo="Pedidos y presupuestos" n={pedidos.length}>
@@ -106,7 +106,7 @@ function Fila({ href, izq, der }: { href: string; izq: string; der: string }) {
   return (
     <Link href={href} className="flex items-center justify-between py-2 hover:bg-gray-50 -mx-2 px-2 rounded">
       <span className="text-sm text-gray-800 truncate">{izq}</span>
-      <span className="text-xs text-gray-400 font-mono shrink-0 ml-3">{der}</span>
+      <span className="text-xs text-gray-500 font-mono shrink-0 ml-3">{der}</span>
     </Link>
   )
 }

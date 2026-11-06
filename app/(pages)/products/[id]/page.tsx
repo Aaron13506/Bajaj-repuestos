@@ -85,7 +85,7 @@ export default async function ProductDetailPage({
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <Link href="/products" className="text-gray-400 hover:text-gray-600 text-sm">Productos</Link>
+            <Link href="/products" className="text-gray-500 hover:text-gray-600 text-sm">Productos</Link>
             <span className="text-gray-300">/</span>
             <span className="text-sm text-gray-600">{product.nameEs}</span>
           </div>
@@ -116,7 +116,7 @@ export default async function ProductDetailPage({
           )}
           {product.bajajCode && (
             <p className="text-sm font-mono text-gray-500 mt-0.5">
-              {product.bajajCode}{product.altSku && <span className="text-gray-400"> · alt {product.altSku}</span>}
+              {product.bajajCode}{product.altSku && <span className="text-gray-500"> · alt {product.altSku}</span>}
             </p>
           )}
         </div>
@@ -195,7 +195,7 @@ export default async function ProductDetailPage({
         <h2 className="font-semibold text-gray-900 mb-4">Desglose de costo</h2>
 
         {!breakdown ? (
-          <p className="text-sm text-gray-400">Completá el precio en India (₹) y el peso para ver el cálculo.</p>
+          <p className="text-sm text-gray-500">Completá el precio en India (₹) y el peso para ver el cálculo.</p>
         ) : (
           <div className="space-y-1 text-sm">
             <div className="flex justify-between py-1.5 border-b border-gray-50">
@@ -281,7 +281,7 @@ export default async function ProductDetailPage({
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <h2 className="font-semibold text-gray-900 mb-3">Forma parte de</h2>
         {product.assemblies.length === 0 ? (
-          <p className="text-sm text-gray-400">No asignado a ningún ensamble.</p>
+          <p className="text-sm text-gray-500">No asignado a ningún ensamble.</p>
         ) : (
           <div className="space-y-2 mb-1">
             {product.assemblies.map(a => (

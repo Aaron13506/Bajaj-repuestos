@@ -35,45 +35,45 @@ export default function CamposDevolucion({ sugerido, maximo, tasaSugerida, etiqu
 
   return (
     <div className="space-y-2">
-      <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">{etiqueta}</label>
+      <label className="block">
+        <span className="block text-xs font-medium text-gray-600 mb-1">{etiqueta}</span>
         <div className="flex items-center">
-          <span className="text-sm text-gray-400 mr-1">$</span>
+          <span className="text-sm text-gray-500 mr-1">$</span>
           <input
             type="number" name="devolverUsd" min={0} max={maximo} step="0.01"
             value={monto} onChange={e => setMonto(e.target.value)}
             className={`${cls} font-mono`}
           />
         </div>
-        <p className="text-[11px] text-gray-400 mt-1">
+        <p className="text-[11px] text-gray-500 mt-1">
           {ayuda ?? `Tiene cobrado $${(maximo ?? 0).toFixed(2)}. Vacío o 0 = no se devuelve nada.`}
         </p>
-      </div>
+      </label>
 
       {/* El método va siempre a la vista: escondido hasta escribir el monto, un vuelto (que arranca
           vacío) parecía no tener por dónde darse. Sin monto, leerDevolucion lo ignora. */}
-      <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">Se le devuelve por</label>
+      <label className="block">
+        <span className="block text-xs font-medium text-gray-600 mb-1">Se le devuelve por</span>
         <select name="devolverMetodo" value={metodo} onChange={e => setMetodo(e.target.value)} className={cls}>
           {METODOS_DEVOLUCION.map(m => <option key={m} value={m}>{m}</option>)}
         </select>
-      </div>
+      </label>
       {hay && (
         <>
           {enBs && (
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Bs entregados</label>
+            <label className="block">
+              <span className="block text-xs font-medium text-gray-600 mb-1">Bs entregados</span>
               <input
                 type="number" name="devolverBs" min={0.01} step="0.01" required
                 placeholder={tasaSugerida > 0 ? (parseFloat(monto) * tasaSugerida).toFixed(2) : undefined}
                 value={bs} onChange={e => setBs(e.target.value)} className={`${cls} font-mono`}
               />
-            </div>
+            </label>
           )}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Fecha</label>
+          <label className="block">
+            <span className="block text-xs font-medium text-gray-600 mb-1">Fecha</span>
             <CampoFecha name="devolverFecha" className={cls} />
-          </div>
+          </label>
         </>
       )}
     </div>
