@@ -51,22 +51,33 @@ export default function ImportSupplierPricesForm({ supplierId }: { supplierId: n
   const [state, formAction] = useActionState(importForSupplier, emptyResult)
   const [copied, setCopied] = useState<'prompt' | 'array' | 'map' | null>(null)
   const [isLanded, setIsLanded] = useState(false)
+  // Sin permiso de portapapeles writeText rechaza: antes no pasaba nada.
+  const [copyError, setCopyError] = useState(false)
 
   function copy(text: string, which: 'prompt' | 'array' | 'map') {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(which)
-      setTimeout(() => setCopied(null), 1500)
-    })
+    setCopyError(false)
+    navigator.clipboard.writeText(text).then(
+      () => {
+        setCopied(which)
+        setTimeout(() => setCopied(null), 1500)
+      },
+      () => setCopyError(true),
+    )
   }
 
   return (
     <div className="space-y-6">
+      <p role="status" className="sr-only">{copied ? 'Copiado' : ''}</p>
+      {copyError && (
+        <p role="alert" className="text-sm text-red-600">No se pudo copiar: seleccioná el texto y copialo a mano (Ctrl+C).</p>
+      )}
+
       {/* Ayuda: prompt + ejemplos */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Prompt para la IA</h2>
-            <button onClick={() => copy(PROMPT_TEMPLATE, 'prompt')} className="text-xs text-blue-600 hover:underline">
+            <button type="button" onClick={() => copy(PROMPT_TEMPLATE, 'prompt')} className="-my-1 px-2 py-1 rounded text-xs text-blue-600 hover:underline hover:bg-blue-50">
               {copied === 'prompt' ? '¡Copiado!' : 'Copiar'}
             </button>
           </div>
@@ -75,7 +86,7 @@ export default function ImportSupplierPricesForm({ supplierId }: { supplierId: n
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Ejemplo: array</h2>
-            <button onClick={() => copy(ARRAY_EXAMPLE, 'array')} className="text-xs text-blue-600 hover:underline">
+            <button type="button" onClick={() => copy(ARRAY_EXAMPLE, 'array')} className="-my-1 px-2 py-1 rounded text-xs text-blue-600 hover:underline hover:bg-blue-50">
               {copied === 'array' ? '¡Copiado!' : 'Copiar'}
             </button>
           </div>
@@ -88,10 +99,11 @@ export default function ImportSupplierPricesForm({ supplierId }: { supplierId: n
       {/* Formulario */}
       <form action={formAction} className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="precios-json" className="block text-sm font-medium text-gray-700 mb-1">
             Pegá el JSON (array u objeto)
           </label>
           <textarea
+            id="precios-json"
             name="json"
             rows={12}
             placeholder={ARRAY_EXAMPLE}
@@ -125,7 +137,7 @@ export default function ImportSupplierPricesForm({ supplierId }: { supplierId: n
 
       {/* Resultado */}
       {state.message && (
-        <div className={`rounded-xl border p-4 ${state.ok ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
+        <div role="status" className={`rounded-xl border p-4 ${state.ok ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
           <p className={`text-sm font-medium ${state.ok ? 'text-green-800' : 'text-yellow-800'}`}>
             {state.message}
           </p>
