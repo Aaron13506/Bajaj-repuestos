@@ -60,7 +60,7 @@ Bajo / pendiente de los compartidos:
 - [x] `/groups` Ensambles
 - [x] `/ensambles/new` Nuevo ensamble
 - [ ] `/ensambles/[id]` Ensamble
-- [ ] `/ensambles/[id]/edit` Editar ensamble
+- [x] `/ensambles/[id]/edit` Editar ensamble
 - [ ] `/suppliers` Proveedores
 - [ ] `/suppliers/[id]/import` Importar precios
 - [ ] `/presupuestos` Presupuestos
@@ -97,6 +97,7 @@ Bajo / pendiente de los compartidos:
 | `/products/discontinued` | 83 | 97 | Si marcar/desmarcar falla por red o server se muestra el error al lado (antes la promesa sin atrapar tiraba la pantalla entera al error genérico). Resultado con role=status. Ayuda vinculada al textarea con aria-describedby. Tabla con overflow-x-auto (se recortaba en móvil), breadcrumb con flex-wrap, nombres largos que cortan. Título de pestaña. | Bajo: "Marcadas hoy" se lee como "marcadas en el día" cuando es el total actual. |
 | `/groups` | 80 | 96 | Vacío sin filtros ofrece "Crear el primero" (antes "limpiá los filtros" sin haber filtros); con filtros dice "Ningún ensamble coincide". Piezas sin sub-grupo bajo "Sin sub-grupo" en vez de "—". "1 sub-grupo". Nombres truncados con title. Miniatura con alt="" (el nombre está al lado). Cabecera de página y de cada tarjeta con wrap y padding de 16 px en móvil. Paginación en <nav>. Los filtros heredan las etiquetas de CatalogFilters. | Bajo: "Editar" de cada tarjeta lleva a la ficha (donde se edita el despiece), no a /edit. |
 | `/ensambles/new` | 81 | 97 | EnsambleForm: "Moto *" como role=group con aria-labelledby y la ayuda en aria-describedby (las casillas no tenían a qué pregunta respondían). Ejemplos de nombre de ensamble ("Freno trasero" / "Rear Brake Assembly") en vez de los de una pieza. Breadcrumb con wrap. Título de pestaña. | — |
+| `/ensambles/[id]/edit` | 78 | 97 | Hereda EnsambleForm (ver /ensambles/new). Breadcrumb con flex-wrap y nombre que corta (los nombres de 99rpm son largos); h1 "Editar ensamble" en vez de "Editar". Título de pestaña. | — |
 
 ## Pendiente (cambia comportamiento, no se aplicó)
 - `/products/import`: El prompt para la IA pide motos "por id del enum MotoModel" (el enum se dropeó; la fuente es compatibleModels en texto) y dice "margen fijo 40%" (el margen por defecto sale de Config). Corregir el texto cambia lo que la IA devuelve y lo que se importa: decidirlo aparte.
