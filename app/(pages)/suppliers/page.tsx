@@ -54,7 +54,7 @@ export default async function SuppliersPage() {
       <p className="text-sm text-gray-500 mb-6">
         El <strong>FOB</strong> es lo que cobra por sacar la carga en un embarque marítimo: es
         fijo por embarque y no escala con el volumen. Vacío usa el default global de{' '}
-        <a href="/config" className="underline">Configuración</a>.
+        <Link href="/config" className="underline">Configuración</Link>.
         {' '}La <strong>comisión de la transferencia</strong> no se configura acá a propósito: no es
         un rasgo del proveedor sino de cada giro, así que se anota en el envío, con el monto
         que efectivamente costó.
@@ -103,6 +103,7 @@ export default async function SuppliersPage() {
               min={0}
               step="0.01"
               placeholder="500"
+              aria-describedby="fob-ayuda"
               className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </label>
@@ -112,6 +113,8 @@ export default async function SuppliersPage() {
             Agregar
           </PendingButton>
         </FormConResultado>
+        {/* Antes esto vivía solo en el title (hover): ni el teclado ni el teléfono lo veían. */}
+        <p id="fob-ayuda" className="text-xs text-gray-500 mt-2">FOB: USD por embarque marítimo. Vacío usa el default de Configuración.</p>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 divide-y divide-gray-100">
@@ -129,7 +132,8 @@ export default async function SuppliersPage() {
             // Con cajas, líneas o pagos a su nombre no se borra: ver motivoProveedorEnUso.
             const enUso = motivoProveedorEnUso(s._count)
             return (
-              <div key={s.id} className="px-6 py-4">
+              // Cada fila repite "Nombre / Origen / FOB": el grupo dice de qué proveedor son.
+              <div key={s.id} role="group" aria-label={s.name} className="px-4 sm:px-6 py-4">
                 <FormConResultado action={renameSupplier.bind(null, s.id)} className="flex flex-wrap items-end gap-3">
                   <label className="flex-1 min-w-[10rem]">
                     <span className="block text-xs text-gray-500 mb-1">Nombre</span>
@@ -172,6 +176,7 @@ export default async function SuppliersPage() {
                       step="0.01"
                       defaultValue={s.fobUsd != null ? parseFloat(s.fobUsd.toString()) : ''}
                       placeholder="default"
+                      aria-describedby="fob-ayuda"
                       className="w-24 border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                   </label>
@@ -181,9 +186,9 @@ export default async function SuppliersPage() {
                     Guardar
                   </PendingButton>
                 </FormConResultado>
-                <div className="flex items-center gap-4 mt-2">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-2">
                   <span className="text-xs text-gray-500">
-                    {s._count.prices} {s._count.prices === 1 ? 'precio' : 'precios'} cargados
+                    {s._count.prices} {s._count.prices === 1 ? 'precio cargado' : 'precios cargados'}
                   </span>
                   <span className="text-xs text-gray-500">
                     {meta.icon} {meta.label}
