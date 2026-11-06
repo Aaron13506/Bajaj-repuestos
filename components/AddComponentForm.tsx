@@ -21,6 +21,9 @@ interface Props {
 export default function AddComponentForm({ ensambleId, existingGroups, action }: Props) {
   const [search, setSearch] = useState('')
   const [found, setFound] = useState<Product[]>([])
+  // Término de la última búsqueda que volvió (para decir "no hay" solo cuando ya respondió).
+  const [buscado, setBuscado] = useState('')
+  const [errorBusqueda, setErrorBusqueda] = useState(false)
   const q = search.trim()
   // Con el término corto no hay resultados: se deriva al renderizar en vez de vaciar el
   // estado desde el efecto.
@@ -31,8 +34,12 @@ export default function AddComponentForm({ ensambleId, existingGroups, action }:
     if (q.length < 2) return
     let cancelled = false
     const t = setTimeout(async () => {
-      const rows = await buscarPiezas(q)
-      if (!cancelled) setFound(rows)
+      try {
+        const rows = await buscarPiezas(q)
+        if (!cancelled) { setFound(rows); setBuscado(q); setErrorBusqueda(false) }
+      } catch {
+        if (!cancelled) setErrorBusqueda(true)
+      }
     }, 250)
     return () => { cancelled = true; clearTimeout(t) }
   }, [q])
@@ -45,6 +52,8 @@ export default function AddComponentForm({ ensambleId, existingGroups, action }:
 
       <div>
         <input
+          type="search"
+          aria-label="Buscar pieza"
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Buscar pieza por nombre o código (2+ letras)..."
@@ -52,6 +61,7 @@ export default function AddComponentForm({ ensambleId, existingGroups, action }:
         />
         <select
           name="productId"
+          aria-label="Pieza"
           required
           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         >
@@ -62,6 +72,11 @@ export default function AddComponentForm({ ensambleId, existingGroups, action }:
             </option>
           ))}
         </select>
+        <p role="status" className="text-xs text-gray-500 mt-1">
+          {errorBusqueda
+            ? <span className="text-red-600">No se pudo buscar. Probá de nuevo.</span>
+            : q.length >= 2 && buscado === q && found.length === 0 ? `Ninguna pieza coincide con "${q}".` : ''}
+        </p>
       </div>
 
       <div className="grid grid-cols-2 gap-3">

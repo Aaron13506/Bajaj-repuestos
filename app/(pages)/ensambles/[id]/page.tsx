@@ -101,14 +101,14 @@ export default async function EnsambleDetailPage({
     <div className="max-w-7xl space-y-6">
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 mb-1 min-w-0">
             <Link href="/groups" className="text-gray-500 hover:text-gray-600 text-sm">Ensambles</Link>
             <span aria-hidden="true" className="text-gray-300">/</span>
-            <span className="text-sm text-gray-600">{nombre}</span>
+            <span className="text-sm text-gray-600 truncate">{nombre}</span>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">{nombre}</h1>
+          <h1 className="text-2xl font-bold text-gray-900 text-balance break-words">{nombre}</h1>
           {ensamble.nameEn && ensamble.nameEn !== nombre && (
             <p className="text-sm text-gray-500 mt-0.5">{ensamble.nameEn}</p>
           )}
@@ -147,6 +147,8 @@ export default async function EnsambleDetailPage({
               <a href={ensamble.sourceUrl} target="_blank" rel="noopener noreferrer"
                 className="text-blue-600 hover:underline text-xs break-all">
                 {ensamble.sourceUrl}
+                <span aria-hidden="true"> ↗</span>
+                <span className="sr-only"> (abre en otra pestaña)</span>
               </a>
             </div>
           )}
@@ -169,7 +171,7 @@ export default async function EnsambleDetailPage({
         <h2 className="font-semibold text-gray-900 mb-4">
           Componentes
           {ensamble.componentes.length > 0 && (
-            <span className="ml-2 text-xs font-normal text-gray-500">{ensamble.componentes.length} piezas</span>
+            <span className="ml-2 text-xs font-normal text-gray-500">{ensamble.componentes.length} {ensamble.componentes.length === 1 ? 'pieza' : 'piezas'}</span>
           )}
         </h2>
 
@@ -255,14 +257,14 @@ export default async function EnsambleDetailPage({
                             {c.nameEn && <span className="block text-xs text-gray-500">{c.nameEn}</span>}
                           </td>
                           <td className="px-2 py-2 font-mono text-xs text-gray-500">{c.bajajCode ?? '—'}</td>
-                          <td className={`px-2 py-2 text-right font-mono ${lineWeight == null ? 'text-red-400' : 'text-gray-700'}`}>
+                          <td className={`px-2 py-2 text-right font-mono ${lineWeight == null ? 'text-red-600' : 'text-gray-700'}`}>
                             {lineWeight ?? '—'}
                             {comp.quantity > 1 && c.weightGrams != null && (
                               <span className="block text-[10px] text-gray-500 font-normal">{c.weightGrams} g c/u</span>
                             )}
                             <IndicadorMedido medidoAt={c.medidoAt} className="ml-1.5" />
                           </td>
-                          <td className={`px-2 py-2 text-right font-mono ${!hasDims ? 'text-red-400' : 'text-gray-700'}`}>
+                          <td className={`px-2 py-2 text-right font-mono ${!hasDims ? 'text-red-600' : 'text-gray-700'}`}>
                             {hasDims ? dims.map(d => d ?? '—').join('×') : '—'}
                             {comp.quantity > 1 && c.dimH != null && (
                               <span className="block text-[10px] text-gray-500 font-normal">alto {c.dimH} c/u × {comp.quantity}</span>
@@ -281,6 +283,8 @@ export default async function EnsambleDetailPage({
                               <DeleteButton
                                 action={removeComponent.bind(null, id, comp.id)}
                                 confirmMessage={`¿Quitar "${c.nameEs}" de este ensamble?`}
+                                label="Quitar"
+                                pendingLabel="Quitando…"
                               />
                             </div>
                           </td>

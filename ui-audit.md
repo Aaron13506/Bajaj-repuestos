@@ -59,7 +59,7 @@ Bajo / pendiente de los compartidos:
 - [x] `/products/discontinued` Descontinuados
 - [x] `/groups` Ensambles
 - [x] `/ensambles/new` Nuevo ensamble
-- [ ] `/ensambles/[id]` Ensamble
+- [x] `/ensambles/[id]` Ensamble
 - [x] `/ensambles/[id]/edit` Editar ensamble
 - [ ] `/suppliers` Proveedores
 - [ ] `/suppliers/[id]/import` Importar precios
@@ -98,6 +98,7 @@ Bajo / pendiente de los compartidos:
 | `/groups` | 80 | 96 | Vacío sin filtros ofrece "Crear el primero" (antes "limpiá los filtros" sin haber filtros); con filtros dice "Ningún ensamble coincide". Piezas sin sub-grupo bajo "Sin sub-grupo" en vez de "—". "1 sub-grupo". Nombres truncados con title. Miniatura con alt="" (el nombre está al lado). Cabecera de página y de cada tarjeta con wrap y padding de 16 px en móvil. Paginación en <nav>. Los filtros heredan las etiquetas de CatalogFilters. | Bajo: "Editar" de cada tarjeta lleva a la ficha (donde se edita el despiece), no a /edit. |
 | `/ensambles/new` | 81 | 97 | EnsambleForm: "Moto *" como role=group con aria-labelledby y la ayuda en aria-describedby (las casillas no tenían a qué pregunta respondían). Ejemplos de nombre de ensamble ("Freno trasero" / "Rear Brake Assembly") en vez de los de una pieza. Breadcrumb con wrap. Título de pestaña. | — |
 | `/ensambles/[id]/edit` | 78 | 97 | Hereda EnsambleForm (ver /ensambles/new). Breadcrumb con flex-wrap y nombre que corta (los nombres de 99rpm son largos); h1 "Editar ensamble" en vez de "Editar". Título de pestaña. | — |
+| `/ensambles/[id]` | 47 | 94 | El botón de cada pieza dice "Quitar" (decía "Eliminar" y solo la saca del ensamble). AddComponentForm: buscador y select con nombre, aviso de "ninguna coincide" y de falla de búsqueda (antes callado / rechazo sin atrapar). MedidasIA (compartido con presupuestos y envíos): el <h2> envuelve al botón (antes un h2 dentro del button), aria-expanded, flecha aria-hidden; buscador con nombre y resultado role=status; ensamble activo con aria-pressed; textarea asociado con useId; copiar con aviso de fallo y "Copiado" anunciado; botones de 24 px; resultado role=status. Peso/medidas faltantes en red-600 (red-400 no llegaba a 4,5:1). Cabecera con wrap, h1 que corta, link externo avisado, "1 pieza". | Bajo: "Editar"/"Quitar" repetidos en cada fila sin el nombre de la pieza en el nombre accesible. |
 
 ## Pendiente (cambia comportamiento, no se aplicó)
 - `/products/import`: El prompt para la IA pide motos "por id del enum MotoModel" (el enum se dropeó; la fuente es compatibleModels en texto) y dice "margen fijo 40%" (el margen por defecto sale de Config). Corregir el texto cambia lo que la IA devuelve y lo que se importa: decidirlo aparte.
