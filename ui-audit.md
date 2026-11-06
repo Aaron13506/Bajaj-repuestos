@@ -38,7 +38,7 @@ Reglas de la pasada:
 - [x] `components/DeleteButton.tsx`: `type="button"` (dentro de un form lo enviaba); el error se muestra al lado del botón en vez de `alert()`.
 - [x] `components/FormConResultado.tsx` / `useEnviarAccion.ts`: revisados, sin cambios.
 - [x] `components/CampoFecha.tsx`, `StockBadge.tsx`, `ChipDescontinuada.tsx`, `IndicadorMedido.tsx`: revisados, sin cambios (el estado va en texto, no solo en color).
-- [x] Contraste: `text-gray-400` → `text-gray-500` en 64 archivos (4,8:1 sobre blanco). El menú y el visor (fondo oscuro) quedan igual.
+- [x] Contraste: `text-gray-400` → `text-gray-500` en 64 archivos (4,8:1 sobre blanco). El menú y el visor (fondo oscuro) quedan igual. Después, en commit aparte: text-red-500/amber-600/green-600/sky-500 → un tono más oscuro (quedaban entre 2,8:1 y 3,8:1) en 21 archivos.
 - [x] Etiquetas: 101 campos en 28 archivos pasan de `<div><label>…</label><input></div>` a `<label><span>…</span><input></label>` (codemod; solo donde hay exactamente un campo y ningún botón adentro). El resto se hace por pantalla.
 
 Bajo / pendiente de los compartidos:
