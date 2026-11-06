@@ -115,10 +115,10 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
 
   const contenido = (
     <>
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto mb-4">
         {/* Un solo tilde para agarrar TODO el envío/lista de una — sin esto había que armar
             un pago único para todo tildando pedido por pedido. */}
-        <div className="px-4 py-2.5 bg-blue-50/50 border-b border-gray-100 flex items-center gap-3">
+        <label className="px-4 py-2.5 bg-blue-50/50 border-b border-gray-100 flex flex-wrap items-center gap-x-3 gap-y-1 cursor-pointer">
           <input
             type="checkbox"
             checked={todoSeleccionado}
@@ -131,7 +131,7 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
             {items.length} {items.length === 1 ? 'ítem' : 'ítems'} en {grupos.length}{' '}
             {grupos.length === 1 ? 'pedido' : 'pedidos'} · estimado {usd(items.reduce((s, i) => s + i.estimadoUsd, 0))}
           </span>
-        </div>
+        </label>
         <div className="divide-y divide-gray-100">
           {grupos.map(g => {
             const ids = g.items.map(i => i.id)
@@ -144,6 +144,7 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
                 <div className="px-4 py-2 bg-gray-50 flex items-center gap-3">
                   <input
                     type="checkbox"
+                    aria-label={`Seleccionar todo el pedido #${g.pedidoId} (${g.clientName})`}
                     checked={todos}
                     ref={el => { if (el) el.indeterminate = algunos }}
                     onChange={e => toggleGrupo(ids, e.target.checked)}
@@ -153,9 +154,10 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
                     <button
                       type="button"
                       onClick={() => toggleDesplegado(g.pedidoId)}
-                      className="flex items-center gap-2 text-left flex-1 group"
+                      aria-expanded={detalle}
+                      className="flex flex-wrap items-center gap-x-2 text-left flex-1 min-w-0 group"
                     >
-                      <span className={`text-gray-500 text-[10px] transition-transform shrink-0 ${detalle ? 'rotate-90' : ''}`}>▶</span>
+                      <span aria-hidden="true" className={`text-gray-500 text-[10px] transition-transform shrink-0 ${detalle ? 'rotate-90' : ''}`}>▶</span>
                       <span className="text-sm font-semibold text-gray-700 group-hover:text-blue-600">
                         #{g.pedidoId} {g.clientName}
                       </span>
@@ -182,6 +184,7 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
                         <td className="pl-9 pr-2 py-2 w-8">
                           <input
                             type="checkbox"
+                            aria-label={i.nombre}
                             checked={selected.has(i.id)}
                             onChange={() => toggleItem(i.id)}
                             className="h-4 w-4 rounded border-gray-300"

@@ -11,7 +11,7 @@ export default async function ComprarPage() {
 
   return (
     <div>
-      <div className="flex items-center gap-3 mb-1">
+      <div className="flex flex-wrap items-center gap-3 mb-1">
         <Link href="/contabilidad" className="text-gray-500 hover:text-gray-600 text-sm">
           Contabilidad
         </Link>
