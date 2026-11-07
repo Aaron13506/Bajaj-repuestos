@@ -104,6 +104,12 @@ export function mesDe(d: Date): string {
   return new Date(d.getTime() - 4 * 3600 * 1000).toISOString().slice(0, 7)
 }
 
+// "2026-11" → "noviembre de 2026", para mostrar un mes de mesDe.
+export function nombreMes(m: string): string {
+  const [a, mm] = m.split('-').map(Number)
+  return new Date(a, mm - 1, 1).toLocaleDateString('es-VE', { month: 'long', year: 'numeric' })
+}
+
 export interface MovimientoResultado {
   fecha: Date
   categoria: string

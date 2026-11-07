@@ -30,6 +30,10 @@ export interface PresupuestoPdfData {
   numero: string
   fecha: string
   validez: string | null
+  /** Venta del depósito: es una nota de venta (lo que se llevó y lo que pagó), no una cotización. */
+  esVenta?: boolean
+  /** Cada cobro y vuelto, en la unidad del documento (vuelto negativo). Solo en una venta. */
+  cobros?: { texto: string; monto: number }[]
   clientName: string
   /** Envío express: el plazo que se le promete al cliente (ver plazoExpress). null = envío normal. */
   expressPlazo?: string | null
@@ -217,7 +221,9 @@ export function buildPresupuestoPdf(data: PresupuestoPdfData): jsPDF {
   doc.text(`$${data.total.toFixed(2)}`, pageWidth - MARGIN, y, { align: 'right' })
 
   const aclaraciones: [string, string | null][] = []
-  if (data.modoBcv) {
+  // En una venta saldada no hay nada que pagar: las condiciones de pago sobran.
+  const porPagar = !data.esVenta || (data.saldoUsd ?? 0) > 0.005
+  if (data.modoBcv && porPagar) {
     aclaraciones.push(['Monto expresado en dólares a tasa BCV.', null])
     aclaraciones.push(['Se paga a la tasa BCV del día en que se realice el pago.', null])
   }
@@ -238,7 +244,7 @@ export function buildPresupuestoPdf(data: PresupuestoPdfData): jsPDF {
   // Pagar en divisas, con su monto: un punto intermedio entre el total y las aclaraciones,
   // en verde y sin fondo. Una franja de color al lado de los montos parecía un descuento
   // ya aplicado al total; la línea gris chica no se veía.
-  if (data.modoBcv && data.descuentoDivisasPct > 0) {
+  if (data.modoBcv && data.descuentoDivisasPct > 0 && porPagar) {
     y += 6.5
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(10)
@@ -259,7 +265,13 @@ export function buildPresupuestoPdf(data: PresupuestoPdfData): jsPDF {
   y += SECCION - 2
 
   // ── Franjas del resumen (pedido confirmado), una por dato
-  if (data.depositUsd != null && !data.isPresupuesto) {
+  if (data.esVenta && data.cobros) {
+    for (const c of data.cobros) {
+      y = drawFranja(doc, y, c.monto < 0 ? c.texto : `Pagado · ${c.texto}`, `${c.monto < 0 ? '-' : ''}$${Math.abs(c.monto).toFixed(2)}`, c.monto < 0 ? NEUTRO : VERDE)
+    }
+    const saldo = data.saldoUsd ?? 0
+    y = drawFranja(doc, y, saldo < -0.005 ? 'A favor del cliente' : 'Saldo pendiente', `$${Math.abs(saldo).toFixed(2)}`, NEUTRO)
+  } else if (data.depositUsd != null && !data.isPresupuesto) {
     const label = ['Abonado', data.paymentMethod, data.depositAt].filter(Boolean).join(' · ')
     y = drawFranja(doc, y, label, `$${data.depositUsd.toFixed(2)}`, VERDE)
     y = drawFranja(doc, y, 'Saldo pendiente', `$${(data.saldoUsd ?? 0).toFixed(2)}`, NEUTRO)

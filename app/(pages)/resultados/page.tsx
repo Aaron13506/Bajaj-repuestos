@@ -1,16 +1,12 @@
 import Link from 'next/link'
 import { cargarCancelaciones, cargarMargenes, resultadosMensuales } from '@/lib/resultados'
-import { mesDe, type EstadoMargen } from '@/lib/margen'
+import { mesDe, nombreMes, type EstadoMargen } from '@/lib/margen'
 
 export const metadata = { title: 'Resultados' }
 
 const usd = (n: number) => `${n < 0 ? '−' : ''}$${Math.abs(n).toFixed(2)}`
 const pct = (n: number | null) => (n == null ? '—' : `${n.toFixed(1)}%`)
 const fecha = (d: Date) => d.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' })
-const nombreMes = (m: string) => {
-  const [a, mm] = m.split('-').map(Number)
-  return new Date(a, mm - 1, 1).toLocaleDateString('es-VE', { month: 'long', year: 'numeric' })
-}
 
 const ESTADOS: Record<EstadoMargen, { label: string; cls: string; ayuda: string }> = {
   realizado: { label: 'Realizado', cls: 'bg-green-100 text-green-700', ayuda: 'Entregado y con el costo que de verdad se pagó (compra, flete y caja facturados).' },
