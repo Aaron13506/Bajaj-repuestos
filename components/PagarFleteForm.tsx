@@ -45,7 +45,7 @@ export default function PagarFleteForm({ action, methods, titulo, montoSugerido 
                 />
               </div>
               {montoSugerido == null && (
-                <p className="text-[11px] text-gray-500 mt-1">Sin factura cargada: lo que pagues queda también como facturado.</p>
+                <p className="text-xs text-gray-600 mt-1">Sin factura cargada: lo que pagues queda también como facturado.</p>
               )}
             </label>
 

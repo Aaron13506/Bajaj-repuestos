@@ -71,12 +71,12 @@ export default function CompraPorEnsambleLista({ datos }: { datos: CompraPorEnsa
                       <span className="font-mono text-xs text-gray-500 w-28 shrink-0">{p.sku ?? '—'}</span>
                       <span className="flex-1 text-gray-900 truncate" title={p.name}>{p.name}</span>
                       {p.groupName && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 shrink-0">
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 shrink-0">
                           {p.groupName}
                         </span>
                       )}
                       {p.descontinuada && (
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 shrink-0">
+                        <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-800 shrink-0">
                           NLS
                         </span>
                       )}

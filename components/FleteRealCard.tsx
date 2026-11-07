@@ -2,6 +2,7 @@ import FormConResultado from '@/components/FormConResultado'
 import PendingButton from '@/components/PendingButton'
 import DeleteButton from '@/components/DeleteButton'
 import PagarFleteForm from '@/components/PagarFleteForm'
+import SeccionCaja from '@/components/SeccionCaja'
 import { estadoFlete, type TramoFlete } from '@/lib/flete-real'
 import type { ActionResult } from '@/lib/action-result'
 
@@ -43,16 +44,12 @@ const TONO: Record<string, string> = {
 export default function FleteRealCard({ filas, methods }: { filas: FilaFlete[]; methods: readonly string[] }) {
   if (filas.length === 0) return null
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-4">
-      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">
-        🚚 Flete real · lo que te cobraron
-      </h2>
-      <p className="text-xs text-gray-500 mb-4">
-        El facturado <strong>reemplaza</strong> al estimado de tabla en el landed y el margen. Al marcarlo pagado
-        queda anotado como egreso en contabilidad.
-      </p>
-
-      <div className="divide-y divide-gray-100">
+    <SeccionCaja
+      id="fletes-titulo"
+      titulo="Pagos de flete"
+      sub="Lo que facturó cada uno y lo que ya salió de tu cuenta. El facturado reemplaza al estimado en el landed; pagarlo lo anota como egreso en contabilidad."
+    >
+      <div className="divide-y divide-gray-100 px-4 sm:px-6">
         {filas.map(f => {
           const pagado = f.pagos.reduce((s, p) => s + p.monto, 0)
           const estado = estadoFlete(f.facturadoUsd, pagado)
@@ -61,42 +58,42 @@ export default function FleteRealCard({ filas, methods }: { filas: FilaFlete[]; 
             : null
           const falta = f.facturadoUsd != null ? f.facturadoUsd - pagado : null
           return (
-            <div key={f.tramo} className="py-4 first:pt-0 last:pb-0">
+            <div key={f.tramo} className="py-4">
               <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-                <p className="w-44 text-sm font-medium text-gray-800">
-                  {f.icono} {f.titulo}
-                </p>
+                <h3 className="w-44 text-sm font-semibold text-gray-900">
+                  <span aria-hidden="true">{f.icono} </span>{f.titulo}
+                </h3>
 
                 <FormConResultado action={f.guardar} className="flex items-end gap-2">
                   <label className="block">
-                    <span className="block text-xs font-medium text-gray-600 mb-1">Facturado (USD)</span>
+                    <span className="block text-sm font-medium text-gray-700 mb-1">Facturado (USD)</span>
                     <input
                       // Se vuelve a armar cuando cambia lo guardado, para que el campo muestre siempre el dato real.
                       key={`${f.tramo}-${f.facturadoUsd ?? ''}`}
                       type="number" step="0.01" min="0" name="facturado"
                       defaultValue={f.facturadoUsd ?? ''}
-                      placeholder="0.00"
-                      className="w-32 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="sin cargar"
+                      className="w-32 min-h-9 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                   </label>
-                  <PendingButton className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+                  <PendingButton className="min-h-9 px-3 py-1.5 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50">
                     Guardar
                   </PendingButton>
                 </FormConResultado>
 
-                <div className="text-xs">
-                  <p className="text-gray-500 mb-1">Calculado</p>
-                  <p className="font-mono text-gray-600">
+                <div className="text-sm">
+                  <p className="text-gray-700 mb-1">Calculado</p>
+                  <p className="font-mono text-gray-700">
                     {usd(f.calculadoUsd)}
                     {dif != null && (
-                      <span className={`ml-2 font-semibold ${Math.abs(dif) <= 5 ? 'text-green-700' : 'text-amber-700'}`}>
+                      <span className={`ml-2 font-semibold ${Math.abs(dif) <= 5 ? 'text-green-700' : 'text-amber-800'}`}>
                         {dif >= 0 ? '+' : ''}{dif.toFixed(1)}%
                       </span>
                     )}
                   </p>
                 </div>
 
-                <div className="flex items-center gap-3 ml-auto">
+                <div className="flex flex-wrap items-center gap-3 sm:ml-auto">
                   <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${TONO[estado.clave]}`}>
                     {estado.texto}
                   </span>
@@ -111,15 +108,15 @@ export default function FleteRealCard({ filas, methods }: { filas: FilaFlete[]; 
                 </div>
               </div>
 
-              {f.nota && <p className="text-xs text-gray-500 mt-2">{f.nota}</p>}
+              {f.nota && <p className="text-sm text-gray-600 mt-2">{f.nota}</p>}
 
               {f.pagos.length > 0 && (
                 <ul className="mt-3 space-y-1">
                   {f.pagos.map(p => (
-                    <li key={p.id} className="flex items-center gap-3 text-xs text-gray-600">
+                    <li key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-700">
                       <span className="font-mono">{fecha(p.fecha)}</span>
                       <span className="font-mono font-semibold">{usd(p.monto)}</span>
-                      {p.metodoPago && <span className="text-gray-500">{p.metodoPago}</span>}
+                      {p.metodoPago && <span className="text-gray-600">{p.metodoPago}</span>}
                       <DeleteButton
                         action={f.deshacer.bind(null, p.id)}
                         label="deshacer"
@@ -134,6 +131,6 @@ export default function FleteRealCard({ filas, methods }: { filas: FilaFlete[]; 
           )
         })}
       </div>
-    </div>
+    </SeccionCaja>
   )
 }

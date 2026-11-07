@@ -166,7 +166,7 @@ export default function SueltoPedido({
                   <span className="font-mono text-xs text-gray-500 w-28 shrink-0">{l.bajajCode ?? '—'}</span>
                   <span className="flex-1 text-gray-900 truncate" title={l.nameEs}>{l.nameEs}</span>
                   {l.descontinuada && (
-                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 shrink-0">
+                    <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-800 shrink-0">
                       NLS
                     </span>
                   )}

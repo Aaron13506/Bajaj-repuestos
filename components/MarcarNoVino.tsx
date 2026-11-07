@@ -39,14 +39,14 @@ export default function MarcarNoVino({
     <form onSubmit={enviar} role="dialog" aria-modal="true" aria-labelledby="no-vino-titulo" className="w-full max-w-md bg-white rounded-xl shadow-xl p-5 my-16 space-y-3">
       <div className="flex items-start justify-between gap-3">
         <h2 id="no-vino-titulo" className="text-sm font-semibold text-gray-800">No vino: {nombre}</h2>
-        <button type="button" onClick={cerrar} title="Cerrar" className="px-2 text-gray-400 hover:text-gray-700">✕</button>
+        <button type="button" onClick={cerrar} aria-label="Cerrar" className="min-h-8 min-w-8 rounded text-gray-600 hover:text-gray-900 hover:bg-gray-100"><span aria-hidden="true">✕</span></button>
       </div>
       <p className="text-xs text-orange-900 bg-orange-50 rounded-lg px-3 py-2">
         Poné cuántas unidades de cada SKU no mandó el proveedor (vacío = vino). La caja no las espera al llegar y la línea no se entrega hasta que lleguen o te las reembolse.
       </p>
       <CamposNoVino cantidad={cantidad} piezas={piezas} yaAnotadasLinea={yaAnotadasLinea} />
       <input type="text" name="nota" placeholder="Nota (opcional): qué te dijo el proveedor" className={`${cls} w-full`} />
-      {error && <p role="alert" className="text-[11px] text-red-600">{error}</p>}
+      {error && <p role="alert" className="text-xs text-red-700">{error}</p>}
       <div className="flex gap-2">
         <button type="submit" disabled={isPending} className="px-3 py-1.5 rounded-lg text-sm font-medium bg-orange-600 text-white hover:bg-orange-700 disabled:opacity-40">
           {isPending ? 'Guardando…' : 'Marcar que no vino'}
@@ -77,7 +77,7 @@ export function CamposNoVino({ cantidad, piezas, yaAnotadasLinea = 0 }: { cantid
   return (
     <table className="w-full text-xs">
       <thead>
-        <tr className="text-[10px] uppercase tracking-wide text-gray-400">
+        <tr className="text-xs text-gray-600">
           <th className="text-left font-semibold pb-1">SKU</th>
           <th className="text-right font-semibold pb-1 w-28">No vinieron</th>
         </tr>
@@ -89,7 +89,7 @@ export function CamposNoVino({ cantidad, piezas, yaAnotadasLinea = 0 }: { cantid
             <tr key={f.clave}>
               <td className="py-1.5 pr-2 text-gray-800">
                 {f.nombre ?? 'Esta pieza'}
-                {f.ya > 0 && <span className="ml-1 text-[10px] text-orange-700">({f.ya} ya anotadas)</span>}
+                {f.ya > 0 && <span className="ml-1 text-xs text-orange-800">({f.ya} ya anotadas)</span>}
               </td>
               <td className="py-1.5 text-right whitespace-nowrap">
                 <input
@@ -98,7 +98,7 @@ export function CamposNoVino({ cantidad, piezas, yaAnotadasLinea = 0 }: { cantid
                   aria-label={`Unidades de ${f.nombre ?? 'la pieza'} que no vinieron`}
                   className="w-14 border border-gray-300 rounded px-1.5 py-0.5 text-right font-mono disabled:bg-gray-50"
                 />
-                <span className="ml-1 text-gray-400">de {libres}</span>
+                <span className="ml-1 text-gray-600">de {libres}</span>
               </td>
             </tr>
           )
