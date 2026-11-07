@@ -24,7 +24,7 @@ export default function AperturaCajaForm({ action, actual }: Props) {
       <button
         type="button"
         onClick={() => { limpiarError(); setOpen(true) }}
-        className="text-xs text-blue-600 hover:underline"
+        className="inline-flex items-center min-h-8 text-sm text-blue-700 hover:underline"
       >
         {actual ? 'Editar apertura' : '+ Declarar saldo de apertura'}
       </button>

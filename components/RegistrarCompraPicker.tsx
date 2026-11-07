@@ -91,6 +91,11 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
     // después del `await` ya es null y `.reset()` tiraba un TypeError aunque la compra sí
     // se hubiera guardado.
     const form = e.currentTarget
+    // Se valida al registrar (no con el botón gris): así el motivo se lee al lado del botón.
+    if (selected.size === 0) {
+      setError('Tildá al menos una pieza: el monto se reparte entre las que elijas.')
+      return
+    }
     const fd = new FormData(form)
     for (const id of selected) {
       fd.append('itemIds', String(id))
@@ -156,15 +161,17 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
             const seleccionadosGrupo = ids.filter(id => selected.has(id)).length
             return (
               <div key={g.pedidoId}>
-                <div className="px-4 py-2 bg-gray-50 flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    aria-label={`Seleccionar todo el pedido #${g.pedidoId} (${g.clientName})`}
-                    checked={todos}
-                    ref={el => { if (el) el.indeterminate = algunos }}
-                    onChange={e => toggleGrupo(ids, e.target.checked)}
-                    className="h-4 w-4 rounded border-gray-300"
-                  />
+                <div className="px-2 py-1 bg-gray-50 flex items-center gap-2">
+                  <label className="inline-flex items-center justify-center size-8 shrink-0 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      aria-label={`Seleccionar todo el pedido #${g.pedidoId} (${g.clientName})`}
+                      checked={todos}
+                      ref={el => { if (el) el.indeterminate = algunos }}
+                      onChange={e => toggleGrupo(ids, e.target.checked)}
+                      className="size-4 rounded border-gray-300"
+                    />
+                  </label>
                   {collapsible ? (
                     <button
                       type="button"
@@ -196,14 +203,17 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
                   <tbody className="divide-y divide-gray-50">
                     {g.items.map(i => (
                       <tr key={i.id} className="hover:bg-gray-50">
-                        <td className="pl-9 pr-2 py-2 w-8">
-                          <input
-                            type="checkbox"
-                            aria-label={i.nombre}
-                            checked={selected.has(i.id)}
-                            onChange={() => toggleItem(i.id)}
-                            className="h-4 w-4 rounded border-gray-300"
-                          />
+                        <td className="pl-7 pr-1 py-0.5 w-8">
+                          {/* El <label> agranda el área a 32 px; la casilla sigue de 16. */}
+                          <label className="inline-flex items-center justify-center size-8 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              aria-label={i.nombre}
+                              checked={selected.has(i.id)}
+                              onChange={() => toggleItem(i.id)}
+                              className="size-4 rounded border-gray-300"
+                            />
+                          </label>
                         </td>
                         <td className="px-2 py-2 font-mono text-xs text-gray-500 w-28">{i.sku ?? '—'}</td>
                         <td className="px-2 py-2 text-gray-900">{i.nombre}</td>
@@ -283,8 +293,8 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
         </label>
         <button
           type="submit"
-          disabled={seleccionados.length === 0 || isPending}
-          className="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors"
+          disabled={isPending}
+          className="inline-flex items-center min-h-10 bg-blue-600 text-white px-5 rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-wait transition-colors"
         >
           {isPending ? 'Guardando…' : 'Registrar compra'}
         </button>
