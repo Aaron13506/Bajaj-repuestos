@@ -73,7 +73,8 @@ export async function cargarMargenes(pedidoIds?: number[]): Promise<FilaMargen[]
     // de tabla, así que el peso de la caja ya no cambia el total, solo el prorrateo entre líneas
     // (tan prorrateo como el de la compra). Una pieza sin peso sí: se queda sin su parte del flete.
     const flete = calc.tramo ? calc.tramo.faltaCosto !== true : e.shippingCostRealAereo != null
-    const cajaReal = flete && e.shippingCostRealMaritimo != null && !calc.lines.some(l => l.missingWeight)
+    // El express no tiene naviera: con la factura de Shoppre ya está todo el flete.
+    const cajaReal = flete && (e.modo === 'express' || e.shippingCostRealMaritimo != null) && !calc.lines.some(l => l.missingWeight)
     const porItem = new Map<number, number>()
     calc.lines.forEach((l, k) => porItem.set(itemIdDeLinea[k], (porItem.get(itemIdDeLinea[k]) ?? 0) + l.landedUsd))
     for (const it of e.items) {

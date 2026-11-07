@@ -31,6 +31,8 @@ export interface PresupuestoPdfData {
   fecha: string
   validez: string | null
   clientName: string
+  /** Envío express: el plazo que se le promete al cliente (ver plazoExpress). null = envío normal. */
+  expressPlazo?: string | null
   notas: string | null
   items: PresupuestoPdfItem[]
   total: number
@@ -163,6 +165,11 @@ export function buildPresupuestoPdf(data: PresupuestoPdfData): jsPDF {
   // ── Cliente y notas
   drawLabeledValue(doc, y, 'CLIENTE', data.clientName)
   y += 5
+  if (data.expressPlazo) {
+    y += 7
+    drawLabeledValue(doc, y, 'ENVÍO', `Express: llega en ${data.expressPlazo} desde la compra`)
+    y += 5
+  }
   if (data.notas) {
     y += 7
     doc.setFontSize(7.5)

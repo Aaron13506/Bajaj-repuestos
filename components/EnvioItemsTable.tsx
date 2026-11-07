@@ -52,6 +52,8 @@ interface Props {
   // define las etapas que ofrece el select de estado: una caja que despacha directo no
   // pasa por Shoppre, y ofrecer esas etapas sería prometer un estado que no va a llegar.
   inbound: Inbound
+  /** El modo de la caja: una caja express tiene su propia ruta, sin escala en USA. */
+  modo?: string
   guardar: (envioId: number, cambios: CambioItem[]) => Promise<ActionResult>
   // La caja está en borrador: todavía no es una compra, así que sus líneas no se mueven de
   // etapa (el server lo rechaza igual; esto evita ofrecerlo).
@@ -142,6 +144,7 @@ export default function EnvioItemsTable({
   envioId,
   items,
   inbound,
+  modo,
   guardar,
   quitar,
   bloqueada = false,
@@ -170,7 +173,7 @@ export default function EnvioItemsTable({
 
   // La ruta sale de cómo entra la CAJA, más el isLanded de la línea: una pieza que el
   // proveedor manda puesta en Venezuela no viaja adentro, así que salta el pipeline.
-  const rutaDe = (it: EnvioItemRow) => routeFor(inbound, it.isLanded)
+  const rutaDe = (it: EnvioItemRow) => routeFor(inbound, it.isLanded, modo)
 
   // Lo de un cliente se entrega desde su pedido: mientras no esté entregado, "Entregado" no se ofrece.
   const entregaEnElPedido = (it: EnvioItemRow) => it.esCliente && !isDelivered(valorDe(it).shippingStatus)
@@ -179,7 +182,7 @@ export default function EnvioItemsTable({
 
   const visibles = items.filter(it => !quitados.includes(it.pedidoId))
   // Las etapas de la ruta de la caja (la de sus líneas que sí viajan).
-  const etapasCaja = routeStages(routeFor(inbound, false))
+  const etapasCaja = routeStages(routeFor(inbound, false, modo))
 
   function aplicar(cambios: CambioItem[]) {
     if (cambios.length === 0) return

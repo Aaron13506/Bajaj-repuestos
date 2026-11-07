@@ -2,9 +2,10 @@
 
 import { db } from '@/lib/db'
 import { toModelIds } from '@/lib/modelo'
-import { lookupDeConjuntos, expandCostPieces, type ProductCost } from '@/lib/envio-build'
+import { lookupDeConjuntos, expandCostPieces, type ProductCost, type ProductLookup } from '@/lib/envio-build'
 import type { BundlePiece } from '@/lib/bundle'
-import { calcLanded, CM3_PER_FT3, CM3_PER_M3, type ConfigMap } from '@/lib/calc'
+import { calcLanded, CM3_PER_FT3, CM3_PER_M3, type ConfigMap, type EnvioItemInput } from '@/lib/calc'
+import { calcExpress, motivoExpressNoAprobable, type Via } from '@/lib/express'
 import { toConfigMap, margenPorDefecto, num } from '@/lib/config'
 import type { RefLinea } from '@/lib/linea-pedido'
 import { codigoContiene } from '@/lib/alt-sku'
@@ -92,11 +93,28 @@ export interface CostoCarrito {
   sinPeso: number
   /** Siempre 99rpm: el aéreo no tiene otro distribuidor posible. */
   proveedor: string | null
+  /** Solo en un presupuesto express: el paquete contra el tope. */
+  express: ResumenExpress | null
 }
 
-export async function costearCarrito(lineas: CarritoLineaInput[]): Promise<CostoCarrito> {
+export interface ResumenExpress {
+  topeUsd: number
+  landedUsd: number
+  holguraUsd: number
+  excede: boolean
+  fleteUsd: number
+  chargeableKg: number
+  ataVolumen: boolean
+  productoQueEntraUsd: number
+  kgHastaProximoEscalon: number | null
+  margen: number
+  /** Por qué no se podría confirmar así, o null. Lo mismo que exige aprobarPedido. */
+  motivo: string | null
+}
+
+export async function costearCarrito(lineas: CarritoLineaInput[], via: Via = 'normal'): Promise<CostoCarrito> {
   const vacio: CostoCarrito = {
-    lineas: [], landedUsd: 0, weightKg: 0, volKg: 0, ft3: 0, cbm: 0, sinMedidas: 0, costoOrigenUsd: 0, fleteUsd: 0, sinPeso: 0, proveedor: '99rpm',
+    lineas: [], landedUsd: 0, weightKg: 0, volKg: 0, ft3: 0, cbm: 0, sinMedidas: 0, costoOrigenUsd: 0, fleteUsd: 0, sinPeso: 0, proveedor: '99rpm', express: null,
   }
   if (lineas.length === 0) return vacio
 
@@ -132,6 +150,8 @@ export async function costearCarrito(lineas: CarritoLineaInput[]): Promise<Costo
     select: { id: true, margin: true },
   })
   const margenPorId = new Map(margenes.map(m => [m.id, m.margin]))
+
+  if (via === 'express') return costearExpress(lineas, cfg, porId, lookup, divisor)
 
   const out: CostoLinea[] = []
   for (const l of lineas) {
@@ -198,6 +218,84 @@ export async function costearCarrito(lineas: CarritoLineaInput[]): Promise<Costo
     fleteUsd: 0,
     sinPeso: sum(l => l.sinPeso),
     proveedor: '99rpm',
+    express: null,
+  }
+}
+
+// El mismo carrito, por express: TODAS las piezas van en un paquete con un solo flete, así
+// que no se costea pieza por pieza (calcLanded) sino el paquete entero (calcExpress), y el
+// landed de cada línea es lo que le tocó del paquete. El margen es el express, parejo para
+// todas: el precio de catálogo y el margen propio de cada pieza son de la ruta por Miami.
+function costearExpress(
+  lineas: CarritoLineaInput[],
+  cfg: ConfigMap,
+  porId: Map<number, ProductCost>,
+  lookup: ProductLookup,
+  divisor: number,
+): CostoCarrito {
+  const porLinea: { l: CarritoLineaInput; desde: number; hasta: number }[] = []
+  const items: EnvioItemInput[] = []
+  let cm3Total = 0
+  let sinMedidas = 0
+  let weightKg = 0
+  for (const l of lineas) {
+    const product = l.productId != null ? porId.get(l.productId) ?? null : null
+    const esConjunto = l.ensambleId != null
+    if (esConjunto ? !(l.bundleItems && l.bundleItems.length > 0) : !product) continue
+    const desde = items.length
+    for (const p of expandCostPieces(product, l.quantity, l.bundleItems ?? null, lookup)) {
+      items.push({
+        pedidoId: 0, productId: p.productId, name: p.name, weightGrams: p.weightGrams,
+        dimL: p.dimL, dimA: p.dimA, dimH: p.dimH, priceInr: p.priceInr, quantity: p.quantity,
+        origen: 'india', inbound: 'shoppre', supplierId: null,
+      })
+      weightKg += ((p.weightGrams ?? 0) / 1000) * p.quantity
+      if (p.dimL != null && p.dimA != null && p.dimH != null) cm3Total += p.dimL * p.dimA * p.dimH * p.quantity
+      else sinMedidas++
+    }
+    porLinea.push({ l, desde, hasta: items.length })
+  }
+
+  const e = calcExpress(items, cfg)
+  const out: CostoLinea[] = porLinea.map(({ l, desde, hasta }) => {
+    const piezas = e.envio.lines.slice(desde, hasta)
+    const landedUsd = piezas.reduce((s, p) => s + p.landedUsd, 0)
+    const sugeridoUsd = e.margen < 1 ? landedUsd / (1 - e.margen) : null
+    return {
+      productId: l.productId, ensambleId: l.ensambleId, quantity: l.quantity, landedUsd,
+      weightKg: piezas.reduce((s, p) => s + p.realKg, 0),
+      sugeridoUsd,
+      sugeridoUnitUsd: sugeridoUsd != null && l.quantity > 0 ? sugeridoUsd / l.quantity : null,
+      sinPeso: piezas.filter(p => p.missingWeight).length,
+      totalPiezas: piezas.length,
+    }
+  })
+
+  return {
+    lineas: out,
+    landedUsd: e.landedUsd,
+    weightKg,
+    volKg: cm3Total / divisor,
+    ft3: cm3Total / CM3_PER_FT3,
+    cbm: cm3Total / CM3_PER_M3,
+    sinMedidas,
+    costoOrigenUsd: 0,
+    fleteUsd: e.envio.airUsd,
+    sinPeso: e.sinPeso.length,
+    proveedor: '99rpm',
+    express: {
+      topeUsd: e.topeUsd,
+      landedUsd: e.landedUsd,
+      holguraUsd: e.holguraUsd,
+      excede: e.excede,
+      fleteUsd: e.envio.airUsd,
+      chargeableKg: e.envio.air.chargeableKg,
+      ataVolumen: e.envio.air.binding === 'volume',
+      productoQueEntraUsd: e.productoQueEntraUsd,
+      kgHastaProximoEscalon: e.kgHastaProximoEscalon,
+      margen: e.margen,
+      motivo: motivoExpressNoAprobable(e),
+    },
   }
 }
 

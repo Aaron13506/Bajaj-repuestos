@@ -24,6 +24,8 @@ import { pasarAStockPropio, registrarEvento, SELECT_LINEA_MOVIBLE } from '@/lib/
 import { cerradosPorEdicion } from '@/lib/incidencias'
 import { notaCobroBcv, realDeCobro, resumenCobro } from '@/lib/cobro-bcv'
 import { cobraEnBolivares } from '@/lib/pagos'
+import { motivoExpressNoAprobable, viaDe } from '@/lib/express'
+import { expressDelPedido } from '@/lib/express-pedido'
 
 type Tx = Prisma.TransactionClient
 
@@ -147,6 +149,8 @@ export async function createPresupuesto(formData: FormData): Promise<ActionResul
 async function crearPresupuesto(formData: FormData) {
   const notas = (formData.get('notas') as string)?.trim() || null
   const tipo = (formData.get('tipo') as string) === 'propio' ? 'propio' : 'cliente'
+  // El stock propio viaja siempre por la caja normal (CHECK Pedido_express_solo_cliente).
+  const via = tipo === 'cliente' ? viaDe(formData.get('via') as string | null) : 'normal'
   const items = parseItems(formData)
 
   if (items.length === 0) throw new ErrorDeNegocio('Agregá al menos una pieza.')
@@ -180,6 +184,7 @@ async function crearPresupuesto(formData: FormData) {
       clienteId,
       notas,
       tipo,
+      via,
       status,
       ...cotizacion,
       items: {
@@ -392,7 +397,11 @@ async function editarPresupuesto(id: number, formData: FormData) {
   const cotizacion = existing.tipo === 'cliente' && existing.status === 'presupuesto'
     ? { cotizadoAt: new Date(), escalonCotizadoPct: escalonBcvVigente(toConfigMap(await db.config.findMany())) }
     : {}
-  ops.push(db.pedido.update({ where: { id }, data: { clientName, clienteId, notas, ...cotizacion } }))
+  // La vía solo se cambia mientras es presupuesto: un pedido confirmado se cotizó y se cobró así.
+  const via = existing.tipo === 'cliente' && existing.status === 'presupuesto'
+    ? { via: viaDe(formData.get('via') as string | null) }
+    : {}
+  ops.push(db.pedido.update({ where: { id }, data: { clientName, clienteId, notas, ...cotizacion, ...via } }))
 
   await db.$transaction(ops)
 
@@ -650,6 +659,11 @@ export async function aprobarPedido(id: number, formData: FormData): Promise<Act
         if (e instanceof ErrorDeNegocio) return fallo(e.message)
         throw e
       }
+      // Express: confirmarlo es comprometerse a mandarlo así, y un paquete pasado del tope no
+      // sale. Se costea con las tarifas de HOY: pudieron moverse desde que se cotizó.
+      const express = await expressDelPedido(tx, id, cfg)
+      const pasado = express && motivoExpressNoAprobable(express)
+      if (pasado) return fallo(pasado)
     }
 
     // Al confirmar se congela el escalón con el que se le presentó el presupuesto al cliente (el del

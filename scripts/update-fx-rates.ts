@@ -2,13 +2,15 @@
 // bsd_usd_rate en Config con tasas frescas, para que calcLanded/calcEnvio siempre usen
 // el valor del día sin intervención manual en /config.
 //
-// De paso refresca las tarifas de flete de Shoppre (Config.shoppre_rates_usd). Van
+// De paso refresca las tarifas de flete de Shoppre (Config.shoppre_rates_usd, y la del
+// express a Venezuela en shoppre_rates_ve_usd). Van
 // juntas porque son la misma clase de dato — precios externos que la app no controla —
 // pero a distinta cadencia: la tasa cambia cada hora, el flete cada semanas, así que
 // updateShippingRates se autolimita a una corrida diaria (ver su ventana de frescura).
 import { PrismaClient } from '@prisma/client'
 import { fetchFxRates } from '@/lib/fx-rates'
 import { updateShippingRates } from './update-shipping-rates'
+import { CONFIG_KEY_TARIFAS } from '@/lib/shipping-rates'
 import { repreciarCatalogo } from './repreciar-catalogo'
 
 const db = new PrismaClient()
@@ -40,14 +42,19 @@ async function main() {
   // Que Shoppre se caiga no puede tumbar la actualización de tasas, que ya quedó
   // guardada arriba: se reporta el fallo y se sale con código ≠ 0 para que systemd lo
   // marque, pero sin revertir lo bueno.
-  try {
-    const res = await updateShippingRates(db, { force: process.argv.includes('--force-rates') })
-    console.log(res.skipped ? `shoppre_rates_usd: omitido (${res.reason})` : `shoppre_rates_usd: ${res.steps} escalones, ${res.changed} cambios`)
-  } catch (err) {
-    const e = err as Error & { failures?: string[] }
-    console.error(`update-shipping-rates falló: ${e.message}`)
-    for (const f of (e.failures ?? []).slice(0, 10)) console.error(`  - ${f}`)
-    process.exitCode = 1
+  // Una tabla por destino, cada una con su try: que falle la de Venezuela (el express) no
+  // deja sin actualizar la de USA, que es la que pone los precios del catálogo.
+  for (const destino of ['usa', 've'] as const) {
+    const key = CONFIG_KEY_TARIFAS[destino]
+    try {
+      const res = await updateShippingRates(db, { force: process.argv.includes('--force-rates'), destino })
+      console.log(res.skipped ? `${key}: omitido (${res.reason})` : `${key}: ${res.steps} escalones, ${res.changed} cambios`)
+    } catch (err) {
+      const e = err as Error & { failures?: string[] }
+      console.error(`update-shipping-rates (${destino}) falló: ${e.message}`)
+      for (const f of (e.failures ?? []).slice(0, 10)) console.error(`  - ${f}`)
+      process.exitCode = 1
+    }
   }
 
   // Con tasas y flete al día, el precio de catálogo (una caché de reprice) se pone al día.

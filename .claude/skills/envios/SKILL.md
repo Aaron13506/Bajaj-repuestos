@@ -35,6 +35,9 @@ description: Cajas y logística (Envio, EnvioLinea, app/(pages)/envios/, lib/shi
 | `shoppre` | pendiente → camino_shoppre → en_shoppre → camino_usa → en_usa → camino_venezuela → en_venezuela → entregado |
 | `cotizado` | pendiente → camino_usa → … (skips Shoppre) |
 | `landed` | pendiente → en_venezuela → entregado (`isLanded`: never travels in the box) |
+| `express` | pendiente → camino_shoppre → en_shoppre → camino_venezuela → en_venezuela → entregado (the box's `modo = 'express'`: no USA) |
+
+**Express box (`Envio.modo = 'express'`)**: Shoppre ships straight from its India depot to Venezuela. It behaves like the air box (`llevaPedidos`, `MODOS_CON_PEDIDOS`: borrador → confirm, buy, pay, move) but `routeFor(inbound, isLanded, modo)` gives the `express` route, nothing in it is landed, the supplier must go through the depot (no `cotizado`), and there is **no maritime leg**: one freight row (Shoppre's invoice for the whole trip, stored in `shippingCostRealAereo`), no `usa` tracking. It carries **only express quotes**, and express quotes travel only in it (`motivoViaNoCoincide`, checked in `asignarAEnvio`; the box page and "add all confirmed" filter by `Pedido.via`). `confirmarCajaAerea` refuses an express box over `express_tope_usd` (`topeDeCaja` + `motivoExpressNoAprobable`). `/resultados` treats it as fully billed once Shoppre's invoice is in.
 
 What separates the first two is whether goods pass through Shoppre's warehouse, not the country (`lib/inbound.ts`). `routeFor(inbound, isLanded)` picks the route, `nextStatus` skips inapplicable stages, `normalizeToRoute` repairs a line left on a stage its route lacks. `PedidoItem.inbound` keeps a bought line on the route it was bought with.
 

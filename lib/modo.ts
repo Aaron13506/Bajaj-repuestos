@@ -13,12 +13,15 @@
 //   maritimo_cbm India → Venezuela por mar, directo. Cobra VOLUMEN: tarifa plana por m³
 //                más el FOB, que es fijo por embarque.
 //                Es el carril de STOCK: mercancía propia, que puede esperar a consolidar.
+//   express      India → Venezuela directo, por Shoppre (tabla de Venezuela). Lleva un
+//                presupuesto express de cliente: mismo depósito que el aéreo, sin escala en
+//                USA ni tramo por mar, y con tope de landed por paquete (lib/express.ts).
 //
 // Los dos carriles casi no se tocan, y por eso cada uno tiene su propio contenido: el
 // aéreo agrupa PedidoItem (líneas comerciales), el marítimo EnvioLinea (mercancía propia).
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type ModoApp = 'aereo' | 'maritimo_cbm'
+export type ModoApp = 'aereo' | 'maritimo_cbm' | 'express'
 
 export const MODOS: { value: ModoApp; label: string; short: string; icon: string; hint: string }[] = [
   {
@@ -35,10 +38,25 @@ export const MODOS: { value: ModoApp; label: string; short: string; icon: string
     icon: '🚢',
     hint: 'India → Venezuela directo por mar. Tarifa plana por m³ + FOB fijo. Se cobra por volumen. Es la ruta de la mercancía propia.',
   },
+  {
+    value: 'express',
+    label: 'Express',
+    short: 'Express',
+    icon: '⚡',
+    hint: 'Shoppre directo India → Venezuela, sin pasar por USA. Lleva un presupuesto express de cliente y el landed del paquete tiene tope.',
+  },
 ]
 
 export function isModoApp(v: string | null | undefined): v is ModoApp {
-  return v === 'aereo' || v === 'maritimo_cbm'
+  return v === 'aereo' || v === 'maritimo_cbm' || v === 'express'
+}
+
+// Las cajas que llevan LÍNEAS DE PEDIDO (PedidoItem): la aérea y la express. Comparten casi
+// todo (borrador → confirmar, comprar, pagar, mover etapas); el marítimo lleva EnvioLinea.
+export const MODOS_CON_PEDIDOS = ['aereo', 'express'] as const
+
+export function llevaPedidos(modo: string | null | undefined): boolean {
+  return modo === 'aereo' || modo === 'express'
 }
 
 // Ruta con la que se costeó un envío. Cada Envio la congela al crearse. Las filas

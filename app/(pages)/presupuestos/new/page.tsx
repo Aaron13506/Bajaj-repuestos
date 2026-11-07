@@ -3,6 +3,8 @@ import { toModelIds } from '@/lib/modelo'
 import { cabeceraDeLinea, nombreEnsamble } from '@/lib/linea-pedido'
 import { type BundlePiece } from '@/lib/bundle'
 import Link from 'next/link'
+import { plazoExpress, viaDe } from '@/lib/express'
+import { getConfig } from '@/lib/config-db'
 import PresupuestoBuilder from '@/components/PresupuestoBuilder'
 import { createPresupuesto } from '../actions'
 import { posicionesParaArmador } from '@/lib/inventario'
@@ -12,7 +14,7 @@ export const metadata = { title: 'Nuevo presupuesto' }
 export default async function NewPresupuestoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tipo?: string; cliente?: string; desde?: string }>
+  searchParams: Promise<{ tipo?: string; cliente?: string; desde?: string; via?: string }>
 }) {
   const sp = await searchParams
   const desdeId = parseInt(sp.desde ?? '')
@@ -33,7 +35,7 @@ export default async function NewPresupuestoPage({
     isNaN(desdeId) ? null : db.pedido.findUnique({
       where: { id: desdeId },
       select: {
-        tipo: true, clientName: true, clienteId: true,
+        tipo: true, clientName: true, clienteId: true, via: true,
         items: {
           include: {
             product: { select: { id: true, nameEs: true, bajajCode: true, imageUrl: true, compatibleModels: true, discontinuedAt: true } },
@@ -102,6 +104,9 @@ export default async function NewPresupuestoPage({
         editando={false}
         clientes={clientes}
         posiciones={posiciones}
+        // Un duplicado sale por la misma vía que el original; si no, la que pida el enlace.
+        initialVia={viaDe(desde?.via ?? sp.via)}
+        plazoExpressTexto={plazoExpress(await getConfig())}
       />
     </div>
   )
