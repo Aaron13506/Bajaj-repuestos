@@ -12,6 +12,7 @@ import {
   apiConsultar, apiCouriers, apiKeyShip24, apiRegistrar, COURIERS_VIGENCIA_DIAS, cuerpoTracker, datosDeTracking,
   ErrorShip24, ESTADOS_FINALES, S24_PAUSA_MS, type Courier, type TrackingS24,
 } from './ship24'
+import { credencialesOneway, detalleOneway, entrarOneway, ErrorOneway, ONEWAY_CODE, pedidosOneway } from './oneway'
 
 const esperar = (ms: number) => new Promise(r => setTimeout(r, ms))
 
@@ -86,7 +87,7 @@ export async function sincronizarTrackings({ envioId }: { envioId?: number } = {
     }
     const filas: Fila[] = await db.envioTracking.findMany({
       where: {
-        courierCode: { not: null },
+        courierCode: { not: null, notIn: [ONEWAY_CODE] },
         errorSeguimiento: null,
         OR: [{ estado: null }, { estado: { notIn: [...ESTADOS_FINALES] } }],
         ...(envioId != null ? { envioId } : {}),
@@ -122,6 +123,70 @@ export async function sincronizarTrackings({ envioId }: { envioId?: number } = {
     if (e instanceof ErrorShip24) return { ...resumen, error: e.message }
     if (e instanceof Error && (e.name === 'TimeoutError' || e.name === 'TypeError')) {
       return { ...resumen, error: `No se pudo hablar con Ship24: ${e.message}` }
+    }
+    throw e
+  }
+}
+
+/**
+ * Pone al día los códigos de One Way Cargo (tramo Venezuela) que todavía no llegaron. Entra a
+ * la cuenta solo si hay alguno pendiente. Con `envioId`, solo esa caja y reintenta los que
+ * tenían error. Ver lib/oneway.ts.
+ */
+export async function sincronizarOneway({ envioId }: { envioId?: number } = {}): Promise<ResumenSync> {
+  const cred = credencialesOneway()
+  const resumen: ResumenSync = { registrados: 0, actualizados: 0, conError: 0 }
+  if (!cred) return { ...resumen, apagado: true }
+
+  if (envioId != null) {
+    await db.envioTracking.updateMany({ where: { envioId, courierCode: ONEWAY_CODE, errorSeguimiento: { not: null } }, data: { errorSeguimiento: null } })
+  }
+  const filas: Fila[] = await db.envioTracking.findMany({
+    where: {
+      courierCode: ONEWAY_CODE,
+      errorSeguimiento: null,
+      OR: [{ estado: null }, { estado: { notIn: [...ESTADOS_FINALES] } }],
+      ...(envioId != null ? { envioId } : {}),
+    },
+    select: { id: true, envioId: true, tramo: true, numero: true, courierCode: true, trackerId: true },
+    orderBy: { id: 'asc' },
+  })
+  if (filas.length === 0) return resumen
+
+  try {
+    const sesion = await entrarOneway(cred)
+    const pedidos = await pedidosOneway(sesion)
+    for (const f of filas) {
+      const uuid = pedidos.get(f.numero.trim().toUpperCase())
+      const d = uuid ? await detalleOneway(sesion, uuid) : null
+      if (!d || d.eventos.length === 0) {
+        resumen.conError++
+        await marcarError(f, !d
+          ? 'One Way Cargo no muestra ese código en la cuenta. Si viajó consolidado, anotá el CON-….'
+          : 'No se pudo leer el historial en One Way Cargo (¿cambió la página?).')
+        continue
+      }
+      const r = await db.envioTracking.updateMany({
+        where: dondeFila(f),
+        data: {
+          trackerId: uuid,
+          estado: d.estado,
+          subestado: d.subestado,
+          ultimoEvento: d.eventos[0].detalle,
+          ultimoEventoEn: d.eventos[0].fecha,
+          eventos: d.eventos as unknown as Prisma.InputJsonValue,
+          consultadoEn: new Date(),
+          errorSeguimiento: null,
+        },
+      })
+      resumen.actualizados += r.count
+      await esperar(1000)
+    }
+    return resumen
+  } catch (e) {
+    if (e instanceof ErrorOneway) return { ...resumen, error: e.message }
+    if (e instanceof Error && (e.name === 'TimeoutError' || e.name === 'TypeError')) {
+      return { ...resumen, error: `No se pudo hablar con One Way Cargo: ${e.message}` }
     }
     throw e
   }
