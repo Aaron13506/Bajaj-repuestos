@@ -556,7 +556,7 @@ model Incidencia {
   // Solo en un conjunto: cuál de sus piezas es la del problema (etiquetaPieza: «Nombre (CÓDIGO)»).
   // null = la línea entera. Es lo que deja cerrar un "no disponible" quitando solo esa pieza.
   pieza        String?
-  // no_disponible | danada | perdida | faltante | equivocada | defecto
+  // no_disponible | sin_enviar | danada | perdida | faltante | equivocada | defecto
   tipo         String
   // 'operacion' = lo detecté yo; 'cliente' = lo reclamó el cliente después de entregarle.
   origen       String    @default("operacion")

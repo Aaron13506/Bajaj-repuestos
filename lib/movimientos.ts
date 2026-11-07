@@ -12,6 +12,8 @@ import { CUENTAS, cuentaDeMetodo, datosBs, type Cuenta, type DatosBs } from '@/l
 import { convertir, usdPorBsAlConvertir, usdPorBsEnCuenta } from '@/lib/conversion'
 import { notaCobroBcv, realDeCobro, resumenCobro } from '@/lib/cobro-bcv'
 import { repartirEnCentavos } from '@/lib/reparto-compra'
+import { TIPO_LABELS, tiposPara } from '@/lib/incidencias'
+import { registrarEvento } from '@/lib/pedido-derivado'
 
 // Libro de movimientos: la fuente única de "cuánta plata tengo". Cada categoría fija su
 // tipo (ver tipoDeCategoria) para que un ingreso no pueda anotarse con categoría de egreso
@@ -50,11 +52,17 @@ export const CATEGORIAS_CONVERSION = ['conversion_salida', 'conversion_entrada']
 // dejaría el pedido diciendo que el cliente sigue pagado.
 export const CATEGORIAS_DEVOLUCION = ['devolucion_cliente'] as const
 
+// Plata que el proveedor devuelve por algo que cobró y no mandó (una incidencia "sin_enviar"
+// resuelta como reembolso). Tampoco se anota a mano: nace al resolver la incidencia, junto con la
+// baja de unidades y de costo de la línea. Ligado a la caja, descuenta de lo pagado al proveedor
+// (el costo de esas unidades ya salió de lo que se le debe).
+export const CATEGORIAS_REEMBOLSO_PROVEEDOR = ['reembolso_proveedor'] as const
+
 export type CategoriaIngreso = (typeof CATEGORIAS_INGRESO)[number]
 export type CategoriaEgreso = (typeof CATEGORIAS_EGRESO)[number]
 export type CategoriaConversion = (typeof CATEGORIAS_CONVERSION)[number]
 export type CategoriaDevolucion = (typeof CATEGORIAS_DEVOLUCION)[number]
-export type Categoria = CategoriaIngreso | CategoriaEgreso | CategoriaConversion | CategoriaDevolucion
+export type Categoria = CategoriaIngreso | CategoriaEgreso | CategoriaConversion | CategoriaDevolucion | (typeof CATEGORIAS_REEMBOLSO_PROVEEDOR)[number]
 
 export const CATEGORIA_LABELS: Record<Categoria, string> = {
   adelanto_cliente: 'Adelanto de cliente',
@@ -71,10 +79,11 @@ export const CATEGORIA_LABELS: Record<Categoria, string> = {
   conversion_salida: 'Conversión · sale',
   conversion_entrada: 'Conversión · entra',
   devolucion_cliente: 'Devolución a cliente',
+  reembolso_proveedor: 'Reembolso de proveedor',
 }
 
 export function tipoDeCategoria(categoria: string): 'ingreso' | 'egreso' {
-  return (CATEGORIAS_INGRESO as readonly string[]).includes(categoria) || categoria === 'conversion_entrada'
+  return (CATEGORIAS_INGRESO as readonly string[]).includes(categoria) || categoria === 'conversion_entrada' || categoria === 'reembolso_proveedor'
     ? 'ingreso'
     : 'egreso'
 }
@@ -496,7 +505,8 @@ export interface CuentasPorPagar {
 //             caja o, si no lo tiene, del catálogo — el mismo costeo que muestra su ficha.
 //             Sin esta rama el marítimo no figuraba nunca como deuda.
 //
-// PAGADO — solo los egresos de CATEGORIAS_PAGO_PROVEEDOR. Los fletes se le pagan a otro.
+// PAGADO — solo los egresos de CATEGORIAS_PAGO_PROVEEDOR, menos lo que el proveedor devolvió
+// (CATEGORIAS_REEMBOLSO_PROVEEDOR). Los fletes se le pagan a otro.
 //
 // Los envíos sin proveedor (99rpm, supplierId null) no giran plata por esta vía y quedan
 // afuera.
@@ -531,8 +541,13 @@ export async function cuentasPorPagar(): Promise<CuentasPorPagar> {
           },
         },
         movimientos: {
-          where: { tipo: 'egreso', categoria: { in: [...CATEGORIAS_PAGO_PROVEEDOR] } },
-          select: { monto: true },
+          where: {
+            OR: [
+              { tipo: 'egreso', categoria: { in: [...CATEGORIAS_PAGO_PROVEEDOR] } },
+              { tipo: 'ingreso', categoria: { in: [...CATEGORIAS_REEMBOLSO_PROVEEDOR] } },
+            ],
+          },
+          select: { monto: true, tipo: true },
         },
       },
     }),
@@ -585,7 +600,8 @@ export async function cuentasPorPagar(): Promise<CuentasPorPagar> {
     }
 
     const debido = mercancia + num(e.tramoUsd) + num(e.comisionSalienteUsd) + num(e.comisionEntranteUsd)
-    const pagado = e.movimientos.reduce((s, m) => s + num(m.monto), 0)
+    // Lo que el proveedor devolvió descuenta de lo pagado: esas unidades ya salieron de lo debido.
+    const pagado = e.movimientos.reduce((s, m) => s + (m.tipo === 'ingreso' ? -num(m.monto) : num(m.monto)), 0)
     return {
       envioId: e.id,
       nombre: e.nombre,
@@ -723,6 +739,9 @@ export interface ItemPendienteCosto {
   envioId: number | null
   envioNombre: string | null
   supplierId: number | null
+  // Se le puede anotar al comprarla que el proveedor no la mandó (incidencia "sin_enviar"): en un
+  // pedido de cliente o de stock propio, si todavía no llegó a Venezuela (tiposPara).
+  admiteSinEnviar: boolean
 }
 
 async function itemsConEstimado(where: Prisma.PedidoItemWhereInput): Promise<ItemPendienteCosto[]> {
@@ -735,8 +754,9 @@ async function itemsConEstimado(where: Prisma.PedidoItemWhereInput): Promise<Ite
         supplierId: true,
         envioId: true,
         bundleItems: true,
+        shippingStatus: true,
         envio: { select: { id: true, nombre: true } },
-        pedido: { select: { id: true, clientName: true } },
+        pedido: { select: { id: true, clientName: true, tipo: true } },
         product: {
           select: {
             id: true, nameEs: true, bajajCode: true, priceInr: true,
@@ -799,6 +819,7 @@ async function itemsConEstimado(where: Prisma.PedidoItemWhereInput): Promise<Ite
       envioId: i.envioId,
       envioNombre: i.envio?.nombre ?? null,
       supplierId: i.supplierId,
+      admiteSinEnviar: (i.pedido.tipo === 'cliente' || i.pedido.tipo === 'propio') && tiposPara({ shippingStatus: i.shippingStatus, costRealUsd: 0 }).includes('sin_enviar'),
     }
   })
 }
@@ -888,6 +909,21 @@ export async function registrarCompra(formData: FormData): Promise<ResultadoComp
   // que sí quedan repartiría el monto entero —que era por TODAS— entre unas pocas.
   if (items.length !== ids.length) return fallo(MSG_COMPRA_OBSOLETA)
 
+  // Lo que el proveedor cobró pero no mandó todavía (backorder): `sinEnviar_<id>` = unidades de
+  // esa línea. Se anota como incidencia "sin_enviar" en la misma compra, y así la caja no lo
+  // espera al llegar. Vacío o 0 = vino todo; un número ilegible se rechaza, no se ignora.
+  const sinEnviar: { item: ItemPendienteCosto; cantidad: number }[] = []
+  for (const it of items) {
+    const crudo = String(formData.get(`sinEnviar_${it.id}`) ?? '').trim()
+    if (crudo === '') continue
+    const n = Number(crudo)
+    if (!Number.isInteger(n) || n < 0) return fallo(`«${it.nombre}»: lo que no mandó el proveedor tiene que ser un entero ≥ 0.`)
+    if (n === 0) continue
+    if (n > it.quantity) return fallo(`«${it.nombre}» tiene ${it.quantity} unidad(es): no pueden faltar ${n}.`)
+    if (!it.admiteSinEnviar) return fallo(`«${it.nombre}» no admite «no lo mandó» (ya llegó a Venezuela).`)
+    sinEnviar.push({ item: it, cantidad: n })
+  }
+
   // Reparto proporcional al estimado, en centavos exactos: lo repartido suma el total pagado
   // al centavo (ver repartirEnCentavos). Sin estimado en ninguna, a partes iguales.
   const costos = repartirEnCentavos(monto, items.map(i => i.estimadoUsd))
@@ -903,6 +939,12 @@ export async function registrarCompra(formData: FormData): Promise<ResultadoComp
 
   try {
     await db.$transaction(async tx => {
+      // Los pedidos a los que se les anota algo, en orden y antes que nada (como en todas las
+      // acciones por pedido): un pedido cancelado mientras tanto ya no está en la compra.
+      for (const pedidoId of [...new Set(sinEnviar.map(s => s.item.pedidoId))].sort((a, b) => a - b)) {
+        const p = await bloquearPedido(tx, pedidoId)
+        if (p?.status !== 'pedido') throw new CompraObsoleta()
+      }
       const mov = await tx.movimiento.create({
         data: {
           fecha,
@@ -930,6 +972,13 @@ export async function registrarCompra(formData: FormData): Promise<ResultadoComp
         FROM (VALUES ${valores}) AS v(id, costo)
         WHERE pi."id" = v.id AND pi."costRealUsd" IS NULL`
       if (n !== items.length) throw new CompraObsoleta()
+
+      for (const { item, cantidad } of sinEnviar) {
+        await tx.incidencia.create({
+          data: { pedidoId: item.pedidoId, itemId: item.id, descripcion: item.nombre, tipo: 'sin_enviar', origen: 'operacion', cantidad },
+        })
+        await registrarEvento(tx, item.pedidoId, 'incidencia', `Problema: ${TIPO_LABELS.sin_enviar} · ${cantidad}× «${item.nombre}» (anotado al registrar la compra)`)
+      }
     }, { maxWait: 10_000, timeout: 20_000 })
   } catch (e) {
     if (e instanceof CompraObsoleta) return fallo(MSG_COMPRA_OBSOLETA)

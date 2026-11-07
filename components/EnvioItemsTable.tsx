@@ -19,6 +19,7 @@ import { groupBundlePieces, type BundlePiece } from '@/lib/bundle'
 import { limpiarNombre } from '@/lib/utils'
 import type { CambioItem } from '@/app/(pages)/envios/actions'
 import type { ActionResult } from '@/lib/action-result'
+import MarcarNoVino, { type SkuNoVino } from '@/components/MarcarNoVino'
 
 export interface EnvioItemRow {
   id: number
@@ -43,6 +44,16 @@ export interface EnvioItemRow {
   // Piezas de la línea sin peso / sin medidas cargados: el cálculo del flete las subestima.
   sinPeso: number
   sinMedidas: number
+  // Lo que el proveedor no mandó todavía (incidencias "sin_enviar" abiertas), ya dicho en texto
+  // ("2 sin enviar", "1 pieza sin enviar"); null = vino todo. La caja no lo espera al llegar.
+  sinEnviar: string | null
+  // Se le puede marcar desde acá que el proveedor no la mandó (pedido confirmado de cliente o propio,
+  // que todavía no llegó a Venezuela). Las piezas de un conjunto, por si falta solo una.
+  admiteNoVino: boolean
+  /** Los SKU de un conjunto, con lo ya anotado como "no vino" (vacío = pieza suelta). */
+  skusNoVino: SkuNoVino[]
+  /** Pieza suelta: unidades ya anotadas como "no vino". */
+  yaNoVino: number
 }
 
 interface Props {
@@ -61,6 +72,8 @@ interface Props {
   // Se quita el presupuesto COMPLETO, no piezas sueltas: el presupuesto es lo que se le
   // vendió al cliente y no se parte. O viaja entero en esta caja, o no viaja.
   quitar: (envioId: number, pedidoId: number) => Promise<ActionResult>
+  /** Anota que el proveedor no mandó (parte de) una línea. */
+  marcarNoVino?: (envioId: number, itemId: number, formData: FormData) => Promise<ActionResult>
 }
 
 // Aviso ámbar de piezas sin peso o sin medidas. No dice cuáles: lleva al presupuesto, que es
@@ -147,8 +160,11 @@ export default function EnvioItemsTable({
   modo,
   guardar,
   quitar,
+  marcarNoVino,
   bloqueada = false,
 }: Props) {
+  // La línea con el formulario "No vino" abierto (una a la vez).
+  const [noVino, setNoVino] = useState<number | null>(null)
   // Estado local de los selects. La base vive en Supabase remoto, así que cada guardado
   // son cientos de ms: la UI no los espera. Se pinta el cambio al instante y el guardado
   // va por detrás; si falla, se revierte y se avisa.
@@ -553,6 +569,15 @@ export default function EnvioItemsTable({
                           {it.bajajCode && (
                             <span className="ml-2 font-mono text-[10px] text-gray-500">{it.bajajCode}</span>
                           )}
+                          {it.sinEnviar && (
+                            <Link
+                              href={`/presupuestos/${it.pedidoId}`}
+                              title="El proveedor no lo mandó todavía: el conteo no lo espera. Cuando llegue, resolvelo como «Llegó» en el pedido."
+                              className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-800 hover:bg-orange-200"
+                            >
+                              {it.sinEnviar}
+                            </Link>
+                          )}
                           {esLanded && (
                             <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">
                               no viaja
@@ -595,6 +620,16 @@ export default function EnvioItemsTable({
                             ))}
                           </div>
                         )}
+                        {noVino === it.id && marcarNoVino && (
+                          <MarcarNoVino
+                            nombre={limpiarNombre(it.nombre)}
+                            cantidad={it.quantity}
+                            piezas={it.skusNoVino}
+                            yaAnotadasLinea={it.yaNoVino}
+                            marcar={fd => marcarNoVino(envioId, it.id, fd)}
+                            cerrar={() => setNoVino(null)}
+                          />
+                        )}
                       </td>
                       <td className="px-3 py-3 text-right font-mono text-gray-700">{usd(it.landed)}</td>
                       <td className="px-3 py-3 text-right font-mono text-gray-700">{usd(it.venta)}</td>
@@ -614,8 +649,19 @@ export default function EnvioItemsTable({
                           <p className="text-[10px] text-gray-500 mt-1">desde {fecha(it.shippingStatusAt)}</p>
                         )}
                       </td>
-                      {/* Sin acción por fila: una pieza no se saca sola del envío. */}
-                      <td className="px-4 py-3" />
+                      {/* Una pieza no se saca sola del envío; lo único por fila es avisar que no vino. */}
+                      <td className="px-4 py-3 text-right">
+                        {it.admiteNoVino && marcarNoVino && (
+                          <button
+                            type="button"
+                            onClick={() => setNoVino(it.id)}
+                            title="El proveedor no la mandó (o no toda): la caja no la espera al llegar"
+                            className="px-2 py-1 text-[11px] font-medium rounded-lg border border-orange-300 bg-white text-orange-700 hover:bg-orange-50 whitespace-nowrap"
+                          >
+                            Marcar «no vino»
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   )
                 })}

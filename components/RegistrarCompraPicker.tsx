@@ -26,6 +26,9 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
   const [desplegados, setDesplegados] = useState<Set<number>>(new Set())
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
+  // Unidades de cada línea que el proveedor cobró pero no mandó todavía (por id). Vive acá y no en
+  // el form porque las filas de un cliente plegado no se renderizan y sus inputs se perderían.
+  const [sinEnviar, setSinEnviar] = useState<Record<number, string>>({})
   // `isPending` recién se ve en el próximo render: un segundo submit que entre antes pasaría
   // igual. El ref lo corta en el mismo tick.
   const enVuelo = useRef(false)
@@ -91,7 +94,10 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
     // se hubiera guardado.
     const form = e.currentTarget
     const fd = new FormData(form)
-    for (const id of selected) fd.append('itemIds', String(id))
+    for (const id of selected) {
+      fd.append('itemIds', String(id))
+      if (sinEnviar[id]?.trim()) fd.set(`sinEnviar_${id}`, sinEnviar[id].trim())
+    }
     enVuelo.current = true
     setError(null)
     startTransition(async () => {
@@ -99,6 +105,7 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
         const r = await action(fd)
         if (r.ok) {
           setSelected(new Set())
+          setSinEnviar({})
           form.reset()
         } else {
           // La selección y lo tipeado quedan como estaban: si la lista estaba vieja, lo que
@@ -196,6 +203,21 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
                           {i.envioId != null ? (i.envioNombre ?? `Envío #${i.envioId}`) : 'sin caja'}
                         </td>
                         <td className="px-2 py-2 text-right font-mono text-gray-500 w-16">×{i.quantity}</td>
+                        <td className="px-2 py-2 w-28">
+                          {i.admiteSinEnviar && selected.has(i.id) && (
+                            <label className="flex items-center justify-end gap-1 text-[11px] text-gray-500" title="Unidades que el proveedor cobró pero no mandó todavía: la caja no las espera al llegar">
+                              no mandó
+                              <input
+                                type="number" min={0} max={i.quantity} step={1} inputMode="numeric"
+                                value={sinEnviar[i.id] ?? ''}
+                                onChange={e => setSinEnviar(prev => ({ ...prev, [i.id]: e.target.value }))}
+                                placeholder="0"
+                                aria-label={`Unidades de ${i.nombre} que el proveedor no mandó`}
+                                className="w-12 border border-gray-300 rounded px-1.5 py-0.5 text-right font-mono text-xs"
+                              />
+                            </label>
+                          )}
+                        </td>
                         <td className="pr-6 pl-2 py-2 text-right font-mono text-gray-500 w-24">{usd(i.estimadoUsd)}</td>
                       </tr>
                     ))}
@@ -283,7 +305,8 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
           <p className="text-xs text-gray-500 mb-3">
             Lo normal es &quot;Seleccionar todo&quot; y poner el total. Si pagaste por partes, desplegá un
             cliente para tildar piezas sueltas: no hace falta precio exacto por pieza, el reparto es
-            proporcional al estimado del catálogo.
+            proporcional al estimado del catálogo. Si el proveedor te cobró algo que todavía no te
+            mandó, desplegá el cliente y anotalo en &quot;no mandó&quot;: la caja no lo va a esperar al llegar.
           </p>
           <form onSubmit={handleSubmit}>{contenido}</form>
         </>

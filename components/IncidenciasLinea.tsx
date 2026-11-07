@@ -4,9 +4,10 @@ import Link from 'next/link'
 import { useState } from 'react'
 import { useEnviarAccion } from '@/components/useEnviarAccion'
 import CamposDevolucion from '@/components/CamposDevolucion'
+import { CamposNoVino } from '@/components/MarcarNoVino'
 import type { ActionResult } from '@/lib/action-result'
 import {
-  RESOLUCION_LABELS, TIPO_AYUDA, TIPO_LABELS, perdidaSugerida, resolucionesPara, planReembolso,
+  RESOLUCION_LABELS, TIPO_AYUDA, TIPO_LABELS, admitePieza, perdidaSugerida, perdidaTrasDevolucion, sinEnviarDe, resolucionesPara, planReembolso,
   type OrigenIncidencia, type Resolucion, type TipoIncidencia,
 } from '@/lib/incidencias'
 
@@ -49,6 +50,10 @@ interface Props {
   /** Lo que vale el pedido entero y lo que tiene cobrado (reales), para saber cuánto le sobraría al cliente. */
   pedido: { totalReal: number; depositUsd: number }
   tasaSugerida: number
+  /** Pedido de stock propio: no hay cliente (ni venta, ni devolución, ni reposición). */
+  propio?: boolean
+  /** Por dónde te puede devolver la plata el proveedor (al reembolsar algo que no mandó). */
+  metodosProveedor?: readonly string[]
   incidencias: IncidenciaVista[]
   reportar: (itemId: number, formData: FormData) => Promise<ActionResult>
   resolver: (incidenciaId: number, formData: FormData) => Promise<ActionResult>
@@ -58,35 +63,46 @@ const cls = 'w-full border border-gray-300 rounded-lg px-2.5 py-1 text-xs focus:
 const fecha = (iso: string) => new Date(iso).toLocaleDateString('es-VE', { day: '2-digit', month: 'short' })
 
 function FormReportar({
-  itemId, tipos, cantidadLinea, piezas, reportar, cerrar,
-}: { itemId: number; tipos: TipoIncidencia[]; cantidadLinea: number; piezas: PiezaVista[]; reportar: Props['reportar']; cerrar: () => void }) {
+  itemId, tipos, cantidadLinea, piezas, abiertas, reportar, cerrar,
+}: { itemId: number; tipos: TipoIncidencia[]; cantidadLinea: number; piezas: PiezaVista[]; abiertas: IncidenciaVista[]; reportar: Props['reportar']; cerrar: () => void }) {
   const [tipo, setTipo] = useState<TipoIncidencia>(tipos[0])
   const [pieza, setPieza] = useState('')
-  // Solo "no disponible" se anota sobre UNA pieza: el resto (dañada, incompleta…) es de unidades de la línea.
-  const porPieza = tipo === 'no_disponible' && piezas.length > 0
+  // "No disponible" y "no la mandó" se anotan sobre UNA pieza: el resto (dañada, incompleta…) es de unidades de la línea.
+  const porPieza = admitePieza(tipo) && piezas.length > 0
   const { enviar, isPending, error } = useEnviarAccion(fd => reportar(itemId, fd), cerrar)
+  // "No la mandó" se anota SKU por SKU, con unidades (CamposNoVino), descontando lo ya anotado.
+  const noVino = tipo === 'sin_enviar'
+  const ya = sinEnviarDe(abiertas.map(i => ({ ...i, estado: 'abierta' })))
+  const setsYa = Math.min(cantidadLinea, ya.lineaEntera)
   return (
     <form onSubmit={enviar} className="mt-1.5 p-2.5 bg-amber-50 border border-amber-200 rounded-lg space-y-2">
-      <div className={porPieza && pieza ? '' : 'grid grid-cols-[1fr_5rem] gap-2'}>
+      <div className={(porPieza && pieza) || noVino ? '' : 'grid grid-cols-[1fr_5rem] gap-2'}>
         <select name="tipo" value={tipo} onChange={e => setTipo(e.target.value as TipoIncidencia)} className={cls}>
           {tipos.map(t => <option key={t} value={t}>{TIPO_LABELS[t]}</option>)}
         </select>
-        {!(porPieza && pieza) && (
+        {!(porPieza && pieza) && !noVino && (
           <input
             type="number" name="cantidad" min={1} max={cantidadLinea} defaultValue={cantidadLinea} required
             title="Cuántas unidades" className={`${cls} text-center`}
           />
         )}
       </div>
-      {porPieza && (
-        <label className="block">
-          <span className="block text-[11px] font-medium text-amber-900 mb-0.5">¿Cuál pieza del conjunto?</span>
+      {noVino && (
+        <CamposNoVino
+          cantidad={cantidadLinea}
+          yaAnotadasLinea={ya.lineaEntera}
+          piezas={piezas.map(p => ({ etiqueta: p.etiqueta, quantity: p.quantity, yaAnotadas: p.quantity * setsYa + (ya.porPieza.get(p.etiqueta) ?? 0) }))}
+        />
+      )}
+      {porPieza && !noVino && (
+        <div>
+          <label className="block text-[11px] font-medium text-amber-900 mb-0.5">¿Cuál pieza del conjunto?</label>
           <select name="pieza" value={pieza} onChange={e => setPieza(e.target.value)} className={cls}>
             <option value="">Todo el conjunto</option>
             {piezas.map(p => <option key={p.etiqueta} value={p.etiqueta}>{p.quantity}× {p.etiqueta}</option>)}
           </select>
-          {pieza && <p className="text-[10px] text-amber-700 mt-0.5">Las demás piezas siguen su curso: al editar el pedido quitás solo esta.</p>}
-        </label>
+          {pieza && tipo === 'no_disponible' && <p className="text-[10px] text-amber-700 mt-0.5">Las demás piezas siguen su curso: al editar el pedido quitás solo esta.</p>}
+        </div>
       )}
       <p className="text-[11px] text-amber-800">{TIPO_AYUDA[tipo]}</p>
       <input type="text" name="nota" placeholder="Nota (opcional)" className={cls} />
@@ -102,14 +118,23 @@ function FormReportar({
 }
 
 function FormResolver({
-  inc, linea, pedido, tasaSugerida, resolver, cerrar,
-}: { inc: IncidenciaVista } & Pick<Props, 'linea' | 'pedido' | 'tasaSugerida' | 'resolver'> & { cerrar: () => void }) {
-  const opciones = resolucionesPara(inc.tipo, inc.origen)
+  inc, linea, pedido, tasaSugerida, propio = false, metodosProveedor = [], resolver, cerrar,
+}: { inc: IncidenciaVista } & Pick<Props, 'linea' | 'pedido' | 'tasaSugerida' | 'propio' | 'metodosProveedor' | 'resolver'> & { cerrar: () => void }) {
+  // Reponer va por sets: a una pieza sola de un conjunto no se le ofrece (reembolsarla sí, si no vino).
+  const opciones = resolucionesPara(inc.tipo, inc.origen, propio)
+    .filter(r => !inc.pieza || r !== 'reposicion')
   const [resolucion, setResolucion] = useState<Resolucion>(opciones[0])
+  // Lo que devolvió el proveedor (solo "no la mandó"): baja la pérdida propuesta.
+  const [devuelto, setDevuelto] = useState('')
   const { enviar, isPending, error } = useEnviarAccion(fd => resolver(inc.id, fd), cerrar)
+  const sinEnviar = inc.tipo === 'sin_enviar'
 
   // Lo que va a pasar si se reembolsa: cuánto sale del pedido, cuánto se pierde y cuánto le sobra al cliente.
-  const sugerida = perdidaSugerida(linea.costRealUsd, linea.quantity, inc.cantidad)
+  const costoUnidades = perdidaSugerida(linea.costRealUsd, linea.quantity, inc.cantidad)
+  const devueltoNum = Number(devuelto.replace(',', '.'))
+  const sugerida = sinEnviar && devuelto.trim() !== '' && Number.isFinite(devueltoNum)
+    ? perdidaTrasDevolucion(costoUnidades, devueltoNum)
+    : costoUnidades
   const plan = planReembolso({ ...linea }, Math.min(inc.cantidad, linea.quantity), sugerida)
   const nuevoTotal = Math.max(0, pedido.totalReal - plan.bajaVentaUsd)
   const leSobra = Math.min(pedido.depositUsd, Math.max(0, pedido.depositUsd - nuevoTotal))
@@ -126,17 +151,55 @@ function FormResolver({
           comprarlas otra vez queda como margen negativo de ese pedido.
         </p>
       )}
+      {resolucion === 'llego' && sinEnviar && (
+        <p className="text-[11px] text-gray-600">
+          Ya la tenés: la caja la vuelve a esperar. Si la caja ya se recibió, pasá la línea a «Recibido» desde la caja.
+        </p>
+      )}
       {resolucion === 'reembolso' && (
         <div className="space-y-2">
-          <p className="text-[11px] text-gray-600">
-            Bajan {inc.cantidad} unidad(es) del pedido (${plan.bajaVentaUsd.toFixed(2)}). Lo que se pagó por ellas sale de la línea y queda como pérdida del pedido.
-          </p>
-          <label className="block">
-            <span className="block text-[11px] font-medium text-gray-600 mb-0.5">Pérdida (USD)</span>
-            <input type="number" name="perdidaUsd" min={0} step="0.01" defaultValue={sugerida.toFixed(2)} className={`${cls} font-mono`} />
-            <p className="text-[10px] text-gray-500 mt-0.5">Lo que costaron esas unidades. Bajalo si el proveedor te devolvió parte.</p>
-          </label>
-          {pedido.depositUsd > 0.005 && (
+          {inc.pieza ? (
+            <p className="text-[11px] text-gray-600">
+              El conjunto deja de llevar {inc.cantidad}× {inc.pieza}: ya no se espera ni suma al stock. Lo que te devolvió
+              el proveedor sale del costo de la línea; lo que no, queda en el costo de lo que sí llegó.
+              {!propio && ' El precio de venta no cambia: si corresponde, ajustalo editando el pedido.'}
+            </p>
+          ) : (
+            <p className="text-[11px] text-gray-600">
+              {propio
+                ? <>Bajan {inc.cantidad} unidad(es) de la línea: ya no se esperan. </>
+                : <>Bajan {inc.cantidad} unidad(es) del pedido (${plan.bajaVentaUsd.toFixed(2)}). </>}
+              Lo que se pagó por ellas sale de la línea{sinEnviar ? '; lo que el proveedor no devolvió' : ''} queda como pérdida del pedido.
+            </p>
+          )}
+          {sinEnviar && (
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[11px] font-medium text-gray-600 mb-0.5">El proveedor te devolvió (USD)</label>
+                <input
+                  type="number" name="devueltoProveedorUsd" min={0} step="0.01" required
+                  value={devuelto} onChange={e => setDevuelto(e.target.value)}
+                  placeholder={costoUnidades.toFixed(2)} className={`${cls} font-mono`}
+                />
+                <p className="text-[10px] text-gray-400 mt-0.5">0 si no te devolvió nada. Entra a la caja como ingreso.</p>
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-gray-600 mb-0.5">Por dónde</label>
+                <select name="metodoDevuelto" defaultValue="" className={cls}>
+                  <option value="">—</option>
+                  {metodosProveedor.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
+          {!inc.pieza && <div>
+            <label className="block text-[11px] font-medium text-gray-600 mb-0.5">Pérdida (USD)</label>
+            <input key={sugerida.toFixed(2)} type="number" name="perdidaUsd" min={0} step="0.01" defaultValue={sugerida.toFixed(2)} className={`${cls} font-mono`} />
+            <p className="text-[10px] text-gray-400 mt-0.5">
+              {sinEnviar ? 'Lo que costaron esas unidades menos lo que te devolvió el proveedor.' : 'Lo que costaron esas unidades. Bajalo si el proveedor te devolvió parte.'}
+            </p>
+          </div>}
+          {!propio && pedido.depositUsd > 0.005 && (
             <CamposDevolucion sugerido={leSobra} maximo={pedido.depositUsd} tasaSugerida={tasaSugerida} etiqueta="Devolverle al cliente (USD reales)" />
           )}
         </div>
@@ -153,7 +216,7 @@ function FormResolver({
   )
 }
 
-export default function IncidenciasLinea({ itemId, tipos, piezas = [], editarHref, linea, pedido, tasaSugerida, incidencias, reportar, resolver }: Props) {
+export default function IncidenciasLinea({ itemId, tipos, piezas = [], editarHref, linea, pedido, tasaSugerida, propio = false, metodosProveedor, incidencias, reportar, resolver }: Props) {
   const [reportando, setReportando] = useState(false)
   const [resolviendo, setResolviendo] = useState<number | null>(null)
   const abiertas = incidencias.filter(i => i.estado === 'abierta')
@@ -170,7 +233,7 @@ export default function IncidenciasLinea({ itemId, tipos, piezas = [], editarHre
             title={i.nota ?? TIPO_AYUDA[i.tipo]}
             className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 hover:bg-amber-200"
           >
-            ⚠ {TIPO_LABELS[i.tipo]}{i.pieza ? ` · ${i.pieza}` : ` · ${i.cantidad}×`} {i.origen === 'cliente' ? '(reclamo)' : ''} — resolver
+            ⚠ {TIPO_LABELS[i.tipo]}{i.pieza ? ` · ${i.tipo === 'sin_enviar' ? `${i.cantidad}× ` : ''}${i.pieza}` : ` · ${i.cantidad}×`} {i.origen === 'cliente' ? '(reclamo)' : ''} — resolver
           </button>
         ))}
         {cerradas.map(i => (
@@ -179,7 +242,7 @@ export default function IncidenciasLinea({ itemId, tipos, piezas = [], editarHre
             title={[i.nota, i.perdidaUsd != null ? `Pérdida $${i.perdidaUsd.toFixed(2)}` : null].filter(Boolean).join(' · ') || undefined}
             className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500"
           >
-            ✓ {TIPO_LABELS[i.tipo]}{i.pieza ? ` · ${i.pieza}` : ` · ${i.cantidad}×`} → {i.resolucion ? RESOLUCION_LABELS[i.resolucion] : ''} ({fecha(i.creadaAt)})
+            ✓ {TIPO_LABELS[i.tipo]}{i.pieza ? ` · ${i.tipo === 'sin_enviar' ? `${i.cantidad}× ` : ''}${i.pieza}` : ` · ${i.cantidad}×`} → {i.resolucion ? RESOLUCION_LABELS[i.resolucion] : ''} ({fecha(i.creadaAt)})
             {i.reposicionId != null && (
               <> · <Link href={`/presupuestos/${i.reposicionId}`} className="text-blue-600 hover:underline">pedido #{i.reposicionId}</Link></>
             )}
@@ -198,11 +261,11 @@ export default function IncidenciasLinea({ itemId, tipos, piezas = [], editarHre
         </p>
       )}
       {reportando && (
-        <FormReportar itemId={itemId} tipos={tipos} cantidadLinea={linea.quantity} piezas={piezas} reportar={reportar} cerrar={() => setReportando(false)} />
+        <FormReportar itemId={itemId} tipos={tipos} cantidadLinea={linea.quantity} piezas={piezas} abiertas={abiertas} reportar={reportar} cerrar={() => setReportando(false)} />
       )}
       {abiertas.map(i =>
         resolviendo === i.id ? (
-          <FormResolver key={i.id} inc={i} linea={linea} pedido={pedido} tasaSugerida={tasaSugerida} resolver={resolver} cerrar={() => setResolviendo(null)} />
+          <FormResolver key={i.id} inc={i} linea={linea} pedido={pedido} tasaSugerida={tasaSugerida} propio={propio} metodosProveedor={metodosProveedor} resolver={resolver} cerrar={() => setResolviendo(null)} />
         ) : null,
       )}
     </div>
