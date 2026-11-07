@@ -326,20 +326,18 @@ model Envio {
   // distinto. Las pantallas muestran "sin cargar" para el primero.
   comisionSalienteUsd Decimal?  @db.Decimal(10, 2)
   comisionEntranteUsd Decimal?  @db.Decimal(10, 2)
-  // ── La caja como la pesó y midió el transportista ────────────────────────────────
+  // ── Las cajas como las pesó y midió el transportista ─────────────────────────────
   // El catálogo guarda la pieza DESNUDA; lo que se factura es el BULTO: cada repuesto con
-  // su caja o bolsa, el cartón exterior y el relleno. Son dos cosas distintas y la
-  // diferencia no es chica — contra el envío real 64898 fue +19% de peso y +56% de
-  // volumen sobre la suma de las piezas, y ese error se paga dos veces (el escalón de
-  // ShipGlobal y el ft³ del tramo Miami→CCS).
+  // su caja o bolsa, el cartón exterior y el relleno. Contra el envío real 64898 fue +19%
+  // de peso y +56% de volumen sobre la suma de las piezas. Las cajas (EnvioCaja) reemplazan
+  // a la suma de las piezas en el costeo; mientras no estén, el costeo es un PISO.
   //
-  // Mientras estos campos estén vacíos, el costeo de la caja es un PISO y no una
-  // estimación: sumar piezas sueltas nunca puede sobreestimar, solo subestimar. Cuando se
-  // cargan, mandan ellos — y de paso dejan medido el factor de empaque real de la caja.
-  pesoRealKg       Decimal?     @db.Decimal(8, 3)
-  cajaL            Float?
-  cajaA            Float?
-  cajaH            Float?
+  // Una entrega llega en varios paquetes, y el depósito puede reempacarlos en otras cajas
+  // antes de despacharlos. true = hubo reempaque: lo que se factura son las cajas de
+  // 'salida'; las de 'llegada' quedan como registro de lo que entró. false = las cajas que
+  // llegaron son las que viajan. Ver lib/cajas-envio.ts.
+  reempaque        Boolean      @default(false)
+  cajas            EnvioCaja[]
   // Los números de tracking por tramo (local India, hacia USA, hacia Venezuela). Ver lib/tracking.ts.
   trackings        EnvioTracking[]
   // Carga COMERCIAL: piezas que ya se le vendieron a alguien. Es el carril aéreo.
@@ -352,6 +350,27 @@ model Envio {
   updatedAt        DateTime     @updatedAt
 
   @@index([supplierId])
+}
+
+// Una caja física de un envío, como la pesó y midió el transportista o el depósito.
+// 'llegada' = un paquete que entró al depósito; 'salida' = una caja que sale después de un
+// reempaque (solo si Envio.reempaque). Vacío es "no se sabe todavía", nunca cero: una caja
+// anotada con su referencia y sin pesar sigue siendo trazabilidad. Ver lib/cajas-envio.ts.
+model EnvioCaja {
+  id         Int      @id @default(autoincrement())
+  envioId    Int
+  // 'llegada' | 'salida'. CHECK en la base.
+  etapa      String
+  // El ID del paquete en el depósito, el tracking que lo trajo o lo que sirva para ubicarlo.
+  referencia String?
+  pesoKg     Decimal? @db.Decimal(8, 3)
+  largoCm    Float?
+  anchoCm    Float?
+  altoCm     Float?
+
+  envio Envio @relation(fields: [envioId], references: [id], onDelete: Cascade)
+
+  @@index([envioId])
 }
 
 // Un número de tracking de una caja en un tramo. Una caja puede tener varios por tramo: el

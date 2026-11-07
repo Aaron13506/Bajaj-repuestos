@@ -54,6 +54,7 @@ import { diasSinMoverse, tiempoDeCompraA, tiemposPorTramo } from '../lib/etapas'
 import { leerDevolucion } from '../lib/devolucion'
 import { motivoNoCambiaReenvio, tarifaEquilibrioKgInr } from '../lib/reenvio'
 import { leerTrackingsTramo, MAX_TRACKINGS_POR_TRAMO } from '../lib/tracking'
+import { cajasQueSeFacturan, leerCajasEtapa, medidasDeCajas, resumenCajas, type CampoCaja } from '../lib/cajas-envio'
 import { buscarCouriers, courierDeFila, cuerpoTracker, datosDeTracking, esEstadoFinal, fechaCourier, listaDeCouriers, numeroParaShip24, resolverCourier, errorDeFila } from '../lib/ship24'
 
 const cfg: ConfigMap = {
@@ -778,8 +779,81 @@ console.log('\nREPARTO DEL AÉREO EN UNA CAJA SIN PESAR')
   check('la voluminosa paga menos que con el reparto todo-por-volumen', casi.lines[1].airUsd / casi.air.costUsd < todoVolumen ? 1 : 0, 1)
 
   // Con la caja pesada y medida vale la regla exacta, aunque la diferencia sea de 0.5%.
-  const medida = calcEnvio([denso, pieza(2, 500, 35, 33, 31)], cfg, { medidas: { pesoKg: 8.6, dimL: 40, dimA: 40, dimH: 27 } })
+  const medida = calcEnvio([denso, pieza(2, 500, 35, 33, 31)], cfg, { medidas: [{ pesoKg: 8.6, dimL: 40, dimA: 40, dimH: 27 }] })
   check('caja pesada y medida: ata el volumen por un pelo y se reparte entero por volumen', medida.air.repartoVolumen ?? -1, 1)
+}
+
+// ── Varias cajas y reempaque ────────────────────────────────────────────────────────────
+console.log('\nVARIAS CAJAS Y REEMPAQUE')
+{
+  const si = (b: boolean) => (b ? 1 : 0)
+  const pieza = (id: number, gramos: number): EnvioItemInput => ({
+    pedidoId: id, productId: id, name: `P${id}`, weightGrams: gramos, dimL: 20, dimA: 20, dimH: 20,
+    priceInr: 1000, quantity: 1, origen: 'india', inbound: 'shoppre', supplierId: null,
+  })
+  const items = [pieza(1, 9000), pieza(2, 9000)]
+  const caja = (pesoKg: number | null, l: number | null = 30, a: number | null = 30, h: number | null = 30) =>
+    ({ pesoKg, dimL: l, dimA: a, dimH: h })
+  const tabla = (kg: number) => cotizarTramoAereo(kg, cfg.shoppre_carrier ?? 'ShipGlobal USA - Duty Free', cfg.shoppre_member === 'true', cfg).costUsd
+
+  // Una sola caja en la lista: igual que la cuenta de siempre sobre el total.
+  const una = calcEnvio(items, cfg, { medidas: [caja(20)] })
+  check('una caja: el aéreo es la tabla sobre su cobrable', una.air.costUsd, tabla(20), 0.01)
+  check('una caja: cuenta como medida', si(una.caja.medido && una.caja.cajas === 1), 1)
+
+  // Dos cajas de 10 kg: el depósito cobra cada una, no el escalón de 20 partido.
+  const dos = calcEnvio(items, cfg, { medidas: [caja(10), caja(10)] })
+  check('dos cajas: el aéreo es la suma de las dos tablas', dos.air.costUsd, Number((2 * tabla(10)).toFixed(2)), 0.01)
+  check('dos cajas: cuesta más que una de 20 (los primeros kilos son los caros)', si(dos.air.costUsd > una.air.costUsd), 1)
+  check('dos cajas: el peso real es la suma', dos.realKg, 20, 1e-9)
+  check('dos cajas: se informan como dos de 10 kg', si(dos.air.cajas === 2 && dos.air.cajasKg.join() === '10,10'), 1)
+  const repartido = dos.lines.reduce((s, l) => s + l.airUsd, 0)
+  check('dos cajas: el aéreo se reparte entero entre las líneas', repartido, dos.air.costUsd, 1e-6)
+
+  // El volumétrico cuenta caja por caja: una liviana y grande cobra su volumen aunque la otra sea densa.
+  const divisor = 5000
+  const grande = caja(2, 50, 50, 40)   // 100000 cm³ / 5000 = 20 kg volumétricos
+  const mixta = calcEnvio(items, cfg, { medidas: [caja(16, 20, 20, 20), grande] })
+  check('cobrable caja por caja: max(16, 1.6) + max(2, 20) = 36', mixta.air.chargeableKg, 16 + 100000 / divisor, 1e-9)
+
+  // Una caja sin pesar: el total de peso no se sabe (no se suma solo la pesada).
+  const falta = calcEnvio(items, cfg, { medidas: [caja(10), caja(null)] })
+  check('una sin pesar: el peso no cuenta como medido (es la suma de piezas)', falta.realKg, 18, 1e-9)
+  check('una sin pesar: el volumen sí (las dos medidas)', si(falta.caja.cm3 != null && falta.caja.medido), 1)
+  check('una sin pesar: no se cotiza caja por caja', si(falta.caja.porCaja === null), 1)
+
+  // Qué lista se costea.
+  const filas = [{ etapa: 'llegada', id: 1 }, { etapa: 'llegada', id: 2 }, { etapa: 'salida', id: 3 }]
+  const sinRe = cajasQueSeFacturan(false, filas)
+  check('sin reempaque: se costea lo que llegó', si(sinRe.etapa === 'llegada' && sinRe.cajas.length === 2 && !sinRe.provisoria), 1)
+  const conRe = cajasQueSeFacturan(true, filas)
+  check('con reempaque: se costea lo que sale', si(conRe.etapa === 'salida' && conRe.cajas.length === 1), 1)
+  const sinSalida = cajasQueSeFacturan(true, filas.slice(0, 2))
+  check('con reempaque y sin cajas de salida: lo que llegó, provisorio', si(sinSalida.etapa === 'llegada' && sinSalida.provisoria), 1)
+  check('nada cargado: no es provisorio', si(cajasQueSeFacturan(true, []).provisoria), 0)
+
+  // El formulario.
+  const form = (o: Partial<Record<CampoCaja, string[]>>): Record<CampoCaja, string[]> =>
+    ({ referencia: [], peso: [], largo: [], ancho: [], alto: [], ...o })
+  const ok = leerCajasEtapa('llegada', form({ referencia: ['SHP-1', '', 'SHP-3'], peso: ['10,5', '', ''], largo: ['30', '', ''], ancho: ['30', '', ''], alto: ['30', '', ''] }))
+  check('renglón vacío se descarta, uno con solo referencia se guarda', si(!('error' in ok) && ok.filas.length === 2 && ok.filas[1].pesoKg === null), 1)
+  check('coma decimal se lee', si(!('error' in ok) && ok.filas[0].pesoKg === 10.5), 1)
+  check('peso ilegible se rechaza (no se borra en silencio)', si('error' in leerCajasEtapa('llegada', form({ peso: ['18,6x'] }))), 1)
+  check('peso negativo se rechaza', si('error' in leerCajasEtapa('llegada', form({ peso: ['-2'] }))), 1)
+  check('dos de tres medidas se rechazan', si('error' in leerCajasEtapa('salida', form({ largo: ['30'], ancho: ['20'], alto: [''] }))), 1)
+  const cero = leerCajasEtapa('llegada', form({ referencia: ['X'], peso: ['0'] }))
+  check('0 es sin dato', si(!('error' in cero) && cero.filas[0].pesoKg === null), 1)
+  check('más de 20 cajas se rechaza', si('error' in leerCajasEtapa('llegada', form({ peso: Array(21).fill('1') }))), 1)
+
+  // El resumen que muestra la pantalla da lo mismo que calcEnvio.
+  const fisicas = [
+    { referencia: null, pesoKg: 16, largoCm: 20, anchoCm: 20, altoCm: 20 },
+    { referencia: null, pesoKg: 2, largoCm: 50, anchoCm: 50, altoCm: 40 },
+  ]
+  const res = resumenCajas(fisicas, divisor)
+  const mismo = calcEnvio(items, cfg, { medidas: medidasDeCajas(fisicas) })
+  check('resumen: el cobrable de la pantalla es el del costeo', res.cobrableKg ?? -1, mismo.air.chargeableKg, 1e-9)
+  check('resumen: con una sin pesar, el peso total no se sabe', si(resumenCajas([fisicas[0], { ...fisicas[1], pesoKg: null }], divisor).pesoKg === null), 1)
 }
 
 // ── Margen realizado ────────────────────────────────────────────────────────────────────
