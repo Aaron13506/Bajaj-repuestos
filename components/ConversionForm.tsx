@@ -30,78 +30,69 @@ export default function ConversionForm({ action, valor }: Props) {
   const u = parseFloat(usdt)
   const c = b > 0 && u > 0 ? convertir(b, u, enBs ? (valor ?? u / b) : 1) : null
 
+  const CAMPO = 'h-10 w-full border border-gray-300 rounded-lg px-3 text-base sm:text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+  const ETIQUETA = 'flex flex-col gap-1 text-xs font-medium text-gray-600 min-w-0'
+
   return (
-    <form
-      onSubmit={enviar}
-      className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8"
-    >
-      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Pasar a USDT</h2>
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="block">
-          <span className="block text-sm font-medium text-gray-800 mb-1">Desde</span>
-          <select
-            name="desde" value={desde} onChange={e => setDesde(e.target.value as typeof desde)}
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          >
-            <option value="banco_bs">Banco (Bs)</option>
-            <option value="efectivo_usd">Efectivo USD</option>
-          </select>
-        </label>
-        <label className="block">
-          <span className="block text-sm font-medium text-gray-800 mb-1">{enBs ? 'Bs que di' : '$ en efectivo que di'}</span>
-          <input
-            type="number" name="dado" min={0.01} step="0.01" required value={dado} onChange={e => setDado(e.target.value)}
-            className="w-40 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          />
-        </label>
-        <label className="block">
-          <span className="block text-sm font-medium text-gray-800 mb-1">USDT que recibí</span>
-          <input
-            type="number" name="usdt" min={0.01} step="0.01" required value={usdt} onChange={e => setUsdt(e.target.value)}
-            className="w-40 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          />
-        </label>
-        <label className="block">
-          <span className="block text-sm font-medium text-gray-800 mb-1">Fecha</span>
-          <CampoFecha
-            name="fecha"
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          />
-        </label>
-        <label className="flex-1 min-w-[160px]">
-          <span className="block text-sm font-medium text-gray-800 mb-1">Nota (opcional)</span>
-          <input
-            type="text" name="descripcion"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          />
-        </label>
+    <form onSubmit={enviar} className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+      <label className={ETIQUETA}>
+        Desde
+        <select name="desde" value={desde} onChange={e => setDesde(e.target.value as typeof desde)} className={CAMPO}>
+          <option value="banco_bs">Banco (Bs)</option>
+          <option value="efectivo_usd">Efectivo USD</option>
+        </select>
+      </label>
+      <label className={ETIQUETA}>
+        Fecha
+        <CampoFecha name="fecha" className={CAMPO} />
+      </label>
+      <label className={ETIQUETA}>
+        {enBs ? 'Bs que di' : '$ en efectivo que di'}
+        <input
+          type="number" name="dado" min={0.01} step="0.01" inputMode="decimal" required value={dado} onChange={e => setDado(e.target.value)}
+          className={`${CAMPO} tabular-nums`}
+        />
+      </label>
+      <label className={ETIQUETA}>
+        USDT que recibí
+        <input
+          type="number" name="usdt" min={0.01} step="0.01" inputMode="decimal" required value={usdt} onChange={e => setUsdt(e.target.value)}
+          className={`${CAMPO} tabular-nums`}
+        />
+      </label>
+
+      {/* Región fija: el resultado se anuncia al cambiar, sin montarse de nuevo. */}
+      <p aria-live="polite" className="sm:col-span-2 text-sm text-gray-600 text-pretty">
+        {c ? (
+          <>
+            {enBs && <>A <span className="tabular-nums">{nf(c.tasaEfectiva)} Bs por USDT</span>. En el libro esos Bs valían{' '}</>}
+            {!enBs && 'Diste '}
+            <span className="tabular-nums">{usd(c.valorLibroUsd)}</span>
+            {enBs && valor == null && ' (el libro no tiene Bs anotados para compararlos: se toman por lo que recibiste)'}
+            {' → '}
+            {Math.abs(c.costoUsd) < 0.005
+              ? 'sin costo.'
+              : c.costoUsd > 0
+                ? <span className="font-medium text-red-700">costó {usd(c.costoUsd)} ({nf(c.costoPct, 1)}%).</span>
+                : <span className="font-medium text-green-700">ganaste {usd(-c.costoUsd)} ({nf(-c.costoPct, 1)}%).</span>}
+          </>
+        ) : 'Escribí lo que diste y lo que recibiste, y ves cuánto costó (o cuánto salió a favor).'}
+      </p>
+
+      <label className={`${ETIQUETA} sm:col-span-2`}>
+        Nota (opcional)
+        <input type="text" name="descripcion" className={CAMPO} />
+      </label>
+
+      <div className="sm:col-span-2 flex flex-wrap items-center gap-3 pt-1">
         <button
           type="submit" disabled={isPending}
-          className="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors"
+          className="inline-flex items-center min-h-10 bg-blue-600 text-white px-5 rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-wait transition-colors"
         >
-          {isPending ? 'Guardando…' : 'Registrar conversión'}
+          {isPending ? 'Guardando…' : 'Anotar conversión'}
         </button>
+        {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
       </div>
-
-      {c ? (
-        <p className="text-xs text-gray-500 mt-3">
-          {enBs && <>A <span className="font-mono">{nf(c.tasaEfectiva)} Bs por USDT</span>. En el libro esos Bs valían{' '}</>}
-          {!enBs && 'Diste '}
-          <span className="font-mono">{usd(c.valorLibroUsd)}</span>
-          {enBs && valor == null && ' (el libro no tiene Bs anotados para compararlos: se toman por lo que recibiste)'}
-          {' → '}
-          {Math.abs(c.costoUsd) < 0.005
-            ? 'sin costo.'
-            : c.costoUsd > 0
-              ? <span className="text-red-600">costó {usd(c.costoUsd)} ({nf(c.costoPct, 1)}%).</span>
-              : <span className="text-green-700">ganaste {usd(-c.costoUsd)} ({nf(-c.costoPct, 1)}%).</span>}
-        </p>
-      ) : (
-        <p className="text-xs text-gray-500 mt-3">
-          Escribí lo que diste y lo que recibiste, y ves cuánto costó (o cuánto salió a favor).
-        </p>
-      )}
-      {error && <p role="alert" className="text-xs text-red-600 mt-2">{error}</p>}
     </form>
   )
 }

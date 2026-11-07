@@ -30,6 +30,8 @@ interface Supplier {
 
 interface Props {
   action: (formData: FormData) => Promise<ActionResult>
+  /** Entra o sale plata: lo elige el selector de arriba (AnotarLibro), no la categoría. */
+  tipo: 'ingreso' | 'egreso'
   categoriasIngreso: Categoria[]
   categoriasEgreso: Categoria[]
   metodosIngreso: readonly string[]
@@ -49,8 +51,12 @@ interface Props {
 // paga por giro/tarjeta/cripto y se liga a un ENVÍO/PROVEEDOR — nunca a un pedido. Antes
 // se mostraban los seis campos siempre, y "método de pago" ofrecía "Transferencia Bs"
 // para pagarle a un proveedor en India, lo que no corresponde a ningún medio real.
+const CAMPO = 'h-10 w-full border border-gray-300 rounded-lg px-3 text-base sm:text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+const ETIQUETA = 'flex flex-col gap-1 text-xs font-medium text-gray-600 min-w-0'
+
 export default function MovimientoForm({
   action,
+  tipo,
   categoriasIngreso,
   categoriasEgreso,
   metodosIngreso,
@@ -62,58 +68,43 @@ export default function MovimientoForm({
   tasaBcvSugerida,
   tasaLibroBs,
 }: Props) {
-  const [categoria, setCategoria] = useState(categoriasIngreso[0]?.value ?? '')
+  const esEgreso = tipo === 'egreso'
+  const categorias = esEgreso ? categoriasEgreso : categoriasIngreso
   const [metodo, setMetodo] = useState('')
   const [pedidoId, setPedidoId] = useState('')
   const [monto, setMonto] = useState('')
   const { enviar, isPending, error } = useEnviarAccion(action, form => {
     form.reset()
-    setCategoria(categoriasIngreso[0]?.value ?? '')
     setMetodo('')
     setPedidoId('')
     setMonto('')
   })
 
-  const esEgreso = categoriasEgreso.some(c => c.value === categoria)
   const metodos = esEgreso ? metodosEgreso : metodosIngreso
   // Un cobro en Bs de un pedido se escribe en dólares BCV (el servidor guarda su valor real).
   const enBs = cobraEnBolivares(metodo)
   const enBsDePedido = enBs && !esEgreso && pedidoId !== ''
 
   return (
-    <form
-      onSubmit={enviar}
-      className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8 flex flex-wrap items-end gap-3"
-    >
-      <label className="block">
-        <span className="block text-sm font-medium text-gray-800 mb-1">Categoría</span>
-        <select
-          name="categoria"
-          value={categoria}
-          onChange={e => {
-            const nueva = e.target.value
-            // Ingreso y egreso tienen métodos distintos: el elegido puede no existir en el otro.
-            if (categoriasEgreso.some(c => c.value === nueva) !== esEgreso) setMetodo('')
-            setCategoria(nueva)
-          }}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-        >
-          <optgroup label="Ingresos">
-            {categoriasIngreso.map(c => (
-              <option key={c.value} value={c.value}>{c.label}</option>
-            ))}
-          </optgroup>
-          <optgroup label="Egresos">
-            {categoriasEgreso.map(c => (
-              <option key={c.value} value={c.value}>{c.label}</option>
-            ))}
-          </optgroup>
+    <form onSubmit={enviar} className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+      <label className={ETIQUETA}>
+        Categoría
+        <select name="categoria" defaultValue={categorias[0]?.value} className={CAMPO}>
+          {categorias.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
         </select>
       </label>
+      <label className={ETIQUETA}>
+        Método de pago
+        <select name="metodoPago" value={metodo} onChange={e => setMetodo(e.target.value)} className={CAMPO}>
+          <option value="">—</option>
+          {metodos.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+      </label>
+
       {/* Un movimiento en Bs se escribe en bolívares y tasa: los dólares salen de dividir. */}
       {enBs ? (
-        <div className="w-44">
-          {/* key: al elegir o quitar el pedido, o pasar a egreso, cambia la tasa que corresponde. */}
+        <div className="sm:col-span-2 max-w-sm">
+          {/* key: al elegir o quitar el pedido cambia la tasa que corresponde. */}
           <MontoBs
             key={esEgreso ? 'libro' : enBsDePedido ? 'bcv' : 'directa'}
             tasaSugerida={esEgreso ? tasaLibroBs : enBsDePedido ? tasaBcvSugerida : tasaBsSugerida}
@@ -124,37 +115,27 @@ export default function MovimientoForm({
           />
         </div>
       ) : (
-        <label className="block">
-          <span className="block text-sm font-medium text-gray-800 mb-1">Monto (USD)</span>
+        <label className={ETIQUETA}>
+          Monto (USD)
           <input
-            type="number" name="monto" min={0.01} step="0.01" required
+            type="number" name="monto" min={0.01} step="0.01" inputMode="decimal" required
             value={monto} onChange={e => setMonto(e.target.value)}
-            className="w-32 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className={`${CAMPO} tabular-nums`}
           />
         </label>
       )}
-      <label className="block">
-        <span className="block text-sm font-medium text-gray-800 mb-1">Fecha</span>
-        <CampoFecha
-          name="fecha"
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-        />
-      </label>
-      <label className="block">
-        <span className="block text-sm font-medium text-gray-800 mb-1">Método de pago</span>
-        <select key={esEgreso ? 'egreso' : 'ingreso'} name="metodoPago" value={metodo} onChange={e => setMetodo(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-          <option value="">—</option>
-          {metodos.map(m => <option key={m} value={m}>{m}</option>)}
-        </select>
+      <label className={ETIQUETA}>
+        Fecha
+        <CampoFecha name="fecha" className={CAMPO} />
       </label>
 
       {/* Ingreso → de qué pedido (cliente). Egreso → de qué envío/proveedor. Nunca los
           dos juntos: un egreso no tiene cliente detrás, un ingreso no tiene proveedor. */}
       {esEgreso ? (
         <>
-          <label className="block">
-            <span className="block text-sm font-medium text-gray-800 mb-1">Envío (opcional)</span>
-            <select name="envioId" defaultValue="" className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+          <label className={ETIQUETA}>
+            Caja (opcional)
+            <select name="envioId" defaultValue="" className={CAMPO}>
               <option value="">—</option>
               {envios.map(e => (
                 <option key={e.id} value={e.id}>
@@ -163,45 +144,40 @@ export default function MovimientoForm({
               ))}
             </select>
           </label>
-          <label className="block">
-            <span className="block text-sm font-medium text-gray-800 mb-1">Proveedor (opcional)</span>
-            <select name="supplierId" defaultValue="" className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+          <label className={ETIQUETA}>
+            Proveedor (opcional)
+            <select name="supplierId" defaultValue="" className={CAMPO}>
               <option value="">—</option>
-              {suppliers.map(s => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
+              {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </label>
         </>
       ) : (
-        <label className="block">
-          <span className="block text-sm font-medium text-gray-800 mb-1">Pedido (opcional)</span>
-          <select name="pedidoId" value={pedidoId} onChange={e => setPedidoId(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+        <label className={`${ETIQUETA} sm:col-span-2`}>
+          Pedido (opcional)
+          <select name="pedidoId" value={pedidoId} onChange={e => setPedidoId(e.target.value)} aria-describedby="mov-pedido-ayuda" className={CAMPO}>
             <option value="">—</option>
-            {pedidos.map(p => (
-              <option key={p.id} value={p.id}>#{p.id} {p.clientName}</option>
-            ))}
+            {pedidos.map(p => <option key={p.id} value={p.id}>#{p.id} {p.clientName}</option>)}
           </select>
+          <span id="mov-pedido-ayuda" className="font-normal text-gray-500 text-pretty">Si es de un pedido, se suma a lo cobrado de ese pedido.</span>
         </label>
       )}
 
-      <label className="flex-1 min-w-[180px]">
-        <span className="block text-sm font-medium text-gray-800 mb-1">Nota (opcional)</span>
-        <input
-          type="text" name="descripcion"
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-        />
+      <label className={`${ETIQUETA} sm:col-span-2`}>
+        Nota (opcional)
+        <input type="text" name="descripcion" className={CAMPO} />
       </label>
-      <button
-        type="submit"
-        disabled={isPending}
-        className="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors"
-      >
-        {isPending ? 'Guardando…' : '+ Movimiento'}
-      </button>
-      {error && (
-        <p role="alert" className="basis-full text-xs text-red-600">{error}</p>
-      )}
+
+      <div className="sm:col-span-2 flex flex-wrap items-center gap-3 pt-1">
+        <button
+          type="submit"
+          disabled={isPending}
+          className="inline-flex items-center min-h-10 bg-blue-600 text-white px-5 rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-wait transition-colors"
+        >
+          {isPending ? 'Guardando…' : esEgreso ? 'Anotar egreso' : 'Anotar ingreso'}
+        </button>
+        {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+      </div>
     </form>
   )
 }

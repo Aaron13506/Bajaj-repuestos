@@ -16,7 +16,7 @@ export type Pestana = {
 // Pestañas de la ficha de caja. Los paneles los arma el servidor y se montan todos: cambiar de
 // pestaña no vuelve a la red ni pierde lo que se estaba escribiendo en otra. El hash (#comprar)
 // las abre desde un enlace — los pasos de la cabecera son enlaces — y sobrevive a una recarga.
-export default function PestanasCaja({ pestanas, inicial }: { pestanas: Pestana[]; inicial: string }) {
+export default function PestanasCaja({ pestanas, inicial, etiqueta = 'Secciones de la caja' }: { pestanas: Pestana[]; inicial: string; etiqueta?: string }) {
   const [activa, setActiva] = useState(inicial)
   const refs = useRef<Record<string, HTMLButtonElement | null>>({})
 
@@ -58,8 +58,8 @@ export default function PestanasCaja({ pestanas, inicial }: { pestanas: Pestana[
     <div>
       <div
         role="tablist"
-        aria-label="Secciones de la caja"
-        className="flex gap-1 overflow-x-auto border-b border-gray-200 mb-4 -mx-1 px-1"
+        aria-label={etiqueta}
+        className="flex gap-1 overflow-x-auto overflow-y-hidden border-b border-gray-200 mb-4 -mx-1 px-1"
       >
         {pestanas.map(p => {
           const sel = p.id === activa

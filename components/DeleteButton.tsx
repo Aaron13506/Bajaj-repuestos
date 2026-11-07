@@ -13,6 +13,9 @@ interface DeleteButtonProps {
   // Para acciones destructivas que no son "eliminar" (ej. deshacer una compra).
   label?: string
   pendingLabel?: string
+  /** Nombre completo cuando el botón se repite (una fila de tabla): empieza con el texto visible. */
+  ariaLabel?: string
+  className?: string
 }
 
 export default function DeleteButton({
@@ -20,6 +23,8 @@ export default function DeleteButton({
   confirmMessage = '¿Confirmas que deseas eliminar este registro?',
   label = 'Eliminar',
   pendingLabel = 'Eliminando...',
+  ariaLabel,
+  className = '',
 }: DeleteButtonProps) {
   const [isPending, startTransition] = useTransition()
   // El motivo se muestra al lado del botón (antes un alert(), que tapaba la página y se perdía).
@@ -46,7 +51,8 @@ export default function DeleteButton({
         type="button"
         onClick={handleClick}
         disabled={isPending}
-        className="text-red-600 hover:text-red-800 disabled:opacity-40 disabled:cursor-wait text-sm font-medium"
+        aria-label={isPending ? undefined : ariaLabel}
+        className={`text-red-600 hover:text-red-800 disabled:opacity-40 disabled:cursor-wait text-sm font-medium ${className}`}
       >
         {isPending ? pendingLabel : label}
       </button>
