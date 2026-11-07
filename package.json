@@ -25,6 +25,7 @@
     "prices:99rpm": "tsx scripts/update-prices-99rpm.ts",
     "fx:update": "tsx scripts/update-fx-rates.ts",
     "measures:audit": "tsx scripts/audit-measures.ts",
+    "tracking:sync": "tsx scripts/sync-trackings.ts",
     "check:costeo": "tsx scripts/check-costeo.ts",
     "check:libro": "tsx scripts/check-libro.ts",
     "check:etapas": "tsx scripts/check-etapas-sql.ts",

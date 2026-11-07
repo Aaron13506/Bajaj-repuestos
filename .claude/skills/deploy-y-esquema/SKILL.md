@@ -9,7 +9,7 @@ description: Producción, deploy y cambios de esquema (deploy/, scripts/migrar.t
 
 - Production: one AWS Lightsail machine (app, Postgres, timers, backups) — `deploy/PLAN-MIGRACION.md`. Variables in `/etc/bajaj/app.env`. Entry: Tailscale Funnel → `oauth2-proxy` (owner's Google account) → Basic Auth in `proxy.ts`. SSH via Tailscale (`ubuntu@motokira`) may wait for browser authorization.
 - The DB is private (localhost of the server). Locally `DATABASE_URL` points at the Docker copy (`pnpm db:up`, refreshed with `pnpm db:pull-prod`, which wipes the local DB). To touch production **on purpose**: run on the server (`sudo -iu bajaj`) or open the SSH tunnel from `.env.example` (`localhost:15432`) — with it open, anything that writes writes to production.
-- Timers: `bajaj-fx.timer` hourly (`pnpm fx:update`: rates + Shoppre table), `bajaj-backup.timer` (dump → verified → rclone → prune).
+- Timers: `bajaj-fx.timer` hourly (`pnpm fx:update`: rates + Shoppre table), `bajaj-tracking.timer` hourly at :20 (`pnpm tracking:sync`: Ship24, no-op without `SHIP24_API_KEY`), `bajaj-backup.timer` (dump → verified → rclone → prune).
 
 ## Changing the schema
 

@@ -340,9 +340,8 @@ model Envio {
   cajaL            Float?
   cajaA            Float?
   cajaH            Float?
-  // Número de guía / tracking y quién la lleva. Solo se anotan: el sistema no consulta nada afuera.
-  guia             String?
-  transportista    String?
+  // Los números de tracking por tramo (local India, hacia USA, hacia Venezuela). Ver lib/tracking.ts.
+  trackings        EnvioTracking[]
   // Carga COMERCIAL: piezas que ya se le vendieron a alguien. Es el carril aéreo.
   items            PedidoItem[]
   // Carga PROPIA: mercancía que traigo para stock. Es el carril marítimo.
@@ -353,6 +352,54 @@ model Envio {
   updatedAt        DateTime     @updatedAt
 
   @@index([supplierId])
+}
+
+// Un número de tracking de una caja en un tramo. Una caja puede tener varios por tramo: el
+// proveedor despacha en dos o tres paquetes y da un número local por cada uno. El orden es el
+// de carga (id). Ver lib/tracking.ts.
+//
+// Con courierCode el número se sigue solo en Ship24 (lib/ship24.ts, sincronizado cada hora
+// por pnpm tracking:sync); sin él queda solo anotado. Lo que trae Ship24 es una copia de lo que dice el courier: no mueve etapas ni toca plata.
+model EnvioTracking {
+  id            Int     @id @default(autoincrement())
+  envioId       Int
+  // 'local' (proveedor → depósito en India) | 'usa' | 'venezuela'. CHECK en la base.
+  tramo         String
+  numero        String
+  // El nombre del courier, como se muestra (o lo que se escribió, si no está en la lista).
+  transportista String?
+  // courierCode de Ship24. null = solo anotado, nadie lo consulta.
+  courierCode   String?
+  // trackerId de Ship24, una vez creado (crear un tracker gasta un envío del cupo).
+  trackerId     String?
+  // statusMilestone (o 'detenido') y statusCode de Ship24. null = todavía no se consultó.
+  estado        String?
+  subestado     String?
+  ultimoEvento  String?
+  // occurrenceDatetime del último evento tal cual llega: es la hora local del courier y a veces sin zona,
+  // así que se guarda como texto en vez de inventarle una.
+  ultimoEventoEn String?
+  // Los checkpoints, del más nuevo al más viejo: [{ fecha, detalle, lugar, estado }].
+  eventos       Json?
+  consultadoEn  DateTime?
+  // Por qué Ship24 no lo acepta (courier equivocado, número inválido…). Mientras esté,
+  // la sincronización horaria no lo reintenta; "Actualizar ahora" en la caja sí.
+  errorSeguimiento String?
+
+  envio Envio @relation(fields: [envioId], references: [id], onDelete: Cascade)
+
+  @@unique([envioId, tramo, numero])
+  @@index([numero])
+}
+
+// La lista de couriers que Ship24 sabe seguir (GET /couriers, sin los deprecados), para elegir
+// el de cada tracking. La refresca pnpm tracking:sync una vez por semana. Ver lib/ship24.ts.
+model TrackingCourier {
+  code          String   @id
+  nombre        String
+  // countryCode: dónde opera (IN, US, VE…). Vacío en los globales.
+  pais          String?
+  actualizadoEn DateTime @default(now())
 }
 
 // Una línea de mercancía PROPIA dentro de un embarque.

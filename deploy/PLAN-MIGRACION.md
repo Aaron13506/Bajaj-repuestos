@@ -14,7 +14,7 @@ Internet ──► https://motokira.<tailnet>.ts.net      Tailscale Funnel: HTTP
               ▼
            Postgres 17   localhost:5432          nunca escucha afuera
 
-Timers: bajaj-fx (cada hora, fx:update)  ·  bajaj-backup (diario, pg_dump → bucket)
+Timers: bajaj-fx (cada hora, fx:update)  ·  bajaj-tracking (cada hora, tracking:sync)  ·  bajaj-backup (diario, pg_dump → bucket)
 Fuera de la máquina: bucket de backups (privado) · bucket de imágenes (lectura pública)
 ```
 

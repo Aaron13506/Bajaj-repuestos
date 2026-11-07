@@ -23,6 +23,11 @@ import EnvioMaritimo from './maritimo'
 import { lookupDeConjuntos, expandCostPieces, repartirCostoReal } from '@/lib/envio-build'
 import { financiamientoEnvio, type FinanciamientoEnvio } from '@/lib/financiamiento-envio'
 import FleteRealCard, { type FilaFlete } from '@/components/FleteRealCard'
+import TrackingsCaja from '@/components/TrackingsCaja'
+import SeguimientoCaja from '@/components/SeguimientoCaja'
+import { apiKeyShip24 } from '@/lib/ship24'
+import { listaCouriers } from '@/lib/sync-trackings'
+import { esTramoTracking, type FilaTracking } from '@/lib/tracking'
 import ConteoCaja, { BotonConteo } from '@/components/ConteoCaja'
 import { piezasAContar } from '@/lib/conteo'
 import { statusIndex } from '@/lib/shipping-status'
@@ -44,7 +49,8 @@ import {
   guardarTarifaKg,
   cambiarReenvio,
   saveMedidasCaja,
-  guardarGuia,
+  guardarTrackings,
+  actualizarTrackings,
   guardarFleteReal,
   pagarFlete,
   deshacerPagoFlete,
@@ -132,7 +138,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   if (!ruta) notFound()
   if (ruta.modo === 'maritimo_cbm') return <EnvioMaritimo envioId={id} />
 
-  const [envio, cfgRows, sinAsignar, suppliers, pedidosCaja, despiece99, repartidos, egresosCaja, itemsPendientesCosto, pagosFlete] = await Promise.all([
+  const [envio, cfgRows, sinAsignar, suppliers, pedidosCaja, despiece99, repartidos, egresosCaja, itemsPendientesCosto, pagosFlete, couriers] = await Promise.all([
     db.envio.findUnique({
       where: { id },
       include: {
@@ -143,6 +149,13 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
         // El proveedor de la caja: decide el precio de las piezas, cómo se cobra el tramo
         // a USA y qué etapas tiene la ruta de todo lo que va adentro.
         supplier: { select: { id: true, name: true, origen: true, inbound: true } },
+        trackings: {
+          select: {
+            id: true, tramo: true, numero: true, transportista: true, courierCode: true, estado: true, subestado: true,
+            ultimoEvento: true, ultimoEventoEn: true, eventos: true, consultadoEn: true, errorSeguimiento: true,
+          },
+          orderBy: { id: 'asc' },
+        },
       },
     }),
     db.config.findMany(),
@@ -221,9 +234,12 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
       select: { id: true, fecha: true, monto: true, metodoPago: true, categoria: true },
       orderBy: [{ fecha: 'asc' }, { id: 'asc' }],
     }),
+    // Los couriers de Ship24, para elegir el de cada tracking (lib/ship24.ts).
+    listaCouriers(),
   ])
 
   if (!envio) notFound()
+  const trackingActivo = apiKeyShip24() != null
 
   // Solo lo que esta caja necesita, no el catálogo entero (~5.8k filas) ni los precios de
   // todos los proveedores: las piezas de sus conjuntos, y el precio de cada línea con SU
@@ -1341,26 +1357,22 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               </div>
             </FormConResultado>
 
-            {/* Guía: solo se anota. Sirve para encontrar la caja cuando el cliente pregunta dónde está su pieza. */}
-            <FormConResultado action={guardarGuia.bind(null, envio.id)} className="mt-5 pt-4 border-t border-gray-100 flex flex-wrap items-end gap-3">
-              <label className="block">
-                <span className="block text-xs font-medium text-gray-600 mb-1">Guía / tracking</span>
-                <input
-                  type="text" name="guia" defaultValue={envio.guia ?? ''} placeholder="Ej: SHP-64898"
-                  className="w-48 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </label>
-              <label className="block">
-                <span className="block text-xs font-medium text-gray-600 mb-1">Transportista</span>
-                <input
-                  type="text" name="transportista" defaultValue={envio.transportista ?? ''} placeholder="Ej: Shoppre / DHL"
-                  className="w-40 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </label>
-              <PendingButton className="px-4 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-                Guardar guía
-              </PendingButton>
-            </FormConResultado>
+            {/* Trackings por tramo. Con un courier de la lista de Ship24 se siguen solos
+                (lib/ship24.ts); sin él quedan anotados. Sirven para contestarle al cliente
+                dónde está su pieza. */}
+            <SeguimientoCaja
+              trackings={envio.trackings}
+              activo={trackingActivo}
+              hayCouriers={couriers.length > 0}
+              actualizar={actualizarTrackings.bind(null, envio.id)}
+            />
+            <TrackingsCaja
+              key={envio.trackings.map(t => `${t.tramo}:${t.numero}:${t.courierCode ?? ''}:${t.transportista ?? ''}`).join('|')}
+              action={guardarTrackings.bind(null, envio.id)}
+              inicial={envio.trackings.filter(t => esTramoTracking(t.tramo)) as (FilaTracking & { courierCode: string | null })[]}
+              sinUsa={esExpress}
+              couriers={couriers}
+            />
 
             {calc.caja.medido && (
               <div className="mt-5">

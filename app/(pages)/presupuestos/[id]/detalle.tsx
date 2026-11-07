@@ -74,9 +74,8 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
             },
             ensamble: { select: { id: true, nameEs: true, nameEn: true, imageUrl: true, compatibleModels: true } },
             supplier: { select: { name: true } },
-            // La caja en que viaja (con su guía) y por qué etapas pasó: lo que se le contesta al
-            // cliente cuando pregunta dónde está su pieza.
-            envio: { select: { id: true, guia: true, transportista: true } },
+            // Por qué etapas pasó la línea. Los trackings NO van acá: una caja grande tiene varios
+            // locales e internacionales y no se sabe cuál lleva qué pieza; se ven en la caja.
             etapas: { select: { desde: true, hacia: true, at: true }, orderBy: { at: 'asc' } },
           },
           orderBy: { id: 'asc' },
@@ -899,11 +898,6 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                           <Link href={`/envios/${item.envioId}`} className="text-[10px] text-blue-600 hover:underline">
                             envío #{item.envioId}
                           </Link>
-                        )}
-                        {item.envio?.guia && (
-                          <span className="text-[10px] font-mono text-gray-500" title="Número de guía de la caja">
-                            guía {item.envio.guia}{item.envio.transportista ? ` · ${item.envio.transportista}` : ''}
-                          </span>
                         )}
                       </p>
                     )}
