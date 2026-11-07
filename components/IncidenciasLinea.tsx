@@ -249,7 +249,7 @@ export default function IncidenciasLinea({ itemId, tipos, piezas = [], editarHre
           </span>
         ))}
         {tipos.length > 0 && !reportando && (
-          <button type="button" onClick={() => setReportando(true)} className="text-[10px] text-gray-400 hover:text-amber-700">
+          <button type="button" onClick={() => setReportando(true)} className="text-[10px] text-gray-500 hover:text-amber-700">
             ⚠ Reportar problema
           </button>
         )}

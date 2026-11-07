@@ -51,22 +51,33 @@ export default function ImportSupplierPricesForm({ supplierId }: { supplierId: n
   const [state, formAction] = useActionState(importForSupplier, emptyResult)
   const [copied, setCopied] = useState<'prompt' | 'array' | 'map' | null>(null)
   const [isLanded, setIsLanded] = useState(false)
+  // Sin permiso de portapapeles writeText rechaza: antes no pasaba nada.
+  const [copyError, setCopyError] = useState(false)
 
   function copy(text: string, which: 'prompt' | 'array' | 'map') {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(which)
-      setTimeout(() => setCopied(null), 1500)
-    })
+    setCopyError(false)
+    navigator.clipboard.writeText(text).then(
+      () => {
+        setCopied(which)
+        setTimeout(() => setCopied(null), 1500)
+      },
+      () => setCopyError(true),
+    )
   }
 
   return (
     <div className="space-y-6">
+      <p role="status" className="sr-only">{copied ? 'Copiado' : ''}</p>
+      {copyError && (
+        <p role="alert" className="text-sm text-red-600">No se pudo copiar: seleccioná el texto y copialo a mano (Ctrl+C).</p>
+      )}
+
       {/* Ayuda: prompt + ejemplos */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Prompt para la IA</h2>
-            <button onClick={() => copy(PROMPT_TEMPLATE, 'prompt')} className="text-xs text-blue-600 hover:underline">
+            <button type="button" onClick={() => copy(PROMPT_TEMPLATE, 'prompt')} className="-my-1 px-2 py-1 rounded text-xs text-blue-600 hover:underline hover:bg-blue-50">
               {copied === 'prompt' ? '¡Copiado!' : 'Copiar'}
             </button>
           </div>
@@ -75,12 +86,12 @@ export default function ImportSupplierPricesForm({ supplierId }: { supplierId: n
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Ejemplo: array</h2>
-            <button onClick={() => copy(ARRAY_EXAMPLE, 'array')} className="text-xs text-blue-600 hover:underline">
+            <button type="button" onClick={() => copy(ARRAY_EXAMPLE, 'array')} className="-my-1 px-2 py-1 rounded text-xs text-blue-600 hover:underline hover:bg-blue-50">
               {copied === 'array' ? '¡Copiado!' : 'Copiar'}
             </button>
           </div>
           <pre className="text-xs text-gray-600 whitespace-pre-wrap bg-gray-50 rounded-lg p-3 overflow-auto font-mono">{ARRAY_EXAMPLE}</pre>
-          <p className="text-xs text-gray-400 mt-3 mb-1">O un mapa plano sku → precio:</p>
+          <p className="text-xs text-gray-500 mt-3 mb-1">O un mapa plano sku → precio:</p>
           <pre className="text-xs text-gray-600 whitespace-pre-wrap bg-gray-50 rounded-lg p-3 overflow-auto font-mono">{MAP_EXAMPLE}</pre>
         </div>
       </div>
@@ -88,16 +99,17 @@ export default function ImportSupplierPricesForm({ supplierId }: { supplierId: n
       {/* Formulario */}
       <form action={formAction} className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="precios-json" className="block text-sm font-medium text-gray-700 mb-1">
             Pegá el JSON (array u objeto)
           </label>
           <textarea
+            id="precios-json"
             name="json"
             rows={12}
             placeholder={ARRAY_EXAMPLE}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y"
           />
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-xs text-gray-500 mt-1">
             El SKU se matchea contra el código Bajaj del catálogo. Los que no coincidan quedan listados abajo.
           </p>
         </div>
@@ -125,7 +137,7 @@ export default function ImportSupplierPricesForm({ supplierId }: { supplierId: n
 
       {/* Resultado */}
       {state.message && (
-        <div className={`rounded-xl border p-4 ${state.ok ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
+        <div role="status" className={`rounded-xl border p-4 ${state.ok ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
           <p className={`text-sm font-medium ${state.ok ? 'text-green-800' : 'text-yellow-800'}`}>
             {state.message}
           </p>
@@ -133,7 +145,7 @@ export default function ImportSupplierPricesForm({ supplierId }: { supplierId: n
             <ul className="mt-3 space-y-1 text-sm text-gray-700 max-h-64 overflow-auto">
               {state.skipped.map((s, i) => (
                 <li key={i} className="flex gap-2">
-                  <span className="text-red-500 shrink-0">•</span>
+                  <span className="text-red-600 shrink-0">•</span>
                   <span><span className="font-mono">{s.sku}</span> — {s.message}</span>
                 </li>
               ))}

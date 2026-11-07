@@ -1,6 +1,6 @@
 'use client'
 
-import { useTransition } from 'react'
+import { useState, useTransition } from 'react'
 import type { ActionResult } from '@/lib/action-result'
 import { esRedireccion } from '@/lib/redireccion'
 
@@ -22,28 +22,35 @@ export default function DeleteButton({
   pendingLabel = 'Eliminando...',
 }: DeleteButtonProps) {
   const [isPending, startTransition] = useTransition()
+  // El motivo se muestra al lado del botón (antes un alert(), que tapaba la página y se perdía).
+  const [error, setError] = useState<string | null>(null)
 
   function handleClick() {
     if (!confirm(confirmMessage)) return
+    setError(null)
     startTransition(async () => {
       try {
         const r = await action()
-        if (r && !r.ok) alert(r.error)
+        if (r && !r.ok) setError(r.error)
       } catch (e) {
         // Borrar y redirigir (la ficha ya no existe) es el éxito normal, no una falla: ver redireccion.ts.
         if (esRedireccion(e)) return
-        alert('No se pudo completar la acción. Probá de nuevo.')
+        setError('No se pudo completar la acción. Probá de nuevo.')
       }
     })
   }
 
   return (
-    <button
-      onClick={handleClick}
-      disabled={isPending}
-      className="text-red-600 hover:text-red-800 disabled:opacity-40 text-sm font-medium"
-    >
-      {isPending ? pendingLabel : label}
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={isPending}
+        className="text-red-600 hover:text-red-800 disabled:opacity-40 disabled:cursor-wait text-sm font-medium"
+      >
+        {isPending ? pendingLabel : label}
+      </button>
+      {error && <span role="alert" className="text-xs text-red-600 whitespace-normal">{error}</span>}
+    </>
   )
 }

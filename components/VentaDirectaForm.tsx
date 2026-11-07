@@ -80,11 +80,14 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
   const [selectedNombre, setSelectedNombre] = useState<string | null>(null)
   const [compCache, setCompCache] = useState<Record<string, Componente[]>>({})
   const [cargando, setCargando] = useState(false)
+  const [errorPiezas, setErrorPiezas] = useState(false)
   const [checked, setChecked] = useState<Record<number, boolean>>({})
   const [cantidades, setCantidades] = useState<Record<number, number>>({})
 
   const [busqueda, setBusqueda] = useState('')
   const [encontradas, setEncontradas] = useState<PiezaEnStock[]>([])
+  // Término que contestó la última búsqueda (y si falló), para decir "no hay" en vez de nada.
+  const [buscada, setBuscada] = useState<{ q: string; error: boolean }>({ q: '', error: false })
   const pedido = useRef(0)
 
   const [lineas, setLineas] = useState<Linea[]>([])
@@ -154,6 +157,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
     setChecked({})
     setCantidades({})
     const k = f?.ids.join(',') ?? ''
+    setErrorPiezas(false)
     if (f && !compCache[k]) {
       setCargando(true)
       try {
@@ -170,6 +174,9 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
           })
         if (varias) comps.sort((a, b) => a.product.nameEs.localeCompare(b.product.nameEs))
         setCompCache(prev => ({ ...prev, [k]: comps }))
+      } catch {
+        // Antes el rechazo quedaba sin manejar y la lista se veía vacía, como si no hubiera piezas.
+        setErrorPiezas(true)
       } finally {
         setCargando(false)
       }
@@ -215,9 +222,15 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
   async function buscar(texto: string, modelo = modelFilter) {
     setBusqueda(texto)
     const n = ++pedido.current
-    const rows = texto.trim().length >= 2 ? await buscarEnStock(texto, modelo || undefined) : []
+    let rows: PiezaEnStock[] = []
+    let error = false
+    try {
+      if (texto.trim().length >= 2) rows = await buscarEnStock(texto, modelo || undefined)
+    } catch {
+      error = true
+    }
     // Una respuesta vieja no pisa a la última que se pidió.
-    if (n === pedido.current) setEncontradas(rows)
+    if (n === pedido.current) { setEncontradas(rows); setBuscada({ q: texto.trim(), error }) }
   }
 
   // ── Carrito, totales y cobro ───────────────────────────────────────────────
@@ -260,6 +273,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
               <select
+                aria-label="Moto"
                 className={`w-full ${campo}`}
                 value={modelFilter}
                 onChange={e => { setModelFilter(e.target.value); setSelectedNombre(null); setChecked({}); setCantidades({}); buscar(busqueda, e.target.value) }}
@@ -268,7 +282,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                 {motosVisibles.map(m => <option key={m.id} value={m.id}>{shortModel(m.id)}</option>)}
               </select>
               <input
-                type="text" value={asmSearch} onChange={e => setAsmSearch(e.target.value)}
+                type="search" aria-label="Buscar ensamble" value={asmSearch} onChange={e => setAsmSearch(e.target.value)}
                 placeholder="Buscar por nombre, código o SKU de una pieza..."
                 className={`w-full ${campo}`}
               />
@@ -281,7 +295,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                   <div key={p.id} className="flex items-center gap-3 px-3 py-2">
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-900 truncate">{p.nameEs}</p>
-                      <p className="text-xs text-gray-400 truncate">
+                      <p className="text-xs text-gray-500 truncate">
                         {p.bajajCode && <span className="font-mono">{p.bajajCode} · </span>}hay {p.stock} · {usd(p.price)}
                       </p>
                     </div>
@@ -298,7 +312,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
 
             <div className="border border-gray-300 rounded-lg mb-1 max-h-72 overflow-y-auto divide-y divide-gray-50">
               {filas.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-6">
+                <p className="text-sm text-gray-500 text-center py-6">
                   {buscandoPiezas ? 'Buscando…' : ensambles.length === 0 ? 'No hay ninguna pieza en el depósito.' : 'Sin resultados'}
                 </p>
               ) : (
@@ -317,7 +331,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                       )}
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 truncate">{a.nombre}</p>
-                        <p className="text-xs text-gray-400 truncate">{formatModels(a.models)}</p>
+                        <p className="text-xs text-gray-500 truncate">{formatModels(a.models)}</p>
                         <p className="text-[11px] text-emerald-700 truncate">
                           tenés: {a.piezas.map(p => `${p.nameEs} (${p.stock})`).join(', ')}
                         </p>
@@ -335,7 +349,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                 })
               )}
             </div>
-            <p className="text-xs text-gray-400 mb-4">
+            <p className="text-xs text-gray-500 mb-4">
               {filas.length} ensamble{filas.length === 1 ? '' : 's'} con piezas en el depósito
               {modelFilter || asmSearch ? ' (filtrado)' : ''}.
             </p>
@@ -349,7 +363,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                   )}
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-gray-900 truncate">{seleccionado.nombre}</p>
-                    <p className="text-xs text-gray-400">Solo las piezas que tenés en el depósito.</p>
+                    <p className="text-xs text-gray-500">Solo las piezas que tenés en el depósito.</p>
                   </div>
                 </div>
                 {seleccionado.ids.length > 1 && (
@@ -379,12 +393,14 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                   </div>
                 )}
                 {cargando && !componentes ? (
-                  <p className="text-sm text-gray-400 py-6 text-center">Cargando piezas…</p>
+                  <p role="status" className="text-sm text-gray-500 py-6 text-center">Cargando piezas…</p>
+                ) : errorPiezas && !componentes ? (
+                  <p role="alert" className="text-sm text-red-600 py-6 text-center">No se pudieron cargar las piezas. Volvé a elegir el ensamble.</p>
                 ) : (
                   <div className="space-y-4 max-h-80 overflow-y-auto pr-1">
                     {Array.from(grupos.entries()).map(([nombre, items]) => (
                       <div key={nombre}>
-                        {nombre !== '—' && <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{nombre}</p>}
+                        {nombre !== '—' && <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{nombre}</p>}
                         <div className="space-y-0.5">
                           {items.map(c => {
                             const ya = enCarrito(c.product.id)
@@ -397,17 +413,18 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                                 />
                                 <span className="flex-1 min-w-0 text-sm text-gray-900">
                                   {c.product.nameEs}
-                                  {c.product.bajajCode && <span className="ml-2 text-xs font-mono text-gray-400">{c.product.bajajCode}</span>}
-                                  {ya && <span className="ml-2 text-xs text-blue-500">ya agregado</span>}
+                                  {c.product.bajajCode && <span className="ml-2 text-xs font-mono text-gray-500">{c.product.bajajCode}</span>}
+                                  {ya && <span className="ml-2 text-xs text-blue-700">ya agregado</span>}
                                   <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">hay {c.product.stock}</span>
                                   {c.product.models.length > 0 && (
-                                    <span className="block text-[11px] text-gray-400">sirve en {formatModels(c.product.models)}</span>
+                                    <span className="block text-[11px] text-gray-500">sirve en {formatModels(c.product.models)}</span>
                                   )}
                                 </span>
                                 <input
                                   type="number" min={1} max={c.product.stock} value={cantidades[c.id] ?? 1}
                                   onChange={e => setCantidades(prev => ({ ...prev, [c.id]: Math.min(parseInt(e.target.value) || 1, c.product.stock) }))}
                                   onClick={e => e.stopPropagation()} disabled={!checked[c.id] || ya}
+                                  aria-label={`Cantidad de ${c.product.nameEs}`}
                                   className="w-14 border border-gray-200 rounded px-2 py-0.5 text-sm text-center disabled:opacity-40"
                                 />
                                 <span className="text-sm text-gray-600 w-16 text-right font-mono">{usd(c.product.price)}</span>
@@ -434,7 +451,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
             <h2 className="font-semibold text-gray-900 mb-3">Agregar pieza individual</h2>
             <div className="relative">
               <input
-                type="text" placeholder="Buscar por nombre o código (solo lo que tengo)..."
+                type="search" aria-label="Buscar pieza en stock" placeholder="Buscar por nombre o código (solo lo que tengo)..."
                 value={busqueda} onChange={e => buscar(e.target.value)}
                 className={`w-full ${campo}`}
               />
@@ -448,19 +465,19 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                     >
                       {p.imageUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={p.imageUrl} alt={p.nameEs} className="w-10 h-10 object-contain rounded border border-gray-100 bg-white shrink-0" />
+                        <img src={p.imageUrl} alt="" className="w-10 h-10 object-contain rounded border border-gray-100 bg-white shrink-0" />
                       ) : (
                         <div className="w-10 h-10 rounded border border-gray-100 bg-gray-50 shrink-0" />
                       )}
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 truncate">{p.nameEs}</p>
-                        <p className="text-xs text-gray-400 truncate">
+                        <p className="text-xs text-gray-500 truncate">
                           {p.bajajCode && <span className="font-mono">{p.bajajCode}</span>}
                           {p.bajajCode && p.models.length > 0 && ' · '}
                           {formatModels(p.models)}
                         </p>
                         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">hay {p.stock}</span>
-                        {enCarrito(p.id) && <span className="ml-2 text-xs text-blue-500">ya agregado</span>}
+                        {enCarrito(p.id) && <span className="ml-2 text-xs text-blue-700">ya agregado</span>}
                       </div>
                       <span className="text-sm font-mono text-gray-600 shrink-0">{usd(p.price)}</span>
                     </button>
@@ -468,44 +485,51 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                 </div>
               )}
             </div>
+            <p role="status" className="text-xs mt-1">
+              {busqueda.trim().length >= 2 && buscada.q === busqueda.trim() && (
+                buscada.error
+                  ? <span className="text-red-600">No se pudo buscar. Probá de nuevo.</span>
+                  : encontradas.length === 0 && <span className="text-gray-500">No tenés en stock nada que coincida con &quot;{busqueda.trim()}&quot;.</span>
+              )}
+            </p>
           </div>
         </div>
 
         {/* ── Derecha: cliente, piezas, cobro ── */}
         <div className="space-y-4">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 space-y-3">
-            <h2 className="font-semibold text-gray-900">Cliente <span className="text-red-500">*</span></h2>
-            <select name="clienteId" value={clienteId} onChange={e => setClienteId(e.target.value)} required className={`w-full ${campo}`}>
+            <h2 id="venta-cliente" className="font-semibold text-gray-900">Cliente <span className="text-red-600">*</span></h2>
+            <select name="clienteId" aria-labelledby="venta-cliente" value={clienteId} onChange={e => setClienteId(e.target.value)} required className={`w-full ${campo}`}>
               <option value="">Elegí un cliente…</option>
               {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
               <option value="__new__">+ Nuevo cliente</option>
             </select>
             {clienteId === '__new__' && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <input type="text" name="nuevoClienteNombre" placeholder="Nombre del cliente" required className={`w-full ${campo}`} />
-                <input type="text" name="nuevoClienteTelefono" placeholder="Teléfono (opcional)" className={`w-full ${campo}`} />
+                <input type="text" name="nuevoClienteNombre" aria-label="Nombre del cliente nuevo" placeholder="Nombre del cliente" required className={`w-full ${campo}`} />
+                <input type="tel" name="nuevoClienteTelefono" aria-label="Teléfono del cliente nuevo (opcional)" placeholder="Teléfono (opcional)" className={`w-full ${campo}`} />
               </div>
             )}
-            <p className="text-[11px] text-gray-400">La venta queda a su nombre en su ficha de cliente.</p>
-            <input type="text" name="notas" placeholder="Nota (opcional)" className={`w-full ${campo}`} />
+            <p className="text-[11px] text-gray-500">La venta queda a su nombre en su ficha de cliente.</p>
+            <input type="text" name="notas" aria-label="Nota (opcional)" placeholder="Nota (opcional)" className={`w-full ${campo}`} />
           </div>
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
             <h2 className="font-semibold text-gray-900 mb-3">
               Piezas a vender
-              {lineas.length > 0 && <span className="ml-2 text-xs font-normal text-gray-400">{lineas.length} {lineas.length === 1 ? 'pieza' : 'piezas'}</span>}
+              {lineas.length > 0 && <span className="ml-2 text-xs font-normal text-gray-500">{lineas.length} {lineas.length === 1 ? 'pieza' : 'piezas'}</span>}
             </h2>
             {lineas.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-8">Buscá a la izquierda lo que se lleva el cliente.</p>
+              <p className="text-sm text-gray-500 text-center py-8">Buscá a la izquierda lo que se lleva el cliente.</p>
             ) : (
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-left text-xs text-gray-400">
+                  <tr className="text-left text-xs text-gray-500">
                     <th className="py-1 font-medium">Pieza</th>
                     <th className="py-1 font-medium w-16">Cant.</th>
                     <th className="py-1 font-medium w-24">Precio</th>
                     <th className="py-1 font-medium w-24">Costo</th>
-                    <th className="w-6" />
+                    <th className="w-6"><span className="sr-only">Quitar</span></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -515,16 +539,16 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                       <tr key={l.pieza.id} className="align-top">
                         <td className="py-2 pr-2">
                           {l.pieza.nameEs}
-                          <span className="block text-[11px] text-gray-400">
+                          <span className="block text-[11px] text-gray-500">
                             {l.pieza.bajajCode ?? 'sin código'} · hay {l.pieza.stock}
                             {cant > l.pieza.stock && <span className="text-red-600 font-semibold"> · no alcanza</span>}
                             {l.pieza.costoUnitUsd == null && <span className="text-amber-700"> · sin costo cargado: escribilo</span>}
                           </span>
                         </td>
-                        <td className="py-2 pr-1"><input type="number" min={1} max={l.pieza.stock} step={1} value={l.cantidad} onChange={e => cambiar(l.pieza.id, 'cantidad', e.target.value)} className="w-14 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono" /></td>
-                        <td className="py-2 pr-1"><input type="number" min={0} step="0.01" value={l.precio} onChange={e => cambiar(l.pieza.id, 'precio', e.target.value)} className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono" /></td>
-                        <td className="py-2 pr-1"><input type="number" min={0.01} step="0.01" value={l.costo} onChange={e => cambiar(l.pieza.id, 'costo', e.target.value)} className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono" /></td>
-                        <td className="py-2 text-right"><button type="button" onClick={() => setLineas(ls => ls.filter(x => x.pieza.id !== l.pieza.id))} className="text-gray-400 hover:text-red-600" aria-label="Quitar">×</button></td>
+                        <td className="py-2 pr-1"><input type="number" aria-label={`Cantidad de ${l.pieza.nameEs}`} min={1} max={l.pieza.stock} step={1} value={l.cantidad} onChange={e => cambiar(l.pieza.id, 'cantidad', e.target.value)} className="w-14 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono" /></td>
+                        <td className="py-2 pr-1"><input type="number" aria-label={`Precio de ${l.pieza.nameEs}`} min={0} step="0.01" value={l.precio} onChange={e => cambiar(l.pieza.id, 'precio', e.target.value)} className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono" /></td>
+                        <td className="py-2 pr-1"><input type="number" aria-label={`Costo de ${l.pieza.nameEs}`} min={0.01} step="0.01" value={l.costo} onChange={e => cambiar(l.pieza.id, 'costo', e.target.value)} className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-mono" /></td>
+                        <td className="py-2 text-right"><button type="button" onClick={() => setLineas(ls => ls.filter(x => x.pieza.id !== l.pieza.id))} className="px-1.5 py-0.5 rounded text-gray-500 hover:text-red-600 hover:bg-red-50" aria-label={`Quitar ${l.pieza.nameEs}`}>×</button></td>
                       </tr>
                     )
                   })}
@@ -554,10 +578,10 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                 sufijo="" metodos={metodos} metodoInicial={metodos[0]} cobro={cobro} yaCobrado={0}
                 modoBcv={modoBcv} tasaBcv={tasaBcv} tasaDirecta={tasaDirecta} onReal={setCobrado1}
               />
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Fecha</label>
+              <label className="block">
+                <span className="block text-xs font-medium text-gray-600 mb-1">Fecha</span>
                 <CampoFecha name="fecha" className={campo} />
-              </div>
+              </label>
             </div>
             {segundo ? (
               <div className="flex flex-wrap items-start gap-4 border-t border-gray-100 mt-4 pt-4">
@@ -577,7 +601,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
             <div className="border-t border-gray-100 mt-4 pt-3 space-y-2">
               <label className="flex items-center gap-2 text-xs text-gray-600">
                 <input type="checkbox" checked={conVuelto} onChange={e => setConVuelto(e.target.checked)} className="rounded border-gray-300" />
-                Le di vuelto{sobra > 0 && <span className="text-gray-400">(pagó {usd(sobra)} de más)</span>}
+                Le di vuelto{sobra > 0 && <span className="text-gray-500">(pagó {usd(sobra)} de más)</span>}
               </label>
               {conVuelto && (
                 <div className="w-64">
@@ -591,7 +615,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                 </div>
               )}
             </div>
-            <p className="text-[11px] text-gray-400 mt-2">
+            <p className="text-[11px] text-gray-500 mt-2">
               Dejá el monto vacío si todavía no pagó: queda por cobrar y lo registrás después desde el pedido.
             </p>
           </div>
@@ -604,7 +628,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
               {isPending ? 'Registrando…' : 'Registrar venta'}
             </button>
             {!listo && (
-              <span className="text-xs text-gray-400">
+              <span className="text-xs text-gray-500">
                 {lineas.length === 0 ? 'Agregá al menos una pieza.'
                   : excedeStock ? 'Hay una cantidad mayor al stock.'
                   : !completas ? 'Completá cantidad, precio y costo de cada pieza.'
@@ -647,12 +671,12 @@ function FilaCobro({ sufijo, metodos, metodoInicial, cobro, yaCobrado, modoBcv, 
 
   return (
     <>
-      <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">{sufijo ? 'Otro método' : 'Método de pago'}</label>
+      <label className="block">
+        <span className="block text-xs font-medium text-gray-600 mb-1">{sufijo ? 'Otro método' : 'Método de pago'}</span>
         <select name={`metodoPago${sufijo}`} value={metodo} onChange={e => setMetodo(e.target.value)} className={campo}>
           {metodos.map(m => <option key={m} value={m}>{m}</option>)}
         </select>
-      </div>
+      </label>
       {enBs ? (
         <div className="w-48">
           <MontoBs
@@ -668,8 +692,8 @@ function FilaCobro({ sufijo, metodos, metodoInicial, cobro, yaCobrado, modoBcv, 
         </div>
       ) : (
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Cobrado ({unidad})</label>
-          <input type="number" name={`monto${sufijo}`} min={0.01} step="0.01" value={monto} onChange={e => setMonto(e.target.value)} className={`w-36 font-mono ${campo}`} />
+          <label htmlFor={`venta-monto${sufijo}`} className="block text-xs font-medium text-gray-600 mb-1">Cobrado ({unidad})</label>
+          <input id={`venta-monto${sufijo}`} type="number" name={`monto${sufijo}`} min={0.01} step="0.01" value={monto} onChange={e => setMonto(e.target.value)} className={`w-36 font-mono ${campo}`} />
           {sugerido != null && (
             <button type="button" onClick={() => setMonto(sugerido.toFixed(2))} className="block text-[11px] text-blue-600 hover:underline mt-1">
               {sufijo ? 'Cobrar el resto' : 'Cobrar todo'} ({usd(sugerido)})

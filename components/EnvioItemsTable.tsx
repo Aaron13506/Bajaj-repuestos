@@ -92,7 +92,7 @@ function FaltantesBadge({ its, href }: { its: EnvioItemRow[]; href: string }) {
     <Link
       href={href}
       title="Estas piezas no suman al flete calculado. Cargá peso y medidas en el presupuesto."
-      className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 hover:bg-amber-200"
+      className="ml-2 text-xs font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 hover:bg-amber-200"
     >
       {partes.join(' · ')}
     </Link>
@@ -122,17 +122,17 @@ function Th({
 }) {
   const activa = orden.campo === campo
   return (
-    <th className={`py-2 font-semibold ${className}`}>
+    <th aria-sort={activa ? (orden.dir === 'asc' ? 'ascending' : 'descending') : undefined} className={`py-2 font-semibold ${className}`}>
       <button
         type="button"
         onClick={() => onClick(campo)}
         title={titulo ?? 'Ordenar'}
-        className={`inline-flex items-center gap-1 uppercase tracking-wide hover:text-gray-800 transition-colors ${
+        className={`inline-flex items-center gap-1 min-h-8 hover:text-gray-900 transition-colors ${
           activa ? 'text-gray-800' : 'text-gray-500'
         }`}
       >
         {children}
-        <span className={activa ? 'text-blue-600' : 'text-gray-300'}>
+        <span aria-hidden="true" className={activa ? 'text-blue-600' : 'text-gray-500'}>
           {activa ? (orden.dir === 'asc' ? '▲' : '▼') : '↕'}
         </span>
       </button>
@@ -426,20 +426,25 @@ export default function EnvioItemsTable({
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
-      <div className="px-6 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-          Ítems en el envío ({visibles.length}) · {comprados} comprados
-        </h2>
-        <div className="flex items-center gap-4 text-xs flex-wrap justify-end">
+    <section aria-labelledby="lineas-titulo" className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
+      <div className="px-4 sm:px-6 py-4 border-b border-gray-100 flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0">
+          <h2 id="lineas-titulo" className="text-base font-semibold text-gray-900">Líneas de la caja</h2>
+          <p className="text-sm text-gray-600">
+            {visibles.length} {visibles.length === 1 ? 'línea' : 'líneas'} de {grupos.length} {grupos.length === 1 ? 'pedido' : 'pedidos'} · {comprados} {comprados === 1 ? 'comprada' : 'compradas'}
+            {bloqueada && ' · en borrador no se mueve nada'}
+          </p>
+        </div>
+        <div className="flex items-center gap-x-4 gap-y-2 text-sm flex-wrap">
           {visibles.length > 0 && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 min-w-0">
               <select
+                aria-label="Mover todas las líneas a la etapa"
                 disabled={guardando || bloqueada}
                 value=""
                 onChange={e => { if (e.target.value) moverTodo(e.target.value) }}
                 title="Lleva todas las líneas de la caja a la misma etapa"
-                className="border border-gray-300 rounded-lg px-2 py-1 text-xs bg-white"
+                className="min-h-9 max-w-full border border-gray-300 rounded-lg px-2 py-1 text-sm bg-white disabled:opacity-50"
               >
                 <option value="">Mover todo a…</option>
                 {etapasCaja.map(s => (
@@ -451,47 +456,52 @@ export default function EnvioItemsTable({
                 disabled={guardando || bloqueada}
                 onClick={() => moverTodo(null)}
                 title="Cada línea pasa a la etapa siguiente de su ruta"
-                className="px-2.5 py-1 rounded-lg border border-gray-300 text-gray-700 hover:bg-white disabled:opacity-50"
+                className="min-h-9 px-3 py-1 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
               >
                 Avanzar todo un paso →
               </button>
-              <label className="flex items-center gap-1 text-gray-500" title="Por defecto lo que falta comprar no se mueve">
+              <label className="flex items-center gap-1.5 min-h-9 text-gray-700">
                 <input
                   type="checkbox"
                   checked={incluirNoCompradas}
                   onChange={e => setIncluirNoCompradas(e.target.checked)}
                   className="rounded border-gray-300"
                 />
-                incluir no compradas
+                mover también lo no comprado
               </label>
             </div>
           )}
           <button
             type="button"
             onClick={() => setAbiertos(todoAbierto ? [] : grupos.map(g => g.pedidoId))}
-            className="text-blue-600 hover:underline"
+            aria-expanded={todoAbierto}
+            className="min-h-9 text-blue-700 underline underline-offset-2 hover:no-underline"
           >
             {todoAbierto ? 'Contraer todo' : 'Expandir todo'}
           </button>
-          {error ? (
-            <span className="text-red-600 font-medium">{error}</span>
-          ) : guardando ? (
-            <span className="text-gray-400">Guardando…</span>
-          ) : guardadoOk ? (
-            <span className="text-green-600 font-medium">✓ Guardado</span>
-          ) : (
-            <span className="text-gray-300">Los cambios se guardan solos</span>
-          )}
+          {/* Autoguardado: el estado se anuncia, si no el lector no se entera de que guardó o falló. */}
+          <span role="status">
+            {error ? (
+              <span className="text-red-600 font-medium">{error}</span>
+            ) : guardando ? (
+              <span className="text-gray-500">Guardando…</span>
+            ) : guardadoOk ? (
+              <span className="text-green-700 font-medium">✓ Guardado</span>
+            ) : (
+              <span className="text-gray-600">Los cambios se guardan solos</span>
+            )}
+          </span>
         </div>
       </div>
       {aviso && (
-        <p className="px-6 py-2 text-xs text-gray-600 bg-amber-50 border-b border-amber-100">{aviso}</p>
+        <p role="status" className="px-4 sm:px-6 py-2 text-sm text-amber-900 bg-amber-50 border-b border-amber-100">{aviso}</p>
       )}
 
-      <table className="w-full text-sm">
+      <div className="relative overflow-x-auto">
+      <table className="w-full text-sm min-w-[720px]">
         <thead>
-          <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
-            <Th campo="cliente" orden={orden} onClick={ordenarPor} className="text-left px-6">Pieza</Th>
+          <tr className="border-b border-gray-100 text-xs text-gray-600">
+            <Th campo="cliente" orden={orden} onClick={ordenarPor} className="text-left px-4 sm:px-6">Pieza</Th>
             <Th campo="landed" orden={orden} onClick={ordenarPor} className="text-right px-3 w-28">Landed</Th>
             <Th campo="venta" orden={orden} onClick={ordenarPor} className="text-right px-3 w-28">Venta</Th>
             {/* Ancho suficiente para "Pendiente de comprar" sin recortar. */}
@@ -504,7 +514,7 @@ export default function EnvioItemsTable({
             >
               Estado
             </Th>
-            <th className="px-4 py-2 w-20" />
+            <th scope="col" className="px-4 py-2 w-28"><span className="sr-only">Acciones</span></th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-50">
@@ -521,26 +531,27 @@ export default function EnvioItemsTable({
             return (
               <Fragment key={pedidoId}>
                 <tr className="bg-gray-50/80 border-t border-gray-200">
-                  <td className="px-6 py-2">
+                  <td className="px-4 sm:px-6 py-2">
                     <button
                       type="button"
                       onClick={() => setAbiertos(prev =>
                         prev.includes(pedidoId) ? prev.filter(id => id !== pedidoId) : [...prev, pedidoId]
                       )}
-                      className="flex items-center gap-2 text-left group whitespace-nowrap"
+                      aria-expanded={abierto}
+                      className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-h-8 text-left group"
                     >
-                      <span className={`text-gray-400 text-[10px] transition-transform shrink-0 ${abierto ? 'rotate-90' : ''}`}>
+                      <span aria-hidden="true" className={`text-gray-500 text-xs transition-transform shrink-0 ${abierto ? 'rotate-90' : ''}`}>
                         ▶
                       </span>
-                      <span className="text-sm font-semibold text-gray-800 group-hover:text-blue-600">
-                        {its[0].clientName}
+                      <span className="text-sm font-semibold text-gray-900 group-hover:text-blue-700">
+                        #{pedidoId} · {its[0].clientName}
                       </span>
-                      <span className="text-[10px] text-gray-400">
-                        #{pedidoId} · {its.length} {its.length === 1 ? 'conjunto' : 'conjuntos'}
+                      <span className="text-xs text-gray-600">
+                        {its.length} {its.length === 1 ? 'línea' : 'líneas'}
                       </span>
                       {resumen && (
-                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${resumen.lead.badge}`}>
-                          {resumen.lead.icon} {resumen.comprados}/{resumen.total}
+                        <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${resumen.lead.badge}`}>
+                          <span aria-hidden="true">{resumen.lead.icon} </span>{resumen.comprados}/{resumen.total}<span className="sr-only"> compradas</span>
                         </span>
                       )}
                     </button>
@@ -550,17 +561,18 @@ export default function EnvioItemsTable({
                     <FaltantesBadge its={its} href={`/presupuestos/${pedidoId}`} />
                   </td>
                   {/* Totales del presupuesto: cuando está contraído siguen visibles. */}
-                  <td className="px-3 py-2 text-right font-mono text-xs text-gray-500">{usd(landedGrupo)}</td>
-                  <td className="px-3 py-2 text-right font-mono text-xs text-gray-500">{usd(ventaGrupo)}</td>
+                  <td className="px-3 py-2 text-right font-mono text-xs text-gray-600">{usd(landedGrupo)}</td>
+                  <td className="px-3 py-2 text-right font-mono text-xs text-gray-600">{usd(ventaGrupo)}</td>
                   <td className="px-3 py-2">
                     <select
+                      aria-label={`Etapa de todo el pedido #${pedidoId} (${its[0].clientName})`}
                       disabled={guardando || bloqueada}
                       value={statusComun === undefined ? MIXTO : statusComun}
                       onChange={e => {
                         if (e.target.value === MIXTO) return
                         aplicarA(its, { shippingStatus: e.target.value })
                       }}
-                      className={`w-full rounded-full px-2 py-1 text-[11px] font-semibold border-0 cursor-pointer focus:ring-2 focus:ring-blue-500 ${
+                      className={`w-full rounded-full px-2 py-1 text-xs font-semibold border-0 cursor-pointer focus:ring-2 focus:ring-blue-500 ${
                         statusComun !== undefined ? shippingStatusMeta(statusComun).badge : 'bg-white text-gray-500 border border-gray-300'
                       }`}
                     >
@@ -570,13 +582,13 @@ export default function EnvioItemsTable({
                       ))}
                     </select>
                   </td>
-                  <td className="px-4 py-2 text-right">
+                  <td className="px-4 py-2 text-right whitespace-nowrap">
                     <button
                       type="button"
                       onClick={() => quitarPresupuesto(pedidoId, its[0].clientName, its.length)}
-                      className="text-xs text-red-600 hover:text-red-800"
+                      className="min-h-8 px-2 text-xs font-medium text-red-700 rounded hover:bg-red-50"
                     >
-                      Quitar
+                      Quitar<span className="sr-only"> el pedido #{pedidoId} de la caja</span>
                     </button>
                     {mover && destinos.length > 0 && (
                       <select
@@ -586,15 +598,18 @@ export default function EnvioItemsTable({
                           const destinoId = parseInt(e.target.value)
                           if (Number.isInteger(destinoId)) moverPresupuesto(pedidoId, its[0].clientName, destinoId)
                         }}
-                        title="Pasarlo a otra caja con la etapa que tiene"
-                        className="ml-2 text-xs text-blue-600 bg-transparent border-0 cursor-pointer focus:ring-0 p-0"
+                        aria-label={`Mover el pedido #${pedidoId} (${its[0].clientName}) a otra caja, con la etapa que tiene`}
+                        className="ml-1 min-h-8 text-xs text-blue-700 bg-transparent border-0 rounded cursor-pointer focus:ring-2 focus:ring-blue-500 py-0 pl-1 pr-6"
                       >
                         <option value="">Mover a…</option>
                         {destinos.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
                       </select>
                     )}
                     {mover && destinos.length === 0 && motivoNoMover && !bloqueada && (
-                      <span title={motivoNoMover} className="ml-2 text-xs text-gray-300 cursor-help">Mover</span>
+                      <details className="inline-block ml-1 text-left align-top">
+                        <summary className="min-h-8 inline-flex items-center px-1 text-xs text-gray-600 underline decoration-dotted underline-offset-2 cursor-pointer list-none [&::-webkit-details-marker]:hidden">Mover: no se puede</summary>
+                        <p className="mt-1 max-w-[28ch] whitespace-normal text-xs text-gray-700">{motivoNoMover}</p>
+                      </details>
                     )}
                   </td>
                 </tr>
@@ -605,29 +620,29 @@ export default function EnvioItemsTable({
                   const esLanded = it.isLanded
                   return (
                     <tr key={it.id} className="hover:bg-gray-50 align-top">
-                      <td className="px-6 py-3 pl-12">
+                      <td className="px-4 sm:px-6 py-3 pl-10 sm:pl-12">
                         <p>
                           <span className="text-gray-900 font-medium">{limpiarNombre(it.nombre)}</span>
-                          {it.quantity > 1 && <span className="text-xs text-gray-400"> ×{it.quantity}</span>}
+                          {it.quantity > 1 && <span className="text-xs text-gray-500"> ×{it.quantity}</span>}
                           {it.bajajCode && (
-                            <span className="ml-2 font-mono text-[10px] text-gray-400">{it.bajajCode}</span>
+                            <span className="ml-2 font-mono text-xs text-gray-600">{it.bajajCode}</span>
                           )}
                           {it.sinEnviar && (
                             <Link
                               href={`/presupuestos/${it.pedidoId}`}
                               title="El proveedor no lo mandó todavía: el conteo no lo espera. Cuando llegue, resolvelo como «Llegó» en el pedido."
-                              className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-800 hover:bg-orange-200"
+                              className="ml-2 text-xs font-semibold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-800 hover:bg-orange-200"
                             >
                               {it.sinEnviar}
                             </Link>
                           )}
                           {esLanded && (
-                            <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">
+                            <span className="ml-2 text-xs font-semibold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">
                               no viaja
                             </span>
                           )}
                           {it.stockUnidades > 0 && (
-                            <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700">
+                            <span className="ml-2 text-xs font-semibold px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700">
                               stock propio
                             </span>
                           )}
@@ -640,7 +655,7 @@ export default function EnvioItemsTable({
                             {groupBundlePieces(it.piezas).map(([grupo, ps]) => (
                               <div key={grupo}>
                                 {grupo !== '—' && (
-                                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                                  <p className="text-xs font-semibold text-gray-600">
                                     {limpiarNombre(grupo)}
                                   </p>
                                 )}
@@ -652,7 +667,7 @@ export default function EnvioItemsTable({
                                       </span>{' '}
                                       {limpiarNombre(p.nameEs)}
                                       {p.bajajCode && (
-                                        <span className="ml-1.5 font-mono text-[10px] text-gray-400">
+                                        <span className="ml-1.5 font-mono text-xs text-gray-600">
                                           {p.bajajCode}
                                         </span>
                                       )}
@@ -678,6 +693,7 @@ export default function EnvioItemsTable({
                       <td className="px-3 py-3 text-right font-mono text-gray-700">{usd(it.venta)}</td>
                       <td className="px-3 py-3">
                         <select
+                          aria-label={`Etapa de ${limpiarNombre(it.nombre)}`}
                           disabled={guardando || bloqueada}
                           value={v.shippingStatus}
                           onChange={e => aplicarA([it], { shippingStatus: e.target.value })}
@@ -688,7 +704,7 @@ export default function EnvioItemsTable({
                           ))}
                         </select>
                         {it.shippingStatusAt && (
-                          <p className="text-[10px] text-gray-400 mt-1">desde {fecha(it.shippingStatusAt)}</p>
+                          <p className="text-xs text-gray-600 mt-1">desde {fecha(it.shippingStatusAt)}</p>
                         )}
                       </td>
                       {/* Una pieza no se saca sola del envío; lo único por fila es avisar que no vino. */}
@@ -698,7 +714,7 @@ export default function EnvioItemsTable({
                             type="button"
                             onClick={() => setNoVino(it.id)}
                             title="El proveedor no la mandó (o no toda): la caja no la espera al llegar"
-                            className="px-2 py-1 text-[11px] font-medium rounded-lg border border-orange-300 bg-white text-orange-700 hover:bg-orange-50 whitespace-nowrap"
+                            className="min-h-8 px-2 py-1 text-xs font-medium rounded-lg border border-orange-300 bg-white text-orange-800 hover:bg-orange-50 whitespace-nowrap"
                           >
                             Marcar «no vino»
                           </button>
@@ -712,12 +728,13 @@ export default function EnvioItemsTable({
           })}
         </tbody>
       </table>
+      </div>
 
       {visibles.length === 0 && (
-        <p className="px-6 py-8 text-center text-sm text-gray-400">
-          No quedan ítems en este envío.
+        <p className="px-4 sm:px-6 py-8 text-center text-sm text-gray-600">
+          No quedan líneas en esta caja.
         </p>
       )}
-    </div>
+    </section>
   )
 }

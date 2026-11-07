@@ -16,6 +16,8 @@ interface Column {
   name: string
 }
 
+export const metadata = { title: 'Comparar proveedores' }
+
 export default async function CompararProveedoresPage({ params }: { params: Promise<{ id: string }> }) {
   const id = parseInt((await params).id)
   if (isNaN(id)) notFound()
@@ -124,35 +126,42 @@ export default async function CompararProveedoresPage({ params }: { params: Prom
       return b != null ? sum + b.landedUsd * line.quantity : sum
     }, 0)
   )
+  // El total suma solo las líneas con costo: hay que decir cuántas quedaron afuera.
+  const faltanByCol = columns.map(col => lines.filter(line => breakdownFor(line, col) == null).length)
   const baseTotal = totalsByCol[0]
 
   return (
     <div className="max-w-5xl">
-      <div className="flex items-start justify-between gap-4 mb-6">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Link href={`/presupuestos/${id}`} className="text-gray-400 hover:text-gray-600 text-sm">
+      <div className="mb-6">
+        <div className="min-w-0">
+          <nav aria-label="Ruta" className="flex flex-wrap items-center gap-2 mb-1">
+            <Link href={`/presupuestos/${id}`} className="text-gray-500 hover:text-gray-600 text-sm">
               {pedido.clientName}
             </Link>
-            <span className="text-gray-300">/</span>
+            <span aria-hidden="true" className="text-gray-300">/</span>
             <span className="text-sm text-gray-600">Comparar proveedores</span>
-          </div>
+          </nav>
           <h1 className="text-2xl font-bold text-gray-900">Comparar costo de origen por proveedor</h1>
           <p className="text-sm text-gray-500 mt-1">
             Costo landed de cada pieza (individual, sin mezclar con las demás del presupuesto) según de dónde se
             compre — producto + envío + seguro + marítimo, salvo proveedores marcados como &quot;ya landed&quot; en
-            /suppliers. No afecta el precio ya cotizado al cliente — es solo para elegir dónde conviene comprar.
+            Proveedores. No afecta el precio ya cotizado al cliente — es solo para elegir dónde conviene comprar.
           </p>
         </div>
       </div>
 
       {suppliers.length === 0 && (
         <div className="mb-4 bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-lg px-4 py-3 text-sm">
-          Todavía no cargaste otros proveedores en <Link href="/suppliers" className="underline font-medium">/suppliers</Link> —
+          Todavía no cargaste otros proveedores en <Link href="/suppliers" className="underline font-medium">Proveedores</Link> —
           por ahora solo se puede ver el costo base de 99rpm.
         </div>
       )}
 
+      {lines.length === 0 ? (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-sm text-gray-500">
+          Este presupuesto no tiene piezas para comparar.
+        </div>
+      ) : (
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
         <table className="w-full text-sm whitespace-nowrap">
           <thead>
@@ -163,7 +172,7 @@ export default async function CompararProveedoresPage({ params }: { params: Prom
               {columns.map(col => (
                 <th key={col.id ?? 'base'} className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide border-l border-gray-100">
                   {col.name}
-                  <span className="block text-[10px] font-normal normal-case text-gray-400">landed · base</span>
+                  <span className="block text-[10px] font-normal normal-case text-gray-500">landed · base</span>
                 </th>
               ))}
             </tr>
@@ -193,14 +202,20 @@ export default async function CompararProveedoresPage({ params }: { params: Prom
                         {b != null ? (
                           <>
                             ${b.landedUsd.toFixed(2)}
-                            <span className="block text-[11px] font-normal text-gray-400">
+                            <span className="block text-[11px] font-normal text-gray-500">
                               ×{line.quantity} = ${(b.landedUsd * line.quantity).toFixed(2)}
                             </span>
-                            <span className="block text-[11px] font-normal text-gray-400">
+                            <span className="block text-[11px] font-normal text-gray-500">
                               base ${b.baseUsd.toFixed(2)}
                             </span>
+                            {isCheapest && <span className="sr-only">(el más barato)</span>}
                           </>
-                        ) : '—'}
+                        ) : (
+                          <span title="Sin SKU en el catálogo o sin peso">
+                            <span aria-hidden="true">—</span>
+                            <span className="sr-only">Sin costo: falta SKU en el catálogo o peso</span>
+                          </span>
+                        )}
                       </td>
                     )
                   })}
@@ -222,8 +237,13 @@ export default async function CompararProveedoresPage({ params }: { params: Prom
                   >
                     ${total.toFixed(2)}
                     {savings != null && savings !== 0 && (
-                      <span className={`block text-[11px] font-normal ${savings > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                      <span className={`block text-[11px] font-normal ${savings > 0 ? 'text-green-700' : 'text-red-600'}`}>
                         {savings > 0 ? '−' : '+'}${Math.abs(savings).toFixed(2)} vs 99rpm
+                      </span>
+                    )}
+                    {faltanByCol[i] > 0 && (
+                      <span className="block text-[11px] font-normal text-amber-700">
+                        sin {faltanByCol[i]} {faltanByCol[i] === 1 ? 'línea' : 'líneas'}
                       </span>
                     )}
                   </td>
@@ -233,6 +253,12 @@ export default async function CompararProveedoresPage({ params }: { params: Prom
           </tfoot>
         </table>
       </div>
+      )}
+      {faltanByCol.some(n => n > 0) && (
+        <p className="text-xs text-gray-500 mt-2">
+          — = sin costo para ese proveedor (la pieza no está en el catálogo por ese SKU o le falta el peso). El total no la suma.
+        </p>
+      )}
     </div>
   )
 }

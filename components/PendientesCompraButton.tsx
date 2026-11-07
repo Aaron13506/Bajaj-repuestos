@@ -169,7 +169,7 @@ function descargar(nombre: string, contenido: string, mime: string) {
 }
 
 export default function PendientesCompraButton({ envio, grupos, inrUsd, compra99 }: Props) {
-  const [abierto, setAbierto] = useState(false)
+  const [abierto, setAbierto] = useState(true)
   const [aviso, setAviso] = useState<string | null>(null)
   // La vista plana por SKU sigue a un clic: es la que tiene el costo por fila y sirve
   // para chequear el carrito contra el total, que los bloques no muestran.
@@ -181,13 +181,8 @@ export default function PendientesCompraButton({ envio, grupos, inrUsd, compra99
   const usdTotal = grupos.reduce((s, g) => s + totalUsd(g), 0) + inrTotal / inrUsd
   const slug = envio.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'envio'
 
-  if (grupos.length === 0) {
-    return (
-      <div className="bg-green-50 border border-green-100 rounded-xl px-6 py-3 mb-4 text-sm text-green-700">
-        ✓ No falta nada por comprar en este envío — todos los ítems están marcados como comprados.
-      </div>
-    )
-  }
+  // Sin nada por comprar la ficha ya lo dice arriba.
+  if (grupos.length === 0) return null
 
   function avisar(msg: string) {
     setAviso(msg)
@@ -195,34 +190,39 @@ export default function PendientesCompraButton({ envio, grupos, inrUsd, compra99
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
-      <div className="px-6 py-3 border-b border-gray-100 bg-amber-50/60 flex items-center justify-between flex-wrap gap-3">
-        <h2 className="text-sm font-semibold text-gray-600 uppercase tracking-wide">
-          🛒 Falta por comprar ({items} {items === 1 ? 'ítem' : 'ítems'} · {uds} u. · ≈ {usd(usdTotal)})
-        </h2>
-        <div className="flex items-center gap-2">
-          {aviso && <span className="text-xs text-green-600 font-medium">{aviso}</span>}
+    <section aria-labelledby="falta-comprar" className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
+      <div className={`px-4 sm:px-6 py-4 flex flex-wrap items-start justify-between gap-x-4 gap-y-2 ${abierto ? 'border-b border-gray-100' : ''}`}>
+        <div className="min-w-0">
+          <h2 id="falta-comprar" className="text-base font-semibold text-gray-900">Falta comprar</h2>
+          <p className="text-sm text-gray-600">
+            {items} {items === 1 ? 'código' : 'códigos'} · {uds} u. · ≈ {usd(usdTotal)}
+            {compra99 && ' · a 99rpm se le compra entrando al ensamble y tildando piezas'}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span role="status" className="text-sm text-green-700 font-medium">{aviso}</span>
           <button
             type="button"
             onClick={async () => {
               const ok = await copiar(comoTexto(envio, grupos, inrUsd, porSku ? null : compra99))
               avisar(ok ? '✓ Copiado' : 'No se pudo copiar')
             }}
-            className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            className="min-h-9 px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
           >
             Copiar lista
           </button>
           <button
             type="button"
             onClick={() => descargar(`falta-comprar-${slug}.csv`, comoCsv(grupos), 'text/csv')}
-            className="px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-lg hover:bg-white transition-colors"
+            className="min-h-9 px-3 py-1.5 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
           >
             CSV
           </button>
           <button
             type="button"
             onClick={() => setAbierto(a => !a)}
-            className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-800"
+            aria-expanded={abierto}
+            className="min-h-9 px-3 py-1.5 text-sm text-gray-700 rounded-lg hover:bg-gray-50"
           >
             {abierto ? 'Ocultar' : 'Ver'}
           </button>
@@ -237,26 +237,22 @@ export default function PendientesCompraButton({ envio, grupos, inrUsd, compra99
             const esCompra99 = compra99 != null && compra99.key === g.key
             return (
               <div key={g.key}>
-                <div className="px-6 py-2 bg-gray-50 flex items-center justify-between gap-3 text-xs">
-                  <span className="font-semibold text-gray-600">
-                    {bandera(g.origen)} {g.proveedor}
-                    {esCompra99 && !porSku && (
-                      <span className="ml-2 font-normal text-gray-400">
-                        se compra entrando al ensamble y tildando piezas
-                      </span>
-                    )}
-                  </span>
+                <div className="px-4 sm:px-6 py-2 bg-gray-50 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm">
+                  <h3 className="font-semibold text-gray-800">
+                    {g.proveedor} <span className="font-normal text-gray-600">· {g.origen === 'china' ? 'China' : 'India'}</span>
+                  </h3>
                   <span className="flex items-center gap-3">
                     {esCompra99 && (
                       <button
                         type="button"
                         onClick={() => setPorSku(v => !v)}
-                        className="text-blue-600 hover:underline"
+                        aria-pressed={porSku}
+                        className="min-h-8 text-blue-700 underline underline-offset-2 hover:no-underline"
                       >
                         {porSku ? 'Ver por ensamble' : 'Ver por SKU'}
                       </button>
                     )}
-                    <span className="font-mono text-gray-500">
+                    <span className="font-mono text-gray-600">
                       {unidades(g)} u.
                       {tInr > 0 && ` · ${inr(tInr)}`}
                       {tUsd > 0 && ` · ${usd(tUsd)}`}
@@ -264,34 +260,34 @@ export default function PendientesCompraButton({ envio, grupos, inrUsd, compra99
                   </span>
                 </div>
                 {esCompra99 && !porSku ? <CompraPorEnsambleLista datos={compra99!.datos} /> : (
-                <table className="w-full text-sm">
+                <div className="relative overflow-x-auto"><table className="w-full text-sm">
                   <tbody className="divide-y divide-gray-50">
                     {g.rows.map((r, i) => (
                       <tr key={i} className="hover:bg-gray-50">
-                        <td className="pl-6 pr-3 py-2 font-mono text-xs text-gray-500 w-32">{r.sku ?? '—'}</td>
-                        <td className="px-3 py-2 text-gray-900">
+                        <td className="pl-4 sm:pl-6 pr-3 py-2 font-mono text-xs text-gray-600 w-32 whitespace-nowrap">{r.sku ?? '—'}</td>
+                        <td className="px-3 py-2 text-gray-900 min-w-48">
                           {r.name}
                           {r.isLanded && (
-                            <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">
+                            <span className="ml-2 text-xs font-semibold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">
                               no viaja
                             </span>
                           )}
                           {r.unitInr == null && r.unitUsd == null && (
-                            <span className="ml-2 text-xs text-amber-600">sin precio</span>
+                            <span className="ml-2 text-xs font-semibold text-amber-800">sin precio</span>
                           )}
                         </td>
                         <td className="px-3 py-2 text-right font-mono font-semibold text-gray-700 w-16">×{r.qty}</td>
-                        <td className="pr-6 pl-3 py-2 text-right font-mono text-gray-600 w-32">{costoTexto(r)}</td>
+                        <td className="pr-4 sm:pr-6 pl-3 py-2 text-right font-mono text-gray-600 w-32 whitespace-nowrap">{costoTexto(r)}</td>
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </table></div>
                 )}
               </div>
             )
           })}
         </div>
       )}
-    </div>
+    </section>
   )
 }

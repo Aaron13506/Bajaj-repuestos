@@ -55,6 +55,7 @@ import { leerDevolucion } from '../lib/devolucion'
 import { motivoNoCambiaReenvio, tarifaEquilibrioKgInr } from '../lib/reenvio'
 import { compraTrasMover, motivoNoMueve, type CajaParaMover } from '../lib/mover-caja'
 import { leerTrackingsTramo, MAX_TRACKINGS_POR_TRAMO } from '../lib/tracking'
+import { esCodigoOneway, estadoOneway, fechaOneway, leerDetalle, leerLista } from '../lib/oneway'
 import { cajasQueSeFacturan, leerCajasEtapa, medidasDeCajas, resumenCajas, type CampoCaja } from '../lib/cajas-envio'
 import { buscarCouriers, courierDeFila, cuerpoTracker, datosDeTracking, esEstadoFinal, fechaCourier, listaDeCouriers, numeroParaShip24, resolverCourier, errorDeFila } from '../lib/ship24'
 
@@ -1664,6 +1665,28 @@ console.log('\nSHIP24')
     { courierCode: '', courierName: 'Sin code' },
   ])
   check('couriers: sin deprecados, repetidos ni vacíos; code y país normalizados', si(lc.length === 1 && lc[0].code === 'delhivery' && lc[0].pais === 'IN'), 1)
+
+  // One Way Cargo: el HTML real de la cuenta, recortado.
+  check('OWC: código MT del tramo Venezuela', si(esCodigoOneway('venezuela', ' mt-112893 ')), 1)
+  check('OWC: el mismo código en otro tramo no', si(esCodigoOneway('usa', 'MT-112893')), 0)
+  check('OWC: la guía de otro courier no', si(esCodigoOneway('venezuela', 'MIA-12345')), 0)
+  check('OWC: fecha con mes en español, PM', si(fechaOneway('Ago 31, 2026 - 03:30 PM') === '2026-08-31T15:30'), 1)
+  check('OWC: 12 AM es medianoche', si(fechaOneway('Oct 09, 2026 - 12:05 AM') === '2026-10-09T00:05'), 1)
+  check('OWC: fecha ilegible queda tal cual', si(fechaOneway('mañana') === 'mañana'), 1)
+  const owcLista = leerLista(`<a href="https://onewaycargo.net/onewayidv2/orders/2cbc0cbc-419b-4c48-8cc6-ed9a125259d6" class="x">
+      <span>MT-112893</span></a><a href="/onewayidv2/orders/863ccd69-b3bc-492f-85d4-243656c646e2">CA-381894 </a>`)
+  check('OWC: lista código → uuid', si(owcLista.get('MT-112893') === '2cbc0cbc-419b-4c48-8cc6-ed9a125259d6' && owcLista.size === 2), 1)
+  const paso = (t: string, d: string, f: string) =>
+    `<div class="border-l-2"><div><div class="ml-3"><h3 class="text-sm font-bold pb-0">${t}</h3>\n <p class="mb-0">${d}</p>\n <p class="mb-0">${f}</p></div></div></div>`
+  const det = leerDetalle(`<div id="detalles_pedido"><h3>Detalles</h3></div><div id="historial_pedido" class="px-4"><h3 class="text-base">Historial del pedido</h3><div class="mt-6">
+    ${paso('Paquete recibido en Miami', 'Hemos registrado un nuevo paquete.', 'Oct 09, 2026 - 02:38 PM')}
+    ${paso('Confirmada para el inicio de tránsito marítimo USA-VZLA', 'Tiempo estimado: de 14 a 18 días hábiles', 'Oct 24, 2026 - 09:00 AM')}</div></div>`)
+  check('OWC: pasos sin el encabezado, el más nuevo primero', si(det.eventos.length === 2 && det.eventos[0].detalle.startsWith('Confirmada') && det.eventos[1].detalle === 'Paquete recibido en Miami'), 1)
+  check('OWC: la descripción va en lugar, la fecha convertida', si(det.eventos[0].lugar === 'Tiempo estimado: de 14 a 18 días hábiles' && det.eventos[0].fecha === '2026-10-24T09:00'), 1)
+  check('OWC: en camino', si(det.estado === 'in_transit' && det.subestado === det.eventos[0].detalle), 1)
+  check('OWC: Despachado es entregado (no se consulta más)', si(esEstadoFinal(estadoOneway('Despachado'))), 1)
+  check('OWC: HOLD es problema', si(estadoOneway('Paquete en HOLD') === 'exception'), 1)
+  check('OWC: página cambiada = sin pasos (la fila queda con error)', leerDetalle('<html>otra cosa</html>').eventos.length, 0)
 }
 
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)

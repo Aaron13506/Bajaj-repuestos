@@ -9,9 +9,8 @@ interface Props {
   items: ItemPendienteCosto[]
   action: (formData: FormData) => Promise<ActionResult>
   methods: readonly string[]
-  // Modo embebido (ej. en /envios/[id]): arranca cerrado detrás de un botón, porque la
-  // ficha del envío ya tiene bastante contenido abierto. En /contabilidad/comprar, donde
-  // el picker ES la página, no aplica — arranca abierto y sin botón.
+  // Modo embebido (en /envios/[id]): una sección con su título y los pedidos plegados, porque
+  // casi siempre se paga todo junto. En /contabilidad/comprar el picker ES la página y va abierto.
   collapsible?: boolean
 }
 
@@ -19,7 +18,6 @@ const usd = (n: number) => `$${n.toFixed(2)}`
 
 export default function RegistrarCompraPicker({ items, action, methods, collapsible = false }: Props) {
   const [selected, setSelected] = useState<Set<number>>(new Set())
-  const [abierto, setAbierto] = useState(!collapsible)
   // Qué clientes tienen el detalle por pieza desplegado. En la ficha del envío arrancan todos
   // cerrados: casi siempre se paga todo junto con "Seleccionar todo" y el precio por pieza o
   // por cliente es opcional, así que el detalle no tiene que ocupar la pantalla.
@@ -122,10 +120,20 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
 
   const contenido = (
     <>
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto mb-4">
+        {collapsible && (
+          <div className="px-4 sm:px-6 py-4 border-b border-gray-100">
+            <h2 className="text-base font-semibold text-gray-900">Registrar lo que pagaste</h2>
+            <p className="text-sm text-gray-600">
+              Elegí lo que cubre el pago: todo, un pedido o piezas sueltas. El monto se reparte en proporción al
+              estimado, como en Contabilidad → Comprar. Si el proveedor cobró algo que no mandó, desplegá el
+              pedido y anotalo en «no mandó»: la caja no lo va a esperar al llegar.
+            </p>
+          </div>
+        )}
         {/* Un solo tilde para agarrar TODO el envío/lista de una — sin esto había que armar
             un pago único para todo tildando pedido por pedido. */}
-        <div className="px-4 py-2.5 bg-blue-50/50 border-b border-gray-100 flex items-center gap-3">
+        <label className="px-4 py-2.5 bg-blue-50/50 border-b border-gray-100 flex flex-wrap items-center gap-x-3 gap-y-1 cursor-pointer">
           <input
             type="checkbox"
             checked={todoSeleccionado}
@@ -134,11 +142,11 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
             className="h-4 w-4 rounded border-gray-300"
           />
           <span className="text-sm font-semibold text-gray-700">Seleccionar todo</span>
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-gray-500">
             {items.length} {items.length === 1 ? 'ítem' : 'ítems'} en {grupos.length}{' '}
             {grupos.length === 1 ? 'pedido' : 'pedidos'} · estimado {usd(items.reduce((s, i) => s + i.estimadoUsd, 0))}
           </span>
-        </div>
+        </label>
         <div className="divide-y divide-gray-100">
           {grupos.map(g => {
             const ids = g.items.map(i => i.id)
@@ -151,6 +159,7 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
                 <div className="px-4 py-2 bg-gray-50 flex items-center gap-3">
                   <input
                     type="checkbox"
+                    aria-label={`Seleccionar todo el pedido #${g.pedidoId} (${g.clientName})`}
                     checked={todos}
                     ref={el => { if (el) el.indeterminate = algunos }}
                     onChange={e => toggleGrupo(ids, e.target.checked)}
@@ -160,13 +169,14 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
                     <button
                       type="button"
                       onClick={() => toggleDesplegado(g.pedidoId)}
-                      className="flex items-center gap-2 text-left flex-1 group"
+                      aria-expanded={detalle}
+                      className="flex flex-wrap items-center gap-x-2 min-h-8 text-left flex-1 min-w-0 group"
                     >
-                      <span className={`text-gray-400 text-[10px] transition-transform shrink-0 ${detalle ? 'rotate-90' : ''}`}>▶</span>
+                      <span aria-hidden="true" className={`text-gray-500 text-xs transition-transform shrink-0 ${detalle ? 'rotate-90' : ''}`}>▶</span>
                       <span className="text-sm font-semibold text-gray-700 group-hover:text-blue-600">
                         #{g.pedidoId} {g.clientName}
                       </span>
-                      <span className="text-xs text-gray-400">
+                      <span className="text-xs text-gray-500">
                         {g.items.length} {g.items.length === 1 ? 'ítem' : 'ítems'} · estimado {usd(g.items.reduce((s, i) => s + i.estimadoUsd, 0))}
                         {!detalle && seleccionadosGrupo > 0 && ` · ${seleccionadosGrupo} tildados`}
                       </span>
@@ -176,7 +186,7 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
                       <span className="text-sm font-semibold text-gray-700">
                         #{g.pedidoId} {g.clientName}
                       </span>
-                      <span className="text-xs text-gray-400">
+                      <span className="text-xs text-gray-500">
                         {g.items.length} {g.items.length === 1 ? 'ítem' : 'ítems'} · estimado {usd(g.items.reduce((s, i) => s + i.estimadoUsd, 0))}
                       </span>
                     </>
@@ -189,6 +199,7 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
                         <td className="pl-9 pr-2 py-2 w-8">
                           <input
                             type="checkbox"
+                            aria-label={i.nombre}
                             checked={selected.has(i.id)}
                             onChange={() => toggleItem(i.id)}
                             className="h-4 w-4 rounded border-gray-300"
@@ -196,13 +207,13 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
                         </td>
                         <td className="px-2 py-2 font-mono text-xs text-gray-500 w-28">{i.sku ?? '—'}</td>
                         <td className="px-2 py-2 text-gray-900">{i.nombre}</td>
-                        <td className="px-2 py-2 text-xs text-gray-400 w-32">
+                        <td className="px-2 py-2 text-xs text-gray-500 w-32">
                           {i.envioId != null ? (i.envioNombre ?? `Envío #${i.envioId}`) : 'sin caja'}
                         </td>
                         <td className="px-2 py-2 text-right font-mono text-gray-500 w-16">×{i.quantity}</td>
                         <td className="px-2 py-2 w-28">
                           {i.admiteSinEnviar && selected.has(i.id) && (
-                            <label className="flex items-center justify-end gap-1 text-[11px] text-gray-500" title="Unidades que el proveedor cobró pero no mandó todavía: la caja no las espera al llegar">
+                            <label className="flex items-center justify-end gap-1 text-xs text-gray-600" title="Unidades que el proveedor cobró pero no mandó todavía: la caja no las espera al llegar">
                               no mandó
                               <input
                                 type="number" min={0} max={i.quantity} step={1} inputMode="numeric"
@@ -210,12 +221,12 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
                                 onChange={e => setSinEnviar(prev => ({ ...prev, [i.id]: e.target.value }))}
                                 placeholder="0"
                                 aria-label={`Unidades de ${i.nombre} que el proveedor no mandó`}
-                                className="w-12 border border-gray-300 rounded px-1.5 py-0.5 text-right font-mono text-xs"
+                                className="w-14 min-h-8 border border-gray-300 rounded-md px-1.5 py-0.5 text-right font-mono text-sm"
                               />
                             </label>
                           )}
                         </td>
-                        <td className="pr-6 pl-2 py-2 text-right font-mono text-gray-400 w-24">{usd(i.estimadoUsd)}</td>
+                        <td className="pr-6 pl-2 py-2 text-right font-mono text-gray-500 w-24">{usd(i.estimadoUsd)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -236,40 +247,40 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
       <div className="sticky bottom-4 bg-white rounded-xl shadow-lg border border-gray-200 p-4 flex flex-wrap items-end gap-3">
         <div className="text-sm text-gray-600 mr-auto">
           <span className="font-semibold">{seleccionados.length}</span> seleccionados
-          {seleccionados.length > 0 && <span className="text-gray-400"> · estimado {usd(estimadoTotal)}</span>}
+          {seleccionados.length > 0 && <span className="text-gray-500"> · estimado {usd(estimadoTotal)}</span>}
           {seleccionados.length > 0 && (
-            <span className="block text-xs text-gray-400 mt-0.5">
+            <span className="block text-xs text-gray-500 mt-0.5">
               {envioUnico != null
                 ? `Se anota como pagado de esa caja (${seleccionados[0].envioNombre ?? `Envío #${envioUnico}`}).`
                 : 'Mezcla cajas distintas (o piezas sin caja): el egreso queda suelto, sin atribuir a ninguna en particular.'}
             </span>
           )}
         </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Total pagado (USD)</label>
+        <label className="block">
+          <span className="block text-xs font-medium text-gray-600 mb-1">Total pagado (USD)</span>
           <div className="flex items-center">
-            <span className="text-sm text-gray-400 mr-1">$</span>
+            <span className="text-sm text-gray-500 mr-1">$</span>
             <input
               type="number" name="monto" min={0.01} step="0.01" required
               className="w-32 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Fecha</label>
+        </label>
+        <label className="block">
+          <span className="block text-xs font-medium text-gray-600 mb-1">Fecha</span>
           <CampoFecha name="fecha" className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Método de pago</label>
+        </label>
+        <label className="block">
+          <span className="block text-xs font-medium text-gray-600 mb-1">Método de pago</span>
           <select name="metodoPago" defaultValue="" className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
             <option value="">—</option>
             {methods.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
-        </div>
-        <div className="min-w-[160px]">
-          <label className="block text-xs font-medium text-gray-600 mb-1">Nota (opcional)</label>
+        </label>
+        <label className="min-w-[160px]">
+          <span className="block text-xs font-medium text-gray-600 mb-1">Nota (opcional)</span>
           <input type="text" name="descripcion" placeholder="Ej: carrito 99rpm del 22/9" className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-        </div>
+        </label>
         <button
           type="submit"
           disabled={seleccionados.length === 0 || isPending}
@@ -281,33 +292,5 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
     </>
   )
 
-  if (!collapsible) {
-    return <form onSubmit={handleSubmit}>{contenido}</form>
-  }
-
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={() => setAbierto(a => !a)}
-        className="w-full flex items-center justify-between gap-3 bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-3 mb-4 hover:bg-gray-50 transition-colors text-left"
-      >
-        <span className="text-sm font-semibold text-gray-600 uppercase tracking-wide">
-          🧾 Costo real de las piezas ({items.length} {items.length === 1 ? 'pendiente' : 'pendientes'})
-        </span>
-        <span className="text-xs text-blue-600 font-medium shrink-0">{abierto ? 'Ocultar ▾' : 'Cargar ▸'}</span>
-      </button>
-      {abierto && (
-        <>
-          <p className="text-xs text-gray-400 mb-3">
-            Lo normal es &quot;Seleccionar todo&quot; y poner el total. Si pagaste por partes, desplegá un
-            cliente para tildar piezas sueltas: no hace falta precio exacto por pieza, el reparto es
-            proporcional al estimado del catálogo. Si el proveedor te cobró algo que todavía no te
-            mandó, desplegá el cliente y anotalo en &quot;no mandó&quot;: la caja no lo va a esperar al llegar.
-          </p>
-          <form onSubmit={handleSubmit}>{contenido}</form>
-        </>
-      )}
-    </div>
-  )
+  return <form onSubmit={handleSubmit}>{contenido}</form>
 }

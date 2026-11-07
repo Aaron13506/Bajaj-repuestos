@@ -91,7 +91,7 @@ export default function SueltoPedido({
           <Link href={`/presupuestos/${pedidoId}`} className="text-sm font-medium text-gray-900 hover:text-blue-700">
             {clientName}
           </Link>
-          <span className="ml-2 text-xs text-gray-400">
+          <span className="ml-2 text-xs text-gray-500">
             #{pedidoId} · {lineas.length} {lineas.length === 1 ? 'ítem suelto' : 'ítems sueltos'} · {usd(total)}
           </span>
           {tipo === 'propio' && (
@@ -166,7 +166,7 @@ export default function SueltoPedido({
                   <span className="font-mono text-xs text-gray-500 w-28 shrink-0">{l.bajajCode ?? '—'}</span>
                   <span className="flex-1 text-gray-900 truncate" title={l.nameEs}>{l.nameEs}</span>
                   {l.descontinuada && (
-                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 shrink-0">
+                    <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-800 shrink-0">
                       NLS
                     </span>
                   )}
@@ -182,7 +182,7 @@ export default function SueltoPedido({
             {error ? (
               <span className="text-xs text-red-600">{error}</span>
             ) : (
-              <span className="text-xs text-gray-400">
+              <span className="text-xs text-gray-500">
                 Lo que no elijas queda suelto y se puede meter en otra caja.
               </span>
             )}

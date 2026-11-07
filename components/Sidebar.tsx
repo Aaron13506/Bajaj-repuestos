@@ -139,6 +139,12 @@ const navItems = [
 export default function Sidebar() {
   const pathname = usePathname()
   const buscar = useRef<HTMLInputElement>(null)
+  const nav = useRef<HTMLElement>(null)
+
+  // En el teléfono el menú es una fila con scroll: que el ítem de la página actual quede a la vista.
+  useEffect(() => {
+    nav.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [pathname])
 
   // Ctrl+K (⌘K en Mac) lleva al buscador desde cualquier página.
   useEffect(() => {
@@ -154,22 +160,22 @@ export default function Sidebar() {
   }, [])
 
   return (
-    <aside className="w-64 bg-gray-900 text-white flex flex-col shrink-0 print:hidden">
-      <div className="p-6 border-b border-gray-700">
-        <h1 className="text-xl font-bold text-white">Motokira</h1>
-        <p className="text-gray-400 text-sm mt-1">Panel de Administracion</p>
+    <aside className="md:w-64 bg-gray-900 text-white flex flex-col shrink-0 print:hidden">
+      <div className="px-4 py-3 md:p-6 border-b border-gray-700">
+        <p className="text-lg md:text-xl font-bold text-white">Motokira</p>
+        <p className="hidden md:block text-gray-400 text-sm mt-1">Panel de administración</p>
       </div>
-      <form action="/buscar" className="px-4 pt-4">
+      <form action="/buscar" role="search" className="px-4 pt-3 md:pt-4">
         <input
           ref={buscar}
           type="search"
           name="q"
           aria-label="Buscar en todo el panel"
           placeholder="Buscar…  (Ctrl+K)"
-          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         />
       </form>
-      <nav className="flex-1 p-4 space-y-1">
+      <nav ref={nav} aria-label="Principal" className="flex md:flex-col gap-1 overflow-x-auto p-2 md:p-4 md:flex-1">
         {navItems.map((item) => {
           // Gana el prefijo MÁS LARGO que matchee, para que una entrada con subruta propia
           // no prenda también la de su padre.
@@ -181,20 +187,21 @@ export default function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+              aria-current={isActive ? 'page' : undefined}
+              className={`flex shrink-0 items-center gap-3 whitespace-nowrap px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                 isActive
                   ? 'bg-blue-600 text-white'
                   : 'text-gray-300 hover:bg-gray-800 hover:text-white'
               }`}
             >
-              {item.icon}
+              <span aria-hidden="true">{item.icon}</span>
               {item.label}
             </Link>
           )
         })}
       </nav>
-      <div className="p-4 border-t border-gray-700">
-        <p className="text-gray-500 text-xs text-center">v0.1.0</p>
+      <div className="hidden md:block p-4 border-t border-gray-700">
+        <p className="text-gray-400 text-xs text-center">v0.1.0</p>
       </div>
     </aside>
   )

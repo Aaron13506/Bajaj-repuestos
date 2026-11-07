@@ -16,7 +16,7 @@ const MAX_LARGO = 80
 export const TRAMO_TRACKING_META: Record<TramoTracking, { label: string; corto: string; ejemplo: string; transportista: string }> = {
   local: { label: 'Local en India · proveedor → depósito', corto: 'local', ejemplo: 'Ej: 1234567890', transportista: 'Ej: Delhivery' },
   usa: { label: 'Hacia USA', corto: 'USA', ejemplo: 'Ej: SHP-64898', transportista: 'Ej: Shoppre / DHL' },
-  venezuela: { label: 'Hacia Venezuela', corto: 'VE', ejemplo: 'Ej: MIA-12345', transportista: 'Ej: Zoom / Tealca' },
+  venezuela: { label: 'Hacia Venezuela', corto: 'VE', ejemplo: 'Ej: MT-112893', transportista: 'Ej: Zoom / Tealca' },
 }
 
 export function esTramoTracking(v: unknown): v is TramoTracking {

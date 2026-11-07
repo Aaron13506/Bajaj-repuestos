@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState, useMemo, useState, useTransition } from 'react'
+import { useActionState, useMemo, useState, useTransition, useId } from 'react'
 import { useFormStatus } from 'react-dom'
 import { resolverLista, cargarPedido, type ListaResuelta } from '@/app/(pages)/simular/actions'
 import {
@@ -92,6 +92,7 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
   const [piezas, setPiezas] = useState<PiezaCompra[]>([])
   const [pedidoId, setPedidoId] = useState<number | null>(null)
   const [cargando, startCarga] = useTransition()
+  const [errorCarga, setErrorCarga] = useState(false)
 
   const [montos, setMontos] = useState<Record<string, MontosProveedor>>({})
   const [tarifas, setTarifas] = useState<Record<string, string>>({})
@@ -133,7 +134,15 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
 
   function elegirPedido(id: number) {
     setPedidoId(id)
-    startCarga(async () => adoptar(await cargarPedido(id)))
+    setErrorCarga(false)
+    // Sin el catch, un fallo de red tiraba toda la página a la pantalla de error.
+    startCarga(async () => {
+      try {
+        adoptar(await cargarPedido(id))
+      } catch {
+        setErrorCarga(true)
+      }
+    })
   }
 
   function limpiar() {
@@ -216,7 +225,7 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
         <div className="px-6 pt-5 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="font-semibold text-gray-900">Qué comprás</h2>
-            <p className="text-xs text-gray-400 mt-0.5">
+            <p className="text-xs text-gray-500 mt-0.5">
               Códigos y cantidades. El precio de cada pieza sale de los proveedores cargados — es
               justamente lo que se está comparando.
             </p>
@@ -235,10 +244,11 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
           {fuente === 'pedido' ? (
             <div>
               {pedidos.length === 0 ? (
-                <p className="text-sm text-gray-400 py-3">No hay presupuestos creados todavía.</p>
+                <p className="text-sm text-gray-500 py-3">No hay presupuestos creados todavía.</p>
               ) : (
                 <div className="flex flex-wrap items-center gap-3">
                   <select
+                    aria-label="Presupuesto"
                     value={pedidoId ?? ''}
                     onChange={e => (e.target.value === '' ? limpiar() : elegirPedido(parseInt(e.target.value)))}
                     className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white min-w-72 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -250,8 +260,11 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
                       </option>
                     ))}
                   </select>
-                  {cargando && <span className="text-xs text-gray-400">Resolviendo piezas…</span>}
-                  {pedidoElegido && !cargando && (
+                  <span role="status" className="text-xs">
+                    {cargando ? <span className="text-gray-500">Resolviendo piezas…</span>
+                      : errorCarga && <span className="text-red-600">No se pudo cargar el presupuesto. Elegilo de nuevo.</span>}
+                  </span>
+                  {pedidoElegido && !cargando && !errorCarga && (
                     <span className="text-xs text-gray-500">
                       Vendido en <span className="font-mono">{usd(pedidoElegido.saleTotal)}</span>. Los conjuntos
                       entran expandidos a sus piezas reales.
@@ -297,7 +310,7 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
                 />
                 <div className="flex items-center gap-3">
                   <SubmitButton />
-                  <span className="text-xs text-gray-400">
+                  <span className="text-xs text-gray-500">
                     Cruza también por el SKU alterno: si el proveedor usa el otro número del par, la encuentra igual.
                   </span>
                 </div>
@@ -339,7 +352,7 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
                       {sinMedidas.length} sin peso o sin medidas: el flete de esas cuenta 0
                     </span>
                   )}
-                  <button type="button" onClick={limpiar} className="text-[11px] text-gray-400 hover:text-red-600">
+                  <button type="button" onClick={limpiar} className="text-[11px] text-gray-500 hover:text-red-600">
                     Vaciar
                   </button>
                 </div>
@@ -349,10 +362,10 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
                   <div key={p.productId} className="flex items-center gap-2 px-3 py-1.5">
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-gray-900 truncate">{p.nombre}</p>
-                      <p className="text-[11px] text-gray-400 font-mono">
+                      <p className="text-[11px] text-gray-500 font-mono">
                         {p.sku}
                         {(p.weightGrams == null || !(p.dimL && p.dimA && p.dimH)) && (
-                          <span className="ml-2 text-amber-600 font-sans">sin medidas</span>
+                          <span className="ml-2 text-amber-700 font-sans">sin medidas</span>
                         )}
                       </p>
                     </div>
@@ -361,13 +374,15 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
                       min={1}
                       value={p.qty}
                       onChange={e => setQty(p.productId, parseInt(e.target.value))}
+                      aria-label={`Cantidad de ${p.nombre}`}
                       className="w-16 border border-gray-200 rounded px-2 py-0.5 text-sm text-center shrink-0"
                     />
                     <button
                       type="button"
                       onClick={() => quitar(p.productId)}
-                      className="text-gray-300 hover:text-red-500 shrink-0 px-1"
+                      className="text-gray-500 hover:text-red-600 hover:bg-red-50 rounded shrink-0 px-1.5 py-0.5"
                       title="Quitar"
+                      aria-label={`Quitar ${p.nombre}`}
                     >
                       ✕
                     </button>
@@ -380,7 +395,7 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
       </section>
 
       {piezas.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-400">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-500">
           <p className="text-lg">Sin canasta todavía</p>
           <p className="text-sm mt-1">
             Elegí un presupuesto o pegá los códigos arriba, y acá aparece qué cuesta traerlos por cada proveedor.
@@ -419,19 +434,20 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
           <details className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <summary className="px-6 py-4 cursor-pointer font-semibold text-gray-900">
               Tarifas del supuesto
-              <span className={`ml-2 text-xs font-normal ${tarifasTocadas ? 'text-amber-600' : 'text-gray-400'}`}>
+              <span className={`ml-2 text-xs font-normal ${tarifasTocadas ? 'text-amber-700' : 'text-gray-500'}`}>
                 {tarifasTocadas ? 'modificadas — no se guardan' : 'las de Configuración'}
               </span>
             </summary>
             <div className="px-6 pb-6">
-              <p className="text-xs text-gray-400 mb-4">
+              <p className="text-xs text-gray-500 mb-4">
                 Solo para este supuesto: nada de esto se guarda. Vacío = el valor real de Configuración.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {TARIFAS.map(t => (
                   <div key={t.key}>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">{t.label}</label>
+                    <label htmlFor={`tarifa-${t.key}`} className="block text-xs font-medium text-gray-600 mb-1">{t.label}</label>
                     <input
+                      id={`tarifa-${t.key}`}
                       type="number"
                       step={t.step}
                       value={tarifas[t.key] ?? ''}
@@ -439,11 +455,11 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
                       placeholder={cfg[t.key] ?? t.fallback}
                       className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
-                    <p className="text-[11px] text-gray-400 mt-1">{t.hint}</p>
+                    <p className="text-[11px] text-gray-500 mt-1">{t.hint}</p>
                   </div>
                 ))}
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Servicio de Shoppre</label>
+                <label className="sm:col-span-2">
+                  <span className="block text-xs font-medium text-gray-600 mb-1">Servicio de Shoppre</span>
                   <select
                     value={carrier}
                     onChange={e => setCarrier(e.target.value)}
@@ -451,12 +467,12 @@ export default function CompararCompra({ proveedores, pedidos, cfg }: Props) {
                   >
                     {carriers.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
-                  <p className="text-[11px] text-gray-400 mt-1">
+                  <p className="text-[11px] text-gray-500 mt-1">
                     Es la tabla escalón que paga todo lo que entra por Shoppre. El “Economy” es más
                     barato pero no es el que se usa: el vigente en Configuración es{' '}
                     <span className="font-mono">{cfg.shoppre_carrier ?? CARRIER_DUTY_FREE}</span>.
                   </p>
-                </div>
+                </label>
                 <div className="flex flex-col justify-center gap-2">
                   <label className="flex items-center gap-2 text-sm text-gray-700">
                     <input type="checkbox" checked={member} onChange={e => setMember(e.target.checked)} className="accent-blue-600" />
@@ -659,13 +675,13 @@ function TarjetaOpcion({
           <div className="text-right shrink-0">
             <p className="text-2xl font-bold font-mono text-gray-900">{usd(o.landedUsd)}</p>
             {o.esReferencia ? (
-              <p className="text-xs text-gray-400">landed · el camino de siempre</p>
+              <p className="text-xs text-gray-500">landed · el camino de siempre</p>
             ) : referencia ? (
               <p className={`text-xs font-mono ${o.ahorroUsd >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                 {o.ahorroUsd >= 0 ? '−' : '+'}{usd(Math.abs(o.ahorroUsd))} vs {referencia.nombre}
               </p>
             ) : (
-              <p className="text-xs text-gray-400">landed</p>
+              <p className="text-xs text-gray-500">landed</p>
             )}
           </div>
         </div>
@@ -700,7 +716,7 @@ function TarjetaOpcion({
                 onChange={v => onMonto('tramoUsd', v)}
               />
             ) : (
-              <div className="text-xs text-gray-400 pb-1.5 max-w-md">
+              <div className="text-xs text-gray-500 pb-1.5 max-w-md">
                 El tramo a USA lo pone la tabla escalón de{' '}
                 <span className="text-gray-600">{carrier}</span>:{' '}
                 <span className="font-mono text-gray-600">{usd(o.b.air.costUsd)}</span> por{' '}
@@ -802,10 +818,12 @@ function CampoMonto({
   value: number | null
   onChange: (v: string) => void
 }) {
+  const id = useId()
   return (
     <div>
-      <label className="block text-xs font-medium text-gray-600 mb-1" title={hint}>{label}</label>
+      <label htmlFor={id} className="block text-xs font-medium text-gray-600 mb-1" title={hint}>{label}</label>
       <input
+        id={id}
         type="number"
         step="0.01"
         min="0"
@@ -815,7 +833,7 @@ function CampoMonto({
         title={hint}
         className="w-36 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
       />
-      <p className="text-[11px] text-gray-400 mt-1 max-w-36">{hint}</p>
+      <p className="text-[11px] text-gray-500 mt-1 max-w-36">{hint}</p>
     </div>
   )
 }
@@ -835,7 +853,7 @@ function DetallePorPieza({ o, referencia }: { o: OpcionCompra; referencia: Opcio
           {o.nombre} · landed por pieza
         </h3>
         {comparable && (
-          <span className="text-[11px] text-gray-400">Δ contra {referencia!.nombre}, por unidad</span>
+          <span className="text-[11px] text-gray-500">Δ contra {referencia!.nombre}, por unidad</span>
         )}
       </div>
       <div className="overflow-x-auto">
@@ -863,7 +881,7 @@ function DetallePorPieza({ o, referencia }: { o: OpcionCompra; referencia: Opcio
                     {l.name}
                     {l.isLanded && <span className="ml-2 text-[10px] text-sky-700">puesta en VEN</span>}
                     {(l.missingWeight || l.missingDims) && (
-                      <span className="ml-2 text-[10px] text-amber-600">sin medidas</span>
+                      <span className="ml-2 text-[10px] text-amber-700">sin medidas</span>
                     )}
                   </td>
                   <td className="px-3 py-2 text-right font-mono text-gray-500">{l.quantity}</td>
@@ -874,7 +892,7 @@ function DetallePorPieza({ o, referencia }: { o: OpcionCompra; referencia: Opcio
                   {comparable && (
                     <td className="px-6 py-2 text-right font-mono">
                       {delta == null ? (
-                        <span className="text-gray-300">—</span>
+                        <span className="text-gray-500">—</span>
                       ) : (
                         <span className={delta >= 0 ? 'text-green-700' : 'text-red-700'}>
                           {delta >= 0 ? '−' : '+'}{usd(Math.abs(delta))}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState, useMemo, useState } from 'react'
+import { useActionState, useId, useMemo, useState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { updateMeasures } from '@/app/(pages)/products/[id]/measure-actions'
 import type { MeasuresResult } from '@/lib/measures'
@@ -91,6 +91,8 @@ export default function MedidasIA({
   const [state, formAction] = useActionState(updateMeasures, emptyResult)
   const [open, setOpen] = useState(defaultOpen)
   const [copied, setCopied] = useState<'prompt' | 'list' | null>(null)
+  const [copyError, setCopyError] = useState(false)
+  const idBase = useId()
   const [onlyMissing, setOnlyMissing] = useState(true)
   const [buscar, setBuscar] = useState('')
 
@@ -150,34 +152,42 @@ export default function MedidasIA({
   )
 
   function copy(text: string, which: 'prompt' | 'list') {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(which)
-      setTimeout(() => setCopied(null), 1500)
-    })
+    setCopyError(false)
+    navigator.clipboard.writeText(text).then(
+      () => {
+        setCopied(which)
+        setTimeout(() => setCopied(null), 1500)
+      },
+      // Sin permiso de portapapeles writeText rechaza: antes no pasaba nada.
+      () => setCopyError(true),
+    )
   }
 
   if (totalPiezas === 0) return null
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between text-left">
-        <div>
-          <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+      {/* El encabezado envuelve al botón (no al revés): un <h2> dentro de un <button> no es HTML válido. */}
+      <h2>
+      <button type="button" aria-expanded={open} onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between text-left">
+        <span className="block">
+          <span className="font-semibold text-gray-900 flex flex-wrap items-center gap-2">
             {titulo}
             {totalFaltan > 0 && (
               <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
                 {totalFaltan} sin medir
               </span>
             )}
-          </h2>
-          <p className="text-xs text-gray-500 mt-0.5">
+          </span>
+          <span className="block text-xs font-normal text-gray-500 mt-0.5">
             {totalFaltan === 0
               ? `Las ${totalPiezas} piezas ya tienen peso y medidas.`
               : `${gruposPendientes.length} de ${resumen.length} ${resumen.length === 1 ? 'grupo' : 'grupos'} con piezas sin medir. Se trabaja de a un ensamble.`}
-          </p>
-        </div>
-        <span className="text-gray-400 text-sm">{open ? '▲' : '▼'}</span>
+          </span>
+        </span>
+        <span aria-hidden="true" className="text-gray-500 text-sm">{open ? '▲' : '▼'}</span>
       </button>
+      </h2>
 
       {open && activo && (
         <div className="mt-5 space-y-5">
@@ -191,14 +201,15 @@ export default function MedidasIA({
           {resumen.length > 1 && (
             <div>
               <input
-                type="text"
+                type="search"
+                aria-label="Buscar una pieza"
                 value={buscar}
                 onChange={e => setBuscar(e.target.value)}
                 placeholder="Buscar una pieza por código o nombre (ej. 52DH1531)…"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
               {q.length > 0 && (
-                <p className="text-xs mt-1.5">
+                <p role="status" className="text-xs mt-1.5">
                   {conHits.length === 0 ? (
                     <span className="text-amber-700">
                       Ninguna pieza de este embarque coincide con «{buscar.trim()}». Si la compraste, todavía no
@@ -227,6 +238,7 @@ export default function MedidasIA({
                   key={g.key}
                   type="button"
                   onClick={() => setActiveKey(g.key)}
+                  aria-pressed={g.key === activo?.key}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                     g.key === activo?.key
                       ? 'bg-blue-600 text-white border-blue-600'
@@ -237,12 +249,17 @@ export default function MedidasIA({
                   title={g.subtitulo ?? undefined}
                 >
                   {g.faltan === 0 ? '✓ ' : ''}{g.titulo}
-                  <span className={`ml-1.5 ${g.key === activo?.key ? 'text-blue-100' : 'text-gray-400'}`}>
+                  <span className={`ml-1.5 ${g.key === activo?.key ? 'text-blue-100' : 'text-gray-500'}`}>
                     {g.faltan > 0 ? `${g.faltan}/${g.piezas.length}` : g.piezas.length}
                   </span>
                 </button>
               ))}
             </div>
+          )}
+
+          <p role="status" className="sr-only">{copied ? 'Copiado' : ''}</p>
+          {copyError && (
+            <p role="alert" className="text-sm text-red-600">No se pudo copiar: seleccioná el texto y copialo a mano (Ctrl+C).</p>
           )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -251,7 +268,7 @@ export default function MedidasIA({
               <div className="flex items-center justify-between mb-2 gap-2">
                 <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide truncate">
                   {activo.titulo}
-                  <span className="ml-2 font-normal normal-case text-gray-400">
+                  <span className="ml-2 font-normal normal-case text-gray-500">
                     {piezasVisibles.length} {piezasVisibles.length === 1 ? 'pieza' : 'piezas'}
                   </span>
                 </h3>
@@ -265,7 +282,7 @@ export default function MedidasIA({
                     />
                     solo faltantes
                   </label>
-                  <button onClick={() => copy(listJson, 'list')} className="text-xs text-blue-600 hover:underline">
+                  <button type="button" onClick={() => copy(listJson, 'list')} className="-my-1 px-2 py-1 rounded text-xs text-blue-600 hover:underline hover:bg-blue-50">
                     {copied === 'list' ? '¡Copiado!' : 'Copiar'}
                   </button>
                 </div>
@@ -277,7 +294,7 @@ export default function MedidasIA({
                 </p>
               )}
               {piezasVisibles.length === 0 ? (
-                <p className="text-xs text-gray-400 py-2">
+                <p className="text-xs text-gray-500 py-2">
                   {medidasAMano === (activo?.piezas.length ?? 0)
                     ? 'Todo este grupo está pesado y medido a mano.'
                     : <>Este grupo ya está completo. Destildá &quot;solo faltantes&quot; para recargar medidas igual.</>}
@@ -291,7 +308,7 @@ export default function MedidasIA({
             <div className="bg-gray-50 rounded-lg border border-gray-100 p-3">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Prompt para la IA</h3>
-                <button onClick={() => copy(MEASURES_PROMPT, 'prompt')} className="text-xs text-blue-600 hover:underline">
+                <button type="button" onClick={() => copy(MEASURES_PROMPT, 'prompt')} className="-my-1 px-2 py-1 rounded text-xs text-blue-600 hover:underline hover:bg-blue-50">
                   {copied === 'prompt' ? '¡Copiado!' : 'Copiar'}
                 </button>
               </div>
@@ -303,14 +320,15 @@ export default function MedidasIA({
           <form action={formAction} className="space-y-3">
             {ensambleId != null && <input type="hidden" name="ensambleId" value={ensambleId} />}
             {revalidate && <input type="hidden" name="revalidate" value={revalidate} />}
-            <label className="block text-sm font-medium text-gray-700">Pegá la respuesta de la IA</label>
-            <p className="text-xs text-gray-400 -mt-1">
+            <label htmlFor={`${idBase}-json`} className="block text-sm font-medium text-gray-700">Pegá la respuesta de la IA</label>
+            <p className="text-xs text-gray-500 -mt-1">
               Podés pegar la respuesta completa (razonamiento + fuentes + JSON); se extrae el bloque{' '}
               <span className="font-mono">json</span> solo. Las piezas se buscan por{' '}
               <span className="font-mono">bajajCode</span> o <span className="font-mono">id</span>, así que no importa
               de qué ensamble vengan.
             </p>
             <textarea
+              id={`${idBase}-json`}
               name="json"
               rows={8}
               placeholder="Pegá acá la respuesta de la IA (o solo el bloque JSON)"
@@ -322,7 +340,7 @@ export default function MedidasIA({
           </form>
 
           {state.message && (
-            <div className={`rounded-lg border p-3 ${state.ok ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
+            <div role="status" className={`rounded-lg border p-3 ${state.ok ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
               <p className={`text-sm font-medium ${state.ok ? 'text-green-800' : 'text-yellow-800'}`}>{state.message}</p>
               {state.notFound.length > 0 && (
                 <p className="text-xs text-gray-600 font-mono break-words mt-2">
@@ -333,7 +351,7 @@ export default function MedidasIA({
                 <ul className="mt-2 space-y-1 text-sm text-gray-700">
                   {state.errors.map((err, i) => (
                     <li key={i} className="flex gap-2">
-                      <span className="text-red-500 shrink-0">•</span>
+                      <span className="text-red-600 shrink-0">•</span>
                       <span><span className="font-medium">{err.name}</span> — {err.message}</span>
                     </li>
                   ))}

@@ -61,12 +61,14 @@ export default function ModelPicker({ value, name = 'models', dense = false }: P
               <button
                 type="button"
                 onClick={() => toggleFamily(family)}
+                aria-pressed={allOn}
                 title={allOn ? `Desmarcar todas las ${family}` : `Marcar todas las ${family}`}
                 className={`shrink-0 font-semibold text-left w-14 ${allOn ? 'text-blue-600' : 'text-gray-500 hover:text-gray-800'}`}
               >
                 {family}
               </button>
-              <div className="flex flex-wrap gap-x-3 gap-y-1">
+              {/* La familia nombra al grupo: sola, la casilla dice "BS6" y no se sabe de qué moto. */}
+              <div role="group" aria-label={family} className="flex flex-wrap gap-x-3 gap-y-1">
                 {inFamily.map(m => (
                   <label key={m.id} className="flex items-center gap-1.5 cursor-pointer">
                     <input
@@ -77,7 +79,7 @@ export default function ModelPicker({ value, name = 'models', dense = false }: P
                     />
                     <span className={selected.has(m.id) ? 'text-gray-900' : 'text-gray-500'}>
                       {m.variant}
-                      {m.years && <span className="text-gray-400"> {m.years}</span>}
+                      {m.years && <span className="text-gray-500"> {m.years}</span>}
                     </span>
                   </label>
                 ))}
@@ -87,7 +89,7 @@ export default function ModelPicker({ value, name = 'models', dense = false }: P
         })}
       </div>
 
-      <p className={`mt-1 text-gray-400 ${dense ? 'text-[10px]' : 'text-xs'}`}>
+      <p className={`mt-1 text-gray-500 ${dense ? 'text-[10px]' : 'text-xs'}`}>
         {selected.size === 0
           ? 'Sin motos — la pieza no va a aparecer en ningún filtro por moto.'
           : formatModels([...selected])}

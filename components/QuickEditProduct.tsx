@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
 import { quickUpdateProduct } from '@/app/(pages)/products/actions'
 import { ERROR_GENERICO } from '@/components/useEnviarAccion'
+import Modal from '@/components/Modal'
 import { fechaMedido } from '@/lib/medido'
 
 export interface QuickEditValues {
@@ -275,13 +276,13 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, onError, packQty, a
   const label = 'block text-xs font-medium text-gray-600 mb-1'
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 overflow-y-auto whitespace-normal" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg my-8" onClick={e => e.stopPropagation()}>
+    <Modal titulo="Editar producto" onClose={onClose} className="w-full max-w-lg">
+      <div>
         <form onSubmit={handleSubmit}>
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
             <h2 className="font-semibold text-gray-900">Editar producto</h2>
-            <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600" title="Cerrar">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <button type="button" onClick={onClose} className="-m-2 p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100" aria-label="Cerrar">
+              <svg aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
@@ -290,18 +291,18 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, onError, packQty, a
           <div className="px-6 py-4 space-y-4">
             {/* Nombres */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className={label}>Nombre (español) <span className="text-red-500">*</span></label>
+              <label className="block">
+                <span className={label}>Nombre (español) <span className="text-red-600">*</span></span>
                 <input name="nameEs" required defaultValue={d.nameEs} className={input} />
-              </div>
-              <div>
-                <label className={label}>Nombre (inglés)</label>
+              </label>
+              <label className="block">
+                <span className={label}>Nombre (inglés)</span>
                 <input name="nameEn" defaultValue={d.nameEn ?? ''} className={input} />
-              </div>
-              <div>
-                <label className={label}>Código Bajaj</label>
+              </label>
+              <label className="block">
+                <span className={label}>Código Bajaj</span>
                 <input name="bajajCode" defaultValue={d.bajajCode ?? ''} className={`${input} font-mono`} />
-              </div>
+              </label>
               <div className="sm:col-span-2">
                 <label className={label}>Motos</label>
                 <ModelPicker value={d.models} dense />
@@ -339,11 +340,11 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, onError, packQty, a
                   </label>
                 </div>
               ) : (
-                <div>
-                  <label className={label}>Precio India (₹)</label>
+                <label className="block">
+                  <span className={label}>Precio India (₹)</span>
                   <input ref={priceInrRef} name="priceInr" type="number" min="0" step="1"
                     defaultValue={d.priceInr ?? ''} onChange={recalcFromCost} className={input} />
-                </div>
+                </label>
               )}
               <div>
                 <label className={label} title={isSupplierMode ? 'Costo puesto en Venezuela por barco con este proveedor. Es solo para comparar: no se guarda en la pieza' : undefined}>
@@ -355,16 +356,16 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, onError, packQty, a
               </div>
               {!isSupplierMode && (
                 <>
-                  <div>
-                    <label className={label}>Margen (%)</label>
+                  <label className="block">
+                    <span className={label}>Margen (%)</span>
                     <input ref={marginRef} name="margin" type="number" min="0" max="99" step="any"
                       defaultValue={d.margin != null ? +(d.margin * 100).toFixed(6) : ''} onChange={recalcFromMargin} className={input} />
-                  </div>
-                  <div>
-                    <label className={label}>Precio venta (USD) <span className="text-red-500">*</span></label>
+                  </label>
+                  <label className="block">
+                    <span className={label}>Precio venta (USD) <span className="text-red-600">*</span></span>
                     <input ref={priceRef} name="price" type="number" min="0" step="0.01" required
                       defaultValue={d.price} onChange={recalcFromPrice} className={input} />
-                  </div>
+                  </label>
                 </>
               )}
             </div>
@@ -415,26 +416,26 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, onError, packQty, a
                 <input ref={weightRef} name="weightGrams" type="number" min="0" step="0.1"
                   defaultValue={d.weightGrams ?? ''} onChange={recalcFromCost} className={input} />
               </div>
-              <div>
-                <label className={label}>Largo (cm)</label>
+              <label className="block">
+                <span className={label}>Largo (cm)</span>
                 <input ref={dimLRef} name="dimL" type="number" min="0" step="0.01"
                   defaultValue={d.dimL ?? ''} onChange={recalcFromCost} className={input} />
-              </div>
-              <div>
-                <label className={label}>Ancho (cm)</label>
+              </label>
+              <label className="block">
+                <span className={label}>Ancho (cm)</span>
                 <input ref={dimARef} name="dimA" type="number" min="0" step="0.01"
                   defaultValue={d.dimA ?? ''} onChange={recalcFromCost} className={input} />
-              </div>
-              <div>
-                <label className={label}>Alto (cm)</label>
+              </label>
+              <label className="block">
+                <span className={label}>Alto (cm)</span>
                 <input ref={dimHRef} name="dimH" type="number" min="0" step="0.01"
                   defaultValue={d.dimH ?? ''} onChange={recalcFromCost} className={input} />
-              </div>
-              <div>
-                <label className={label}>Stock</label>
+              </label>
+              <label className="block">
+                <span className={label}>Stock</span>
                 <input type="hidden" name="stockCargado" value={d.stock} />
                 <input name="stock" type="number" min="0" defaultValue={d.stock} className={input} />
-              </div>
+              </label>
             </div>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -446,7 +447,7 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, onError, packQty, a
               />
               <span className="text-xs text-gray-600">
                 Pesada y medida a mano
-                <span className="text-gray-400">
+                <span className="text-gray-500">
                   {d.medidoAt ? ` — el ${fechaMedido(d.medidoAt)}` : ' — sin tildar, peso y medidas son estimados'}
                 </span>
               </span>
@@ -457,7 +458,7 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, onError, packQty, a
                 {' · '}Paquete ×{packQty}: <span className="font-mono text-gray-700">{weightTotal != null ? `${weightTotal} g` : '—'}</span>
               </p>
             )}
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-gray-500">
               {isSupplierMode
                 ? 'Peso y medidas son de la pieza, no del proveedor: si los cambiás se recalcula su costo y su precio de venta por el aéreo.'
                 : 'El costo landed se calcula solo desde INR + peso. El precio sale del margen (o ajustá el precio y el margen se recalcula).'}
@@ -484,6 +485,6 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, onError, packQty, a
           </div>
         </form>
       </div>
-    </div>
+    </Modal>
   )
 }

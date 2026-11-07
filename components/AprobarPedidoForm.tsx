@@ -117,7 +117,7 @@ export default function AprobarPedidoForm({
             <>
               <label className="block text-xs font-medium text-gray-600 mb-1">Adelanto recibido ({unidad})</label>
               <div className="flex items-center">
-                <span className="text-sm text-gray-400 mr-1">$</span>
+                <span className="text-sm text-gray-500 mr-1">$</span>
                 <input
                   type="number"
                   name="depositUsd"
@@ -131,12 +131,12 @@ export default function AprobarPedidoForm({
             </>
           )}
           {mode === 'aprobar' && (
-            <p className="text-[11px] text-gray-400 mt-1">
+            <p className="text-[11px] text-gray-500 mt-1">
               Sugerido: 50% del total (${money(propuesto)}{modoBcv && (enBs ? ' a tasa BCV' : ' en divisas')}). Editable.
             </p>
           )}
           {modoBcv && (
-            <p className="text-[11px] text-gray-400 mt-1">
+            <p className="text-[11px] text-gray-500 mt-1">
               {enBs
                 ? 'Los Bs que entraron y la tasa BCV de ese día. Se guarda su valor en divisas.'
                 : 'Los dólares que entraron: el descuento por divisas ya está aplicado.'}
@@ -144,8 +144,8 @@ export default function AprobarPedidoForm({
           )}
         </div>
 
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Método de pago</label>
+        <label className="block">
+          <span className="block text-xs font-medium text-gray-600 mb-1">Método de pago</span>
           <select
             name="paymentMethod"
             value={metodo}
@@ -156,16 +156,16 @@ export default function AprobarPedidoForm({
               <option key={m} value={m}>{m}</option>
             ))}
           </select>
-        </div>
+        </label>
 
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Fecha</label>
+        <label className="block">
+          <span className="block text-xs font-medium text-gray-600 mb-1">Fecha</span>
           <CampoFecha
             name="depositAt"
             defaultValue={initialDate ?? undefined}
             className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
-        </div>
+        </label>
 
         {error && (
           <p role="alert" className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">

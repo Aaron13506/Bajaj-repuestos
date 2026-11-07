@@ -27,7 +27,8 @@ import {
 import { TRAMOS_TRACKING, TRAMO_TRACKING_META, leerTrackingsTramo, type FilaTracking } from '@/lib/tracking'
 import { ETAPAS_CAJA, leerCajasEtapa, type CajaFisica, type CampoCaja, type EtapaCaja } from '@/lib/cajas-envio'
 import { apiKeyShip24, courierDeFila, ENV_API_KEY } from '@/lib/ship24'
-import { listaCouriers, refrescarCouriers, sincronizarTrackings } from '@/lib/sync-trackings'
+import { listaCouriers, refrescarCouriers, sincronizarOneway, sincronizarTrackings } from '@/lib/sync-trackings'
+import { credencialesOneway, esCodigoOneway, ONEWAY_CODE, ONEWAY_NOMBRE } from '@/lib/oneway'
 
 // Crea una caja. La RUTA se elige acá y no se vuelve a tocar: es lo que decide con qué
 // cadena logística se costea y, sobre todo, qué se puede meter adentro.
@@ -557,7 +558,10 @@ export async function guardarTrackings(envioId: number, formData: FormData): Pro
     const codigos = formData.getAll(`courier_${tramo}`).map(String)
     const libres = formData.getAll(`libre_${tramo}`).map(String)
     for (const { indice, ...f } of r.filas) {
-      const c = courierDeFila({ codigo: codigos[indice] ?? null, libre: libres[indice] === '1', texto: f.transportista }, couriers)
+      // Un código de One Way Cargo es de ellos aunque no se elija courier: se sigue por su cuenta.
+      const c = esCodigoOneway(tramo, f.numero)
+        ? { courierCode: ONEWAY_CODE, transportista: ONEWAY_NOMBRE }
+        : courierDeFila({ codigo: codigos[indice] ?? null, libre: libres[indice] === '1', texto: f.transportista }, couriers)
       if ('error' in c) return fallo(`${TRAMO_TRACKING_META[tramo].label}, tracking ${f.numero}: ${c.error}`)
       filas.push({ ...f, ...c })
     }
@@ -597,24 +601,28 @@ export async function guardarTrackings(envioId: number, formData: FormData): Pro
   return ok()
 }
 
-// "Actualizar ahora": consulta ya, en Ship24, los trackings de esta caja (incluso los
-// que habían dado error, por si se corrigió del lado de ellos). Si todavía no hay lista de
-// couriers, la baja: es lo que hace falta para elegirlos la primera vez.
+// "Actualizar ahora": consulta ya, en Ship24 y en One Way Cargo, los trackings de esta caja
+// (incluso los que habían dado error, por si se corrigió del lado de ellos). Si todavía no hay
+// lista de couriers, la baja: es lo que hace falta para elegirlos la primera vez.
 export async function actualizarTrackings(envioId: number): Promise<ActionResult> {
   const apiKey = apiKeyShip24()
-  if (!apiKey) return fallo(`El seguimiento automático está apagado: falta ${ENV_API_KEY} en el servidor.`)
+  if (!apiKey && !credencialesOneway()) return fallo(`El seguimiento automático está apagado: falta ${ENV_API_KEY} en el servidor.`)
   const caja = await db.envio.findUnique({ where: { id: envioId }, select: { id: true } })
   if (!caja) return fallo('Ese envío ya no existe.')
-  try {
-    await refrescarCouriers(apiKey)
-  } catch (e) {
-    // Sin lista nueva se sigue con la que hay; si no hay ninguna, el motivo importa.
-    if ((await db.trackingCourier.count()) === 0) return fallo(`No se pudo bajar la lista de couriers: ${(e as Error).message}`)
+  let error: string | undefined
+  if (apiKey) {
+    try {
+      await refrescarCouriers(apiKey)
+    } catch (e) {
+      // Sin lista nueva se sigue con la que hay; si no hay ninguna, el motivo importa.
+      if ((await db.trackingCourier.count()) === 0) return fallo(`No se pudo bajar la lista de couriers: ${(e as Error).message}`)
+    }
+    error = (await sincronizarTrackings({ envioId })).error
   }
-  const r = await sincronizarTrackings({ envioId })
+  const o = await sincronizarOneway({ envioId })
   revalidatePath(`/envios/${envioId}`)
   revalidatePath('/presupuestos')
-  if (r.error) return fallo(r.error)
+  if (error || o.error) return fallo([error, o.error].filter(Boolean).join(' '))
   return ok()
 }
 

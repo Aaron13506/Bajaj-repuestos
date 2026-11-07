@@ -62,31 +62,31 @@ export default async function ResultadosPage({ searchParams }: Props) {
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-          <p className="text-xs text-gray-400 mb-1">Resultado de {nombreMes(mesActual)}</p>
+          <p className="text-xs text-gray-500 mb-1">Resultado de {nombreMes(mesActual)}</p>
           <p className={`text-2xl font-bold font-mono ${(actual?.resultadoUsd ?? 0) >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
             {usd(actual?.resultadoUsd ?? 0)}
           </p>
-          <p className="text-[11px] text-gray-400 mt-1">margen + lo retenido de cancelados − gastos − costo de convertir Bs</p>
+          <p className="text-[11px] text-gray-500 mt-1">margen + lo retenido de cancelados − gastos − costo de convertir Bs</p>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-          <p className="text-xs text-gray-400 mb-1">Margen del mes</p>
+          <p className="text-xs text-gray-500 mb-1">Margen del mes</p>
           <p className="text-2xl font-bold font-mono text-gray-900">{usd(actual?.margenUsd ?? 0)}</p>
-          <p className="text-[11px] text-gray-400 mt-1">
+          <p className="text-[11px] text-gray-500 mt-1">
             {actual ? `${actual.pedidos} pedido${actual.pedidos === 1 ? '' : 's'} entregado${actual.pedidos === 1 ? '' : 's'} · ${pct(actual.margenPct)}` : 'nada entregado este mes'}
           </p>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-          <p className="text-xs text-gray-400 mb-1">Por entregar (proyectado)</p>
+          <p className="text-xs text-gray-500 mb-1">Por entregar (proyectado)</p>
           <p className="text-2xl font-bold font-mono text-gray-900">{usd(proyectado)}</p>
-          <p className="text-[11px] text-gray-400 mt-1">
+          <p className="text-[11px] text-gray-500 mt-1">
             {enCurso.length} pedido{enCurso.length === 1 ? '' : 's'} en curso
             {enCursoSinCosto > 0 && ` · ${enCursoSinCosto} sin costo, no suman`}
           </p>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-          <p className="text-xs text-gray-400 mb-1">Pedidos con pérdida</p>
+          <p className="text-xs text-gray-500 mb-1">Pedidos con pérdida</p>
           <p className={`text-2xl font-bold font-mono ${conPerdida.length > 0 ? 'text-red-600' : 'text-gray-900'}`}>{conPerdida.length}</p>
-          <p className="text-[11px] text-gray-400 mt-1">
+          <p className="text-[11px] text-gray-500 mt-1">
             {conPerdida.length > 0 ? usd(conPerdida.reduce((s, f) => s + (f.margen.margenUsd ?? 0), 0)) + ' en total' : 'ninguno'}
           </p>
         </div>
@@ -96,7 +96,7 @@ export default async function ResultadosPage({ searchParams }: Props) {
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto mb-8">
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide px-5 py-3 border-b border-gray-100">Por mes</h2>
         {meses.length === 0 ? (
-          <p className="text-sm text-gray-400 px-5 py-6">Todavía no hay nada entregado ni gastos anotados.</p>
+          <p className="text-sm text-gray-500 px-5 py-6">Todavía no hay nada entregado ni gastos anotados.</p>
         ) : (
           <table className="w-full text-sm whitespace-nowrap">
             <thead className="bg-gray-50 border-b border-gray-100 text-gray-500">
@@ -121,7 +121,7 @@ export default async function ResultadosPage({ searchParams }: Props) {
                   </td>
                   <td className="px-4 py-2 text-right font-mono">
                     {m.pedidos}
-                    {m.pedidosSinCosto > 0 && <span className="text-amber-700" title="Entregados sin costo: no suman al margen"> +{m.pedidosSinCosto}?</span>}
+                    {m.pedidosSinCosto > 0 && <span className="text-amber-700" title="Entregados sin costo: no suman al margen"> +{m.pedidosSinCosto}?<span className="sr-only"> entregados sin costo, no suman al margen</span></span>}
                   </td>
                   <td className="px-4 py-2 text-right font-mono">{usd(m.ventaUsd)}</td>
                   <td className="px-4 py-2 text-right font-mono text-gray-500">{usd(m.costoUsd)}</td>
@@ -149,10 +149,10 @@ export default async function ResultadosPage({ searchParams }: Props) {
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
             Por pedido ({visibles.length}{visibles.length !== filas.length ? ` de ${filas.length}` : ''})
           </h2>
-          <div className="flex items-center gap-1.5 flex-wrap text-xs">
-            <Link href={href({ mes: mesFiltro })} className={`px-2.5 py-1 rounded-full border ${!estadoFiltro ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>Todos</Link>
+          <div role="group" aria-label="Filtrar por estado" className="flex items-center gap-1.5 flex-wrap text-xs">
+            <Link href={href({ mes: mesFiltro })} aria-current={!estadoFiltro ? 'page' : undefined} className={`px-2.5 py-1 rounded-full border ${!estadoFiltro ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>Todos</Link>
             {(Object.keys(ESTADOS) as EstadoMargen[]).map(e => (
-              <Link key={e} href={href({ estado: e, mes: mesFiltro })} title={ESTADOS[e].ayuda}
+              <Link key={e} href={href({ estado: e, mes: mesFiltro })} title={ESTADOS[e].ayuda} aria-current={estadoFiltro === e ? 'page' : undefined}
                 className={`px-2.5 py-1 rounded-full border ${estadoFiltro === e ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
                 {ESTADOS[e].label}
               </Link>
@@ -161,7 +161,7 @@ export default async function ResultadosPage({ searchParams }: Props) {
           </div>
         </div>
         {visibles.length === 0 ? (
-          <p className="text-sm text-gray-400 px-5 py-6">Ningún pedido con ese filtro.</p>
+          <p className="text-sm text-gray-500 px-5 py-6">Ningún pedido con ese filtro.</p>
         ) : (
           <table className="w-full text-sm whitespace-nowrap">
             <thead className="bg-gray-50 border-b border-gray-100 text-gray-500">
@@ -183,7 +183,7 @@ export default async function ResultadosPage({ searchParams }: Props) {
                   <tr key={f.pedidoId}>
                     <td className="px-4 py-2">
                       <Link href={`/presupuestos/${f.pedidoId}`} className="text-blue-600 hover:underline">#{f.pedidoId} {f.clientName}</Link>
-                      {f.tipo === 'venta' && <span className="ml-2 text-[10px] text-gray-400">depósito</span>}
+                      {f.tipo === 'venta' && <span className="ml-2 text-[10px] text-gray-500">depósito</span>}
                     </td>
                     <td className="px-4 py-2">
                       <span title={ESTADOS[m.estado].ayuda} className={`text-xs font-semibold px-2 py-0.5 rounded-full ${ESTADOS[m.estado].cls}`}>{ESTADOS[m.estado].label}</span>
@@ -191,10 +191,10 @@ export default async function ResultadosPage({ searchParams }: Props) {
                     <td className="px-4 py-2 text-gray-500">{m.entregadoAt ? fecha(m.entregadoAt) : '—'}</td>
                     <td className="px-4 py-2 text-right font-mono">{usd(m.ventaUsd)}</td>
                     <td className="px-4 py-2 text-right font-mono text-gray-500">
-                      {usd(m.costoUsd)}{m.sinCosto > 0 && <span className="text-amber-700" title={`${m.sinCosto} línea(s) sin costo: es un piso`}> +?</span>}
+                      {usd(m.costoUsd)}{m.sinCosto > 0 && <span className="text-amber-700" title={`${m.sinCosto} línea(s) sin costo: es un piso`}> +?<span className="sr-only"> ({m.sinCosto} sin costo: es un piso)</span></span>}
                       {m.perdidasUsd > 0 && <span className="block text-[10px] text-red-600" title="Pagado por piezas que no se entregaron y se reembolsaron">{usd(m.perdidasUsd)} perdido</span>}
                     </td>
-                    <td className={`px-4 py-2 text-right font-mono font-semibold ${m.margenUsd == null ? 'text-gray-400' : malo ? 'text-red-700' : 'text-gray-900'}`}>
+                    <td className={`px-4 py-2 text-right font-mono font-semibold ${m.margenUsd == null ? 'text-gray-500' : malo ? 'text-red-700' : 'text-gray-900'}`}>
                       {m.margenUsd == null ? '—' : usd(m.margenUsd)}
                     </td>
                     <td className={`px-4 py-2 text-right font-mono ${malo ? 'text-red-700' : m.margenPct != null && m.margenPct < 15 ? 'text-amber-700' : 'text-gray-600'}`}>{pct(m.margenPct)}</td>

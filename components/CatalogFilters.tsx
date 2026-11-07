@@ -72,6 +72,7 @@ export default function CatalogFilters({
       method="GET"
       action={basePath}
       onSubmit={(e) => { e.preventDefault(); enviar(e.currentTarget) }}
+      aria-label="Filtros"
       className={`flex flex-wrap items-center gap-3 mb-6 transition-opacity ${enviando ? 'opacity-60' : ''}`}
     >
       {/* Modelo — al cambiar, navega y limpia la categoría (que era la del modelo viejo).
@@ -79,6 +80,7 @@ export default function CatalogFilters({
           desplegable volviera solo al valor viejo mientras cargaba. */}
       <select
         name="model"
+        aria-label="Modelo de moto"
         defaultValue={current.model}
         onChange={(e) => enviar(e.currentTarget.form!, true)}
         className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
@@ -94,10 +96,11 @@ export default function CatalogFilters({
         <>
           <input
             name="category"
+            aria-label="Categoría"
             defaultValue={current.category}
             list="catalog-categories"
             placeholder={current.model ? 'Categoría de este modelo...' : 'Categoría (Swing Arm...)'}
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-56"
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-56 max-w-full"
           />
           <datalist id="catalog-categories">
             {categories.map((c) => (
@@ -108,10 +111,12 @@ export default function CatalogFilters({
       )}
 
       <input
+        type="search"
         name="search"
+        aria-label="Buscar"
         defaultValue={current.search}
         placeholder={searchPlaceholder}
-        className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-64"
+        className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-64 max-w-full"
       />
 
       {showLowStock && (
@@ -130,6 +135,7 @@ export default function CatalogFilters({
       {showMedido && (
         <select
           name="medido"
+          aria-label="Peso"
           defaultValue={current.medido ?? ''}
           onChange={(e) => enviar(e.currentTarget.form!)}
           className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
@@ -172,7 +178,7 @@ export default function CatalogFilters({
         </a>
       )}
       {enviando && (
-        <span className="text-sm text-gray-500 self-center animate-pulse">Buscando…</span>
+        <span role="status" className="text-sm text-gray-500 self-center animate-pulse">Buscando…</span>
       )}
     </form>
   )

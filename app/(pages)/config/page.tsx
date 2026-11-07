@@ -29,6 +29,7 @@ export default async function ConfigPage({
   searchParams: Promise<{ saved?: string; cron?: string; invalido?: string }>
 }) {
   const { saved, cron, invalido } = await searchParams
+  const invalidos = new Set(invalido?.split(',') ?? [])
   const rows = await db.config.findMany({ orderBy: { key: 'asc' } })
 
   // Solo se editan las keys que el código conoce. Las demás filas tienen dueño en otra parte
@@ -60,19 +61,29 @@ export default async function ConfigPage({
     const meta    = FIELD_META[key]
     const stored  = guardado.get(key)
     const options = optionsFor(key)
+    // Los labels no estaban asociados a su campo: el lector anunciaba "editar texto" a secas.
+    const id = `cfg-${key}`
+    const fuera = invalidos.has(key)
+    const control = {
+      id,
+      name: key,
+      'aria-describedby': `${id}-ayuda`,
+      'aria-invalid': fuera || undefined,
+    }
+    const borde = fuera ? 'border-red-400' : 'border-gray-300'
     return (
       <div key={key}>
-        <label className="block mb-1">
+        <label htmlFor={id} className="block mb-1">
           <span className="text-sm font-medium text-gray-800">
             {meta.label}
           </span>
-          <span className="ml-2 font-mono text-xs text-gray-400">{key}</span>
+          <span aria-hidden="true" className="ml-2 font-mono text-xs text-gray-500">{key}</span>
         </label>
         {/* La ayuda es la del código, no la `description` de la fila: esa la escribió el
             seed y quedó vieja (la de shoppre_member todavía pedía escribir "true"). */}
-        <p className="text-xs text-gray-500 mb-2">{meta.hint}</p>
+        <p id={`${id}-ayuda`} className="text-xs text-gray-500 mb-2">{meta.hint}</p>
         {meta.cron && (
-          <p className="text-xs text-gray-400 mb-2">
+          <p className="text-xs text-gray-500 mb-2">
             {stored?.updatedAt
               ? `Actualizado ${haceTiempo(stored.updatedAt)} — cron horario (pnpm fx:update)`
               : 'Todavía no lo actualizó el cron'}
@@ -85,7 +96,7 @@ export default async function ConfigPage({
             <input type="hidden" name={key} value="false" />
             <input
               type="checkbox"
-              name={key}
+              {...control}
               value="true"
               defaultChecked={flag(cfg, key, meta.booleanDefault ?? false)}
               className="accent-blue-600 h-4 w-4"
@@ -96,16 +107,16 @@ export default async function ConfigPage({
           </label>
         ) : meta.multiline ? (
           <textarea
-            name={key}
+            {...control}
             rows={8}
             defaultValue={stored?.value || TERMINOS_DEFAULTS[key] || ''}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm leading-relaxed focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className={`w-full border ${borde} rounded-lg px-3 py-2 text-sm leading-relaxed focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
           />
         ) : options ? (
           <select
-            name={key}
+            {...control}
             defaultValue={stored?.value || options[0]}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className={`w-full border ${borde} rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
           >
             {options.map(o => <option key={o} value={o}>{o}</option>)}
           </select>
@@ -113,9 +124,9 @@ export default async function ConfigPage({
           <input
             type="text"
             inputMode={meta.rango ? 'decimal' : undefined}
-            name={key}
+            {...control}
             defaultValue={stored?.value}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className={`w-full border ${borde} rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500`}
           />
         )}
       </div>
@@ -124,17 +135,15 @@ export default async function ConfigPage({
 
   return (
     <div className="max-w-6xl">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Configuración</h1>
-      </div>
+      <h1 className="text-2xl font-bold text-gray-900 mb-6">Configuración</h1>
 
       {saved === '1' && (
-        <div className="mb-6 bg-green-50 border border-green-200 text-green-800 rounded-lg px-4 py-3 text-sm font-medium">
+        <div role="status" className="mb-6 bg-green-50 border border-green-200 text-green-800 rounded-lg px-4 py-3 text-sm font-medium">
           Cambios guardados correctamente.
         </div>
       )}
       {saved === '0' && (
-        <div className="mb-6 bg-gray-50 border border-gray-200 text-gray-700 rounded-lg px-4 py-3 text-sm font-medium">
+        <div role="status" className="mb-6 bg-gray-50 border border-gray-200 text-gray-700 rounded-lg px-4 py-3 text-sm font-medium">
           No había nada que guardar: ningún valor cambió.
         </div>
       )}
@@ -161,7 +170,7 @@ export default async function ConfigPage({
           {GRUPOS.map(g => (
             <section
               key={g.titulo}
-              className={`bg-white rounded-xl shadow-sm border border-gray-100 p-6 ${g.ancho ? 'lg:col-span-2' : ''}`}
+              className={`bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-6 ${g.ancho ? 'lg:col-span-2' : ''}`}
             >
               <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">{g.titulo}</h2>
               <div className={`grid gap-5 ${g.ancho ? 'lg:grid-cols-2' : ''}`}>

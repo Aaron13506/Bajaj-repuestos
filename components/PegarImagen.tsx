@@ -87,13 +87,16 @@ export default function PegarImagen({ inicial }: { inicial?: string | null }) {
       <div className="flex items-start gap-3">
         <div
           tabIndex={0}
+          role="group"
+          aria-label="Zona para pegar la foto: enfocá y apretá Ctrl+V"
+          aria-busy={subiendo}
           onPaste={pegar}
           className="flex h-28 min-w-0 flex-1 cursor-text items-center justify-center rounded-lg border-2 border-dashed border-gray-300 px-3 text-center text-sm text-gray-500 outline-none focus:border-blue-500 focus:bg-blue-50/40"
         >
           {subiendo
             ? 'Subiendo…'
             : <span>Hacé clic acá y pegá la foto con <kbd className="rounded border border-gray-300 bg-gray-50 px-1 font-mono text-xs">Ctrl+V</kbd><br />
-                <span className="text-xs text-gray-400">En la web: clic derecho sobre la imagen → &quot;Copiar imagen&quot;</span></span>}
+                <span className="text-xs text-gray-500">En la web: clic derecho sobre la imagen → &quot;Copiar imagen&quot;</span></span>}
         </div>
         {url && (
           <div className="flex shrink-0 flex-col items-center gap-1">

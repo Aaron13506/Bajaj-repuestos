@@ -68,6 +68,7 @@ export default function FichaProductoIA({ aplicar }: Props) {
           value={respuesta}
           onChange={e => setRespuesta(e.target.value)}
           rows={5}
+          aria-label="Respuesta de la IA"
           placeholder="Pegá acá la respuesta de la IA (con el bloque ```json)…"
           className="w-full resize-y rounded-lg border border-gray-300 px-3 py-2 font-mono text-xs focus:border-violet-500 focus:ring-2 focus:ring-violet-500"
         />
@@ -84,7 +85,7 @@ export default function FichaProductoIA({ aplicar }: Props) {
 
         {resultado?.error && <p role="alert" className="text-xs text-red-600">{resultado.error}</p>}
         {resultado?.llenados && (
-          <div className="space-y-1 text-xs">
+          <div role="status" className="space-y-1 text-xs">
             <p className="text-green-700">
               {resultado.llenados.length
                 ? <>Llené: {resultado.llenados.join(', ')}. Revisá y guardá — todavía no se guardó nada.</>

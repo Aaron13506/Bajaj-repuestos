@@ -163,6 +163,9 @@ export default function PresupuestoBuilder({
   const [cart, setCart] = useState<CartItem[]>(() => initialItems.map(i => ({ ...i, touched: true })))
   const [search, setSearch] = useState('')
   const [encontrados, setEncontrados] = useState<Product[]>([])
+  // Término de la última búsqueda de pieza que volvió, y si falló: para poder decir "no hay"
+  // (o "no se pudo buscar") en vez de no mostrar nada.
+  const [piezaBuscada, setPiezaBuscada] = useState<{ q: string; error: boolean }>({ q: '', error: false })
   const [modelFilter, setModelFilter] = useState('')
   const [asmSearch, setAsmSearch] = useState('')
   const [clientName, setClientName] = useState(initialClientName)
@@ -554,8 +557,12 @@ export default function PresupuestoBuilder({
     if (terminoPieza.length < 2) return
     let cancelled = false
     const t = setTimeout(async () => {
-      const rows = await searchProducts(terminoPieza)
-      if (!cancelled) setEncontrados(rows)
+      try {
+        const rows = await searchProducts(terminoPieza)
+        if (!cancelled) { setEncontrados(rows); setPiezaBuscada({ q: terminoPieza, error: false }) }
+      } catch {
+        if (!cancelled) setPiezaBuscada({ q: terminoPieza, error: true })
+      }
     }, 250)
     return () => { cancelled = true; clearTimeout(t) }
   }, [terminoPieza])
@@ -656,6 +663,7 @@ export default function PresupuestoBuilder({
             {/* Filtros: moto + buscador, para no listar los ~1400 ensambles planos */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
               <select
+                aria-label="Moto"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 value={modelFilter}
                 onChange={e => {
@@ -669,7 +677,8 @@ export default function PresupuestoBuilder({
                 ))}
               </select>
               <input
-                type="text"
+                type="search"
+                aria-label="Buscar ensamble"
                 value={asmSearch}
                 onChange={e => setAsmSearch(e.target.value)}
                 placeholder="Buscar por nombre, código o SKU de una pieza..."
@@ -679,7 +688,7 @@ export default function PresupuestoBuilder({
 
             <div className="border border-gray-300 rounded-lg mb-1 max-h-80 overflow-y-auto divide-y divide-gray-50">
               {filteredAssemblies.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-6">
+                <p className="text-sm text-gray-500 text-center py-6">
                   {searchingPieces ? 'Buscando…' : 'Sin resultados'}
                 </p>
               ) : (
@@ -707,7 +716,7 @@ export default function PresupuestoBuilder({
                     )}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-900 truncate">{a.nameEs}</p>
-                      <p className="text-xs text-gray-400 truncate">{formatModels(a.models)}</p>
+                      <p className="text-xs text-gray-500 truncate">{formatModels(a.models)}</p>
                       {/* Por qué apareció: el SKU buscado es de una pieza de adentro,
                           no del ensamble. Sin esto la fila parece no tener relación. */}
                       {match && (
@@ -721,7 +730,7 @@ export default function PresupuestoBuilder({
                 })
               )}
             </div>
-            <p className="text-xs text-gray-400 mb-4">
+            <p className="text-xs text-gray-500 mb-4">
               {filteredAssemblies.length} ensamble{filteredAssemblies.length === 1 ? '' : 's'}
               {modelFilter || asmSearch ? ' (filtrado)' : ''} de {assemblies.length}.
             </p>
@@ -742,12 +751,12 @@ export default function PresupuestoBuilder({
                   </div>
                 )}
                 {loadingComps && !selectedComponents ? (
-                  <p className="text-sm text-gray-400 py-6 text-center">Cargando piezas…</p>
+                  <p className="text-sm text-gray-500 py-6 text-center">Cargando piezas…</p>
                 ) : (
                 <div className="space-y-4 max-h-96 overflow-y-auto pr-1">
                   {Array.from(groups.entries()).map(([groupName, items]) => (
                     <div key={groupName}>
-                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
                         {groupName}
                       </p>
                       <div className="space-y-0.5">
@@ -789,7 +798,7 @@ export default function PresupuestoBuilder({
                                 </span>
                                 <ChipDescontinuada activo={nls} />
                                 {comp.product.bajajCode && (
-                                  <span className="ml-2 text-xs font-mono text-gray-400">
+                                  <span className="ml-2 text-xs font-mono text-gray-500">
                                     {comp.product.bajajCode}
                                   </span>
                                 )}
@@ -815,12 +824,13 @@ export default function PresupuestoBuilder({
                                       setCompatOpen(prev => ({ ...prev, [comp.id]: !prev[comp.id] }))
                                     }}
                                     title={formatModels(compat.extras)}
+                                    aria-expanded={!!compatShown}
                                     className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
                                   >
-                                    {compat.label} <span className={`inline-block transition-transform ${compatShown ? 'rotate-180' : ''}`}>▾</span>
+                                    {compat.label} <span aria-hidden="true" className={`inline-block transition-transform ${compatShown ? 'rotate-180' : ''}`}>▾</span>
                                   </button>
                                 ) : (
-                                  <span className="ml-2 text-[10px] text-gray-300">solo esta moto</span>
+                                  <span className="ml-2 text-[10px] text-gray-500">solo esta moto</span>
                                 ))}
                                 {compatShown && (
                                   <span className="block mt-0.5 text-[11px] text-amber-700/80 leading-snug">
@@ -839,6 +849,7 @@ export default function PresupuestoBuilder({
                                   }))
                                 }
                                 onClick={e => e.stopPropagation()}
+                                aria-label={`Cantidad de ${comp.product.nameEs}`}
                                 disabled={!checked[comp.id] || bloqueada}
                                 className="w-14 border border-gray-200 rounded px-2 py-0.5 text-sm text-center disabled:opacity-40"
                               />
@@ -874,7 +885,7 @@ export default function PresupuestoBuilder({
                     Agregar piezas sueltas
                   </button>
                 </div>
-                <p className="mt-2 text-xs text-gray-400">
+                <p className="mt-2 text-xs text-gray-500">
                   <span className="font-medium text-gray-500">Conjunto:</span> una línea a precio único (editable, por defecto la suma de las piezas elegidas) con las piezas listadas debajo.
                   {' · '}
                   <span className="font-medium text-gray-500">Piezas sueltas:</span> cada pieza con su propio precio.
@@ -888,7 +899,8 @@ export default function PresupuestoBuilder({
             <h2 className="font-semibold text-gray-900 mb-3">Agregar pieza individual</h2>
             <div className="relative">
               <input
-                type="text"
+                type="search"
+                aria-label="Buscar pieza"
                 placeholder="Buscar por nombre o código (pieza o ensamble)..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
@@ -909,7 +921,7 @@ export default function PresupuestoBuilder({
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={p.imageUrl}
-                          alt={p.nameEs}
+                          alt=""
                           className="w-10 h-10 object-contain rounded border border-gray-100 bg-white shrink-0"
                         />
                       ) : (
@@ -920,7 +932,7 @@ export default function PresupuestoBuilder({
                           <span className={p.descontinuada ? 'text-gray-500 line-through' : 'text-gray-900'}>{p.nameEs}</span>
                           <ChipDescontinuada activo={p.descontinuada} />
                         </p>
-                        <p className="text-xs text-gray-400 truncate">
+                        <p className="text-xs text-gray-500 truncate">
                           {p.bajajCode && <span className="font-mono">{p.bajajCode}</span>}
                           {p.bajajCode && (p.models?.length ?? 0) > 0 && ' · '}
                           {formatModels(p.models ?? [])}
@@ -936,6 +948,17 @@ export default function PresupuestoBuilder({
                 </div>
               )}
             </div>
+            <p role="status" className="text-xs mt-1">
+              {terminoPieza.length >= 2 && piezaBuscada.q === terminoPieza && (
+                piezaBuscada.error
+                  ? <span className="text-red-600">No se pudo buscar. Probá de nuevo.</span>
+                  : filteredProducts.length === 0 && (
+                    <span className="text-gray-500">
+                      {searchResults.length > 0 ? 'Lo que coincide ya está en el presupuesto.' : `Ninguna pieza coincide con "${terminoPieza}".`}
+                    </span>
+                  )
+              )}
+            </p>
           </div>
         </div>
 
@@ -947,7 +970,7 @@ export default function PresupuestoBuilder({
             <h2 className="font-semibold text-gray-900 mb-4">
               {isPropio ? (isEditing ? 'Piezas del stock' : 'Stock propio') : (isEditing ? 'Piezas del presupuesto' : 'Presupuesto')}
               {cart.length > 0 && (
-                <span className="ml-2 text-xs font-normal text-gray-400">
+                <span className="ml-2 text-xs font-normal text-gray-500">
                   {cart.length} {cart.length === 1 ? 'pieza' : 'piezas'}
                 </span>
               )}
@@ -957,7 +980,7 @@ export default function PresupuestoBuilder({
               <p className="text-[11px] bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-2.5 py-2 mb-2">{avisoBloqueo}</p>
             )}
             {cart.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-10">
+              <p className="text-sm text-gray-500 text-center py-10">
                 Seleccioná piezas para agregar al presupuesto
               </p>
             ) : (
@@ -980,7 +1003,7 @@ export default function PresupuestoBuilder({
                           />
                         )}
                         <div className="flex-1 min-w-0">
-                          <p className={`text-sm font-medium truncate ${item.descontinuada ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
+                          <p className={`text-sm font-medium truncate ${item.descontinuada ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
                             {item.nameEs}
                             <ChipDescontinuada activo={item.descontinuada} />
                             <StockBadge productId={item.productId} posiciones={posiciones} className="ml-2" />
@@ -993,7 +1016,7 @@ export default function PresupuestoBuilder({
                           {(item.bajajCode || modelo) && (
                             <div className="flex items-center gap-1.5 min-w-0">
                               {item.bajajCode && (
-                                <span className="text-xs font-mono text-gray-400 shrink-0">{item.bajajCode}</span>
+                                <span className="text-xs font-mono text-gray-500 shrink-0">{item.bajajCode}</span>
                               )}
                               {modelo && (
                                 <span
@@ -1001,7 +1024,7 @@ export default function PresupuestoBuilder({
                                   className={`text-[10px] px-1.5 py-0.5 rounded truncate ${
                                     modelo.count === 1
                                       ? 'bg-gray-100 text-gray-700 font-medium'
-                                      : 'bg-gray-50 text-gray-400'
+                                      : 'bg-gray-50 text-gray-500'
                                   }`}
                                 >
                                   {modelo.label}
@@ -1039,7 +1062,7 @@ export default function PresupuestoBuilder({
                                   <>
                                     <span className="text-gray-300">·</span>
                                     <span className={`font-mono font-semibold ${
-                                      margen >= 0.25 ? 'text-green-600' : margen >= 0 ? 'text-amber-600' : 'text-red-600'
+                                      margen >= 0.25 ? 'text-green-700' : margen >= 0 ? 'text-amber-700' : 'text-red-600'
                                     }`}>
                                       {(margen * 100).toFixed(0)}%
                                     </span>
@@ -1071,13 +1094,14 @@ export default function PresupuestoBuilder({
                           disabled={item.restriccion?.puedeQuitar === false}
                           value={item.quantity}
                           onChange={e => updateCartQty(claveLinea(item), parseInt(e.target.value) || 1)}
+                          aria-label={item.bundleItems ? `Cantidad de conjuntos de ${item.nameEs}` : `Cantidad de ${item.nameEs}`}
                           title={item.bundleItems ? 'Cantidad de conjuntos (multiplica cada pieza del desglose)' : undefined}
                           className="w-14 border border-gray-200 rounded px-2 py-0.5 text-sm text-center shrink-0 disabled:bg-gray-50 disabled:text-gray-400"
                         />
                         {item.bundleItems ? (
                           <div className="flex items-center gap-1.5 shrink-0">
                             <div className="flex items-center">
-                              <span className="text-sm text-gray-400">$</span>
+                              <span className="text-sm text-gray-500">$</span>
                               <input
                                 type="number"
                                 min={0}
@@ -1085,6 +1109,7 @@ export default function PresupuestoBuilder({
                                 value={item.unitPrice}
                                 disabled={item.restriccion?.puedeCambiarPrecio === false}
                                 onChange={e => updateCartPrice(claveLinea(item), parseFloat(e.target.value))}
+                                aria-label={`Precio por set de ${item.nameEs}`}
                                 className="w-20 border border-gray-200 rounded px-2 py-0.5 text-sm text-right font-mono disabled:bg-gray-50 disabled:text-gray-400"
                                 title="Precio del conjunto (por set)"
                               />
@@ -1104,10 +1129,11 @@ export default function PresupuestoBuilder({
                           type="button"
                           onClick={() => removeFromCart(claveLinea(item))}
                           disabled={item.restriccion?.puedeQuitar === false}
-                          className="text-gray-300 hover:text-red-500 transition-colors shrink-0 disabled:opacity-20 disabled:hover:text-gray-300 disabled:cursor-not-allowed"
+                          className="-m-1 p-1 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0 disabled:opacity-30 disabled:hover:text-gray-500 disabled:hover:bg-transparent disabled:cursor-not-allowed"
                           title={item.restriccion?.puedeQuitar === false ? 'Ya se entregó: no se puede quitar' : 'Quitar'}
+                          aria-label={`Quitar ${item.nameEs}`}
                         >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg aria-hidden="true" className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                           </svg>
                         </button>
@@ -1117,7 +1143,7 @@ export default function PresupuestoBuilder({
                           {groupBundlePieces(item.bundleItems).map(([groupName, pieces]) => (
                             <div key={groupName}>
                               {groupName !== '—' && (
-                                <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
                                   {groupName}
                                 </p>
                               )}
@@ -1137,11 +1163,12 @@ export default function PresupuestoBuilder({
                                           updateBundlePieceQty(claveLinea(item), pieceIndex, parseInt(e.target.value) || 1)
                                         }
                                         title="Cantidad de esta pieza por set"
+                                        aria-label={`Cantidad de ${p.nameEs} por set`}
                                         className="w-12 border border-gray-200 rounded px-1 py-0.5 text-xs text-center shrink-0"
                                       />
                                       <span className={`truncate ${noHay ? 'text-amber-800 font-medium' : ''}`}>× {p.nameEs}</span>
                                       {p.bajajCode && (
-                                        <span className="font-mono text-gray-300 shrink-0">{p.bajajCode}</span>
+                                        <span className="font-mono text-gray-500 shrink-0">{p.bajajCode}</span>
                                       )}
                                       {noHay && (
                                         <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800">
@@ -1149,7 +1176,7 @@ export default function PresupuestoBuilder({
                                         </span>
                                       )}
                                       {item.quantity > 1 && (
-                                        <span className="text-gray-300 shrink-0">
+                                        <span className="text-gray-500 shrink-0">
                                           → {p.quantity * item.quantity} total
                                         </span>
                                       )}
@@ -1164,7 +1191,8 @@ export default function PresupuestoBuilder({
                                               ? 'Es la única pieza: quitá la línea'
                                               : 'Quitar esta pieza del conjunto'
                                         }
-                                        className="ml-auto shrink-0 text-gray-300 hover:text-red-500 disabled:opacity-30 disabled:hover:text-gray-300 px-1"
+                                        aria-label={`Quitar ${p.nameEs} del conjunto`}
+                                        className="ml-auto shrink-0 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 disabled:opacity-30 disabled:hover:text-gray-500 disabled:hover:bg-transparent px-1.5 py-0.5"
                                       >
                                         ✕
                                       </button>
@@ -1187,11 +1215,11 @@ export default function PresupuestoBuilder({
                     <div className="flex justify-between items-center">
                       <span className="font-bold text-gray-900">
                         Landed
-                        {costeando && <span className="ml-2 text-xs font-normal text-gray-400">calculando…</span>}
+                        {costeando && <span className="ml-2 text-xs font-normal text-gray-500">calculando…</span>}
                       </span>
                       <span className="text-xl font-bold font-mono text-blue-700">
                         {costo ? `$${landedTotal.toFixed(2)}` : '—'}
-                        {costo && costo.sinPeso > 0 && <span className="text-amber-600 text-sm" title="Hay piezas sin peso: el landed real es mayor"> +?</span>}
+                        {costo && costo.sinPeso > 0 && <span className="text-amber-700 text-sm" title="Hay piezas sin peso: el landed real es mayor"> +?</span>}
                       </span>
                     </div>
                     <div className="flex justify-between text-xs text-gray-500 mt-0.5">
@@ -1214,52 +1242,52 @@ export default function PresupuestoBuilder({
                     <div className="flex items-center justify-between">
                       <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
                         {esExpress ? '⚡ Costo express (Shoppre → Venezuela)' : '✈️ Costo por la ruta aérea'}
-                        {costeando && <span className="ml-2 font-normal normal-case text-gray-400">calculando…</span>}
+                        {costeando && <span className="ml-2 font-normal normal-case text-gray-500">calculando…</span>}
                       </h3>
                       {costo.proveedor && (
-                        <span className="text-[11px] text-gray-400 font-mono">{costo.proveedor}</span>
+                        <span className="text-[11px] text-gray-500 font-mono">{costo.proveedor}</span>
                       )}
                     </div>
 
                     <div className={`grid gap-3 ${isPropio ? 'grid-cols-2' : 'grid-cols-3'}`}>
                       <div>
-                        <p className="text-[11px] text-gray-400">{isPropio ? 'Peso real' : 'Peso'}</p>
+                        <p className="text-[11px] text-gray-500">{isPropio ? 'Peso real' : 'Peso'}</p>
                         <p className={`text-base font-bold font-mono ${isPropio && costo.weightKg >= costo.volKg ? 'text-green-700' : 'text-gray-900'}`}>{costo.weightKg.toFixed(2)} kg</p>
                       </div>
                       {isPropio ? (
                         <>
                           {/* Lo que rinde es que el peso real le gane al volumétrico (como en la caja, /envios). */}
                           <div>
-                            <p className="text-[11px] text-gray-400">Volumétrico</p>
+                            <p className="text-[11px] text-gray-500">Volumétrico</p>
                             <p className={`text-base font-bold font-mono ${costo.volKg > costo.weightKg ? 'text-red-700' : 'text-gray-900'}`}>{costo.volKg.toFixed(2)} kg</p>
                             {costo.weightKg > 0 && (
-                              <p className="text-[10px] text-gray-400">
+                              <p className="text-[10px] text-gray-500">
                                 V/W {((costo.volKg / costo.weightKg) * 100).toFixed(0)}% · {costo.weightKg >= costo.volKg ? 'atado por peso' : 'atado por volumen'}
                               </p>
                             )}
                           </div>
                           <div>
-                            <p className="text-[11px] text-gray-400">Volumen</p>
+                            <p className="text-[11px] text-gray-500">Volumen</p>
                             <p className="text-base font-bold font-mono text-gray-900">{costo.ft3.toFixed(2)} ft³</p>
-                            <p className="text-[10px] text-gray-400 font-mono">{costo.cbm.toFixed(3)} CBM</p>
+                            <p className="text-[10px] text-gray-500 font-mono">{costo.cbm.toFixed(3)} CBM</p>
                           </div>
                         </>
                       ) : (
                         <div>
-                          <p className="text-[11px] text-gray-400">Landed</p>
+                          <p className="text-[11px] text-gray-500">Landed</p>
                           <p className="text-base font-bold font-mono text-gray-900">${landedTotal.toFixed(2)}</p>
                         </div>
                       )}
                       <div>
-                        <p className="text-[11px] text-gray-400">Margen</p>
+                        <p className="text-[11px] text-gray-500">Margen</p>
                         <p className={`text-base font-bold font-mono ${
-                          margenTotal == null ? 'text-gray-400'
-                            : margenTotal >= 0.25 ? 'text-green-600'
-                            : margenTotal >= 0 ? 'text-amber-600' : 'text-red-600'
+                          margenTotal == null ? 'text-gray-500'
+                            : margenTotal >= 0.25 ? 'text-green-700'
+                            : margenTotal >= 0 ? 'text-amber-700' : 'text-red-600'
                         }`}>
                           {margenTotal != null ? `${(margenTotal * 100).toFixed(1)}%` : '—'}
                         </p>
-                        <p className="text-[10px] text-gray-400">ganancia ${(total - landedTotal).toFixed(2)}</p>
+                        <p className="text-[10px] text-gray-500">ganancia ${(total - landedTotal).toFixed(2)}</p>
                       </div>
                     </div>
 
@@ -1330,10 +1358,10 @@ export default function PresupuestoBuilder({
                 {isPropio && coverage.length > 0 && (
                   <div className="mt-4 pt-3 border-t border-gray-100">
                     <div className="flex items-baseline justify-between mb-2">
-                      <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                         Cobertura por moto
                       </h3>
-                      <span className="text-[11px] text-gray-400">
+                      <span className="text-[11px] text-gray-500">
                         {coverage.length} moto{coverage.length === 1 ? '' : 's'}
                       </span>
                     </div>
@@ -1365,7 +1393,7 @@ export default function PresupuestoBuilder({
                         </div>
                       ))}
                     </div>
-                    <p className="mt-2 text-[11px] text-gray-400 leading-snug">
+                    <p className="mt-2 text-[11px] text-gray-500 leading-snug">
                       Cada pieza cuenta en todas las motos que cubre (líneas · unidades).
                       Lo que armaste para una moto ya deja parte de las otras resuelto.
                     </p>
@@ -1381,10 +1409,11 @@ export default function PresupuestoBuilder({
 
             {isPropio ? (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Etiqueta / referencia <span className="text-red-500">*</span>
+                <label htmlFor="pb-referencia" className="block text-sm font-medium text-gray-700 mb-1">
+                  Etiqueta / referencia <span className="text-red-600">*</span>
                 </label>
                 <input
+                  id="pb-referencia"
                   type="text"
                   value={clientName}
                   onChange={e => setClientName(e.target.value)}
@@ -1425,10 +1454,11 @@ export default function PresupuestoBuilder({
                   )}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Cliente <span className="text-red-500">*</span>
+                  <label htmlFor="pb-cliente" className="block text-sm font-medium text-gray-700 mb-1">
+                    Cliente <span className="text-red-600">*</span>
                   </label>
                   <input
+                    id="pb-cliente"
                     type="text"
                     list="clientes-lista"
                     value={clienteTexto}
@@ -1445,7 +1475,7 @@ export default function PresupuestoBuilder({
                     ))}
                   </datalist>
                   {clienteFijo && (
-                    <p className="text-[11px] text-gray-400 mt-1">El pedido ya está confirmado: el cliente no se cambia.</p>
+                    <p className="text-[11px] text-gray-500 mt-1">El pedido ya está confirmado: el cliente no se cambia.</p>
                   )}
                   {clienteId === '__new__' && (
                     <p className="text-[11px] text-amber-700 mt-1">No hay un cliente con ese nombre: se crea uno nuevo al guardar.</p>
@@ -1453,9 +1483,10 @@ export default function PresupuestoBuilder({
                 </div>
                 {clienteId === '__new__' && (
                   <input
-                    type="text"
                     value={nuevoTelefono}
                     onChange={e => setNuevoTelefono(e.target.value)}
+                    type="tel"
+                    aria-label="Teléfono del cliente nuevo (opcional)"
                     placeholder="Teléfono del cliente nuevo (opcional)"
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
@@ -1463,8 +1494,8 @@ export default function PresupuestoBuilder({
               </div>
             )}
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Notas</label>
+            <label className="block">
+              <span className="block text-sm font-medium text-gray-700 mb-1">Notas</span>
               <textarea
                 value={notas}
                 onChange={e => setNotas(e.target.value)}
@@ -1472,7 +1503,7 @@ export default function PresupuestoBuilder({
                 rows={2}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
-            </div>
+            </label>
 
             {nlsEnCarrito.length > 0 && (
               <p className="text-[11px] bg-red-50 border border-red-200 text-red-900 rounded-lg px-2.5 py-2 mb-2">

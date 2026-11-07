@@ -12,6 +12,8 @@ import { calcLanded } from '@/lib/calc'
 import { getSupplierPriceMap } from '@/lib/suppliers'
 import { toConfigMap } from '@/lib/config'
 
+export const metadata = { title: 'Producto' }
+
 export default async function ProductDetailPage({
   params,
   searchParams,
@@ -82,15 +84,15 @@ export default async function ProductDetailPage({
     <div className="max-w-7xl space-y-6">
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <Link href="/products" className="text-gray-400 hover:text-gray-600 text-sm">Productos</Link>
-            <span className="text-gray-300">/</span>
-            <span className="text-sm text-gray-600">{product.nameEs}</span>
+            <Link href="/products" className="text-gray-500 hover:text-gray-600 text-sm">Productos</Link>
+            <span aria-hidden="true" className="text-gray-300">/</span>
+            <span className="text-sm text-gray-600 truncate">{product.nameEs}</span>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className={`text-2xl font-bold ${product.discontinuedAt ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
+            <h1 className={`text-2xl font-bold text-balance break-words ${product.discontinuedAt ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
               {product.nameEs}
             </h1>
             {/* Va en el título y no en la ficha de costos: el costo sigue calculándose y se
@@ -116,7 +118,7 @@ export default async function ProductDetailPage({
           )}
           {product.bajajCode && (
             <p className="text-sm font-mono text-gray-500 mt-0.5">
-              {product.bajajCode}{product.altSku && <span className="text-gray-400"> · alt {product.altSku}</span>}
+              {product.bajajCode}{product.altSku && <span className="text-gray-500"> · alt {product.altSku}</span>}
             </p>
           )}
         </div>
@@ -150,16 +152,17 @@ export default async function ProductDetailPage({
           </div>
           <div>
             <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Peso</p>
-            <p className="font-medium text-gray-900">{product.weightGrams ? `${product.weightGrams} g` : '—'}</p>
+            <p className="font-medium text-gray-900">{product.weightGrams != null ? `${product.weightGrams} g` : '—'}</p>
             {/* Cubre peso Y dimensiones: se miden juntos. */}
             <IndicadorMedido medidoAt={product.medidoAt} className="mt-1" />
           </div>
           <div>
             <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Dimensiones (cm)</p>
             <p className="font-medium text-gray-900">
-              {product.dimL && product.dimA && product.dimH
-                ? `${product.dimL} × ${product.dimA} × ${product.dimH}`
-                : '—'}
+              {/* Medidas parciales se muestran con "?" en lo que falta: esconderlas todas ocultaba lo cargado. */}
+              {product.dimL == null && product.dimA == null && product.dimH == null
+                ? '—'
+                : [product.dimL, product.dimA, product.dimH].map(v => v ?? '?').join(' × ')}
             </p>
           </div>
           <div>
@@ -178,6 +181,8 @@ export default async function ProductDetailPage({
               <a href={product.sourceUrl} target="_blank" rel="noopener noreferrer"
                 className="text-blue-600 hover:underline text-xs break-all">
                 {product.sourceUrl}
+                <span aria-hidden="true"> ↗</span>
+                <span className="sr-only"> (abre en otra pestaña)</span>
               </a>
             </div>
           )}
@@ -195,7 +200,7 @@ export default async function ProductDetailPage({
         <h2 className="font-semibold text-gray-900 mb-4">Desglose de costo</h2>
 
         {!breakdown ? (
-          <p className="text-sm text-gray-400">Completá el precio en India (₹) y el peso para ver el cálculo.</p>
+          <p className="text-sm text-gray-500">Completá el precio en India (₹) y el peso para ver el cálculo.</p>
         ) : (
           <div className="space-y-1 text-sm">
             <div className="flex justify-between py-1.5 border-b border-gray-50">
@@ -210,7 +215,7 @@ export default async function ProductDetailPage({
               <span className="font-mono text-gray-500">
                 {supplierOverride != null
                   ? `$${supplierOverride.priceUsd.toFixed(2)}`
-                  : product.priceInr ? `₹${product.priceInr}` : '—'}
+                  : product.priceInr != null ? `₹${product.priceInr}` : '—'}
               </span>
             </div>
             <div className="flex justify-between py-1.5">
@@ -281,11 +286,11 @@ export default async function ProductDetailPage({
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <h2 className="font-semibold text-gray-900 mb-3">Forma parte de</h2>
         {product.assemblies.length === 0 ? (
-          <p className="text-sm text-gray-400">No asignado a ningún ensamble.</p>
+          <p className="text-sm text-gray-500">No asignado a ningún ensamble.</p>
         ) : (
           <div className="space-y-2 mb-1">
             {product.assemblies.map(a => (
-              <div key={a.id} className="flex items-center justify-between text-sm">
+              <div key={a.id} className="flex flex-wrap items-center justify-between gap-x-3 text-sm">
                 <Link href={`/ensambles/${a.ensamble.id}`} className="text-blue-600 hover:underline font-medium">
                   {a.ensamble.nameEs}
                   <span className="ml-2 text-xs font-normal text-gray-500">
@@ -293,7 +298,7 @@ export default async function ProductDetailPage({
                   </span>
                 </Link>
                 <span className="text-xs text-gray-500">
-                  {a.groupName ? `Grupo: ${a.groupName}` : ''} · {a.quantity}x
+                  {a.groupName && `Grupo: ${a.groupName} · `}{a.quantity}×
                 </span>
               </div>
             ))}

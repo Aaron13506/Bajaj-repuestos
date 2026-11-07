@@ -127,8 +127,8 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-bold text-gray-900">Productos</h1>
 
           {/* Las dos rutas se muestran siempre, lado a lado: el precio de venta sale del
@@ -139,7 +139,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
             ✈️ 99rpm · 🚢 {supplierName ?? '99rpm'}
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Link href="/products/discontinued" className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors">
             Descontinuadas
           </Link>
@@ -166,12 +166,22 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
         {products.length === 0 ? (
-          <div className="text-center py-16 text-gray-400">
-            <p className="text-lg">Sin productos</p>
-            <p className="text-sm mt-1">
-              <Link href="/products/new" className="text-blue-600 hover:underline">Agregar el primero</Link>
-            </p>
-          </div>
+          // Con filtros puestos, "sin productos" no es un catálogo vacío: es que nada coincide.
+          search || model || onlyLowStock || medido ? (
+            <div className="text-center py-16 text-gray-500">
+              <p className="text-lg">Ningún producto coincide con los filtros</p>
+              <p className="text-sm mt-1">
+                <Link href="/products" className="text-blue-600 hover:underline">Limpiar filtros</Link>
+              </p>
+            </div>
+          ) : (
+            <div className="text-center py-16 text-gray-500">
+              <p className="text-lg">Sin productos</p>
+              <p className="text-sm mt-1">
+                <Link href="/products/new" className="text-blue-600 hover:underline">Agregar el primero</Link>
+              </p>
+            </div>
+          )
         ) : (
           <table className="w-full text-sm whitespace-nowrap">
             <thead className="bg-gray-50 border-b border-gray-100">
@@ -179,7 +189,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Código</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Nombre</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Modelos</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-500">g</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-500"><abbr title="Peso en gramos" className="no-underline">g</abbr></th>
                 {/* El set de columnas de costo depende del modo (ver costHeaders). */}
                 {costHeaders().map(c => (
                   <th key={c.label} className={c.className} title={c.title}>{c.label}</th>
@@ -223,7 +233,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
       </div>
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-between mt-4">
+        <nav aria-label="Páginas" className="flex flex-wrap items-center justify-between gap-3 mt-4">
           <p className="text-sm text-gray-500">{total} productos — página {page} de {totalPages}</p>
           <div className="flex gap-2">
             {page > 1 && (
@@ -237,7 +247,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
               </Link>
             )}
           </div>
-        </div>
+        </nav>
       )}
     </div>
   )

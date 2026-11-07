@@ -100,20 +100,20 @@ export default async function PresupuestosPage({
     // Un pedido con cobros, compras o piezas en una caja no se borra (ver motivoNoEliminable).
     const noEliminable = motivoNoEliminable({ ...p, movimientos: p._count.movimientos })
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-4 flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-mono text-gray-400">#{p.id}</span>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="text-xs font-mono text-gray-500">#{p.id}</span>
             <Link
               href={`/presupuestos/${p.id}`}
-              className="font-semibold text-gray-900 hover:text-blue-600"
+              className="font-semibold text-gray-900 hover:text-blue-600 break-words"
             >
               {p.clientName}
             </Link>
             {p.via === 'express' && (
               <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 whitespace-nowrap">⚡ Express</span>
             )}
-            <span className="text-xs text-gray-400">
+            <span className="text-xs text-gray-500">
               {p.items.length} {p.items.length === 1 ? 'pieza' : 'piezas'}
             </span>
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
@@ -130,7 +130,7 @@ export default async function PresupuestosPage({
               {isPropio ? 'Stock propio' : isCancelado ? 'Cancelado' : perdido ? 'Perdido' : vencido ? 'Vencido' : isPresupuesto ? 'Presupuesto' : 'Pedido'}
             </span>
             {p.origenMotivo && (
-              <span className="text-xs text-gray-400">{p.origenMotivo === 'reposicion' ? '↻ reposición' : '↩ sobrante'} de #{p.origenId}</span>
+              <span className="text-xs text-gray-500">{p.origenMotivo === 'reposicion' ? '↻ reposición' : '↩ sobrante'} de #{p.origenId}</span>
             )}
             {/* Avance de compra: solo tiene sentido una vez confirmado. Un pedido puede
                 estar comprado a medias, así que se muestra la etapa más atrasada. */}
@@ -141,14 +141,14 @@ export default async function PresupuestosPage({
               </span>
             )}
           </div>
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-xs text-gray-500 mt-1">
             {new Date(p.createdAt).toLocaleDateString('es-VE', {
               day: '2-digit',
               month: 'short',
               year: 'numeric',
             })}
             {validez && !validez.vencido && (
-              <span className={validez.diasRestantes <= 2 ? 'text-amber-600 font-medium' : ''}>
+              <span className={validez.diasRestantes <= 2 ? 'text-amber-700 font-medium' : ''}>
                 {' · '}{validez.diasRestantes === 0 ? 'vence hoy' : `vence en ${validez.diasRestantes} día${validez.diasRestantes === 1 ? '' : 's'}`}
               </span>
             )}
@@ -158,7 +158,7 @@ export default async function PresupuestosPage({
             <p className="text-xs text-gray-500 mt-1 font-mono">
               {log.chargeableKg.toFixed(2)} kg · {log.ft3.toFixed(2)} ft³
               {log.incompletas > 0 && (
-                <span className="text-amber-600 font-sans"> · {log.incompletas} sin medir</span>
+                <span className="text-amber-700 font-sans"> · {log.incompletas} sin medir</span>
               )}
             </p>
           )}
@@ -166,12 +166,12 @@ export default async function PresupuestosPage({
         <div className="flex items-center gap-4">
           <div className="text-right">
             <span className="font-semibold text-gray-900">${total.toFixed(2)}</span>
-            {escalon != null && <span className="ml-1 text-[10px] font-semibold text-gray-400">BCV</span>}
+            {escalon != null && <span className="ml-1 text-[10px] font-semibold text-gray-500">BCV</span>}
             {!isCancelado && saldo != null && saldo > 0.005 && (
-              <p className="text-xs text-amber-600">Saldo ${saldo.toFixed(2)}</p>
+              <p className="text-xs text-amber-700">Saldo ${saldo.toFixed(2)}</p>
             )}
             {!isCancelado && saldo != null && saldo <= 0.005 && (
-              <p className="text-xs text-green-600">{saldo < -0.005 ? `A favor $${(-saldo).toFixed(2)}` : 'Pagado'}</p>
+              <p className="text-xs text-green-700">{saldo < -0.005 ? `A favor $${(-saldo).toFixed(2)}` : 'Pagado'}</p>
             )}
             {isCancelado && depositUsd != null && depositUsd > 0.005 && (
               <p className="text-xs text-red-600">Se quedó ${depositUsd.toFixed(2)}</p>
@@ -181,7 +181,11 @@ export default async function PresupuestosPage({
             Ver
           </Link>
           {noEliminable ? (
-            <span className="text-sm text-gray-300 cursor-help select-none" title={noEliminable}>🔒</span>
+            // El motivo iba solo en el title: ni el teclado ni el lector de pantalla lo alcanzaban.
+            <span className="text-sm text-gray-500 cursor-help select-none" title={noEliminable}>
+              <span aria-hidden="true">🔒</span>
+              <span className="sr-only">No se puede eliminar: {noEliminable}</span>
+            </span>
           ) : (
             <DeleteButton
               action={deletePresupuesto.bind(null, p.id)}
@@ -195,9 +199,9 @@ export default async function PresupuestosPage({
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Presupuestos y Pedidos</h1>
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">Presupuestos y pedidos</h1>
+        <div className="flex flex-wrap items-center gap-2">
           <Link
             href="/presupuestos/new?tipo=propio"
             className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
@@ -234,33 +238,37 @@ export default async function PresupuestosPage({
           <Link
             key={t.id}
             href={`/presupuestos?ver=${t.id}${q ? `&q=${encodeURIComponent(q)}` : ''}`}
+            aria-current={ver === t.id ? 'page' : undefined}
             className={`px-3 py-2 text-sm -mb-px border-b-2 ${
               ver === t.id ? 'border-blue-600 text-blue-700 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
-            {t.label} <span className="text-xs text-gray-400">({conteo[t.id]})</span>
+            {t.label} <span className="text-xs text-gray-500">({conteo[t.id]})</span>
           </Link>
         ))}
-        <form className="ml-auto flex items-center gap-2 pb-2">
+        <form role="search" className="ml-auto flex items-center gap-2 pb-2">
           <input type="hidden" name="ver" value={ver} />
           <input
             type="search"
             name="q"
+            aria-label="Buscar por cliente o número"
             defaultValue={q}
             placeholder="Cliente o #número…"
-            className="w-48 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-48 max-w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
           {q && <Link href={`/presupuestos?ver=${ver}`} className="text-sm text-gray-500 hover:text-gray-700">Limpiar</Link>}
         </form>
       </div>
 
       {todosSinFiltro.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-400">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-500">
           <p className="text-lg">Sin presupuestos</p>
-          <p className="text-sm mt-1">Creá tu primer presupuesto para un cliente.</p>
+          <p className="text-sm mt-1">
+            <Link href="/presupuestos/new" className="text-blue-600 hover:underline">Crear el primer presupuesto</Link>
+          </p>
         </div>
       ) : conteo[ver] === 0 ? (
-        <p className="text-sm text-gray-400 py-6 text-center">{q ? `Nada coincide con "${q}" acá.` : 'No hay nada en esta pestaña.'}</p>
+        <p className="text-sm text-gray-500 py-6 text-center break-words">{q ? `Nada coincide con "${q}" en esta pestaña.` : 'No hay nada en esta pestaña.'}</p>
       ) : ver === 'abiertos' ? (
         <div className="space-y-3">{presupuestos.map(p => <Row key={p.id} p={p} />)}</div>
       ) : ver === 'pedidos' ? (
@@ -287,11 +295,11 @@ export default async function PresupuestosPage({
               <span className="font-mono font-semibold text-gray-700">
                 {propiosTotal.chargeableKg.toFixed(2)} kg
               </span>
-              <span className="text-gray-400"> cobrables · </span>
+              <span className="text-gray-500"> cobrables · </span>
               <span className="font-mono font-semibold text-gray-700">
                 {propiosTotal.ft3.toFixed(2)} ft³
               </span>
-              <span className="text-gray-400">
+              <span className="text-gray-500">
                 {' '}({propiosTotal.realKg.toFixed(2)} kg reales
                 {propiosTotal.incompletas > 0 && `, ${propiosTotal.incompletas} piezas sin medir`})
               </span>

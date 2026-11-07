@@ -304,13 +304,13 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
   return (
     <div className="max-w-5xl space-y-4">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Link href="/envios" className="text-gray-400 hover:text-gray-600 text-sm">Envíos</Link>
-            <span className="text-gray-300">/</span>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <nav aria-label="Ruta" className="flex items-center gap-2 mb-1">
+            <Link href="/envios" className="text-gray-500 hover:text-gray-600 text-sm">Envíos</Link>
+            <span aria-hidden="true" className="text-gray-300">/</span>
             <span className="text-sm text-gray-600">#{envio.id}</span>
-          </div>
+          </nav>
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-2xl font-bold text-gray-900">{nombreEmbarque}</h1>
             <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-cyan-100 text-cyan-800">
@@ -345,7 +345,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
             )}
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2">
           {!esBorrador && lineas.length > 0 && <BotonConteo yaRecibida={esEntregado} />}
           {esBorrador ? (
             <FormConResultado action={cerrarEmbarque.bind(null, envio.id)}>
@@ -460,45 +460,45 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
             <div>
-              <p className="text-xs text-gray-400 mb-1">Volumen</p>
+              <p className="text-xs text-gray-500 mb-1">Volumen</p>
               <p className="text-xl font-bold font-mono text-blue-700">{m3(resumen.volumeM3)}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-400 mb-1">Facturable</p>
+              <p className="text-xs text-gray-500 mb-1">Facturable</p>
               <p className={`text-xl font-bold font-mono ${embarque.pagaMinimo ? 'text-amber-700' : 'text-gray-900'}`}>
                 {m3(embarque.facturableM3)}
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-400 mb-1">Flete + FOB</p>
+              <p className="text-xs text-gray-500 mb-1">Flete + FOB</p>
               <p className="text-xl font-bold font-mono text-gray-900">{usd(embarque.totalUsd)}</p>
-              <p className="text-[11px] text-gray-400">{usd(embarque.fleteUsd)} + {usd(embarque.fobUsd)}</p>
+              <p className="text-[11px] text-gray-500">{usd(embarque.fleteUsd)} + {usd(embarque.fobUsd)}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-400 mb-1">Costo real / m³</p>
+              <p className="text-xs text-gray-500 mb-1">Costo real / m³</p>
               <p className={`text-xl font-bold font-mono ${embarque.pagaMinimo ? 'text-amber-700' : 'text-gray-900'}`}>
                 {realPorM3 != null ? usd(realPorM3) : '—'}
               </p>
-              <p className="text-[11px] text-gray-400">
+              <p className="text-[11px] text-gray-500">
                 {realPorM3 != null ? `tarifa ${usd(p.ratePerM3)}` : 'muy poco volumen para medirlo'}
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-400 mb-1">Mercancía</p>
+              <p className="text-xs text-gray-500 mb-1">Mercancía</p>
               <p className="text-xl font-bold font-mono text-gray-900">{usd(resumen.costoOrigenUsd)}</p>
-              <p className="text-[11px] text-gray-400">{resumen.weightKg.toFixed(1)} kg</p>
+              <p className="text-[11px] text-gray-500">{resumen.weightKg.toFixed(1)} kg</p>
             </div>
             {/* La comisión solo tiene dónde cargarse si el embarque tiene proveedor: sin
                 proveedor no hay a quién girarle (es el precio base de 99rpm). */}
             {envio.supplierId != null && (
               <div>
-                <p className="text-xs text-gray-400 mb-1">Comisiones del giro</p>
-                <p className={`text-xl font-bold font-mono ${embarque.cargada ? 'text-gray-900' : 'text-gray-300'}`}>
+                <p className="text-xs text-gray-500 mb-1">Comisiones del giro</p>
+                <p className={`text-xl font-bold font-mono ${embarque.cargada ? 'text-gray-900' : 'text-gray-500'}`}>
                   {!embarque.salienteCargada && !embarque.entranteCargada
                     ? 'sin cargar'
                     : usd(embarque.comisionUsd)}
                 </p>
-                <p className="text-[11px] text-gray-400">
+                <p className="text-[11px] text-gray-500">
                   {embarque.cargada
                     ? `saliente ${usd(embarque.comisionSalienteUsd)} + entrante ${usd(embarque.comisionEntranteUsd)}`
                     : embarque.salienteCargada
@@ -510,9 +510,9 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
               </div>
             )}
             <div>
-              <p className="text-xs text-gray-400 mb-1">Landed total</p>
+              <p className="text-xs text-gray-500 mb-1">Landed total</p>
               <p className="text-xl font-bold font-mono text-blue-700">{usd(landedReal)}</p>
-              <p className="text-[11px] text-gray-400">
+              <p className="text-[11px] text-gray-500">
                 {resumen.costoOrigenUsd > 0 && hayVolumenUtil
                   ? `+${((embarque.totalUsd / resumen.costoOrigenUsd) * 100).toFixed(0)}% sobre la mercancía`
                   : `mercancía ${usd(resumen.costoOrigenUsd)} + envío ${usd(embarque.totalUsd)}`}
@@ -531,6 +531,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
             >
               <div>
                 <label
+                  htmlFor="comision-saliente"
                   className="block text-xs font-medium text-gray-600 mb-1"
                   title="Lo que MI banco cobró por emitir el giro. Vacío = todavía no lo sé; 0 = no cobró nada"
                 >
@@ -540,17 +541,19 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
                   type="number"
                   step="0.01"
                   min="0"
+                  id="comision-saliente"
                   name="comisionSalienteUsd"
                   defaultValue={comisionSalienteUsd ?? ''}
                   placeholder="sin cargar"
                   className="w-40 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
-                <p className="text-[11px] text-gray-400 mt-1">
+                <p className="text-[11px] text-gray-500 mt-1">
                   lo que te cobró tu banco por girar {usd(embarque.giroUsd)}
                 </p>
               </div>
               <div>
                 <label
+                  htmlFor="comision-entrante"
                   className="block text-xs font-medium text-gray-600 mb-1"
                   title="Lo que le descontaron a ÉL al acreditar y tuviste que completarle. Vacío = todavía no lo sé; 0 = le llegó completo"
                 >
@@ -560,12 +563,13 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
                   type="number"
                   step="0.01"
                   min="0"
+                  id="comision-entrante"
                   name="comisionEntranteUsd"
                   defaultValue={comisionEntranteUsd ?? ''}
                   placeholder="sin cargar"
                   className="w-40 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
-                <p className="text-[11px] text-gray-400 mt-1">
+                <p className="text-[11px] text-gray-500 mt-1">
                   lo que le descontaron al recibir y le completaste
                 </p>
               </div>
@@ -575,7 +579,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
                 Guardar
               </PendingButton>
               {!embarque.cargada && (
-                <p className="text-[11px] text-gray-400 basis-full">
+                <p className="text-[11px] text-gray-500 basis-full">
                   Vacío no es cero: mientras falte una punta, esa parte cuenta $0 y el landed sale corto.
                 </p>
               )}
@@ -601,7 +605,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
             {embarque.pagaMinimo && realPorM3 == null && (
               <span className="text-amber-700"> · hoy llevás tan poco que el flete es casi todo el costo</span>
             )}
-            <span className="block mt-1 text-gray-400">
+            <span className="block mt-1 text-gray-500">
               Llenar más no abarata el flete: abarata el FOB de {usd(p.fobUsd)}, que se reparte entre más mercancía.
             </span>
           </div>
@@ -664,9 +668,9 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
                         {l.nameEs}
                       </Link>
                       <ChipDescontinuada activo={l.descontinuada} />
-                      {l.bajajCode && <span className="ml-2 font-mono text-xs text-gray-400">{l.bajajCode}</span>}
+                      {l.bajajCode && <span className="ml-2 font-mono text-xs text-gray-500">{l.bajajCode}</span>}
                       {l.altCode && (
-                        <span className="ml-1 font-mono text-xs text-gray-300" title="El otro código de la misma pieza">
+                        <span className="ml-1 font-mono text-xs text-gray-500" title="El otro código de la misma pieza">
                           / {l.altCode}
                         </span>
                       )}

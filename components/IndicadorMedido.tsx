@@ -19,7 +19,7 @@ export default function IndicadorMedido({ medidoAt, className = '' }: {
     <span
       title={medido ? textoMedido(medidoAt) : 'Peso y medidas estimados. Se marca como medida desde Editar.'}
       className={`inline-block whitespace-nowrap font-sans text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${
-        medido ? 'bg-green-50 text-green-700 border-green-200' : 'text-gray-400 border-gray-200'
+        medido ? 'bg-green-50 text-green-700 border-green-200' : 'text-gray-500 border-gray-200'
       } ${className}`}
     >
       {medido ? '✓ medido' : '≈ estimado'}

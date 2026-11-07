@@ -92,24 +92,36 @@ function SubmitButton() {
 export default function ImportProductsForm() {
   const [state, formAction] = useActionState(importProducts, emptyImportResult)
   const [copied, setCopied] = useState<'prompt' | 'schema' | null>(null)
+  // Sin permiso de portapapeles (o fuera de HTTPS) writeText rechaza: antes no pasaba nada.
+  const [copyError, setCopyError] = useState(false)
 
   function copy(text: string, which: 'prompt' | 'schema') {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(which)
-      setTimeout(() => setCopied(null), 1500)
-    })
+    setCopyError(false)
+    navigator.clipboard.writeText(text).then(
+      () => {
+        setCopied(which)
+        setTimeout(() => setCopied(null), 1500)
+      },
+      () => setCopyError(true),
+    )
   }
 
   return (
     <div className="space-y-6">
+      <p role="status" className="sr-only">{copied ? 'Copiado' : ''}</p>
+      {copyError && (
+        <p role="alert" className="text-sm text-red-600">No se pudo copiar: seleccioná el texto y copialo a mano (Ctrl+C).</p>
+      )}
+
       {/* Ayuda: prompt + esquema */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Prompt para la IA</h2>
             <button
+              type="button"
               onClick={() => copy(PROMPT_TEMPLATE, 'prompt')}
-              className="text-xs text-blue-600 hover:underline"
+              className="-my-1 px-2 py-1 rounded text-xs text-blue-600 hover:underline hover:bg-blue-50"
             >
               {copied === 'prompt' ? '¡Copiado!' : 'Copiar'}
             </button>
@@ -120,14 +132,15 @@ export default function ImportProductsForm() {
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Ejemplo: ensamble + subgrupos</h2>
             <button
+              type="button"
               onClick={() => copy(SCHEMA_EXAMPLE, 'schema')}
-              className="text-xs text-blue-600 hover:underline"
+              className="-my-1 px-2 py-1 rounded text-xs text-blue-600 hover:underline hover:bg-blue-50"
             >
               {copied === 'schema' ? '¡Copiado!' : 'Copiar'}
             </button>
           </div>
           <pre className="text-xs text-gray-600 whitespace-pre-wrap bg-gray-50 rounded-lg p-3 max-h-72 overflow-auto font-mono">{SCHEMA_EXAMPLE}</pre>
-          <p className="text-xs text-gray-400 mt-3 mb-1">O piezas sueltas (array plano):</p>
+          <p className="text-xs text-gray-500 mt-3 mb-1">O piezas sueltas (array plano):</p>
           <pre className="text-xs text-gray-600 whitespace-pre-wrap bg-gray-50 rounded-lg p-3 overflow-auto font-mono">{FLAT_EXAMPLE}</pre>
         </div>
       </div>
@@ -135,16 +148,17 @@ export default function ImportProductsForm() {
       {/* Formulario */}
       <form action={formAction} className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="import-json" className="block text-sm font-medium text-gray-700 mb-1">
             Pegá el JSON (un objeto o un array)
           </label>
           <textarea
+            id="import-json"
             name="json"
             rows={14}
             placeholder={SCHEMA_EXAMPLE}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y"
           />
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-xs text-gray-500 mt-1">
             Soporta un ensamble con subgrupos, varios (<span className="font-mono">groups</span>) o piezas sueltas (array).
             El precio se calcula desde <span className="font-mono">priceInr</span> + peso + margen; si no hay datos queda en <span className="font-mono">$0</span> para completar luego.
           </p>
@@ -159,7 +173,7 @@ export default function ImportProductsForm() {
 
       {/* Resultado */}
       {state.message && (
-        <div className={`rounded-xl border p-4 ${
+        <div role="status" className={`rounded-xl border p-4 ${
           state.ok ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'
         }`}>
           <p className={`text-sm font-medium ${state.ok ? 'text-green-800' : 'text-yellow-800'}`}>
@@ -169,7 +183,7 @@ export default function ImportProductsForm() {
             <ul className="mt-3 space-y-1 text-sm text-gray-700">
               {state.errors.map((err, i) => (
                 <li key={i} className="flex gap-2">
-                  <span className="text-red-500 shrink-0">•</span>
+                  <span className="text-red-600 shrink-0">•</span>
                   <span><span className="font-medium">{err.name}</span> — {err.message}</span>
                 </li>
               ))}

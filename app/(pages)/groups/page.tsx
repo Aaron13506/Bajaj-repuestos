@@ -86,7 +86,7 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Ensambles</h1>
         <Link href="/ensambles/new" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
           + Nuevo ensamble
@@ -109,11 +109,12 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
       )}
 
       {groups.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-400">
-          <p className="text-lg">Sin ensambles</p>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-500">
+          <p className="text-lg">{hasFilters ? 'Ningún ensamble coincide con los filtros' : 'Sin ensambles'}</p>
           <p className="text-sm mt-1">
-            {hasFilters ? 'Probá con otros filtros o ' : 'Creá uno con «Nuevo ensamble», o '}
-            <Link href="/groups" className="text-blue-600 hover:underline">limpiá los filtros</Link>.
+            {hasFilters
+              ? <>Probá con otros filtros o <Link href="/groups" className="text-blue-600 hover:underline">limpiá los filtros</Link>.</>
+              : <Link href="/ensambles/new" className="text-blue-600 hover:underline">Crear el primero</Link>}
           </p>
         </div>
       ) : (
@@ -121,7 +122,7 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
           {groups.map((group) => {
             const subGroups = new Map<string, typeof group.componentes>()
             for (const comp of group.componentes) {
-              const key = comp.groupName || '—'
+              const key = comp.groupName || 'Sin sub-grupo'
               if (!subGroups.has(key)) subGroups.set(key, [])
               subGroups.get(key)!.push(comp)
             }
@@ -129,13 +130,13 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
             return (
               <div key={group.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                 {/* Header del ensamble */}
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 gap-4">
+                <div className="flex flex-wrap items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-100 gap-x-4 gap-y-2">
                   <div className="flex items-center gap-3 min-w-0">
                     {group.imageUrl && (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={group.imageUrl}
-                        alt={nombreEnsamble(group)}
+                        alt=""
                         loading="lazy"
                         className="w-14 h-14 object-contain rounded-lg border border-gray-100 bg-white shrink-0"
                       />
@@ -150,9 +151,9 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
                     </div>
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
-                    <span className="text-xs text-gray-400">
+                    <span className="text-xs text-gray-500">
                       {group.componentes.length} {group.componentes.length === 1 ? 'pieza' : 'piezas'}
-                      {subGroups.size > 0 && ` · ${subGroups.size} sub-grupos`}
+                      {subGroups.size > 0 && ` · ${subGroups.size} ${subGroups.size === 1 ? 'sub-grupo' : 'sub-grupos'}`}
                     </span>
                     <Link href={`/ensambles/${group.id}`} className="text-sm text-blue-600 hover:text-blue-800 font-medium">
                       Editar
@@ -164,18 +165,18 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
                 {subGroups.size > 0 && (
                   <div className="divide-y divide-gray-50">
                     {Array.from(subGroups.entries()).map(([subGroup, items]) => (
-                      <div key={subGroup} className="px-6 py-3">
-                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{subGroup}</p>
+                      <div key={subGroup} className="px-4 sm:px-6 py-3">
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{subGroup}</p>
                         <div className="space-y-1">
                           {items.map((comp) => (
                             <div key={comp.id} className="flex items-center justify-between text-sm">
                               <div className="flex items-center gap-2 min-w-0">
-                                <span className="text-gray-400 text-xs w-5 text-right shrink-0">{comp.quantity}×</span>
-                                <Link href={`/products/${comp.product.id}`} className="text-gray-800 hover:text-blue-600 truncate">
+                                <span className="text-gray-500 text-xs w-5 text-right shrink-0">{comp.quantity}×</span>
+                                <Link href={`/products/${comp.product.id}`} title={comp.product.nameEs} className="text-gray-800 hover:text-blue-600 truncate">
                                   {comp.product.nameEs}
                                 </Link>
                                 {comp.product.bajajCode && (
-                                  <span className="text-xs font-mono text-gray-400 shrink-0">{comp.product.bajajCode}</span>
+                                  <span className="text-xs font-mono text-gray-500 shrink-0">{comp.product.bajajCode}</span>
                                 )}
                               </div>
                               <span className="text-gray-500 text-xs shrink-0">
@@ -195,7 +196,7 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
       )}
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-between mt-4">
+        <nav aria-label="Páginas" className="flex flex-wrap items-center justify-between gap-3 mt-4">
           <p className="text-sm text-gray-500">página {page} de {totalPages}</p>
           <div className="flex gap-2">
             {page > 1 && (
@@ -209,7 +210,7 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
               </Link>
             )}
           </div>
-        </div>
+        </nav>
       )}
     </div>
   )

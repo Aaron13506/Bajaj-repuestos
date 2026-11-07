@@ -149,7 +149,7 @@ const chipMotos = (compatibleModels: string | null) => {
 function CodigoAlterno({ code }: { code: string | null }) {
   if (!code) return null
   return (
-    <span className="ml-1 text-xs font-mono text-gray-300" title="El otro código de la misma pieza">
+    <span className="ml-1 text-xs font-mono text-gray-500" title="El otro código de la misma pieza">
       / {code}
     </span>
   )
@@ -466,7 +466,7 @@ export default function EmbarqueMaritimo({
           <span className="text-xs font-mono text-gray-500">
             {volumenBorrador.toFixed(3)} / {minM3} m³ · {usd(ratePerM3)}/m³ · FOB {usd(fobUsd)}
             {sucio && volumenBorrador !== volumeM3 && (
-              <span className="text-amber-600"> · guardado: {volumeM3.toFixed(3)}</span>
+              <span className="text-amber-700"> · guardado: {volumeM3.toFixed(3)}</span>
             )}
           </span>
         </div>
@@ -503,6 +503,7 @@ export default function EmbarqueMaritimo({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
           <select
+            aria-label="Moto"
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             value={modelFilter}
             onChange={e => { setModelFilter(e.target.value); selectAssembly(null) }}
@@ -511,7 +512,8 @@ export default function EmbarqueMaritimo({
             {models.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
           <input
-            type="text"
+            type="search"
+            aria-label="Buscar ensamble"
             value={asmSearch}
             onChange={e => setAsmSearch(e.target.value)}
             placeholder="Buscar ensamble por nombre o código…"
@@ -521,7 +523,7 @@ export default function EmbarqueMaritimo({
 
         <div className="border border-gray-300 rounded-lg mb-1 max-h-72 overflow-y-auto divide-y divide-gray-50">
           {filteredAssemblies.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-6">Sin resultados</p>
+            <p className="text-sm text-gray-500 text-center py-6">Sin resultados</p>
           ) : (
             filteredAssemblies.slice(0, 200).map(a => (
               <button
@@ -540,13 +542,13 @@ export default function EmbarqueMaritimo({
                 )}
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-900 truncate">{a.nameEs}</p>
-                  <p className="text-xs text-gray-400 truncate">{a.compatibleModels}</p>
+                  <p className="text-xs text-gray-500 truncate">{a.compatibleModels}</p>
                 </div>
               </button>
             ))
           )}
         </div>
-        <p className="text-xs text-gray-400 mb-4">
+        <p className="text-xs text-gray-500 mb-4">
           {filteredAssemblies.length} ensamble{filteredAssemblies.length === 1 ? '' : 's'}
           {modelFilter || asmSearch ? ' (filtrado)' : ''} de {assemblies.length}
           {filteredAssemblies.length > 200 && ' · mostrando los primeros 200, afiná el filtro'}
@@ -563,16 +565,16 @@ export default function EmbarqueMaritimo({
                 nameEs={selectedAssembly.nameEs}
               />
             ) : (
-              <p className="text-xs text-gray-400 mb-4">Este ensamble no tiene despiece cargado.</p>
+              <p className="text-xs text-gray-500 mb-4">Este ensamble no tiene despiece cargado.</p>
             )}
             {loadingComps && !componentes ? (
-              <p className="text-sm text-gray-400 py-6 text-center">Cargando piezas…</p>
+              <p className="text-sm text-gray-500 py-6 text-center">Cargando piezas…</p>
             ) : (
               <>
                 <div className="space-y-4 max-h-96 overflow-y-auto pr-1">
                   {Array.from(grupos.entries()).map(([groupName, items]) => (
                     <div key={groupName}>
-                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{groupName}</p>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{groupName}</p>
                       <div className="space-y-0.5">
                         {items.map(c => {
                           const yaLlevas = yaEnCaja.get(c.child.id) ?? 0
@@ -600,7 +602,7 @@ export default function EmbarqueMaritimo({
                                 </span>
                                 <ChipDescontinuada activo={c.child.descontinuada} />
                                 {c.child.bajajCode && (
-                                  <span className="ml-2 text-xs font-mono text-gray-400">{c.child.bajajCode}</span>
+                                  <span className="ml-2 text-xs font-mono text-gray-500">{c.child.bajajCode}</span>
                                 )}
                                 <CodigoAlterno code={c.child.altCode} />
                                 <ChipMoq
@@ -635,10 +637,10 @@ export default function EmbarqueMaritimo({
                               <span className="text-[11px] font-mono text-gray-500 w-16 text-right shrink-0" title="Costo de compra unitario">
                                 {c.child.costoUsd != null ? usd(c.child.costoUsd) : '—'}
                               </span>
-                              <span className="text-[11px] font-mono text-gray-400 w-24 text-right shrink-0" title="L×A×H en cm">
+                              <span className="text-[11px] font-mono text-gray-500 w-24 text-right shrink-0" title="L×A×H en cm">
                                 {dims(c.child.dimL, c.child.dimA, c.child.dimH) ?? '—'}
                               </span>
-                              <span className="text-[11px] font-mono text-gray-400 w-20 text-right shrink-0" title="Volumen de la línea">
+                              <span className="text-[11px] font-mono text-gray-500 w-20 text-right shrink-0" title="Volumen de la línea">
                                 {c.child.sinMedidas ? '—' : vol(c.child.volumeM3 * (quantities[c.id] ?? c.quantity))}
                               </span>
                               <input
@@ -647,6 +649,7 @@ export default function EmbarqueMaritimo({
                                 value={quantities[c.id] ?? c.quantity}
                                 onChange={e => setQuantities(prev => ({ ...prev, [c.id]: parseInt(e.target.value) || 1 }))}
                                 onClick={e => e.stopPropagation()}
+                                aria-label={`Cantidad de ${c.child.nameEs}`}
                                 disabled={!checked[c.id]}
                                 className="w-14 border border-gray-200 rounded px-2 py-0.5 text-sm text-center disabled:opacity-40 shrink-0"
                               />
@@ -669,10 +672,10 @@ export default function EmbarqueMaritimo({
                           <span className="font-mono">{vol(volumenMarcado)}</span> ·{' '}
                           <span className="font-mono">{usd(costoMarcado)}</span>
                           {sinMedidasMarcadas > 0 && (
-                            <span className="text-amber-600"> · {sinMedidasMarcadas} sin medidas (no suman volumen todavía)</span>
+                            <span className="text-amber-700"> · {sinMedidasMarcadas} sin medidas (no suman volumen todavía)</span>
                           )}
                           {bajoMinimoMarcadas.length > 0 && (
-                            <span className="text-amber-600">
+                            <span className="text-amber-700">
                               {' '}· {bajoMinimoMarcadas.length} bajo el mínimo del proveedor:{' '}
                               {bajoMinimoMarcadas.slice(0, 3).map(c => {
                                 const q = quantities[c.id] ?? c.quantity
@@ -729,7 +732,8 @@ export default function EmbarqueMaritimo({
         <h2 className="font-semibold text-gray-900 mb-3">Agregar una pieza suelta</h2>
         <div className="relative">
           <input
-            type="text"
+            type="search"
+            aria-label="Buscar pieza"
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Buscar por nombre o código…"
@@ -765,10 +769,10 @@ export default function EmbarqueMaritimo({
                             (una arandela de US$0,01 con set de 250 son 250 arandelas). */}
                         <ChipMoq moq={r.moq} costoUsd={r.costoUsd} />
                       </p>
-                      <p className="text-xs text-gray-400 truncate">
+                      <p className="text-xs text-gray-500 truncate">
                         {r.bajajCode && <span className="font-mono">{r.bajajCode}</span>}
                         {r.altCode && (
-                          <span className="ml-1 font-mono text-gray-300" title="El otro código de la misma pieza">
+                          <span className="ml-1 font-mono text-gray-500" title="El otro código de la misma pieza">
                             / {r.altCode}
                           </span>
                         )}
@@ -784,7 +788,7 @@ export default function EmbarqueMaritimo({
                         {dims(r.dimL, r.dimA, r.dimH) && (
                           <span className="ml-2 font-mono">{dims(r.dimL, r.dimA, r.dimH)} cm</span>
                         )}
-                        {r.sinMedidas && <span className="ml-2 text-amber-600">sin medidas</span>}
+                        {r.sinMedidas && <span className="ml-2 text-amber-700">sin medidas</span>}
                         {yaLlevas > 0 && (
                           <span className="ml-2 font-medium text-cyan-700">ya llevás {yaLlevas} → {yaLlevas + paso}</span>
                         )}
@@ -827,7 +831,7 @@ export default function EmbarqueMaritimo({
             </div>
           )}
         </div>
-        <p className="text-xs text-gray-400 mt-2">
+        <p className="text-xs text-gray-500 mt-2">
           Es mercancía tuya: solo producto y cantidad. El precio de venta sale del catálogo cuando la caja llega.
         </p>
       </div>
@@ -837,7 +841,7 @@ export default function EmbarqueMaritimo({
           99rpm abierto al lado). Las dos plegadas: mientras se arma, lo que se mira es el
           navegador de arriba, y el título ya dice cuánto llevás. */}
       {borrador.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-400">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-500">
           <p className="text-lg">El embarque está vacío</p>
           <p className="text-sm mt-1">Buscá piezas arriba para empezar a llenarlo.</p>
         </div>
@@ -848,7 +852,7 @@ export default function EmbarqueMaritimo({
               Contenido por SKU · {borrador.length} línea{borrador.length === 1 ? '' : 's'}
               {' · '}{borrador.reduce((s, l) => s + l.quantity, 0)} u. · {vol(volumenBorrador)}
               {' · '}{usd(borrador.reduce((s, l) => s + l.costoUnitUsd * l.quantity, 0))}
-              {sucio && <span className="ml-2 text-xs font-normal text-amber-600">con cambios sin guardar</span>}
+              {sucio && <span className="ml-2 text-xs font-normal text-amber-700">con cambios sin guardar</span>}
             </summary>
             <div className="flex justify-end px-4 py-2 border-t border-gray-100">
               {/* Copia el BORRADOR, no lo guardado: es lo que estás viendo en la tabla de
@@ -892,7 +896,7 @@ export default function EmbarqueMaritimo({
                           nueva
                         </span>
                       )}
-                      {l.bajajCode && <span className="ml-2 font-mono text-xs text-gray-400">{l.bajajCode}</span>}
+                      {l.bajajCode && <span className="ml-2 font-mono text-xs text-gray-500">{l.bajajCode}</span>}
                       <CodigoAlterno code={l.altCode} />
                       <ChipMoq moq={l.moq} cantidad={l.quantity} />
                       <StockBadge productId={l.productId} posiciones={posiciones} className="ml-2" />
@@ -919,6 +923,7 @@ export default function EmbarqueMaritimo({
                       <input
                         type="number"
                         min={l.moq && l.moq > 1 ? l.moq : 1}
+                        aria-label={`Cantidad de ${l.nameEs}`}
                         value={l.quantity}
                         disabled={guardando}
                         onChange={e => {
@@ -943,10 +948,10 @@ export default function EmbarqueMaritimo({
                       )}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono text-gray-500 text-xs">
-                      {dims(l.dimL, l.dimA, l.dimH) ?? <span className="text-amber-600">—</span>}
+                      {dims(l.dimL, l.dimA, l.dimH) ?? <span className="text-amber-700">—</span>}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono text-gray-700">
-                      {l.sinMedidas ? <span className="text-amber-600">—</span> : vol(l.volumeUnitM3 * l.quantity)}
+                      {l.sinMedidas ? <span className="text-amber-700">—</span> : vol(l.volumeUnitM3 * l.quantity)}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono text-gray-500">
                       {(l.weightUnitKg * l.quantity).toFixed(2)}
@@ -959,10 +964,11 @@ export default function EmbarqueMaritimo({
                         type="button"
                         disabled={guardando}
                         onClick={() => editar(prev => prev.filter(x => x.id !== l.id))}
-                        className="text-gray-300 hover:text-red-500 transition-colors"
+                        className="p-1 -m-1 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
                         title="Quitar (se puede deshacer)"
+                        aria-label={`Quitar ${l.nameEs}`}
                       >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg aria-hidden="true" className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
                       </button>
@@ -1056,7 +1062,7 @@ export default function EmbarqueMaritimo({
                 </>
               )}
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={deshacer}

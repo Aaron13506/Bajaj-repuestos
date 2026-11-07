@@ -52,18 +52,29 @@ export default async function BuscarPage({ searchParams }: { searchParams: Promi
   return (
     <div className="max-w-3xl">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">Buscar</h1>
-      <form className="mb-6">
+      <form role="search" className="mb-6">
         <input
           type="search"
           name="q"
           defaultValue={q}
           autoFocus
+          aria-label="Buscar en todo el panel"
           placeholder="Cliente, #pedido, SKU, pieza, caja o guía…"
           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         />
       </form>
 
-      {q && total === 0 && <p className="text-sm text-gray-400">Nada coincide con &quot;{q}&quot;.</p>}
+      {!q && (
+        <p className="text-sm text-gray-500">
+          Escribí y apretá Enter. Busca en pedidos, clientes, piezas (nombre o SKU) y cajas (nombre o guía);
+          &quot;#123&quot; abre el pedido 123.
+        </p>
+      )}
+      {q && total === 0 && (
+        <p className="text-sm text-gray-500">
+          Nada coincide con &quot;<span className="break-all">{q}</span>&quot;. Probá con menos letras o solo una parte del SKU.
+        </p>
+      )}
 
       <div className="space-y-6">
         <Grupo titulo="Pedidos y presupuestos" n={pedidos.length}>
@@ -97,6 +108,7 @@ function Grupo({ titulo, n, children }: { titulo: string; n: number; children: R
       <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">
         {titulo} ({n}{n === LIMITE ? '+' : ''})
       </h2>
+      {n === LIMITE && <p className="text-xs text-gray-500 mb-2">Se muestran los primeros {LIMITE}: afiná la búsqueda para ver el resto.</p>}
       <div className="divide-y divide-gray-50">{children}</div>
     </div>
   )
@@ -105,8 +117,8 @@ function Grupo({ titulo, n, children }: { titulo: string; n: number; children: R
 function Fila({ href, izq, der }: { href: string; izq: string; der: string }) {
   return (
     <Link href={href} className="flex items-center justify-between py-2 hover:bg-gray-50 -mx-2 px-2 rounded">
-      <span className="text-sm text-gray-800 truncate">{izq}</span>
-      <span className="text-xs text-gray-400 font-mono shrink-0 ml-3">{der}</span>
+      <span className="text-sm text-gray-800 truncate" title={izq}>{izq}</span>
+      <span className="text-xs text-gray-500 font-mono shrink-0 ml-3">{der}</span>
     </Link>
   )
 }

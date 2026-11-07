@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { marcarDescontinuados, type ResultadoMarcado } from '@/app/(pages)/products/discontinued/actions'
+import { ERROR_GENERICO } from '@/components/useEnviarAccion'
 
 // Carga en lote de piezas descontinuadas, pegando códigos Bajaj.
 //
@@ -14,10 +15,19 @@ export default function MarcarDescontinuados() {
   const [texto, setTexto] = useState('')
   const [res, setRes] = useState<ResultadoMarcado | null>(null)
   const [pending, startTransition] = useTransition()
+  // Un rechazo (la red, el server) se muestra acá: sin atraparlo se caía la pantalla entera.
+  const [error, setError] = useState<string | null>(null)
 
   const enviar = (accion: 'marcar' | 'desmarcar') => {
+    setError(null)
     startTransition(async () => {
-      const r = await marcarDescontinuados(texto, accion)
+      let r: ResultadoMarcado
+      try {
+        r = await marcarDescontinuados(texto, accion)
+      } catch {
+        setError(ERROR_GENERICO)
+        return
+      }
       setRes(r)
       // El texto se conserva a propósito: si algunos códigos no se encontraron, querés
       // verlos contra lo que pegaste para corregirlos, no volver a empezar.
@@ -30,12 +40,13 @@ export default function MarcarDescontinuados() {
         <label htmlFor="codigos" className="block font-semibold text-gray-900 mb-1">
           Códigos Bajaj
         </label>
-        <p className="text-xs text-gray-500 mb-2">
+        <p id="codigos-ayuda" className="text-xs text-gray-500 mb-2">
           Uno por línea, o separados por coma o espacio. Se cruzan también por el código alterno: si la pieza
           está cargada con el otro número del par, igual la encuentra.
         </p>
         <textarea
           id="codigos"
+          aria-describedby="codigos-ayuda"
           value={texto}
           onChange={e => setTexto(e.target.value)}
           rows={10}
@@ -64,8 +75,10 @@ export default function MarcarDescontinuados() {
         </button>
       </div>
 
+      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+
       {res && (
-        <div className="border-t border-gray-100 pt-4 space-y-2">
+        <div role="status" className="border-t border-gray-100 pt-4 space-y-2">
           <p className="text-sm text-gray-700">
             <span className="font-semibold">{res.cambiados}</span> pieza{res.cambiados === 1 ? '' : 's'} actualizada
             {res.cambiados === 1 ? '' : 's'} de {res.leidos} código{res.leidos === 1 ? '' : 's'} leído

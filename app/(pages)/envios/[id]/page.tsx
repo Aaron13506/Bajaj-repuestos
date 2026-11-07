@@ -1,6 +1,6 @@
 import { db } from '@/lib/db'
 import Link from 'next/link'
-import { Fragment } from 'react'
+import { Fragment, type ReactNode } from 'react'
 import { notFound } from 'next/navigation'
 import DeleteButton from '@/components/DeleteButton'
 import EnvioItemsTable, { type EnvioItemRow } from '@/components/EnvioItemsTable'
@@ -26,14 +26,17 @@ import EnvioMaritimo from './maritimo'
 import { lookupDeConjuntos, expandCostPieces, repartirCostoReal } from '@/lib/envio-build'
 import { financiamientoEnvio, type FinanciamientoEnvio } from '@/lib/financiamiento-envio'
 import FleteRealCard, { type FilaFlete } from '@/components/FleteRealCard'
-import TrackingsCaja from '@/components/TrackingsCaja'
+import NumerosTramo, { type NumeroGuardado } from '@/components/NumerosTramo'
 import CajasEnvio from '@/components/CajasEnvio'
 import { CAJA_SELECT, cajaFisica, cajasQueSeFacturan, medidasDeCajas } from '@/lib/cajas-envio'
-import SeguimientoCaja from '@/components/SeguimientoCaja'
-import { apiKeyShip24 } from '@/lib/ship24'
+import { apiKeyShip24, ENV_API_KEY, eventosGuardados, horaConsulta } from '@/lib/ship24'
+import { credencialesOneway } from '@/lib/oneway'
 import { listaCouriers } from '@/lib/sync-trackings'
-import { esTramoTracking, type FilaTracking } from '@/lib/tracking'
+import { esTramoTracking } from '@/lib/tracking'
 import ConteoCaja, { BotonConteo } from '@/components/ConteoCaja'
+import PestanasCaja from '@/components/PestanasCaja'
+import TrayectoCaja from '@/components/TrayectoCaja'
+import SeccionCaja from '@/components/SeccionCaja'
 import { piezasAContar } from '@/lib/conteo'
 import { etiquetaPieza, lineaNoViene, sinEnviarDe, textoSinEnviar, tiposPara } from '@/lib/incidencias'
 import { statusIndex } from '@/lib/shipping-status'
@@ -132,6 +135,8 @@ function airTierHint(
       : `${perKg}: lo más barato por kilo que da la tabla.`,
   }
 }
+
+export const metadata = { title: 'Caja' }
 
 export default async function EnvioDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const id = parseInt((await params).id)
@@ -268,6 +273,13 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
 
   if (!envio) notFound()
   const trackingActivo = apiKeyShip24() != null
+  const onewayActivo = credencialesOneway() != null
+  const guiasSalida = envio.trackings.filter(t => t.tramo === (envio.modo === 'express' ? 'venezuela' : 'usa'))
+  // Los números de la caja para NumerosTramo: cada form manda todos (la acción reemplaza todo).
+  const numeros: NumeroGuardado[] = envio.trackings.flatMap(t => esTramoTracking(t.tramo)
+    ? [{ ...t, tramo: t.tramo, eventos: eventosGuardados(t.eventos), consultado: t.consultadoEn ? horaConsulta(t.consultadoEn) : null }]
+    : [])
+  const firmaNumeros = numeros.map(t => `${t.tramo}:${t.numero}:${t.courierCode ?? ''}:${t.transportista ?? ''}`).join('|')
 
   // Solo lo que esta caja necesita, no el catálogo entero (~5.8k filas) ni los precios de
   // todos los proveedores: las piezas de sus conjuntos, y el precio de cada línea con SU
@@ -737,7 +749,6 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     : null
   // Cambiar el reenvío: mientras la mercancía no salió del depósito hacia USA y el flete aéreo
   // no está facturado ni pagado. Comprada sí puede estar (ver motivoNoCambiaReenvio).
-  const otroReenvio = porKilo ? 'shoppre' : 'por_kilo'
   const motivoCambio = motivoNoCambiaReenvio({
     modo: envio.modo,
     despachaProveedor: inboundCaja === 'cotizado',
@@ -856,226 +867,665 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   // paga ni avanza (ver confirmarCajaAerea). Vuelve a borrador solo si no pasó nada todavía.
   const esBorrador = envio.estado === 'borrador'
   const puedeVolverABorrador = !esBorrador && compradas === 0 && lineasConCostoReal === 0
-  const pasos: { texto: string; hecho: boolean }[] = [
-    { texto: 'Asignada', hecho: envio.items.length > 0 },
-    { texto: 'Confirmada', hecho: !esBorrador },
-    { texto: `Comprada ${compradas}/${envio.items.length}`, hecho: envio.items.length > 0 && compradas === envio.items.length },
-    { texto: 'Pesada', hecho: calc.caja.medido },
+  // Cada paso dice en qué pestaña se resuelve y qué hay que hacer: el próximo es el botón principal.
+  const pasos: { texto: string; hecho: boolean; tab: string; accion: string }[] = [
+    { texto: 'Asignada', hecho: envio.items.length > 0, tab: 'contenido', accion: 'Agregar pedidos' },
+    { texto: 'Confirmada', hecho: !esBorrador, tab: 'contenido', accion: 'Confirmar compra' },
+    { texto: `Comprada ${compradas}/${envio.items.length}`, hecho: envio.items.length > 0 && compradas === envio.items.length, tab: 'comprar', accion: 'Comprar lo que falta' },
+    { texto: 'Pesada', hecho: calc.caja.medido, tab: 'envio', accion: 'Pesar y medir las cajas' },
   ]
   if (calc.giro && giroCompraUsd > 0) {
-    pasos.push({ texto: 'Proveedor pagado', hecho: pagadoProveedor >= giroCompraUsd - 0.01 })
+    pasos.push({ texto: 'Proveedor pagado', hecho: pagadoProveedor >= giroCompraUsd - 0.01, tab: 'comprar', accion: 'Pagar al proveedor' })
   }
   if (!esCbm) {
     if (inboundCaja !== 'cotizado') {
       const e = estadoFlete(costoRealAereo, pagadoTramo(TRAMOS_FLETE.aereo.categoria)).clave
-      pasos.push({ texto: esExpress ? 'Flete express pagado' : 'Flete aéreo pagado', hecho: e === 'pagado' || e === 'de_mas' })
+      pasos.push({
+        texto: esExpress ? 'Flete express pagado' : 'Flete aéreo pagado', hecho: e === 'pagado' || e === 'de_mas',
+        tab: 'plata', accion: esExpress ? 'Cargar y pagar el flete express' : 'Cargar y pagar el flete aéreo',
+      })
     }
     if (!esExpress) {
       const em = estadoFlete(costoRealMaritimo, pagadoTramo(TRAMOS_FLETE.maritimo.categoria)).clave
-      pasos.push({ texto: 'Flete marítimo pagado', hecho: em === 'pagado' || em === 'de_mas' })
+      pasos.push({ texto: 'Flete marítimo pagado', hecho: em === 'pagado' || em === 'de_mas', tab: 'plata', accion: 'Cargar y pagar el flete marítimo' })
     }
   }
   // Express: la caja entera contra el tope de landed (lib/express.ts). Con la caja pesada y la
   // factura de Shoppre cargadas, es el número real.
   const topeExpress = esExpress ? topeDeCaja(calc, cfg) : null
   const motivoTope = topeExpress ? motivoExpressNoAprobable(topeExpress) : null
-  pasos.push({ texto: `Entregada ${entregadas}/${envio.items.length}`, hecho: envio.items.length > 0 && entregadas === envio.items.length })
+  pasos.push({ texto: `Entregada ${entregadas}/${envio.items.length}`, hecho: envio.items.length > 0 && entregadas === envio.items.length, tab: 'contenido', accion: 'Entregar desde cada pedido' })
   const proximoPaso = pasos.find(p => !p.hecho)
+
+  // La pestaña con la que abre la ficha: la del momento de la caja. El hash (#plata) le gana.
+  const porComprar = envio.items.length - compradas
+  const enCaminoAVenezuela = porRecibir.some(it => statusIndex(it.shippingStatus) >= statusIndex('camino_venezuela'))
+  const tabInicial = items.length === 0 || esBorrador ? 'contenido'
+    : porComprar > 0 ? 'comprar'
+      : enCaminoAVenezuela ? 'llegada'
+        : porRecibir.length > 0 ? 'envio'
+          : 'contenido'
+  const margenPct = financiamiento.ventaTotalUsd > 0 ? (financiamiento.margenTotalUsd / financiamiento.ventaTotalUsd) * 100 : null
+  const modoMeta = MODOS.find(m => m.value === modoEnvio)
 
   return (
     <div className="max-w-screen-2xl">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4 mb-6">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Link href="/envios" className="text-gray-400 hover:text-gray-600 text-sm">Envíos</Link>
-            <span className="text-gray-300">/</span>
-            <span className="text-sm text-gray-600">#{envio.id}</span>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-2xl font-bold text-gray-900">{envio.nombre ?? `Envío #${envio.id}`}</h1>
-            {/* Modo con el que se costeó esta caja. Se congeló al crearla, así que puede
-                diferir del modo global activo — de ahí que se muestre siempre. */}
-            <span
-              title={MODOS.find(m => m.value === modoEnvio)?.hint}
-              className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                esCbm ? 'bg-cyan-100 text-cyan-800' : esExpress ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-800'
-              }`}
-            >
-              {MODOS.find(m => m.value === modoEnvio)?.icon}{' '}
-              {MODOS.find(m => m.value === modoEnvio)?.label}
-            </span>
-            {porKilo && !esCbm && (
-              <span title={reenvioMeta('por_kilo').hint} className="text-xs font-semibold px-2.5 py-1 rounded-full bg-violet-100 text-violet-800">
-                {reenvioLabel}
+      <header className="mb-5">
+        <nav aria-label="Ruta" className="flex items-center gap-2 mb-1">
+          <Link href="/envios" className="text-gray-500 hover:text-gray-700 text-sm">Envíos</Link>
+          <span aria-hidden="true" className="text-gray-300">/</span>
+          <span className="text-sm text-gray-600">#{envio.id}</span>
+        </nav>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-2xl font-bold text-gray-900 break-words">{envio.nombre ?? `Envío #${envio.id}`}</h1>
+              {/* Modo con el que se costeó esta caja: se congeló al crearla. */}
+              <span
+                title={modoMeta?.hint}
+                className={`text-xs font-semibold px-2.5 py-1 rounded-full ${esExpress ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-800'}`}
+              >
+                <span aria-hidden="true">{modoMeta?.icon}</span> {modoMeta?.label}
+                {esExpress && ' · Shoppre directo a Venezuela'}
               </span>
-            )}
-          </div>
-          {envio.notas && <p className="text-sm text-gray-500 mt-1">{envio.notas}</p>}
-          {topeExpress && envio.items.length > 0 && (
-            <div className={`mt-3 rounded-lg border px-4 py-2.5 ${topeExpress.excede ? 'border-red-300 bg-red-50' : 'border-green-300 bg-green-50'}`}>
-              <p className={`text-sm font-semibold ${topeExpress.excede ? 'text-red-800' : 'text-green-800'}`}>
-                ⚡ {topeExpress.excede
-                  ? `El paquete se pasa $${(-topeExpress.holguraUsd).toFixed(2)} del tope`
-                  : `El paquete entra: quedan $${topeExpress.holguraUsd.toFixed(2)}`}
-                <span className="font-mono font-normal text-gray-600 ml-2">
-                  ${calc.landedUsd.toFixed(2)} de ${topeExpress.topeUsd.toFixed(2)}
+              {porKilo && (
+                <span title={reenvioMeta('por_kilo').hint} className="text-xs font-semibold px-2.5 py-1 rounded-full bg-violet-100 text-violet-800">
+                  {reenvioLabel}
                 </span>
-              </p>
-              {motivoTope && esBorrador && <p className="text-xs text-red-800 mt-1">No se puede confirmar así: {motivoTope}</p>}
-              {!calc.caja.medido && <p className="text-xs text-gray-500 mt-1">Suma de las piezas: con la caja pesada sale el número real.</p>}
-            </div>
-          )}
-          {esBorrador && (
-            <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5">
-              <p className="text-sm text-amber-900">
-                <span className="font-semibold">Borrador.</span>{' '}
-                Todavía no es una compra: no cuenta como inventario en camino, y no se compra, paga ni avanza.
-              </p>
-              {items.length > 0 && (
-                <FormConResultado action={confirmarCajaAerea.bind(null, envio.id)} className="flex flex-wrap items-center gap-2">
-                  <PendingButton className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-sm font-semibold hover:bg-amber-700 disabled:opacity-50">
-                    Confirmar compra
-                  </PendingButton>
-                </FormConResultado>
               )}
+              <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${esBorrador ? 'bg-amber-100 text-amber-800' : 'bg-sky-100 text-sky-800'}`}>
+                {esBorrador ? 'Borrador' : 'Confirmada'}
+              </span>
             </div>
-          )}
-          {puedeVolverABorrador && (
-            <FormConResultado action={volverCajaABorrador.bind(null, envio.id)} className="mt-2 flex flex-wrap items-center gap-2">
-              <PendingButton className="text-xs text-gray-500 hover:text-gray-800 underline disabled:opacity-50">
-                Volver a borrador
-              </PendingButton>
-            </FormConResultado>
-          )}
-          {/* Qué le falta a la caja, derivado de lo que ya hay cargado. */}
-          {items.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 mt-2">
-              {pasos.map(p => (
+            {envio.notas && <p className="text-sm text-gray-500 mt-1">{envio.notas}</p>}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {esBorrador && items.length > 0 ? (
+              <FormConResultado action={confirmarCajaAerea.bind(null, envio.id)} className="flex flex-wrap items-center gap-2">
+                <PendingButton className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
+                  Confirmar compra
+                </PendingButton>
+              </FormConResultado>
+            ) : !esBorrador && proximoPaso ? (
+              <a
+                href={`#${proximoPaso.tab}`}
+                className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700"
+              >
+                {proximoPaso.accion}
+              </a>
+            ) : null}
+            {!esBorrador && aContar.length > 0 && enCaminoAVenezuela && <BotonConteo yaRecibida={false} />}
+            <details className="relative">
+              <summary className="list-none cursor-pointer px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white hover:bg-gray-50 font-medium text-gray-700 [&::-webkit-details-marker]:hidden">
+                Más <span aria-hidden="true">▾</span>
+              </summary>
+              <div className="absolute right-0 z-20 mt-1 w-64 rounded-lg border border-gray-200 bg-white p-3 shadow-lg space-y-3">
+                {puedeVolverABorrador ? (
+                  <FormConResultado action={volverCajaABorrador.bind(null, envio.id)}>
+                    <PendingButton className="text-sm text-gray-700 hover:text-gray-900 underline disabled:opacity-50">
+                      Volver a borrador
+                    </PendingButton>
+                  </FormConResultado>
+                ) : !esBorrador && (
+                  <p className="text-xs text-gray-500">No vuelve a borrador: ya hay líneas compradas o con costo real.</p>
+                )}
+                {/* El flete no se "guarda": la lista de envíos lo calcula en vivo (lib/costo-envios). */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <DeleteButton
+                    action={deleteEnvio.bind(null, envio.id)}
+                    label="Eliminar caja"
+                    confirmMessage={`¿Eliminar el envío "${envio.nombre ?? `#${envio.id}`}"? Los ítems quedarán libres.`}
+                  />
+                </div>
+              </div>
+            </details>
+          </div>
+        </div>
+        {esBorrador && (
+          <p className="mt-2 text-sm text-gray-600">
+            Borrador: todavía no es una compra. No cuenta como inventario en camino y no se compra, paga ni mueve.
+          </p>
+        )}
+        {motivoTope && esBorrador && (
+          <p role="alert" className="mt-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-800">
+            No se puede confirmar así: {motivoTope}
+          </p>
+        )}
+        {/* Qué le falta a la caja, derivado de lo que ya hay cargado. El próximo paso lleva a su pestaña. */}
+        {items.length > 0 && (
+          <ol aria-label="Pasos de la caja" className="flex flex-wrap items-center gap-1.5 mt-3">
+            {pasos.map(p => (
+              <li
+                key={p.texto}
+                className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                  p.hecho ? 'bg-green-100 text-green-800' : p === proximoPaso ? 'bg-amber-100 text-amber-900' : 'bg-gray-100 text-gray-600'
+                }`}
+              >
+                {p.hecho ? (
+                  <><span aria-hidden="true">✓ </span>{p.texto}<span className="sr-only"> (hecho)</span></>
+                ) : p === proximoPaso ? (
+                  <a href={`#${p.tab}`} className="underline underline-offset-2 hover:no-underline">
+                    {p.texto}: {p.accion.toLowerCase()} <span aria-hidden="true">→</span><span className="sr-only"> (próximo paso)</span>
+                  </a>
+                ) : (
+                  <><span aria-hidden="true">○ </span>{p.texto}</>
+                )}
+              </li>
+            ))}
+          </ol>
+        )}
+      </header>
+
+      {/* Los números que se miran siempre. El resto vive en su pestaña. */}
+      {items.length > 0 && (
+        <dl aria-label="Resumen de la caja" className="grid grid-cols-2 lg:grid-cols-5 gap-px overflow-hidden rounded-xl border border-gray-100 bg-gray-100 shadow-sm mb-5">
+          {topeExpress ? (
+            <Kpi
+              titulo="Tope del paquete express"
+              valor={usd(calc.landedUsd)}
+              tono={topeExpress.excede ? 'text-red-700' : 'text-gray-900'}
+              detalle={`de ${usd(topeExpress.topeUsd)} · ${topeExpress.excede ? `se pasa ${usd(-topeExpress.holguraUsd)}` : `quedan ${usd(topeExpress.holguraUsd)}`}${calc.caja.medido ? '' : ' · suma de piezas'}`}
+            >
+              <span aria-hidden="true" className="mt-2 block h-1.5 rounded-full bg-gray-100 overflow-hidden">
                 <span
-                  key={p.texto}
-                  className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
-                    p.hecho
-                      ? 'bg-green-100 text-green-700'
-                      : p === proximoPaso
-                        ? 'bg-amber-100 text-amber-800'
-                        : 'bg-gray-100 text-gray-400'
-                  }`}
-                >
-                  {p.hecho ? '✓' : p === proximoPaso ? '●' : '○'} {p.texto}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {!esBorrador && aContar.length > 0 && <BotonConteo yaRecibida={porRecibir.length === 0} />}
-          {/* El flete ya no se "guarda": la lista de envíos lo calcula en vivo con el mismo
-              costeo que esta ficha (lib/costo-envios). Una copia guardada quedaba vieja en
-              cuanto se cargaba un peso, un precio real o se movía una tasa. */}
-          <DeleteButton
-            action={deleteEnvio.bind(null, envio.id)}
-            confirmMessage={`¿Eliminar el envío "${envio.nombre ?? `#${envio.id}`}"? Los ítems quedarán libres.`}
-          />
-        </div>
-      </div>
-
-      {items.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-400 mb-8">
-          <p className="text-lg">Este envío está vacío</p>
-          <p className="text-sm mt-1">Agregá ítems abajo para calcular el peso cobrable y el costo.</p>
-        </div>
-      ) : (
-        <>
-          {/* Arriba, lado a lado, lo que se LEE y no cambia de alto: el tramo y el costo. Todo lo
-              que se edita va debajo a todo el ancho, para que al crecer una tarjeta (la
-              comparación de la caja, un aviso) no reacomode a la vecina. */}
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-4 items-stretch">
-          {esCbm ? (
-          /* Modo CBM: no hay tramos a USA. Lo único que gobierna el costo es cuánto
-             volumen lleva la caja contra el mínimo que la naviera factura igual. */
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-                🚢 Embarque marítimo · llenado
-              </h2>
-              {calc.minM3Applied && (
-                <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">
-                  Pagando el mínimo
-                </span>
-              )}
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div>
-                <p className="text-xs text-gray-400 mb-1">Volumen real</p>
-                <p className="text-xl font-bold font-mono text-gray-900">{m3(calc.volumeM3)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400 mb-1">Facturable</p>
-                <p className={`text-xl font-bold font-mono ${calc.minM3Applied ? 'text-amber-700' : 'text-gray-900'}`}>
-                  {m3(calc.billableM3)}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400 mb-1">Tarifa</p>
-                <p className="text-xl font-bold font-mono text-gray-900">{usd(calc.cbmRatePerM3)}<span className="text-xs text-gray-400">/m³</span></p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400 mb-1">Costo real / m³</p>
-                <p className="text-xl font-bold font-mono text-blue-700">
-                  {calc.volumeM3 > 0 ? usd((calc.maritimeUsd + calc.fobUsd) / calc.volumeM3) : '—'}
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-5">
-              <div className="flex items-center justify-between text-xs mb-1">
-                <span className="text-gray-500">Llenado del volumen facturable</span>
-                <span className="font-mono font-semibold text-gray-700">{(calc.cbmFillPct * 100).toFixed(0)}%</span>
-              </div>
-              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full ${
-                    calc.cbmFillPct >= 0.9 ? 'bg-green-500' : calc.cbmFillPct >= 0.6 ? 'bg-amber-400' : 'bg-red-500'
-                  }`}
-                  style={{ width: `${Math.min(calc.cbmFillPct * 100, 100)}%` }}
+                  className={`block h-full rounded-full ${topeExpress.excede ? 'bg-red-500' : calc.landedUsd > topeExpress.topeUsd * 0.85 ? 'bg-amber-500' : 'bg-green-500'}`}
+                  style={{ width: `${Math.min(calc.landedUsd / topeExpress.topeUsd, 1) * 100}%` }}
                 />
-              </div>
-              <p className="text-xs mt-2 text-gray-600">
-                {calc.minM3Applied
-                  ? `⚠️ Vas a pagar ${m3(calc.billableM3)} mandando ${m3(calc.volumeM3)}: te sobran ${m3(calc.billableM3 - calc.volumeM3)} ya pagados. Meté más piezas antes de cerrar — viajan sin costo de flete adicional.`
-                  : calc.cbmFillPct >= 0.9
-                    ? '✓ La caja va llena: estás pagando volumen que efectivamente usás.'
-                    : 'Estás por encima del mínimo, así que cada m³ extra se cobra — pero el FOB fijo se sigue diluyendo entre más piezas.'}
-              </p>
-            </div>
-
-            {calc.fobUsd > 0 && (
-              <p className="text-xs mt-3 px-3 py-2 rounded-lg bg-blue-50 text-blue-700">
-                El FOB de India ({usd(calc.fobUsd)}) es fijo por embarque: hoy pesa{' '}
-                <span className="font-mono font-semibold">
-                  {calc.volumeM3 > 0 ? `${usd(calc.fobUsd / calc.volumeM3)}/m³` : '—'}
-                </span>
-                . Cuanto más llenes, menos le toca a cada pieza.
-              </p>
-            )}
-
-            {calc.cbmRatePerM3 === 0 && (
-              <p className="text-xs mt-3 px-3 py-2 rounded-lg bg-amber-50 text-amber-700">
-                ⚠️ No hay tarifa por m³ cargada: el flete está contando 0 y el envío queda subcosteado.{' '}
-                <Link href="/config" className="font-mono underline">cbm_rate_usd</Link> en Configuración.
-              </p>
-            )}
-
-            {anyMissing && (
-              <p className="text-xs mt-3 px-3 py-2 rounded-lg bg-amber-50 text-amber-700">
-                ⚠️ Hay piezas sin dimensiones cargadas — no suman volumen y el llenado real es mayor al que ves.
-              </p>
-            )}
-          </div>
+              </span>
+            </Kpi>
           ) : (
-          /* Tramo India → USA (ShipGlobal): el único que cotiza por tabla escalón */
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 h-full">
+            <Kpi
+              titulo="Costo landed"
+              valor={usd(calc.landedUsd)}
+              detalle={`real al ${realPct.toFixed(0)}%`}
+            />
+          )}
+          {calc.air.items > 0 ? (
+            <Kpi
+              titulo="Peso cobrable"
+              valor={kg(calc.air.chargeableKg)}
+              detalle={calc.caja.medido
+                ? `${calc.caja.cajas} ${calc.caja.cajas === 1 ? 'caja pesada' : 'cajas pesadas'} · atado por ${calc.air.binding === 'weight' ? 'peso' : 'volumen'}`
+                : `suma de piezas, sin empaque · atado por ${calc.air.binding === 'weight' ? 'peso' : 'volumen'}`}
+            />
+          ) : calc.tramo ? (
+            <Kpi titulo="Peso real" valor={kg(calc.tramo.leg.realKg)} detalle={`lo despacha ${calc.tramo.nombre}`} />
+          ) : (
+            <Kpi titulo="Peso cobrable" valor="—" detalle="nada viaja por peso" />
+          )}
+          <Kpi
+            titulo="Margen bruto"
+            valor={margenPct != null ? usd(financiamiento.margenTotalUsd) : '—'}
+            tono={financiamiento.margenTotalUsd < 0 ? 'text-red-700' : 'text-gray-900'}
+            detalle={margenPct != null ? `${margenPct.toFixed(0)}% sobre ${usd(financiamiento.ventaTotalUsd)}` : 'sin venta todavía'}
+          />
+          <Kpi
+            titulo="De tu bolsillo"
+            valor={usd(financiamiento.bolsilloUsd)}
+            tono="text-amber-800"
+            detalle={`adelantos cubren ${usd(financiamiento.adelantosUsd)}`}
+          />
+          {/* Lo que salió del depósito: las guías del tramo largo (a USA, o directo a Venezuela en express). */}
+          <Kpi
+            className="col-span-2 lg:col-span-1"
+            titulo={esExpress ? 'Paquete despachado' : 'Bultos despachados'}
+            valor={guiasSalida.length > 0 ? String(guiasSalida.length) : '—'}
+            detalle={guiasSalida.length === 0
+              ? 'todavía no salió del depósito'
+              : `${guiasSalida.filter(t => t.estado === 'delivered').length} entregados en ${esExpress ? 'Caracas' : 'Miami'}`}
+          />
+        </dl>
+      )}
+
+      <PestanasCaja
+        inicial={tabInicial}
+        pestanas={[
+          {
+            id: 'contenido',
+            label: 'Contenido',
+            badge: envio.items.length > 0 ? String(envio.items.length) : null,
+            contenido: (
+              <>
+                {items.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-gray-300 bg-white px-4 py-8 text-center mb-4">
+                    <p className="text-base font-semibold text-gray-900">Esta caja está vacía</p>
+                    <p className="text-sm text-gray-600 mt-1">Agregá pedidos abajo para calcular el peso cobrable y el costo.</p>
+                  </div>
+                ) : (
+                  <>
+          <EnvioItemsTable
+            envioId={envio.id}
+            items={itemRows}
+            inbound={inboundCaja}
+            modo={modoEnvio}
+            guardar={saveItemChanges}
+            quitar={removePedido}
+            marcarNoVino={marcarNoVino}
+            bloqueada={esBorrador}
+            mover={moverPedidoACaja}
+            destinos={destinosMover}
+            motivoNoMover={motivoNoMover}
+          />
+                  </>
+                )}
+                <details id="agregar-pedidos" className="group bg-white rounded-xl shadow-sm border border-gray-100 mb-4" open={items.length === 0 || esBorrador}>
+                  <summary className={SUMMARY_CLS}>
+                    <span className="min-w-0">
+                      <span className="block text-base font-semibold text-gray-900">{esExpress ? 'Agregar presupuestos express' : 'Agregar pedidos'}</span>
+                      <span className="block text-sm text-gray-600">
+                        {confirmadosSinAsignar.length} {confirmadosSinAsignar.length === 1 ? 'confirmado' : 'confirmados'} con líneas sueltas
+                        {' · '}{presupuestosSinAsignar.length} sin aprobar
+                        {esExpress && ' · solo entran presupuestos express'}
+                      </span>
+                    </span>
+                    <span aria-hidden="true" className="mt-1 text-gray-500 transition-transform group-open:rotate-90">▶</span>
+                  </summary>
+                  {confirmadosSinAsignar.length === 0 ? (
+                    <p className="px-4 sm:px-6 py-4 text-sm text-gray-600">No hay pedidos confirmados con líneas sueltas.</p>
+                  ) : (
+                    <>
+                      <FormConResultado
+                        action={assignAllConfirmados.bind(null, envio.id)}
+                        className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 sm:px-6 py-3"
+                      >
+                        <PendingButton
+                          pendingLabel="Agregando…"
+                          className="min-h-9 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                        >
+                          Agregar {confirmadosSinAsignar.length === 1 ? 'el confirmado' : `los ${confirmadosSinAsignar.length} confirmados`}
+                        </PendingButton>
+                        {confirmadosPropios > 0 && (
+                          <label className="flex items-center gap-2 text-sm text-gray-700 min-h-9">
+                            <input type="checkbox" name="incluirPropio" defaultChecked className="h-4 w-4 rounded border-gray-300" />
+                            Incluir stock propio ({confirmadosPropios})
+                          </label>
+                        )}
+                      </FormConResultado>
+                      <div className="divide-y divide-gray-100 border-t border-gray-100">
+                        {confirmadosSinAsignar.map(its => (
+                          <SueltoPedido
+                            key={its[0].pedidoId}
+                            envioId={envio.id}
+                            pedidoId={its[0].pedidoId}
+                            clientName={its[0].pedido.clientName}
+                            tipo={its[0].pedido.tipo}
+                            lineas={lineasSueltas(its)}
+                            otrasCajas={otrasCajasDe(its[0].pedidoId)}
+                            agregarTodo={assignPedido}
+                            agregarElegidas={assignItems}
+                          />
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  {/* Los presupuestos sin aprobar pueden caerse: se agregan de a uno, nunca en el agregado masivo. */}
+                  <h3 className="px-4 sm:px-6 pt-4 pb-1 border-t border-gray-100 text-sm font-semibold text-gray-700">
+                    Presupuestos sin aprobar ({presupuestosSinAsignar.length}) · no entran en «Agregar los confirmados»
+                  </h3>
+                  {presupuestosSinAsignar.length === 0 ? (
+                    <p className="px-4 sm:px-6 pb-4 text-sm text-gray-600">
+                      No hay presupuestos pendientes. <Link href="/presupuestos/new" className="text-blue-700 underline underline-offset-2">Creá uno</Link>.
+                    </p>
+                  ) : (
+                    <div className="divide-y divide-gray-100">
+                      {presupuestosSinAsignar.map(its => (
+                        <SueltoPedido
+                          key={its[0].pedidoId}
+                          envioId={envio.id}
+                          pedidoId={its[0].pedidoId}
+                          clientName={its[0].pedido.clientName}
+                          tipo={its[0].pedido.tipo}
+                          lineas={lineasSueltas(its)}
+                          otrasCajas={otrasCajasDe(its[0].pedidoId)}
+                          sinAprobar
+                          agregarTodo={assignPedido}
+                          agregarElegidas={assignItems}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </details>
+                {/* La caja entera (comprado o no) consolidada por SKU: lo que vale lo de adentro. */}
+                {(buyIndia.length > 0 || buyChina.length > 0) && (
+                  <details className="group bg-white rounded-xl shadow-sm border border-gray-100 mb-4">
+                    <summary className={SUMMARY_CLS}>
+                      <span className="min-w-0">
+                        <span className="block text-base font-semibold text-gray-900">Contenido por SKU</span>
+                        <span className="block text-sm text-gray-600">
+                          {buyIndia.length + buyChina.length} {buyIndia.length + buyChina.length === 1 ? 'código' : 'códigos'}
+                          {buyIndia.length > 0 && <> · {buyUnits} u. de India · {buyTotalInr > 0 && <>₹{Math.round(buyTotalInr).toLocaleString('es-VE')} ≈ </>}{usd(buyTotalUsd)}</>}
+                          {buyChina.length > 0 && ` · ${buyChina.length} de China`}
+                        </span>
+                      </span>
+                      <span aria-hidden="true" className="mt-1 text-gray-500 transition-transform group-open:rotate-90">▶</span>
+                    </summary>
+                    {buyIndia.length > 0 && (
+                      <div className="relative overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <caption className="px-4 sm:px-6 pt-3 pb-1 text-left text-sm font-semibold text-gray-700">India</caption>
+                          <thead>
+                            <tr className="border-b border-gray-100 text-xs text-gray-600">
+                              <th scope="col" className="text-left px-4 sm:px-6 py-2 font-semibold">Código</th>
+                              <th scope="col" className="text-left px-3 py-2 font-semibold">Pieza</th>
+                              <th scope="col" className="text-right px-3 py-2 font-semibold">Cant.</th>
+                              <th scope="col" className="text-right px-3 py-2 font-semibold">Unitario</th>
+                              <th scope="col" className="text-right px-4 sm:px-6 py-2 font-semibold">Total USD</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {buyIndia.map((r, i) => (
+                              <tr key={i}>
+                                <td className="px-4 sm:px-6 py-2.5 font-mono text-xs text-gray-600 whitespace-nowrap">{r.sku ?? '—'}</td>
+                                <td className="px-3 py-2.5 text-gray-900 min-w-48">
+                                  {r.name}
+                                  {r.missingPrice && <span className="ml-2 text-xs font-semibold text-amber-800">sin precio</span>}
+                                </td>
+                                <td className="px-3 py-2.5 text-right font-mono text-gray-700">{r.qty}</td>
+                                <td className="px-3 py-2.5 text-right font-mono text-gray-600 whitespace-nowrap">
+                                  {r.unit != null ? (r.moneda === 'USD' ? usd(r.unit) : `₹${r.unit.toLocaleString('es-VE')}`) : '—'}
+                                </td>
+                                <td className="px-4 sm:px-6 py-2.5 text-right font-mono font-semibold text-gray-900">{r.totalUsd > 0 ? usd(r.totalUsd) : '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr className="border-t-2 border-gray-200">
+                              <th scope="row" colSpan={2} className="px-4 sm:px-6 py-3 text-left font-semibold text-gray-900">Total de la caja</th>
+                              <td className="px-3 py-3 text-right font-mono font-semibold text-gray-700">{buyUnits}</td>
+                              <td />
+                              <td className="px-4 sm:px-6 py-3 text-right whitespace-nowrap">
+                                <span className="font-bold font-mono text-blue-700">{usd(buyTotalUsd)}</span>
+                                {buyTotalInr > 0 && (
+                                  <span className="block text-xs text-gray-600 font-mono">₹{Math.round(buyTotalInr).toLocaleString('es-VE')} a {inrUsd}</span>
+                                )}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    )}
+                    {buyChina.length > 0 && (
+                      <div className="relative overflow-x-auto border-t border-gray-100">
+                        <table className="w-full text-sm">
+                          <caption className="px-4 sm:px-6 pt-3 pb-1 text-left text-sm font-semibold text-gray-700">China</caption>
+                          <thead>
+                            <tr className="border-b border-gray-100 text-xs text-gray-600">
+                              <th scope="col" className="text-left px-4 sm:px-6 py-2 font-semibold">Código</th>
+                              <th scope="col" className="text-left px-3 py-2 font-semibold">Pieza</th>
+                              <th scope="col" className="text-right px-4 sm:px-6 py-2 font-semibold">Cant.</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {buyChina.map((r, i) => (
+                              <tr key={i}>
+                                <td className="px-4 sm:px-6 py-2.5 font-mono text-xs text-gray-600 whitespace-nowrap">{r.sku ?? '—'}</td>
+                                <td className="px-3 py-2.5 text-gray-900 min-w-48">{r.name}</td>
+                                <td className="px-4 sm:px-6 py-2.5 text-right font-mono text-gray-700">{r.qty}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </details>
+                )}
+              </>
+            ),
+          },
+          {
+            id: 'comprar',
+            label: 'Comprar',
+            badge: !esBorrador && porComprar > 0 ? String(porComprar) : null,
+            contenido: (
+              <>
+                {esBorrador ? (
+                  <p className="rounded-xl border border-dashed border-gray-300 bg-white px-4 py-8 text-center text-sm text-gray-600 mb-4">
+                    Confirmá la compra para ver la lista de lo que hay que comprar y registrar lo que pagaste. En borrador no se compra nada.
+                  </p>
+                ) : (
+                  <>
+                    {porComprar === 0 && items.length > 0 && (
+                      <p role="status" className="rounded-xl border border-green-200 bg-green-50 px-4 sm:px-6 py-3 mb-4 text-sm text-green-800">
+                        Todo lo de esta caja ya está comprado.
+                      </p>
+                    )}
+                    {/* Lo pendiente de comprar, por ensamble para 99rpm, listo para copiar o bajar en CSV. */}
+                    <PendientesCompraButton
+                      envio={envio.nombre ?? `Envío #${envio.id}`}
+                      grupos={pendientes}
+                      inrUsd={inrUsd}
+                      compra99={compra99}
+                    />
+                    {/* Costo real de las piezas de ESTA caja: todo, por pedido o por SKU. Mismo picker que
+                        /contabilidad/comprar, acotado a este envío. */}
+                    {itemsPendientesCosto.length > 0 && (
+                      <RegistrarCompraPicker
+                        items={itemsPendientesCosto}
+                        action={registrarCompra}
+                        methods={METODOS_PAGO_EGRESO}
+                        collapsible
+                      />
+                    )}
+                  </>
+                )}
+                {/* Lo que se le paga al proveedor de la caja: el giro y sus dos comisiones. */}
+                {calc.giro && (
+                  <SeccionCaja
+                    id="giro-titulo"
+                    titulo={`${calc.giro.nombre}: lo que le pagás`}
+                    sub={<>
+                      Le girás <span className="font-mono font-semibold text-gray-900">{usd(calc.giro.montoUsd)}</span>
+                      {' '}({usd(calc.giro.mercanciaUsd)} de mercancía{calc.giro.tramoUsd > 0 && ` + ${usd(calc.giro.tramoUsd)} de envío`}).
+                      {inboundCaja === 'cotizado'
+                        ? ' Despacha él a USA: no hay tarifa por kilo, se carga el total que te pasó.'
+                        : porKilo
+                          ? ` Entra por ${reenvioLabel}: el tramo es la tarifa ₹/kg de la pestaña Envío.`
+                          : ' Entra por Shoppre: el tramo lo cobra la tabla escalón.'}
+                    </>}
+                    acciones={
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${inboundCaja === 'cotizado' ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-700'}`}>
+                        <span aria-hidden="true">{meta.icon} </span>{meta.label}
+                      </span>
+                    }
+                  >
+                    <div className="px-4 sm:px-6 py-4 space-y-3">
+                      <FormConResultado action={saveCostosProveedor.bind(null, envio.id)} className="flex flex-wrap items-end gap-x-4 gap-y-3">
+                        {/* El total del envío solo se pide a quien despacha por su cuenta: para una caja que
+                            entra por un depósito ese número lo pone la tabla o la tarifa. */}
+                        {inboundCaja === 'cotizado' && (
+                          <CampoGiro
+                            id="tramo-usd" name="tramoUsd" valor={tramoUsd} placeholder="0.00"
+                            label="Envío + impuestos (USD)" ayuda="el total que te pasó, DDP"
+                          />
+                        )}
+                        {/* Las dos puntas del giro van separadas porque se saben en momentos distintos. */}
+                        <CampoGiro
+                          id="comision-saliente" name="comisionSalienteUsd" valor={comisionSalienteUsd}
+                          label="Comisión saliente (USD)"
+                          ayuda={`lo que te cobró tu banco por girar ${usd(calc.giro.montoUsd)} · vacío = no lo sé, 0 = no cobró`}
+                        />
+                        <CampoGiro
+                          id="comision-entrante" name="comisionEntranteUsd" valor={comisionEntranteUsd}
+                          label="Comisión entrante (USD)"
+                          ayuda="lo que le descontaron al recibir y le completaste · 0 = le llegó completo"
+                        />
+                        <PendingButton className="min-h-9 px-4 py-1.5 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                          Guardar
+                        </PendingButton>
+                      </FormConResultado>
+
+                      {calc.tramo?.faltaCosto && (
+                        <p className="text-sm text-amber-900 bg-amber-50 px-3 py-2 rounded-lg">
+                          Sin el total del envío las piezas viajan gratis en el cálculo y toda la caja queda subcosteada.
+                        </p>
+                      )}
+                      {!calc.giro.cargada && (
+                        <p className="text-sm text-gray-700 bg-gray-50 px-3 py-2 rounded-lg">
+                          {!calc.giro.salienteCargada && !calc.giro.entranteCargada
+                            ? 'Las dos comisiones están '
+                            : !calc.giro.salienteCargada ? 'La comisión saliente está ' : 'La comisión entrante está '}
+                          <strong>sin cargar</strong>: hoy cuenta{calc.giro.salienteCargada || calc.giro.entranteCargada ? '' : 'n'} como
+                          $0 y el landed sale corto. Si esa punta no cobró nada, poné 0 y queda dicho.
+                        </p>
+                      )}
+                      {calc.giro.cargada && calc.giro.comisionUsd > 0 && (
+                        <p className="text-sm text-gray-700 bg-gray-50 px-3 py-2 rounded-lg">
+                          El giro te costó <span className="font-mono font-semibold">{usd(calc.giro.costoTotalUsd)}</span> en
+                          total: {usd(calc.giro.montoUsd)} facturados + {usd(calc.giro.comisionSalienteUsd)} de saliente
+                          + {usd(calc.giro.comisionEntranteUsd)} de entrante.
+                        </p>
+                      )}
+                    </div>
+                    {/* Plata que ya salió de la cuenta contra esta caja (libro), no lo facturado: son dos
+                        números distintos a propósito. */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-3 border-t border-gray-100">
+                      <p className="text-sm text-gray-700">
+                        Pagado <span className="font-mono font-semibold text-gray-900">{usd(pagadoProveedor)}</span>
+                        {' de '}<span className="font-mono">{usd(giroCompraUsd)}</span>
+                        {giroCompraUsd - pagadoProveedor > 0.01 && (
+                          <> · faltan <span className="font-mono font-semibold text-amber-800">{usd(giroCompraUsd - pagadoProveedor)}</span></>
+                        )}
+                        {otrasCompra.length > 0 && (
+                          <span className="block mt-1 text-gray-600">
+                            Es una sola compra con{' '}
+                            {familia.filter(f => f.id !== id).map((f, i) => (
+                              <Fragment key={f.id}>
+                                {i > 0 && ', '}
+                                <Link href={`/envios/${f.id}`} className="text-blue-700 underline underline-offset-2">{f.nombre ?? `caja #${f.id}`}</Link>
+                              </Fragment>
+                            ))}
+                            : lo pagado y lo debido son de todas juntas.
+                          </span>
+                        )}
+                      </p>
+                      {!esBorrador && <RegistrarPagoProveedorForm action={registrarPagoProveedor.bind(null, envio.id)} methods={METODOS_PAGO_EGRESO} />}
+                    </div>
+                  </SeccionCaja>
+                )}
+              </>
+            ),
+          },
+          {
+            id: 'envio',
+            label: 'Envío',
+            contenido: (
+              <>
+                <TrayectoCaja
+                  trackings={envio.trackings}
+                  express={esExpress}
+                  acciones={(trackingActivo || onewayActivo) && (
+                    <FormConResultado action={actualizarTrackings.bind(null, envio.id)} className="flex flex-col items-end gap-1">
+                      <PendingButton
+                        pendingLabel="Consultando…"
+                        className="min-h-9 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        <span aria-hidden="true">↻ </span>Actualizar trackings
+                      </PendingButton>
+                    </FormConResultado>
+                  )}
+                  paneles={{
+                    local: (
+                      <NumerosTramo
+                        key={firmaNumeros}
+                        tramo="local"
+                        titulo={`${envio.supplier ? `De ${envio.supplier.name}` : 'Del proveedor'} al depósito de ${esExpress || !porKilo ? 'Shoppre' : reenvioLabel}`}
+                        sub="El proveedor despacha la compra en 2 o 3 paquetes y da un número por cada uno."
+                        todos={numeros}
+                        couriers={couriers}
+                        guardar={guardarTrackings.bind(null, envio.id)}
+                      />
+                    ),
+                    [esExpress ? 'venezuela' : 'usa']: (
+                      <>
+                {/* Quién la lleva a USA: decide si el tramo sale de la tabla de Shoppre o de la tarifa
+                    ₹/kg + gastos fijos. Se puede cambiar hasta que la mercancía salga del depósito. */}
+                {comparaReenvio && (
+                  <section aria-labelledby="reenvio-titulo" className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-6 mb-4 space-y-4">
+                    <div>
+                      <h3 id="reenvio-titulo" className="text-base font-semibold text-gray-900">Quién la lleva a USA</h3>
+                      <p className="text-sm text-gray-600">
+                        Se elige por caja.{' '}
+                        {motivoCambio == null ? 'Se puede cambiar mientras no salga del depósito.' : <>Queda fijo: {motivoCambio}</>}
+                      </p>
+                    </div>
+                    <div role="group" aria-label="Reenvío de esta caja" className="grid gap-2 sm:grid-cols-2">
+                      {(['shoppre', 'por_kilo'] as const).map(r => {
+                        const elegido = reenvioCaja.tipo === r
+                        const estimado = r === 'shoppre'
+                          ? `≈ ${usd(shoppreTramoUsd)} con tabla + seguro + processing`
+                          : kiloTramoUsd != null ? `≈ ${usd(kiloTramoUsd)} con ₹${reenvioCaja.tarifaKgInr!.toFixed(2)}/kg + gastos fijos` : 'Falta la tarifa ₹/kg que te cotizaron'
+                        const contenido = (
+                          <>
+                            <span className="flex items-center gap-2 text-sm font-semibold">
+                              <span aria-hidden="true" className={`h-4 w-4 shrink-0 rounded-full border-2 ${elegido ? 'border-blue-600 bg-blue-600 ring-2 ring-inset ring-white' : 'border-gray-400'}`} />
+                              {r === 'shoppre' ? 'Shoppre · tabla escalón' : 'Agente · ₹ por kilo + gastos fijos'}
+                              {elegido && <span className="sr-only"> (elegido)</span>}
+                            </span>
+                            <span className="block mt-1 pl-6 text-xs text-gray-600">{estimado}</span>
+                          </>
+                        )
+                        const cls = `w-full h-full text-left rounded-lg border px-4 py-3 ${elegido ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50/50 text-gray-900' : 'border-gray-200 text-gray-800'}`
+                        return elegido || motivoCambio != null ? (
+                          <div key={r} className={`${cls} ${!elegido ? 'opacity-60' : ''}`} aria-current={elegido ? 'true' : undefined}>{contenido}</div>
+                        ) : (
+                          <FormConResultado key={r} action={cambiarReenvio.bind(null, envio.id)}>
+                            <input type="hidden" name="reenvio" value={r} />
+                            <PendingButton pendingLabel="Cambiando…" className={`${cls} hover:border-gray-300 hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600`}>
+                              {contenido}
+                            </PendingButton>
+                          </FormConResultado>
+                        )
+                      })}
+                    </div>
+                    {/* Por kilo no hay tabla: la tarifa la cotizan para esta caja según su tamaño. */}
+                    {porKilo && (
+                      <div className="rounded-lg border border-gray-200 p-3">
+                        <FormConResultado action={guardarTarifaKg.bind(null, envio.id)} className="flex flex-wrap items-end gap-3">
+                          <label className="block">
+                            <span className="block text-xs font-medium text-gray-700 mb-1">Tarifa cotizada (₹ por kg cobrable)</span>
+                            <input
+                              type="number" step="0.01" min="0" name="tarifaKgInr"
+                              defaultValue={reenvioCaja.tarifaKgInr ?? ''} placeholder="sin cotizar"
+                              className="w-36 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            />
+                          </label>
+                          <PendingButton className="min-h-9 px-3 py-1.5 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-800">
+                            Guardar
+                          </PendingButton>
+                        </FormConResultado>
+                        <p className="text-xs text-gray-600 mt-2">
+                          {kg(calc.air.chargeableKg)} cobrables
+                          {reenvioCaja.tarifaKgInr != null && ` × ₹${reenvioCaja.tarifaKgInr.toFixed(2)} = ₹${(calc.air.chargeableKg * reenvioCaja.tarifaKgInr).toFixed(0)}`}
+                          {' '}+ gastos fijos {calc.reenvio.gastosFijosInr != null ? `₹${calc.reenvio.gastosFijosInr.toFixed(0)}` : 'sin configurar'}.
+                          {' '}Pasale el peso de la caja (mejor pesada) para que te coticen.
+                        </p>
+                        {calc.reenvio.faltaTarifa && (
+                          <p className="text-xs mt-2 px-3 py-2 rounded-lg bg-amber-50 text-amber-800">
+                            Sin tarifa cargada el tramo a USA cuenta $0: la caja está subcosteada, no es gratis.
+                          </p>
+                        )}
+                        {calc.reenvio.faltaGastos && (
+                          <p className="text-xs mt-2 px-3 py-2 rounded-lg bg-amber-50 text-amber-800">
+                            Los gastos fijos del reenvío no están configurados: cargalos en <Link href="/config" className="underline">/config</Link>.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </section>
+                )}
+                <NumerosTramo
+                  key={firmaNumeros}
+                  tramo={esExpress ? 'venezuela' : 'usa'}
+                  titulo={esExpress ? 'Express a Venezuela: la guía del paquete' : 'Aéreo a USA: guías de lo que salió del depósito'}
+                  sub={esExpress
+                    ? 'Shoppre la lleva directo a Caracas, sin escala en USA. Su guía se sigue hasta la entrega.'
+                    : 'Una guía por caja que sale hacia Miami, reempacada o no. Peso y medidas van más abajo.'}
+                  todos={numeros}
+                  couriers={couriers}
+                  guardar={guardarTrackings.bind(null, envio.id)}
+                />
+                {items.length > 0 && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
                 {calc.air.items === 0 && calc.tramo
@@ -1094,19 +1544,19 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               <>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">Piezas</p>
+                    <p className="text-xs text-gray-500 mb-1">Piezas</p>
                     <p className="text-xl font-bold font-mono text-gray-900">{calc.tramo.leg.items}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">Peso real</p>
+                    <p className="text-xs text-gray-500 mb-1">Peso real</p>
                     <p className="text-xl font-bold font-mono text-gray-900">{kg(calc.tramo.leg.realKg)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">Volumétrico</p>
+                    <p className="text-xs text-gray-500 mb-1">Volumétrico</p>
                     <p className="text-xl font-bold font-mono text-gray-900">{kg(calc.tramo.leg.volKg)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">Facturado / kg</p>
+                    <p className="text-xs text-gray-500 mb-1">Facturado / kg</p>
                     <p className="text-xl font-bold font-mono text-gray-900">{usd(calc.tramo.leg.costPerKgUsd)}</p>
                   </div>
                 </div>
@@ -1116,24 +1566,24 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                 </p>
               </>
             ) : calc.air.items === 0 ? (
-              <p className="text-sm text-gray-400">No hay piezas que viajen por {reenvioLabel} en este envío.</p>
+              <p className="text-sm text-gray-500">No hay piezas que viajen por {reenvioLabel} en este envío.</p>
             ) : (
               <>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">Peso real (ΣW)</p>
+                    <p className="text-xs text-gray-500 mb-1">Peso real (ΣW)</p>
                     <p className={`text-xl font-bold font-mono ${calc.air.binding === 'weight' ? 'text-green-700' : 'text-gray-900'}`}>{kg(calc.air.realKg)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">Volumétrico (ΣV)</p>
+                    <p className="text-xs text-gray-500 mb-1">Volumétrico (ΣV)</p>
                     <p className={`text-xl font-bold font-mono ${calc.air.binding === 'volume' ? 'text-red-700' : 'text-gray-900'}`}>{kg(calc.air.volKg)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">Cobrable max(W,V)</p>
+                    <p className="text-xs text-gray-500 mb-1">Cobrable max(W,V)</p>
                     <p className="text-xl font-bold font-mono text-blue-700">{kg(calc.air.chargeableKg)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400 mb-1">Aéreo / kg</p>
+                    <p className="text-xs text-gray-500 mb-1">Aéreo / kg</p>
                     <p className="text-xl font-bold font-mono text-gray-900">{usd(calc.air.costPerKgUsd)}</p>
                   </div>
                 </div>
@@ -1207,58 +1657,9 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                         {' '}Estimado contra estimado{calc.caja.medido ? ', sobre la caja pesada' : ', sobre la suma de las piezas'}.
                       </p>
                     )}
-                    {motivoCambio == null ? (
-                      <FormConResultado action={cambiarReenvio.bind(null, envio.id)} className="pt-1">
-                        <input type="hidden" name="reenvio" value={otroReenvio} />
-                        <PendingButton className="px-3 py-1 rounded-lg border border-violet-300 bg-white text-violet-800 font-medium hover:bg-violet-100 disabled:opacity-50">
-                          Cambiar esta caja a {reenvioMeta(otroReenvio).label}
-                        </PendingButton>
-                      </FormConResultado>
-                    ) : (
-                      <p className="text-violet-700/70">Reenvío fijo. {motivoCambio}</p>
-                    )}
                   </div>
                 )}
 
-                {/* Reenvío por kilo: no hay tabla, la tarifa la cotizan para esta caja según su
-                    tamaño. Se carga en ₹/kg cobrable; los gastos fijos salen de /config. */}
-                {porKilo && (
-                  <div className="mt-4 rounded-lg border border-gray-200 p-3">
-                    <FormConResultado action={guardarTarifaKg.bind(null, envio.id)} className="flex flex-wrap items-end gap-3">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Tarifa cotizada (₹ por kg)</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          name="tarifaKgInr"
-                          defaultValue={reenvioCaja.tarifaKgInr ?? ''}
-                          placeholder="0.00"
-                          className="w-36 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
-                      <PendingButton className="px-3 py-1.5 rounded-lg bg-gray-800 text-white text-sm font-medium hover:bg-gray-900 disabled:opacity-50">
-                        Guardar
-                      </PendingButton>
-                    </FormConResultado>
-                    <p className="text-[11px] text-gray-500 mt-2">
-                      {kg(calc.air.chargeableKg)} cobrables
-                      {reenvioCaja.tarifaKgInr != null && ` × ₹${reenvioCaja.tarifaKgInr.toFixed(2)} = ₹${(calc.air.chargeableKg * reenvioCaja.tarifaKgInr).toFixed(0)}`}
-                      {' '}+ gastos fijos {calc.reenvio.gastosFijosInr != null ? `₹${calc.reenvio.gastosFijosInr.toFixed(0)}` : 'sin configurar'}.
-                      {' '}Pasale el peso de la caja (mejor pesada) para que te coticen.
-                    </p>
-                    {calc.reenvio.faltaTarifa && (
-                      <p className="text-xs mt-2 px-3 py-2 rounded-lg bg-amber-50 text-amber-800">
-                        ⚠️ Sin tarifa cargada el tramo a USA cuenta $0: la caja está subcosteada, no es gratis.
-                      </p>
-                    )}
-                    {calc.reenvio.faltaGastos && (
-                      <p className="text-xs mt-2 px-3 py-2 rounded-lg bg-amber-50 text-amber-800">
-                        ⚠️ Los gastos fijos del reenvío no están configurados: cargalos en <Link href="/config" className="underline">/config</Link>.
-                      </p>
-                    )}
-                  </div>
-                )}
               </>
             )}
 
@@ -1268,24 +1669,155 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               </p>
             )}
           </div>
-
-          )}
-
-          {/* Desglose de costo. Cada fila dice si el número es REAL (factura, costo pagado) o
-              ESTIMADO (tabla, catálogo): sin eso, cargar un dato no se nota. */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 h-full">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Costo del envío (landed)</h2>
+                )}
+                  {/* Las cajas reales: lo único que el catálogo no puede saber (pesa el bulto, no la pieza). */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+                📦 Cajas · peso y medidas
+              </h2>
               <span
-                title="Porción del costo total que sale de datos reales (costo pagado de las piezas, facturas, tramo y comisiones cargados)"
                 className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                  realPct >= 99.5 ? 'bg-green-100 text-green-700' : realPct >= 50 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
+                  calc.caja.medido ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
                 }`}
               >
-                Real al {realPct.toFixed(0)}%
+                {calc.caja.medido ? 'MEDIDA' : 'SIN MEDIR'}
               </span>
             </div>
-            <dl className="space-y-2 text-sm">
+            <CajasEnvio
+              key={`${envio.reempaque}|${envio.cajas.map(c => c.id).join(',')}`}
+              action={guardarCajas.bind(null, envio.id)}
+              reempaque={envio.reempaque}
+              inicial={cajasFisicas}
+              divisor={num(cfg, 'air_volumetric_divisor', 5000)}
+            />
+            {calc.caja.medido && (
+              <div className="mt-5">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs text-gray-500 uppercase tracking-wide">
+                      <th className="text-left font-medium pb-1"></th>
+                      <th className="text-right font-medium pb-1">Suma de piezas</th>
+                      <th className="text-right font-medium pb-1">{calc.caja.cajas > 1 ? 'Cajas reales' : 'Caja real'}</th>
+                      <th className="text-right font-medium pb-1">Falta en el catálogo</th>
+                    </tr>
+                  </thead>
+                  <tbody className="font-mono">
+                    <tr className="border-t border-gray-100">
+                      <td className="py-2 font-sans text-gray-600">Peso</td>
+                      <td className="py-2 text-right text-gray-500">{kg(calc.netRealKg)}</td>
+                      <td className="py-2 text-right text-gray-900 font-semibold">{kg(calc.realKg)}</td>
+                      <td className="py-2 text-right text-amber-700">{kg(calc.realKg - calc.netRealKg)}</td>
+                    </tr>
+                    <tr className="border-t border-gray-100">
+                      <td className="py-2 font-sans text-gray-600">Volumen</td>
+                      <td className="py-2 text-right text-gray-500">{m3(calc.netVolumeM3)}</td>
+                      <td className="py-2 text-right text-gray-900 font-semibold">{m3(calc.volumeM3)}</td>
+                      <td className="py-2 text-right text-amber-700">{m3(calc.volumeM3 - calc.netVolumeM3)}</td>
+                    </tr>
+                    {!esCbm && (
+                      <tr className="border-t border-gray-100">
+                        <td className="py-2 font-sans text-gray-600">Cobrable max(W,V)</td>
+                        <td className="py-2 text-right text-gray-500">{kg(calcNeto!.air.chargeableKg)}</td>
+                        <td className="py-2 text-right text-blue-700 font-semibold">{kg(calc.air.chargeableKg)}</td>
+                        <td className="py-2 text-right text-gray-500">—</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+
+              </div>
+            )}
+          </div>
+                      </>
+                    ),
+                    ...(esExpress ? {} : {
+                      venezuela: (
+                        <NumerosTramo
+                          key={firmaNumeros}
+                          tramo="venezuela"
+                          titulo="Miami → Caracas: courier interno"
+                          sub={onewayActivo
+                            ? 'El código de One Way Cargo (MT-…, CON-…, SB-…, CA-…) se sigue solo cada hora: anotalo sin elegir courier.'
+                            : 'Casi nunca se sigue solo: si Ship24 no conoce el courier, la guía queda anotada y el estado lo sabés por el courier.'}
+                          todos={numeros}
+                          couriers={couriers}
+                          guardar={guardarTrackings.bind(null, envio.id)}
+                        />
+                      ),
+                    }),
+                  }}
+                >
+                  {!trackingActivo && (
+                    <p className="text-xs text-gray-600">
+                      Seguimiento apagado: falta <code>{ENV_API_KEY}</code> en el servidor. Los números quedan solo anotados.
+                    </p>
+                  )}
+                  {trackingActivo && couriers.length === 0 && (
+                    <p className="text-xs text-amber-800">
+                      Todavía no se bajó la lista de couriers de Ship24. Tocá «Actualizar trackings» y después elegí el courier de cada número.
+                    </p>
+                  )}
+                </TrayectoCaja>
+              </>
+            ),
+          },
+          {
+            id: 'llegada',
+            label: 'Llegada',
+            badge: !esBorrador && aContar.length > 0 && enCaminoAVenezuela ? String(aContar.length) : null,
+            anclas: ['conteo'],
+            contenido: (
+              <>
+                {esBorrador || aContar.length === 0 ? (
+                  <p className="rounded-xl border border-dashed border-gray-300 bg-white px-4 py-8 text-center text-sm text-gray-600 mb-4">
+                    {esBorrador ? 'En borrador no hay nada que contar.' : 'Todavía no hay nada comprado que contar.'}
+                  </p>
+                ) : (
+                  <SeccionCaja
+                    id="llegada-titulo"
+                    titulo={porRecibir.length === 0 ? 'La caja ya está recibida' : enCaminoAVenezuela ? 'Contar lo que llegó y recibir' : 'Todavía no llegó a Venezuela'}
+                    sub={<>
+                      {aContar.length} {aContar.length === 1 ? 'código' : 'códigos'} a contar, los conjuntos abiertos en sus piezas.
+                      {' '}{enCaminoAVenezuela || porRecibir.length === 0
+                        ? 'Buscás el código, Enter suma uno; lo que falte se reporta como faltante en su pedido.'
+                        : 'El conteo se hace cuando la caja va camino a Venezuela o llegó; podés abrirlo antes si hace falta.'}
+                    </>}
+                    acciones={<BotonConteo yaRecibida={porRecibir.length === 0} />}
+                  />
+                )}
+          {!esBorrador && aContar.length > 0 && (
+            <ConteoCaja
+              envioId={envio.id}
+              piezas={aContar}
+              recibir={saveItemChanges.bind(null, envio.id, porRecibir.map(it => ({ id: it.id, shippingStatus: 'en_venezuela' })))}
+              yaRecibida={porRecibir.length === 0}
+              aviso={`${porRecibir.length > 0 ? `Pasa ${porRecibir.length} ${porRecibir.length === 1 ? 'línea' : 'líneas'} a "Recibido". ` : ''}${noVinieron.length > 0 ? `${noVinieron.length} ${noVinieron.length === 1 ? 'línea queda' : 'líneas quedan'} sin recibir porque el proveedor no la${noVinieron.length === 1 ? '' : 's'} mandó. ` : ''}Lo que falte, reportalo como incidencia "faltante" en su pedido.`}
+            />
+          )}
+              </>
+            ),
+          },
+          {
+            id: 'plata',
+            label: 'Plata',
+            contenido: (
+              <>
+                {items.length > 0 && (
+                  <SeccionCaja
+                    id="landed-titulo"
+                    titulo="Costo landed"
+                    sub="Cada fila dice si el número es real o estimado."
+                    acciones={
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                        realPct >= 99.5 ? 'bg-green-100 text-green-800' : realPct >= 50 ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-700'
+                      }`}>
+                        Real al {realPct.toFixed(0)}%<span className="sr-only"> del costo sale de datos reales (pagos, facturas, tramo y comisiones cargados)</span>
+                      </span>
+                    }
+                  >
+                    <div className="grid gap-6 lg:grid-cols-2 px-4 sm:px-6 py-4">
+                      <dl aria-label="Desglose del landed" className="space-y-2 text-sm">
               <Row
                 label="Costo de producto"
                 value={usd(calc.productCostUsd)}
@@ -1297,16 +1829,6 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                       : { texto: `${lineasConCostoReal} de ${envio.items.length} líneas reales`, tono: 'est' }
                 }
               />
-              {esCbm ? (
-                <>
-                  <Row
-                    label={`Marítimo India→VEN · ${m3(calc.billableM3)} × ${usd(calc.cbmRatePerM3)}/m³`}
-                    value={usd(calc.maritimeUsd)}
-                  />
-                  <Row label="FOB India (fijo por embarque)" value={usd(calc.fobUsd)} />
-                </>
-              ) : (
-                <>
                   {calc.air.items > 0 && (
                     <Row
                       label={`${esExpress ? 'Express Shoppre→Venezuela' : `Aéreo ${reenvioLabel}→USA`} · ${calc.air.chargeableKg.toFixed(1)} kg cobrables${calc.air.cajas > 1 ? ` en ${calc.air.cajas} cajas (${calc.air.cajasKg.map(k => `${k} kg`).join(' + ')})` : ''}${porKilo && reenvioCaja.tarifaKgInr != null && costoRealAereo == null ? ` × ₹${reenvioCaja.tarifaKgInr.toFixed(2)}/kg` : ''}`}
@@ -1364,8 +1886,6 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                       />
                     </>
                   )}
-                </>
-              )}
               {calc.landedDirectUsd > 0 && (
                 <Row label="Compras puestas en Venezuela (no viajan)" value={usd(calc.landedDirectUsd)} />
               )}
@@ -1394,482 +1914,41 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                     <dd className={`font-semibold font-mono ${financiamiento.margenTotalUsd >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                       {usd(financiamiento.margenTotalUsd)}
                       {' '}
-                      <span className="text-xs text-gray-400">
+                      <span className="text-xs text-gray-500">
                         ({((financiamiento.margenTotalUsd / financiamiento.ventaTotalUsd) * 100).toFixed(0)}%)
                       </span>
                     </dd>
                   </div>
                 </>
               )}
-            </dl>
-          </div>
-          </div>
-
-          {/* La caja real. Es el único dato del envío que no se puede derivar del
-              catálogo: el catálogo tiene la pieza desnuda, la balanza pesa el bulto. */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-                📦 Cajas · peso y medidas
-              </h2>
-              <span
-                className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                  calc.caja.medido ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
-                }`}
-              >
-                {calc.caja.medido ? 'MEDIDA' : 'SIN MEDIR'}
-              </span>
-            </div>
-            <CajasEnvio
-              key={`${envio.reempaque}|${envio.cajas.map(c => c.id).join(',')}`}
-              action={guardarCajas.bind(null, envio.id)}
-              reempaque={envio.reempaque}
-              inicial={cajasFisicas}
-              divisor={num(cfg, 'air_volumetric_divisor', 5000)}
-            />
-
-            {/* Trackings por tramo. Con un courier de la lista de Ship24 se siguen solos
-                (lib/ship24.ts); sin él quedan anotados. Sirven para contestarle al cliente
-                dónde está su pieza. */}
-            <SeguimientoCaja
-              trackings={envio.trackings}
-              activo={trackingActivo}
-              hayCouriers={couriers.length > 0}
-              actualizar={actualizarTrackings.bind(null, envio.id)}
-            />
-            <TrackingsCaja
-              key={envio.trackings.map(t => `${t.tramo}:${t.numero}:${t.courierCode ?? ''}:${t.transportista ?? ''}`).join('|')}
-              action={guardarTrackings.bind(null, envio.id)}
-              inicial={envio.trackings.filter(t => esTramoTracking(t.tramo)) as (FilaTracking & { courierCode: string | null })[]}
-              sinUsa={esExpress}
-              couriers={couriers}
-            />
-
-            {calc.caja.medido && (
-              <div className="mt-5">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-xs text-gray-400 uppercase tracking-wide">
-                      <th className="text-left font-medium pb-1"></th>
-                      <th className="text-right font-medium pb-1">Suma de piezas</th>
-                      <th className="text-right font-medium pb-1">{calc.caja.cajas > 1 ? 'Cajas reales' : 'Caja real'}</th>
-                      <th className="text-right font-medium pb-1">Falta en el catálogo</th>
-                    </tr>
-                  </thead>
-                  <tbody className="font-mono">
-                    <tr className="border-t border-gray-100">
-                      <td className="py-2 font-sans text-gray-600">Peso</td>
-                      <td className="py-2 text-right text-gray-400">{kg(calc.netRealKg)}</td>
-                      <td className="py-2 text-right text-gray-900 font-semibold">{kg(calc.realKg)}</td>
-                      <td className="py-2 text-right text-amber-700">{kg(calc.realKg - calc.netRealKg)}</td>
-                    </tr>
-                    <tr className="border-t border-gray-100">
-                      <td className="py-2 font-sans text-gray-600">Volumen</td>
-                      <td className="py-2 text-right text-gray-400">{m3(calc.netVolumeM3)}</td>
-                      <td className="py-2 text-right text-gray-900 font-semibold">{m3(calc.volumeM3)}</td>
-                      <td className="py-2 text-right text-amber-700">{m3(calc.volumeM3 - calc.netVolumeM3)}</td>
-                    </tr>
-                    {!esCbm && (
-                      <tr className="border-t border-gray-100">
-                        <td className="py-2 font-sans text-gray-600">Cobrable max(W,V)</td>
-                        <td className="py-2 text-right text-gray-400">{kg(calcNeto!.air.chargeableKg)}</td>
-                        <td className="py-2 text-right text-blue-700 font-semibold">{kg(calc.air.chargeableKg)}</td>
-                        <td className="py-2 text-right text-gray-300">—</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-
-              </div>
-            )}
-          </div>
-
-          {/* Lo que cobraron los transportistas y si ya se les pagó. Aparte de la caja real: son
-              datos que llegan en momentos distintos y se pagan a empresas distintas. */}
-          <FleteRealCard methods={METODOS_PAGO_EGRESO} filas={filasFlete} />
-
-          {/* Costo real de las piezas de ESTA caja: corregir peso/dimensión (abajo) no dice
-              cuánto costó lo de adentro. Mismo picker que /contabilidad/comprar, acotado a
-              este envío — colapsado por default, y adentro cada cliente también (el precio por pieza o por
-              cliente es opcional: casi siempre se paga todo junto). Va junto a los fletes: son los
-              tres lugares donde se carga lo que de verdad se pagó. */}
-          {!esBorrador && itemsPendientesCosto.length > 0 && (
-            <RegistrarCompraPicker
-              items={itemsPendientesCosto}
-              action={registrarCompra}
-              methods={METODOS_PAGO_EGRESO}
-              collapsible
-            />
-          )}
-
-          {/* Lo que se le paga al proveedor de la caja. Junta los dos montos que nadie
-              puede derivar: lo que facturó por traerla a USA (solo si despacha él) y lo
-              que costó la transferencia con la que se le giró. */}
-          {calc.giro && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-              <div className="flex items-center justify-between gap-3 mb-1">
-                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-                  💸 {calc.giro.nombre} · lo que le pagás
-                </h2>
-                <span
-                  title={meta.hint}
-                  className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                    inboundCaja === 'cotizado' ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-600'
-                  }`}
-                >
-                  {meta.icon} {meta.label}
-                </span>
-              </div>
-              <p className="text-xs text-gray-400 mb-4">
-                Le girás <span className="font-mono font-semibold text-gray-600">{usd(calc.giro.montoUsd)}</span>
-                {' '}({usd(calc.giro.mercanciaUsd)} de mercancía
-                {calc.giro.tramoUsd > 0 && ` + ${usd(calc.giro.tramoUsd)} de envío`}).
-                {inboundCaja === 'cotizado'
-                  ? ' Despacha él a USA, así que no hay tarifa por kilo: se carga el total que te pasó.'
-                  : porKilo
-                    ? ` Entra por ${reenvioLabel}: el tramo es la tarifa ₹/kg que cotizaron, más arriba.`
-                    : ' Entra por Shoppre, así que el tramo lo cobra la tabla escalón.'}
-              </p>
-
-              <FormConResultado action={saveCostosProveedor.bind(null, envio.id)} className="flex flex-wrap items-end gap-3">
-                {/* El total del envío solo se pide a quien despacha por su cuenta: para una
-                    caja que entra por Shoppre ese número lo pone la tabla escalón, y un
-                    campo vacío al lado invitaría a cargarlo dos veces. */}
-                {inboundCaja === 'cotizado' && (
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
-                      Envío + impuestos (USD)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      name="tramoUsd"
-                      defaultValue={tramoUsd ?? ''}
-                      placeholder="0.00"
-                      className="w-40 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
-                    <p className="text-[11px] text-gray-400 mt-1">el total que te pasó, DDP</p>
-                  </div>
+                      </dl>
+                      <QuienPonePlata f={financiamiento} />
+                    </div>
+                  </SeccionCaja>
                 )}
-                {/* Las dos puntas del giro. Van separadas porque se saben en momentos
-                    distintos: la saliente el mismo día, la entrante cuando el proveedor
-                    avisa que le llegó de menos. Con un solo campo había que inventar una
-                    para poder anotar la otra. */}
-                <div>
-                  <label
-                    className="block text-xs font-medium text-gray-600 mb-1"
-                    title="Lo que MI banco cobró por emitir el giro. Vacío = todavía no lo sé; 0 = no cobró nada"
-                  >
-                    Comisión saliente (USD)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    name="comisionSalienteUsd"
-                    defaultValue={comisionSalienteUsd ?? ''}
-                    placeholder="sin cargar"
-                    className="w-40 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                  <p className="text-[11px] text-gray-400 mt-1">
-                    lo que te cobró tu banco por girar {usd(calc.giro.montoUsd)}
-                  </p>
-                </div>
-                <div>
-                  <label
-                    className="block text-xs font-medium text-gray-600 mb-1"
-                    title="Lo que le descontaron a ÉL al acreditar y tuviste que completarle. Vacío = todavía no lo sé; 0 = le llegó completo"
-                  >
-                    Comisión entrante (USD)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    name="comisionEntranteUsd"
-                    defaultValue={comisionEntranteUsd ?? ''}
-                    placeholder="sin cargar"
-                    className="w-40 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                  <p className="text-[11px] text-gray-400 mt-1">
-                    lo que le descontaron al recibir y le completaste
-                  </p>
-                </div>
-                <PendingButton
-                  className="px-4 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  Guardar
-                </PendingButton>
-              </FormConResultado>
-
-              {calc.tramo?.faltaCosto && (
-                <p className="text-xs text-amber-700 bg-amber-50 px-3 py-2 rounded-lg mt-3">
-                  ⚠️ Sin el total del envío, las piezas viajan gratis en el cálculo y toda la
-                  caja queda subcosteada.
-                </p>
-              )}
-              {!calc.giro.cargada && (
-                <p className="text-xs text-gray-500 bg-gray-50 px-3 py-2 rounded-lg mt-2">
-                  {!calc.giro.salienteCargada && !calc.giro.entranteCargada
-                    ? 'Las dos comisiones están '
-                    : !calc.giro.salienteCargada
-                      ? 'La comisión saliente está '
-                      : 'La comisión entrante está '}
-                  <strong>sin cargar</strong>, así que hoy cuenta{calc.giro.salienteCargada || calc.giro.entranteCargada ? '' : 'n'} como
-                  $0 y el landed sale corto. Si esa punta no cobró nada, poné 0 y queda dicho.
-                </p>
-              )}
-              {calc.giro.cargada && calc.giro.comisionUsd > 0 && (
-                <p className="text-xs text-gray-600 bg-gray-50 px-3 py-2 rounded-lg mt-2">
-                  El giro te costó <span className="font-mono font-semibold">{usd(calc.giro.costoTotalUsd)}</span> en
-                  total: {usd(calc.giro.montoUsd)} facturados + {usd(calc.giro.comisionSalienteUsd)} de saliente
-                  + {usd(calc.giro.comisionEntranteUsd)} de entrante.
-                </p>
-              )}
-
-              {/* Plata que ya salió de la cuenta contra esta caja (libro de movimientos),
-                  no lo facturado — son dos números distintos a propósito. */}
-              <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-gray-100">
-                <p className="text-xs text-gray-500">
-                  Pagado: <span className="font-mono font-semibold text-gray-700">{usd(pagadoProveedor)}</span>
-                  {' de '}
-                  <span className="font-mono">{usd(giroCompraUsd)}</span>
-                  {giroCompraUsd - pagadoProveedor > 0.01 && (
-                    <> — faltan <span className="font-mono font-semibold text-amber-700">{usd(giroCompraUsd - pagadoProveedor)}</span></>
-                  )}
-                  {otrasCompra.length > 0 && (
-                    <span className="block mt-1">
-                      Es una sola compra con{' '}
-                      {familia.filter(f => f.id !== id).map((f, i) => (
-                        <Fragment key={f.id}>
-                          {i > 0 && ', '}
-                          <Link href={`/envios/${f.id}`} className="text-blue-600 hover:underline">{f.nombre ?? `caja #${f.id}`}</Link>
-                        </Fragment>
-                      ))}
-                      : lo pagado y lo debido son de todas juntas.
-                    </span>
-                  )}
-                </p>
-                {!esBorrador && <RegistrarPagoProveedorForm action={registrarPagoProveedor.bind(null, envio.id)} methods={METODOS_PAGO_EGRESO} />}
-              </div>
-            </div>
-          )}
-          {/* La plata va primero: antes de mirar cuánto cuesta la caja, la pregunta es
-              cuánta de esa plata ya está en la mano. */}
-          <QuienPonePlata f={financiamiento} />
-
-          {!esBorrador && aContar.length > 0 && (
-            <ConteoCaja
-              envioId={envio.id}
-              piezas={aContar}
-              recibir={saveItemChanges.bind(null, envio.id, porRecibir.map(it => ({ id: it.id, shippingStatus: 'en_venezuela' })))}
-              yaRecibida={porRecibir.length === 0}
-              aviso={`${porRecibir.length > 0 ? `Pasa ${porRecibir.length} ${porRecibir.length === 1 ? 'línea' : 'líneas'} a "Recibido". ` : ''}${noVinieron.length > 0 ? `${noVinieron.length} ${noVinieron.length === 1 ? 'línea queda' : 'líneas quedan'} sin recibir porque el proveedor no la${noVinieron.length === 1 ? '' : 's'} mandó. ` : ''}Lo que falte, reportalo como incidencia "faltante" en su pedido.`}
-            />
-          )}
-
-          {/* Ítems del envío: los cambios se pintan al instante y se guardan por detrás
-              (la base es remota, esperar cada round-trip mata el uso). */}
-          <EnvioItemsTable
-            envioId={envio.id}
-            items={itemRows}
-            inbound={inboundCaja}
-            modo={modoEnvio}
-            guardar={saveItemChanges}
-            quitar={removePedido}
-            marcarNoVino={marcarNoVino}
-            bloqueada={esBorrador}
-            mover={moverPedidoACaja}
-            destinos={destinosMover}
-            motivoNoMover={motivoNoMover}
-          />
-
-          {/* Lo pendiente de comprar, listo para copiar o bajar en CSV */}
-          <PendientesCompraButton
-            envio={envio.nombre ?? `Envío #${envio.id}`}
-            grupos={pendientes}
-            inrUsd={inrUsd}
-            compra99={compra99}
-          />
-
-          {/* Contenido de la caja por SKU, separado por origen: son dos órdenes distintas. Es la
-              caja ENTERA (incluye lo ya comprado); lo que falta comprar está en el botón de
-              pendientes. Plegado, con el total en el título para no tener que abrirlo. */}
-          {buyIndia.length > 0 && (
-            <details className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
-              <summary className="px-6 py-3 bg-gray-50 cursor-pointer text-sm font-semibold text-gray-500 uppercase tracking-wide">
-                🇮🇳 Contenido de la caja por SKU · {buyIndia.length} {buyIndia.length === 1 ? 'ítem' : 'ítems'} · {buyUnits} u.
-                {' · '}
-                {buyTotalInr > 0 && <>{Math.round(buyTotalInr).toLocaleString('es-VE')} INR ≈ </>}
-                {usd(buyTotalUsd)}
-              </summary>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-y border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
-                    <th className="text-left px-6 py-2 font-semibold">Código</th>
-                    <th className="text-left px-3 py-2 font-semibold">Pieza</th>
-                    <th className="text-right px-3 py-2 font-semibold">Cant.</th>
-                    <th className="text-right px-3 py-2 font-semibold">Unitario</th>
-                    <th className="text-right px-6 py-2 font-semibold">Total USD</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {buyIndia.map((r, i) => (
-                    <tr key={i} className="hover:bg-gray-50">
-                      <td className="px-6 py-2.5 font-mono text-xs text-gray-500">{r.sku ?? '—'}</td>
-                      <td className="px-3 py-2.5 text-gray-900">
-                        {r.name}
-                        {r.missingPrice && (
-                          <span className="ml-2 text-xs text-amber-600">sin precio</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-mono text-gray-700">{r.qty}</td>
-                      <td className="px-3 py-2.5 text-right font-mono text-gray-600">
-                        {r.unit != null
-                          ? r.moneda === 'USD' ? usd(r.unit) : `${r.unit.toLocaleString('es-VE')} INR`
-                          : '—'}
-                      </td>
-                      <td className="px-6 py-2.5 text-right font-mono font-semibold text-gray-900">
-                        {r.totalUsd > 0 ? usd(r.totalUsd) : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t-2 border-gray-200 bg-gray-50">
-                    <td className="px-6 py-3 font-bold text-gray-900" colSpan={2}>Total de la caja</td>
-                    <td className="px-3 py-3 text-right font-mono font-semibold text-gray-700">{buyUnits}</td>
-                    <td className="px-3 py-3"></td>
-                    <td className="px-6 py-3 text-right">
-                      <span className="font-bold font-mono text-blue-700">{usd(buyTotalUsd)}</span>
-                      {buyTotalInr > 0 && (
-                        <span className="block text-xs text-gray-400 font-mono">
-                          {Math.round(buyTotalInr).toLocaleString('es-VE')} INR a {inrUsd}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </details>
-          )}
-
-          {buyChina.length > 0 && (
-            <details className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
-              <summary className="px-6 py-3 bg-gray-50 cursor-pointer text-sm font-semibold text-gray-500 uppercase tracking-wide">
-                🇨🇳 Contenido de la caja por SKU · {buyChina.length} {buyChina.length === 1 ? 'ítem' : 'ítems'}
-              </summary>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-y border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
-                    <th className="text-left px-6 py-2 font-semibold">Código</th>
-                    <th className="text-left px-3 py-2 font-semibold">Pieza</th>
-                    <th className="text-right px-6 py-2 font-semibold">Cant.</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {buyChina.map((r, i) => (
-                    <tr key={i} className="hover:bg-gray-50">
-                      <td className="px-6 py-2.5 font-mono text-xs text-gray-500">{r.sku ?? '—'}</td>
-                      <td className="px-3 py-2.5 text-gray-900">{r.name}</td>
-                      <td className="px-6 py-2.5 text-right font-mono text-gray-700">{r.qty}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </details>
-          )}
-        </>
-      )}
-
-      {/* Pedidos confirmados con ítems sin asignar */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-4">
-        <div className="px-6 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between flex-wrap gap-3">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-            Pedidos confirmados con ítems sueltos ({confirmadosSinAsignar.length})
-          </h2>
-          {confirmadosSinAsignar.length > 0 && (
-            <FormConResultado
-              action={assignAllConfirmados.bind(null, envio.id)}
-              className="flex items-center gap-3 flex-wrap"
-            >
-              <label className="flex items-center gap-1.5 text-xs text-gray-600">
-                <input type="checkbox" name="incluirPropio" defaultChecked className="rounded border-gray-300" />
-                Incluir stock propio ({confirmadosPropios})
-              </label>
-              <PendingButton
-                pendingLabel="Agregando…"
-                className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-blue-700 transition-colors"
-              >
-                + Agregar todos los confirmados
-              </PendingButton>
-            </FormConResultado>
-          )}
-        </div>
-        {confirmadosSinAsignar.length === 0 ? (
-          <p className="px-6 py-6 text-sm text-gray-400">
-            No hay pedidos confirmados con ítems sin asignar.
-          </p>
-        ) : (
-          <div className="divide-y divide-gray-50">
-            {confirmadosSinAsignar.map(its => (
-              <SueltoPedido
-                key={its[0].pedidoId}
-                envioId={envio.id}
-                pedidoId={its[0].pedidoId}
-                clientName={its[0].pedido.clientName}
-                tipo={its[0].pedido.tipo}
-                lineas={lineasSueltas(its)}
-                otrasCajas={otrasCajasDe(its[0].pedidoId)}
-                agregarTodo={assignPedido}
-                agregarElegidas={assignItems}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Presupuestos sin aprobar (informativo, no entran al agregado masivo) */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-6 py-3 border-b border-gray-100 bg-gray-50">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-            Presupuestos sin aprobar ({presupuestosSinAsignar.length})
-          </h2>
-        </div>
-        {presupuestosSinAsignar.length === 0 ? (
-          <p className="px-6 py-6 text-sm text-gray-400">
-            No hay presupuestos pendientes. <Link href="/presupuestos/new" className="text-blue-600 hover:underline">Creá uno</Link>.
-          </p>
-        ) : (
-          <div className="divide-y divide-gray-50">
-            {presupuestosSinAsignar.map(its => (
-              <SueltoPedido
-                key={its[0].pedidoId}
-                envioId={envio.id}
-                pedidoId={its[0].pedidoId}
-                clientName={its[0].pedido.clientName}
-                tipo={its[0].pedido.tipo}
-                lineas={lineasSueltas(its)}
-                otrasCajas={otrasCajasDe(its[0].pedidoId)}
-                sinAprobar
-                agregarTodo={assignPedido}
-                agregarElegidas={assignItems}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+                {/* Lo que cobraron los transportistas y si ya se les pagó. */}
+          <FleteRealCard methods={METODOS_PAGO_EGRESO} filas={filasFlete} />
+              </>
+            ),
+          },
+        ]}
+      />
     </div>
   )
 }
 
-function Parte({ label, valor, tono }: { label: string; valor: number; tono: string }) {
+function Kpi({ titulo, valor, detalle, tono = 'text-gray-900', className = '', children }: {
+  titulo: string; valor: string; detalle?: string; tono?: string; className?: string; children?: ReactNode
+}) {
   return (
-    <span className="inline-flex items-baseline gap-1.5">
-      <span className="text-gray-500">{label}</span>
-      <span className={`font-mono font-semibold ${tono}`}>{usd(valor)}</span>
-    </span>
+    <div className={`bg-white px-4 py-3 min-w-0 ${className}`}>
+      <dt className="text-xs font-medium text-gray-500">{titulo}</dt>
+      <dd className="mt-1">
+        <span className={`block text-xl font-bold font-mono ${tono}`}>{valor}</span>
+        {detalle && <span className="block text-xs text-gray-500 mt-0.5">{detalle}</span>}
+        {children}
+      </dd>
+    </div>
   )
 }
 
@@ -1879,37 +1958,28 @@ function Parte({ label, valor, tono }: { label: string; valor: number; tono: str
 function QuienPonePlata({ f }: { f: FinanciamientoEnvio }) {
   if (f.costoUsd <= 0) return null
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-4 mb-4">
-      <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">💵 Quién pone la plata</h2>
-      <p className="text-sm flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="text-gray-500">Costo de la caja</span>
-        <span className="font-mono font-bold text-gray-900">{usd(f.costoUsd)}</span>
-        <span className="text-gray-300">=</span>
-        <Parte label="Clientes" valor={f.clientes.costoUsd} tono="text-gray-900" />
-        {f.propio.costoUsd > 0 && <><span className="text-gray-300">+</span><Parte label="Stock propio" valor={f.propio.costoUsd} tono="text-sky-700" /></>}
-        {f.sinAprobar.costoUsd > 0 && <><span className="text-gray-300">+</span><Parte label="Sin aprobar" valor={f.sinAprobar.costoUsd} tono="text-amber-700" /></>}
-      </p>
-      <p className="text-sm mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="text-gray-500">Adelantos que la cubren</span>
-        <span className="font-mono font-semibold text-green-700">{usd(f.adelantosUsd)}</span>
-        {f.pedidosPartidos > 0 && (
-          <span className="text-xs text-gray-400">
-            ({f.pedidosPartidos === 1 ? 'un pedido está partido' : `${f.pedidosPartidos} pedidos están partidos`} entre cajas: el adelanto cuenta en proporción)
-          </span>
-        )}
-      </p>
-      <p className="text-sm mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="text-gray-500">De tu bolsillo hasta entregar</span>
-        <span className="font-mono font-bold text-lg text-amber-700">{usd(f.bolsilloUsd)}</span>
-        <span className="text-gray-300">=</span>
-        <Parte label="clientes por cobrar" valor={f.clientes.porCobrarUsd} tono="text-gray-900" />
-        {f.propio.costoUsd > 0 && <><span className="text-gray-300">+</span><Parte label="inventario tuyo" valor={f.propio.costoUsd} tono="text-sky-700" /></>}
-        {f.sinAprobar.costoUsd > 0 && <><span className="text-gray-300">+</span><Parte label="riesgo" valor={f.sinAprobar.costoUsd} tono="text-amber-700" /></>}
+    <div className="space-y-3">
+      <h3 id="plata-quien" className="text-sm font-semibold text-gray-700">Quién pone la plata</h3>
+      <dl aria-labelledby="plata-quien" className="space-y-2 text-sm">
+        <Row label="Clientes" value={usd(f.clientes.costoUsd)} />
+        {f.propio.costoUsd > 0 && <Row label="Stock propio (inventario tuyo)" value={usd(f.propio.costoUsd)} />}
+        {f.sinAprobar.costoUsd > 0 && <Row label="Presupuestos sin aprobar (riesgo)" value={usd(f.sinAprobar.costoUsd)} tag={{ texto: 'puede caerse', tono: 'falta' }} />}
+        <Row label="Adelantos que la cubren" value={usd(f.adelantosUsd)} />
+        <div className="flex justify-between gap-3 pt-3 mt-2 border-t-2 border-gray-200">
+          <dt className="font-bold text-gray-900">De tu bolsillo hasta entregar</dt>
+          <dd className="font-bold text-xl font-mono text-amber-800">{usd(f.bolsilloUsd)}</dd>
+        </div>
+      </dl>
+      <p className="text-sm text-gray-600">
+        {usd(f.clientes.porCobrarUsd)} por cobrar a clientes
+        {f.propio.costoUsd > 0 && ` + ${usd(f.propio.costoUsd)} de inventario tuyo`}
+        {f.sinAprobar.costoUsd > 0 && ` + ${usd(f.sinAprobar.costoUsd)} en riesgo`}.
+        {f.pedidosPartidos > 0 && ` ${f.pedidosPartidos === 1 ? 'Un pedido está partido' : `${f.pedidosPartidos} pedidos están partidos`} entre cajas: su adelanto cuenta en proporción.`}
       </p>
       {f.clientes.pedidos > 0 && (
-        <p className="text-xs mt-2">
-          <Link href="/clientes" className="text-blue-600 hover:underline">
-            Ver saldos de {f.clientes.pedidos === 1 ? 'este cliente' : `estos ${f.clientes.pedidos} clientes`} →
+        <p className="text-sm">
+          <Link href="/clientes" className="text-blue-700 underline underline-offset-2 hover:no-underline">
+            Ver saldos de {f.clientes.pedidos === 1 ? 'este cliente' : `estos ${f.clientes.pedidos} clientes`}<span aria-hidden="true"> →</span>
           </Link>
         </p>
       )}
@@ -1917,19 +1987,39 @@ function QuienPonePlata({ f }: { f: FinanciamientoEnvio }) {
   )
 }
 
+// Un monto del giro. Vacío = todavía no se sabe; 0 = es un hecho. La ayuda va a la vista (antes vivía en title).
+function CampoGiro({ id, name, valor, label, ayuda, placeholder = 'sin cargar' }: {
+  id: string; name: string; valor: number | null; label: string; ayuda: string; placeholder?: string
+}) {
+  return (
+    <div>
+      <label htmlFor={id} className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+      <input
+        id={id} name={name} type="number" step="0.01" min="0" inputMode="decimal"
+        defaultValue={valor ?? ''} placeholder={placeholder} aria-describedby={`${id}-ayuda`}
+        className="w-40 min-h-9 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+      />
+      <p id={`${id}-ayuda`} className="text-xs text-gray-600 mt-1 max-w-[34ch]">{ayuda}</p>
+    </div>
+  )
+}
+
+// Encabezado de una sección plegable, igual al de SeccionCaja.
+const SUMMARY_CLS = 'list-none cursor-pointer flex items-start justify-between gap-4 px-4 sm:px-6 py-4 rounded-xl hover:bg-gray-50 group-open:rounded-b-none group-open:border-b group-open:border-gray-100 [&::-webkit-details-marker]:hidden focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600'
+
 const TAG_CLS = {
-  real: 'bg-green-100 text-green-700',
-  est: 'bg-gray-100 text-gray-500',
-  falta: 'bg-amber-100 text-amber-700',
+  real: 'bg-green-100 text-green-800',
+  est: 'bg-gray-100 text-gray-700',
+  falta: 'bg-amber-100 text-amber-900',
 } as const
 
 function Row({ label, value, tag }: { label: string; value: string; tag?: { texto: string; tono: keyof typeof TAG_CLS } }) {
   return (
     <div className="flex justify-between gap-3">
-      <dt className="text-gray-600">{label}</dt>
-      <dd className="font-mono text-gray-800 flex items-baseline gap-2 shrink-0">
+      <dt className="text-gray-700 min-w-0">{label}</dt>
+      <dd className="font-mono text-gray-900 flex flex-wrap justify-end items-baseline gap-x-2 shrink-0 max-w-[55%]">
         {tag && (
-          <span className={`font-sans text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${TAG_CLS[tag.tono]}`}>
+          <span className={`font-sans text-xs font-semibold px-1.5 py-0.5 rounded-full ${TAG_CLS[tag.tono]}`}>
             {tag.texto}
           </span>
         )}
