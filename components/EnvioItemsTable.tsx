@@ -74,6 +74,11 @@ interface Props {
   quitar: (envioId: number, pedidoId: number) => Promise<ActionResult>
   /** Anota que el proveedor no mandó (parte de) una línea. */
   marcarNoVino?: (envioId: number, itemId: number, formData: FormData) => Promise<ActionResult>
+  // Pasa el presupuesto a otra caja con la etapa que tiene (caja partida en el depósito, ver
+  // lib/mover-caja.ts). `destinos` son las cajas que la regla acepta; vacío = `motivoNoMover`.
+  mover?: (envioId: number, pedidoId: number, formData: FormData) => Promise<ActionResult>
+  destinos?: { id: number; nombre: string }[]
+  motivoNoMover?: string | null
 }
 
 // Aviso ámbar de piezas sin peso o sin medidas. No dice cuáles: lleva al presupuesto, que es
@@ -162,6 +167,9 @@ export default function EnvioItemsTable({
   quitar,
   marcarNoVino,
   bloqueada = false,
+  mover,
+  destinos = [],
+  motivoNoMover = null,
 }: Props) {
   // La línea con el formulario "No vino" abierto (una a la vez).
   const [noVino, setNoVino] = useState<number | null>(null)
@@ -329,6 +337,28 @@ export default function EnvioItemsTable({
         if (!r.ok) setError(r.error)
       } catch {
         setError('No se pudo quitar el presupuesto.')
+      }
+    })
+  }
+
+  function moverPresupuesto(pedidoId: number, clientName: string, destinoId: number) {
+    const destino = destinos.find(d => d.id === destinoId)
+    if (!mover || !destino) return
+    if (!confirm(
+      `¿Pasar el presupuesto de ${clientName} a ${destino.nombre}? ` +
+      `Sus líneas van con la etapa y el costo que tienen. Después cargá el flete y las cajas de cada envío.`
+    )) return
+
+    setError(null)
+    startGuardar(async () => {
+      setQuitados(pedidoId)
+      try {
+        const fd = new FormData()
+        fd.set('destinoId', String(destinoId))
+        const r = await mover(envioId, pedidoId, fd)
+        if (!r.ok) setError(r.error)
+      } catch {
+        setError('No se pudo mover el presupuesto.')
       }
     })
   }
@@ -553,6 +583,24 @@ export default function EnvioItemsTable({
                     >
                       Quitar
                     </button>
+                    {mover && destinos.length > 0 && (
+                      <select
+                        value=""
+                        disabled={guardando}
+                        onChange={e => {
+                          const destinoId = parseInt(e.target.value)
+                          if (Number.isInteger(destinoId)) moverPresupuesto(pedidoId, its[0].clientName, destinoId)
+                        }}
+                        title="Pasarlo a otra caja con la etapa que tiene"
+                        className="ml-2 text-xs text-blue-600 bg-transparent border-0 cursor-pointer focus:ring-0 p-0"
+                      >
+                        <option value="">Mover a…</option>
+                        {destinos.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+                      </select>
+                    )}
+                    {mover && destinos.length === 0 && motivoNoMover && !bloqueada && (
+                      <span title={motivoNoMover} className="ml-2 text-xs text-gray-300 cursor-help">Mover</span>
+                    )}
                   </td>
                 </tr>
 

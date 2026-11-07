@@ -346,10 +346,18 @@ model Envio {
   lineas           EnvioLinea[]
   movimientos      Movimiento[]
   supplier         Supplier?    @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  // Caja partida en el depósito (ver lib/mover-caja.ts): la caja raíz de la compra de la que
+  // salió parte de esta. Null = es su propia compra (o la raíz). Lo debido y lo pagado al
+  // proveedor se suman por compra, no por caja: el giro fue uno y sus pagos quedan en la caja
+  // donde se anotaron. Plana: siempre apunta a la raíz, nunca a otra hija.
+  compraDeId       Int?
+  compraDe         Envio?       @relation("CompraPartida", fields: [compraDeId], references: [id], onDelete: SetNull)
+  partes           Envio[]      @relation("CompraPartida")
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
   @@index([supplierId])
+  @@index([compraDeId])
 }
 
 // Una caja física de un envío, como la pesó y midió el transportista o el depósito.

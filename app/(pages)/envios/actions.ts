@@ -15,6 +15,7 @@ import { contextoCosteo, costearAereo, ENVIO_COSTEO_INCLUDE } from '@/lib/costo-
 import { isReenvio, motivoNoCambiaReenvio, ETAPAS_FUERA_DEL_DEPOSITO } from '@/lib/reenvio'
 import { fallo, ok, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
 import { isForeignKeyViolation } from '@/lib/prisma-errors'
+import { compraTrasMover, motivoNoMueve, type CajaParaMover } from '@/lib/mover-caja'
 import { CATEGORIAS_EGRESO } from '@/lib/movimientos'
 import { listarFaltantes, piezasDeLinea } from '@/lib/stock-piezas'
 import { moverEtapas, type FilaEtapa, type PiezaEtapa } from '@/lib/mover-etapas'
@@ -322,18 +323,105 @@ export async function removePedido(envioId: number, pedidoId: number): Promise<A
     : ok()
 }
 
+// Pasa las líneas de un presupuesto de esta caja a otra, con la etapa, el costo real y el
+// proveedor que tienen: para partir una caja que está en el depósito en dos despachos, cada uno
+// con sus gastos fijos y su factura. Las reglas están en lib/mover-caja.ts.
+//
+// Las dos filas de Envio se bloquean (en orden de id, para no cruzarse con otro movimiento al
+// revés) y el UPDATE va guardado por la caja y la etapa: si otra pestaña movió algo en el medio,
+// no se mueve nada.
+export async function moverPedidoACaja(envioId: number, pedidoId: number, formData: FormData): Promise<ActionResult> {
+  const destinoId = parseInt((formData.get('destinoId') as string) ?? '')
+  if (!Number.isInteger(destinoId)) return fallo('Elegí a qué caja pasarlo.')
+
+  return conErrorDeNegocio(async () => {
+    await db.$transaction(async tx => {
+      const [a, b] = envioId < destinoId ? [envioId, destinoId] : [destinoId, envioId]
+      await tx.$queryRaw`SELECT "id" FROM "Envio" WHERE "id" IN (${a}, ${b}) ORDER BY "id" FOR UPDATE`
+      const cajas = await tx.envio.findMany({
+        where: { id: { in: [envioId, destinoId] } },
+        select: {
+          id: true, modo: true, estado: true, supplierId: true, reenvio: true, compraDeId: true,
+          comisionSalienteUsd: true, comisionEntranteUsd: true,
+          supplier: { select: { origen: true, inbound: true } },
+          items: { select: { shippingStatus: true, isLanded: true } },
+          movimientos: { where: { tipo: 'egreso', categoria: TRAMOS_FLETE.aereo.categoria }, select: { id: true } },
+          _count: { select: { partes: true, cajas: { where: { etapa: 'llegada' } } } },
+        },
+      })
+      const leer = (id: number): CajaParaMover => {
+        const c = cajas.find(x => x.id === id)
+        if (!c) throw new ErrorDeNegocio(id === envioId ? 'Esta caja ya no existe.' : `La caja #${id} ya no existe.`)
+        return {
+          id: c.id, modo: c.modo, estado: c.estado, supplierId: c.supplierId, reenvio: c.reenvio,
+          despachaProveedor: c.supplier != null && inboundDe(c.supplier.origen, c.supplier.inbound) === 'cotizado',
+          lineas: c.items,
+          fleteAereoPagado: c.movimientos.length > 0,
+          compraDeId: c.compraDeId,
+          tieneHijas: c._count.partes > 0,
+        }
+      }
+      const origen = leer(envioId)
+      const destino = leer(destinoId)
+      const motivo = motivoNoMueve(origen, destino)
+      if (motivo) throw new ErrorDeNegocio(motivo)
+
+      const esperadas = await tx.pedidoItem.count({ where: { pedidoId, envioId } })
+      if (esperadas === 0) throw new ErrorDeNegocio('Ese presupuesto ya no está en esta caja. Recargá la página.')
+      const r = await tx.pedidoItem.updateMany({
+        where: { pedidoId, envioId, OR: [{ isLanded: true }, { shippingStatus: { notIn: [...ETAPAS_FUERA_DEL_DEPOSITO] } }] },
+        data: { envioId: destinoId },
+      })
+      if (r.count !== esperadas) throw new ErrorDeNegocio('Alguna línea cambió de etapa mientras tanto. Recargá la página.')
+
+      const compraDeId = compraTrasMover(origen, destino)
+      if (compraDeId !== destino.compraDeId) {
+        // Pasa a ser parte de otra compra: el giro fue uno y sus comisiones están anotadas (o se
+        // anotan) en la caja raíz. Las de esta caja son 0, un dato: no hubo otro giro. Una que ya
+        // tenía algo anotado lo conserva.
+        const d = cajas.find(c => c.id === destinoId)!
+        await tx.envio.update({
+          where: { id: destinoId },
+          data: {
+            compraDeId,
+            ...(d.supplierId != null && d.comisionSalienteUsd == null ? { comisionSalienteUsd: 0 } : {}),
+            ...(d.supplierId != null && d.comisionEntranteUsd == null ? { comisionEntranteUsd: 0 } : {}),
+          },
+        })
+      }
+      // Las cajas que llegaron al depósito pesan lo que traía la caja entera: desde ahora lo que
+      // se factura son las que salen. Con reempaque y sin cajas de salida el costeo queda
+      // provisorio hasta cargarlas (ver lib/cajas-envio.ts).
+      if ((cajas.find(c => c.id === envioId)?._count.cajas ?? 0) > 0) {
+        await tx.envio.update({ where: { id: envioId }, data: { reempaque: true } })
+      }
+    })
+  }).then(r => {
+    if (r.ok) {
+      revalidarCaja(envioId)
+      revalidarCaja(destinoId)
+      revalidatePath(`/presupuestos/${pedidoId}`)
+    }
+    return r
+  })
+}
+
 // Asigna de un tirón los ítems sin envío de todos los pedidos CONFIRMADOS
 // (status='pedido'). Nunca toca presupuestos sin aprobar. El stock propio
 // (tipo='propio') también tiene status='pedido' desde que se crea, así que se filtra
 // aparte según el checkbox del formulario.
 export async function assignAllConfirmados(envioId: number, formData: FormData): Promise<ActionResult> {
   const incluirPropio = formData.get('incluirPropio') === 'on'
+  // Una caja express se llena solo con presupuestos express, y una aérea con los demás.
+  const caja = await db.envio.findUnique({ where: { id: envioId }, select: { modo: true } })
+  const via = caja?.modo === 'express' ? 'express' : 'normal'
 
   const ids = await db.pedidoItem.findMany({
     where: {
       envioId: null,
       pedido: {
         status: 'pedido',
+        via,
         // Las ventas del depósito ya están entregadas: nunca van a una caja.
         tipo: incluirPropio ? { not: 'venta' } : { notIn: ['propio', 'venta'] },
       },
