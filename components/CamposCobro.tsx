@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { cobraEnBolivares } from '@/lib/pagos'
 import MontoBs from '@/components/MontoBs'
 
@@ -18,11 +18,15 @@ interface Props {
   requerido?: boolean
   /** Arranca con el saldo escrito (en divisas). */
   conSaldo?: boolean
+  /** Campos del vuelto, dados los dólares reales que sobran. En Bs es una opción de MontoBs; en
+   *  divisas, una casilla "Le di vuelto". Sin él, no se ofrece vuelto. */
+  vuelto?: (sobraReal: number) => ReactNode
 }
 
 const cls = 'w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
 
-export default function CamposCobro({ methods, modoBcv, saldo, tasaBs, requerido = true, conSaldo = false }: Props) {
+export default function CamposCobro({ methods, modoBcv, saldo, tasaBs, requerido = true, conSaldo = false, vuelto }: Props) {
+  const [conVuelto, setConVuelto] = useState(false)
   const [metodo, setMetodo] = useState<string>(methods[0])
   const [monto, setMonto] = useState(conSaldo && saldo.divisas > 0.005 ? saldo.divisas.toFixed(2) : '')
   const enBs = cobraEnBolivares(metodo)
@@ -38,7 +42,10 @@ export default function CamposCobro({ methods, modoBcv, saldo, tasaBs, requerido
             tasaSugerida={tasaBs.valor}
             etiquetaTasa={tasaBs.etiqueta}
             sugerido={saldoMetodo > 0.005 ? saldoMetodo : null}
+            cierra
             inicial={conSaldo}
+            // Dólares del formulario → reales, con la proporción del propio saldo (BCV → divisas).
+            vuelto={vuelto && (s => vuelto(Math.floor(s * (saldo.bs > 0 ? saldo.divisas / saldo.bs : 1) * 100) / 100))}
             unidad={unidad}
             requerido={requerido}
             autoFocus
@@ -56,7 +63,8 @@ export default function CamposCobro({ methods, modoBcv, saldo, tasaBs, requerido
             </div>
           </>
         )}
-        {saldoMetodo > 0.005 && (
+        {/* En Bs, MontoBs ya dice cuánto falta para cerrar. */}
+        {!enBs && saldoMetodo > 0.005 && (
           <p className="text-[11px] text-gray-500 mt-1">
             Saldo: ${saldoMetodo.toFixed(2)}{modoBcv && (enBs ? ' a tasa BCV' : ' en divisas')}
           </p>
@@ -69,6 +77,16 @@ export default function CamposCobro({ methods, modoBcv, saldo, tasaBs, requerido
           {methods.map(m => <option key={m} value={m}>{m}</option>)}
         </select>
       </label>
+
+      {vuelto && !enBs && (
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-xs text-gray-600">
+            <input type="checkbox" checked={conVuelto} onChange={e => setConVuelto(e.target.checked)} className="rounded border-gray-300" />
+            Le di vuelto
+          </label>
+          {conVuelto && vuelto(Math.max(0, Math.round(((parseFloat(monto) || 0) - saldo.divisas) * 100) / 100))}
+        </div>
+      )}
     </>
   )
 }

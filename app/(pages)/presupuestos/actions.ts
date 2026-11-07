@@ -646,6 +646,8 @@ export async function aprobarPedido(id: number, formData: FormData): Promise<Act
     if (actual.status === 'cancelado') return fallo('Este pedido está cancelado: no se le puede registrar un adelanto.')
     const eraPresupuesto = actual.status === 'presupuesto'
     const ctx = await lineasYEscalon(tx, id)
+    // Una venta del depósito no tiene adelanto que editar: su cobro se corrige en Contabilidad.
+    if (ctx.tipo === 'venta') return fallo('Una venta no tiene adelanto: si un cobro quedó mal, borralo en Contabilidad y registrá el pago de nuevo.')
 
     // Confirmar compromete precios y tasa: antes de aceptarlo se revalida lo que pudo cambiar desde
     // que se cotizó. (Editar el adelanto de un pedido ya confirmado no pasa por acá.)

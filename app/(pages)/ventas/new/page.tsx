@@ -1,4 +1,5 @@
 import { db } from '@/lib/db'
+import Link from 'next/link'
 import VentaDirectaForm from '@/components/VentaDirectaForm'
 import { registrarVenta } from '../actions'
 import { escalonBcvVigente } from '@/lib/calc'
@@ -43,13 +44,13 @@ export default async function NuevaVentaPage() {
   for (const p of sueltas) toModelIds(p.compatibleModels).forEach(m => motos.add(m))
 
   return (
-    <div>
+    <div className="max-w-6xl">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Venta del depósito</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Para vender lo que ya tenés: sin presupuesto ni caja. Solo aparecen las motos, ensambles y piezas que
-          tenés en el depósito. Baja el stock, se queda con lo que costó cada pieza para saber cuánto ganaste, y
-          queda registrado a nombre del cliente. Lo que no tenés se cotiza como presupuesto.
+        <Link href="/ventas" className="inline-flex items-center min-h-8 text-sm text-blue-700 hover:underline">← Ventas</Link>
+        <h1 className="text-2xl font-bold text-gray-900 text-balance">Nueva venta del depósito</h1>
+        <p className="text-sm text-gray-500 mt-1 text-pretty">
+          Solo aparece lo que tenés en stock. Al registrar baja el stock y queda a nombre del cliente con lo que
+          ganaste. Lo que no tenés se cotiza como <Link href="/presupuestos/new" className="text-blue-700 hover:underline">presupuesto</Link>.
         </p>
       </div>
       <VentaDirectaForm

@@ -33,7 +33,6 @@ const cls = 'w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:
 // paso (ver confirmarEntrega). Las piezas pasan a entregado solas, estén en una caja o en el depósito.
 export default function ConfirmarEntregaForm({ action, lineas, methods, modoBcv, saldo, tasaBs, tasaDevolucion }: Props) {
   const [open, setOpen] = useState(false)
-  const [conVuelto, setConVuelto] = useState(false)
   const { enviar, isPending, error, limpiarError } = useEnviarAccion(action, () => setOpen(false))
   const debe = saldo.divisas > 0.005
 
@@ -41,7 +40,7 @@ export default function ConfirmarEntregaForm({ action, lineas, methods, modoBcv,
     <>
       <button
         type="button"
-        onClick={() => { limpiarError(); setConVuelto(false); setOpen(true) }}
+        onClick={() => { limpiarError(); setOpen(true) }}
         className="px-3 py-1.5 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition-colors"
       >
         ✅ Confirmar entrega
@@ -68,27 +67,21 @@ export default function ConfirmarEntregaForm({ action, lineas, methods, modoBcv,
             {debe ? (
               <div className="space-y-3 pt-2 border-t border-gray-100">
                 <p className="text-xs font-medium text-gray-600">Lo que pagó ahora <span className="font-normal text-gray-500">(vacío si no pagó nada)</span></p>
-                <CamposCobro methods={methods} modoBcv={modoBcv} saldo={saldo} tasaBs={tasaBs} requerido={false} conSaldo />
+                <CamposCobro
+                  methods={methods} modoBcv={modoBcv} saldo={saldo} tasaBs={tasaBs} requerido={false} conSaldo
+                  vuelto={sobra => (
+                    <CamposDevolucion
+                      key={sobra.toFixed(2)}
+                      sugerido={sobra}
+                      tasaSugerida={tasaDevolucion}
+                      etiqueta="Vuelto (USD reales)"
+                      ayuda="Lo que le devolviste porque pagó de más. Puede ser por otro medio que el pago."
+                    />
+                  )}
+                />
               </div>
             ) : (
               <p className="text-xs text-green-700 pt-2 border-t border-gray-100">Ya está pagado completo.</p>
-            )}
-
-            {debe && (
-              <div className="space-y-2">
-                <label className="flex items-center gap-2 text-xs text-gray-600">
-                  <input type="checkbox" checked={conVuelto} onChange={e => setConVuelto(e.target.checked)} className="rounded border-gray-300" />
-                  Le di vuelto
-                </label>
-                {conVuelto && (
-                  <CamposDevolucion
-                    sugerido={0}
-                    tasaSugerida={tasaDevolucion}
-                    etiqueta="Vuelto (USD reales)"
-                    ayuda="Lo que le devolviste porque pagó de más. Puede ser por otro medio que el pago."
-                  />
-                )}
-              </div>
             )}
 
             <label className="block">

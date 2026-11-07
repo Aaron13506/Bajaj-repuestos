@@ -86,6 +86,12 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
         cliente: { select: { telefono: true } },
         derivados: { select: { id: true, origenMotivo: true }, orderBy: { id: 'asc' } },
         _count: { select: { movimientos: true } },
+        // Cobros y devoluciones del cliente, uno por uno: en Bs se ve lo que entró de verdad.
+        movimientos: {
+          where: { categoria: { in: ['adelanto_cliente', 'pago_cliente', 'devolucion_cliente'] } },
+          select: { id: true, categoria: true, fecha: true, monto: true, montoBs: true, metodoPago: true },
+          orderBy: [{ fecha: 'asc' }, { id: 'asc' }],
+        },
       },
     }),
     db.config.findMany(),
@@ -287,7 +293,25 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
   const fecha = fmtDate(vigencia.desde)
   const validez = fmtDate(vigencia.venceEl)
   const numero = `N.º ${String(presupuesto.id).padStart(4, '0')}`
-  const docLabel = isPresupuesto ? 'Presupuesto' : 'Pedido'
+  // Una venta saldada ya no tiene condiciones de pago que explicar (tasa del día, descuento en divisas).
+  const porPagar = !isVenta || cobro.saldoReal > 0.005
+  const docLabel = isVenta ? 'Nota de venta' : isPresupuesto ? 'Presupuesto' : 'Pedido'
+  // Cada cobro (y vuelto) con lo que entró: Bs exactos si fue en Bs, y lo que acreditó en la
+  // unidad del documento (BCV si modoBcv, con la proporción del propio pedido).
+  const fmtCorta = (d: Date) => d.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', timeZone: 'America/Caracas' })
+  const cobros = presupuesto.movimientos.map(m => {
+    const devolucion = m.categoria === 'devolucion_cliente'
+    const bs = m.montoBs != null ? Number(m.montoBs) : null
+    return {
+      id: m.id,
+      texto: [
+        devolucion ? (isVenta ? 'Vuelto' : 'Devolución') : m.metodoPago ?? 'Cobro',
+        fmtCorta(m.fecha),
+        bs != null ? `Bs ${bs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : null,
+      ].filter(Boolean).join(' · '),
+      monto: (devolucion ? -1 : 1) * (cobro.factor > 0 ? Number(m.monto) / cobro.factor : Number(m.monto)),
+    }
+  })
   const fileName = toFileName(
     [docLabel, presupuesto.clientName, String(presupuesto.id).padStart(4, '0')],
     'pdf'
@@ -298,6 +322,8 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
     numero,
     fecha,
     validez: isPresupuesto ? validez : null,
+    esVenta: isVenta,
+    cobros: isVenta ? cobros.map(c => ({ texto: c.texto, monto: c.monto })) : undefined,
     clientName: presupuesto.clientName,
     expressPlazo: express ? plazoExpress(cfg) : null,
     notas: presupuesto.notas,
@@ -329,7 +355,8 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
       ? new Date(presupuesto.depositAt).toLocaleDateString('es-VE', { day: '2-digit', month: 'long', year: 'numeric' })
       : null,
     paymentMethod: presupuesto.paymentMethod,
-    terminos,
+    // Los términos son los de un pedido (adelanto, plazos): no aplican a lo que se llevó del depósito.
+    terminos: isVenta ? null : terminos,
   }
 
   return (
@@ -484,14 +511,17 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
           )}
           {!isPropio && !isPresupuesto && !isCancelado && (
             <div className="relative flex flex-wrap items-center gap-2">
-              <RegistrarPagoClienteForm
-                action={registrarPagoPedido.bind(null, id)}
-                methods={METODOS_PAGO_INGRESO}
-                modoBcv={modoBcv}
-                tasaBs={tasaBsCobro}
-                saldo={{ bs: cobro.saldoBcv, divisas: cobro.saldoReal }}
-              />
-              <AprobarPedidoForm
+              {(!isVenta || cobro.saldoReal > 0.005) && (
+                <RegistrarPagoClienteForm
+                  action={registrarPagoPedido.bind(null, id)}
+                  methods={METODOS_PAGO_INGRESO}
+                  modoBcv={modoBcv}
+                  tasaBs={tasaBsCobro}
+                  saldo={{ bs: cobro.saldoBcv, divisas: cobro.saldoReal }}
+                />
+              )}
+              {/* Una venta no tiene adelanto: un cobro mal anotado se borra en Contabilidad. */}
+              {!isVenta && <AprobarPedidoForm
                 mode="editar"
                 action={aprobarPedido.bind(null, id)}
                 methods={METODOS_PAGO_INGRESO}
@@ -504,7 +534,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                 tasaBs={tasaBsCobro}
                 initialMethod={presupuesto.paymentMethod}
                 initialDate={depositDateStr}
-              />
+              />}
             </div>
           )}
           {isPropio && (
@@ -781,7 +811,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
 
       {/* Estado de compra — derivado de los ítems, no del pedido: de un mismo
           presupuesto unas piezas pueden estar compradas y otras no. */}
-      {!isPresupuesto && !isCancelado && compra && (
+      {!isPresupuesto && !isCancelado && !isVenta && compra && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-4">
           <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
             <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Estado de compra</h2>
@@ -812,7 +842,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
 
       {/* Carga de medidas, de a un ensamble. Sin dimensiones no hay volumen, y sin
           volumen el flete por mar de esas piezas cuenta cero. */}
-      {grupos.length > 0 && (
+      {grupos.length > 0 && !isVenta && (
         <div id="medidas" className="mb-4 scroll-mt-4">
           <MedidasIA
             grupos={grupos}
@@ -992,13 +1022,13 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
             <span className="font-bold text-gray-900">{modoBcv ? 'Total USD (BCV)' : 'Total USD'}</span>
             <span className="font-bold text-2xl font-mono text-blue-700">${totalMostrado.toFixed(2)}</span>
           </div>
-          {modoBcv && (
+          {modoBcv && porPagar && (
             <div className="text-xs text-gray-500 text-right">
               <p>Monto expresado en dólares a tasa BCV</p>
               <p>Se paga a la tasa BCV del día en que se realice el pago</p>
             </div>
           )}
-          {modoBcv && descuentoDivisasPct > 0 && (
+          {modoBcv && descuentoDivisasPct > 0 && porPagar && (
             // Punto intermedio: más que las aclaraciones grises, menos que el total BCV.
             <div className="flex justify-between items-baseline gap-3 pt-1 text-green-700">
               <span className="text-sm font-semibold">Pagando en divisas se aplica un descuento del {descuentoDivisasPct}%</span>
@@ -1026,7 +1056,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
             <div className="mt-2 space-y-1.5">
               <div className="flex justify-between items-center bg-green-50 border border-green-200 rounded-lg px-3 py-2">
                 <span className="text-sm font-semibold text-green-800">
-                  Abonado
+                  {isVenta ? 'Pagado' : 'Abonado'}
                   {presupuesto.paymentMethod && (
                     <span className="font-normal text-green-700"> · {presupuesto.paymentMethod}</span>
                   )}
@@ -1043,7 +1073,16 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                   {modoBcv && <span className="block text-[11px] text-gray-500 font-mono">${Math.abs(cobro.saldoReal).toFixed(2)} en divisas</span>}
                 </span>
               </div>
-              {presupuesto.depositAt && (
+              {cobros.length > 0 ? (
+                <ul className="px-3 space-y-0.5 text-xs text-gray-600">
+                  {cobros.map(c => (
+                    <li key={c.id} className="flex justify-between gap-3">
+                      <span>{c.texto}</span>
+                      <span className="font-mono tabular-nums shrink-0">{c.monto < 0 ? '−' : ''}${Math.abs(c.monto).toFixed(2)}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : presupuesto.depositAt && (
                 <p className="text-xs text-gray-500 px-3">
                   Adelanto del {new Date(presupuesto.depositAt).toLocaleDateString('es-VE', { day: '2-digit', month: 'long', year: 'numeric' })}
                 </p>
@@ -1088,7 +1127,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
 
       {/* Términos: los mismos que van al PDF (ver getTerminos), visibles acá para
           poder revisarlos antes de mandarlo. */}
-      {terminos && (
+      {terminos && !isVenta && (
         <details className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 sm:px-6 py-3">
           <summary className="text-xs font-semibold uppercase tracking-wide text-gray-500 cursor-pointer">
             Términos y condiciones
