@@ -61,10 +61,17 @@ interface Props {
   escalon: number | null
   tasaBcv: number
   tasaDirecta: number
+  /** Pieza con la que arranca el carrito (el «Vender» del inicio). */
+  inicial?: PiezaEnStock | null
 }
 
 type Coincidencias = Map<number, { pieceName: string; pieceCode: string }>
 const sinCoincidencias: Coincidencias = new Map()
+
+function lineaDe(p: PiezaEnStock, cantidad: number): Linea {
+  const cant = Math.max(1, Math.min(cantidad, p.stock))
+  return { pieza: p, cantidad: String(cant), precio: p.price.toFixed(2), costo: p.costoUnitUsd != null ? p.costoUnitUsd.toFixed(2) : '' }
+}
 
 // "Cobra después": ningún método. No se manda monto y la venta queda por cobrar (igual que con
 // el monto vacío); el cobro se registra más tarde desde la venta.
@@ -81,7 +88,7 @@ const subtitulo = 'text-xs font-semibold text-gray-600 uppercase tracking-wide'
 // pieza), pero solo aparece lo que hay en stock. Sin presupuesto ni caja: se elige el cliente
 // —queda a su nombre—, se ve lo que cuestan las piezas y lo que se gana, y se cobra (o se deja
 // por cobrar) en el mismo paso. Izquierda: buscar; derecha: la venta, fija mientras se busca.
-export default function VentaDirectaForm({ action, clientes, ensambles, motos, metodos, escalon, tasaBcv, tasaDirecta }: Props) {
+export default function VentaDirectaForm({ action, clientes, ensambles, motos, metodos, escalon, tasaBcv, tasaDirecta, inicial }: Props) {
   const [modelFilter, setModelFilter] = useState('')
   const [asmSearch, setAsmSearch] = useState('')
   const [selectedNombre, setSelectedNombre] = useState<string | null>(null)
@@ -91,7 +98,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
   const [checked, setChecked] = useState<Record<number, boolean>>({})
   const [cantidades, setCantidades] = useState<Record<number, number>>({})
 
-  const [lineas, setLineas] = useState<Linea[]>([])
+  const [lineas, setLineas] = useState<Linea[]>(() => (inicial ? [lineaDe(inicial, 1)] : []))
   const [clienteId, setClienteId] = useState('')
   const [metodo1, setMetodo1] = useState<string>(metodos[0])
   const [metodo2, setMetodo2] = useState<string>(metodos[1] ?? metodos[0])
@@ -203,10 +210,9 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
 
   function agregarPieza(p: PiezaEnStock, cantidad = 1) {
     setLineas(ls => {
-      const cant = Math.max(1, Math.min(cantidad, p.stock))
       const i = ls.findIndex(l => l.pieza.id === p.id)
       if (i >= 0) return ls // ya está: se cambia la cantidad en el carrito
-      return [...ls, { pieza: p, cantidad: String(cant), precio: p.price.toFixed(2), costo: p.costoUnitUsd != null ? p.costoUnitUsd.toFixed(2) : '' }]
+      return [...ls, lineaDe(p, cantidad)]
     })
   }
 

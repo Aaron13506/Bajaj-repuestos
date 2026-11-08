@@ -74,6 +74,14 @@ export async function buscarEnStock(term: string, modelo?: string) {
   return rows.map(aPiezaEnStock)
 }
 
+// Una pieza para arrancar la venta ya cargada (el «Vender» del inicio). Null = no existe o ya
+// no tiene stock: la venta abre vacía, igual que sin pieza.
+export async function piezaEnStock(id: number): Promise<PiezaEnStock | null> {
+  if (!Number.isInteger(id) || id <= 0) return null
+  const p = await db.product.findFirst({ where: { id, stock: { gt: 0 } }, select: SELECT_EN_STOCK })
+  return p ? aPiezaEnStock(p) : null
+}
+
 // Las piezas de un ensamble (todas sus variantes por moto) que están en el depósito, agrupadas
 // como en el despiece. Las que no tienen stock no se listan: no se pueden vender. Se cargan al
 // abrir el ensamble, igual que en el armador de presupuestos.

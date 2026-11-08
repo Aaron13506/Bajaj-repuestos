@@ -412,6 +412,9 @@ model EnvioTracking {
   // Por qué Ship24 no lo acepta (courier equivocado, número inválido…). Mientras esté,
   // la sincronización horaria no lo reintenta; "Actualizar ahora" en la caja sí.
   errorSeguimiento String?
+  // El último evento que el dueño ya vio en el inicio («Ya lo vi»), como `fecha|detalle`
+  // (claveEvento en lib/ship24.ts). Distinto del último evento guardado = novedad. Null = nunca visto.
+  eventoVisto   String?
 
   envio Envio @relation(fields: [envioId], references: [id], onDelete: Cascade)
 

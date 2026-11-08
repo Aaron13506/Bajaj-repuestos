@@ -58,7 +58,7 @@ import { compraTrasMover, motivoNoMueve, type CajaParaMover } from '../lib/mover
 import { leerTrackingsTramo, MAX_TRACKINGS_POR_TRAMO } from '../lib/tracking'
 import { esCodigoOneway, estadoOneway, fechaOneway, leerDetalle, leerLista } from '../lib/oneway'
 import { cajasQueSeFacturan, leerCajasEtapa, medidasDeCajas, resumenCajas, type CampoCaja } from '../lib/cajas-envio'
-import { buscarCouriers, courierDeFila, cuerpoTracker, datosDeTracking, esEstadoFinal, fechaCourier, listaDeCouriers, numeroParaShip24, resolverCourier, errorDeFila } from '../lib/ship24'
+import { buscarCouriers, claveEvento, courierDeFila, cuerpoTracker, datosDeTracking, esEstadoFinal, novedadDeTracking, fechaCourier, listaDeCouriers, numeroParaShip24, resolverCourier, errorDeFila } from '../lib/ship24'
 
 const cfg: ConfigMap = {
   inr_usd_rate: '94.95',
@@ -1644,6 +1644,15 @@ console.log('\nSHIP24')
   check('Ship24 dejó de seguirlo sin entregar: detenido', si(parado.estado === 'detenido'), 1)
   const entregado = datosDeTracking({ tracker: { trackerId: 'x', isTracked: false }, shipment: { statusMilestone: 'delivered' } })
   check('entregado (isTracked false) sigue siendo entregado', si(entregado.estado === 'delivered'), 1)
+  // Novedades del inicio: por identidad del evento, no por hora.
+  const ev = (fecha: string | null, detalle: string, estado: string) => ({ fecha, detalle, lugar: null, estado })
+  const evs = [ev('2026-11-07T08:05', 'Out for delivery', 'out_for_delivery'), ev('2026-11-05T22:15', 'In transit', 'in_transit'), ev(null, 'Label created', 'info_received')]
+  check('novedad: nunca visto, es novedad sin contar ni "antes"', si(JSON.stringify(novedadDeTracking(evs, null)) === JSON.stringify({ nuevos: null, antes: null })), 1)
+  check('novedad: ya visto el último, nada nuevo', si(novedadDeTracking(evs, claveEvento(evs[0])) === null), 1)
+  check('novedad: visto el segundo, 1 nuevo y el estado de antes', si(JSON.stringify(novedadDeTracking(evs, claveEvento(evs[1]))) === JSON.stringify({ nuevos: 1, antes: 'in_transit' })), 1)
+  check('novedad: evento sin fecha también se reconoce', si(novedadDeTracking(evs, claveEvento(evs[2]))?.nuevos === 2), 1)
+  check('novedad: lo visto ya no está en la lista, novedad sin "antes"', si(novedadDeTracking(evs, '2026-01-01|Viejo')?.antes === null), 1)
+  check('novedad: sin eventos no hay nada que ver', si(novedadDeTracking([], null) === null), 1)
   check('fecha del courier sin convertir', si(fechaCourier('2023-11-04T14:31:00-04:00') === '2023-11-04 14:31'), 1)
   check('entregado y detenido no se consultan más', si(esEstadoFinal('delivered') && esEstadoFinal('detenido')), 1)
   check('un problema (exception) se sigue consultando', si(esEstadoFinal('exception')), 0)

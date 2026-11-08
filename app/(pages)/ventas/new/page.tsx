@@ -1,7 +1,7 @@
 import { db } from '@/lib/db'
 import Link from 'next/link'
 import VentaDirectaForm from '@/components/VentaDirectaForm'
-import { registrarVenta } from '../actions'
+import { registrarVenta, piezaEnStock } from '../actions'
 import { escalonBcvVigente } from '@/lib/calc'
 import { toConfigMap, num } from '@/lib/config'
 import { METODOS_PAGO_INGRESO } from '@/lib/pagos'
@@ -10,9 +10,11 @@ import { toModelIds, type MotoModelId } from '@/lib/modelo'
 
 export const metadata = { title: 'Nueva venta' }
 
-export default async function NuevaVentaPage() {
+// ?pieza=ID: llega desde «Vender» del inicio y abre la venta con esa pieza en el carrito.
+export default async function NuevaVentaPage({ searchParams }: { searchParams: Promise<{ pieza?: string }> }) {
+  const { pieza } = await searchParams
   const enStock = { product: { stock: { gt: 0 } } }
-  const [clientes, cfgRows, ensambles, sueltas] = await Promise.all([
+  const [clientes, cfgRows, ensambles, sueltas, inicial] = await Promise.all([
     db.cliente.findMany({ orderBy: { nombre: 'asc' }, select: { id: true, nombre: true, telefono: true } }),
     db.config.findMany(),
     // Solo los ensambles que tienen al menos una pieza en el depósito: el resto no se puede
@@ -26,6 +28,7 @@ export default async function NuevaVentaPage() {
       orderBy: [{ nameEs: 'asc' }, { compatibleModels: 'asc' }],
     }),
     db.product.findMany({ where: { stock: { gt: 0 } }, select: { compatibleModels: true } }),
+    pieza ? piezaEnStock(Number(pieza)) : null,
   ])
   const cfg = toConfigMap(cfgRows)
 
@@ -58,6 +61,7 @@ export default async function NuevaVentaPage() {
         clientes={clientes}
         ensambles={ensamblesCliente}
         motos={[...motos]}
+        inicial={inicial}
         metodos={METODOS_PAGO_INGRESO}
         escalon={escalonBcvVigente(cfg)}
         tasaBcv={num(cfg, 'bcv_usd_rate', 0)}
