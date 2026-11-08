@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import CampoFecha from '@/components/CampoFecha'
+import Miniatura from '@/components/Miniatura'
 import MontoBs from '@/components/MontoBs'
 import CamposDevolucion from '@/components/CamposDevolucion'
 import { useEnviarAccion } from '@/components/useEnviarAccion'
@@ -795,15 +796,5 @@ function FilaCobro({ sufijo, metodo, cobro, yaCobrado, modoBcv, tasaBcv, tasaDir
         </button>
       )}
     </div>
-  )
-}
-
-function Miniatura({ src }: { src: string | null }) {
-  // El nombre va al lado: la foto es decorativa.
-  return src ? (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={src} alt="" loading="lazy" className="size-11 object-contain rounded-md border border-gray-100 bg-white shrink-0" />
-  ) : (
-    <div aria-hidden="true" className="size-11 rounded-md border border-gray-100 bg-gray-50 shrink-0" />
   )
 }

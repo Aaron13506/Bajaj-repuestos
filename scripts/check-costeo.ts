@@ -41,6 +41,7 @@ import { piezasAContar } from '../lib/conteo'
 import { cuentaDeMetodo, datosBs, leerCobroBs } from '../lib/cuentas'
 import { convertir, usdPorBsAlConvertir, usdPorBsEnCuenta } from '../lib/conversion'
 import { costoDeLinea, motivoNoServible, motivoNoVendible, resumenVenta } from '../lib/venta-stock'
+import { agruparPorEnsamble, ensamblesDePieza, margenAPrecioDeHoy, SE_PIERDE } from '../lib/inventario-vista'
 import { margenDePedido, mesDe, resultadoPorMes, type LineaMargen, type MargenPedido } from '../lib/margen'
 import { cierreDe, embudo, estadoValidez, escalonDelPresupuesto, motivoNoAprobable, validezDias } from '../lib/validez'
 import { describirOps, estadoLinea, permisoDeLinea, motivoEdicionSinCliente, planEdicion, repartirSobrante, type LineaActual, type LineaNueva } from '../lib/pedido-edicion'
@@ -1687,6 +1688,38 @@ console.log('\nSHIP24')
   check('OWC: Despachado es entregado (no se consulta más)', si(esEstadoFinal(estadoOneway('Despachado'))), 1)
   check('OWC: HOLD es problema', si(estadoOneway('Paquete en HOLD') === 'exception'), 1)
   check('OWC: página cambiada = sin pasos (la fila queda con error)', leerDetalle('<html>otra cosa</html>').eventos.length, 0)
+}
+
+{
+  // Inventario: margen a precio de hoy y agrupado por ensamble (lib/inventario-vista).
+  const si = (b: boolean) => (b ? 1 : 0)
+  const base = { aqui: 1, caminoAereo: 1, caminoMaritimo: 0, valorAquiUsd: 75.63, valorCaminoUsd: 85.97, precioUsd: 80 }
+  const m = margenAPrecioDeHoy(base)
+  check('inventario: vende aquí + en camino a precio de hoy', m.ventaUsd!, 160)
+  check('inventario: margen = venta − costo (kit cadena N250 a pérdida)', m.margenUsd!, -1.6, 1e-9)
+  check('inventario: SE_PIERDE marca la pérdida', si(SE_PIERDE(m.margenUsd)), 1)
+  check('inventario: stock negativo no se vende', margenAPrecioDeHoy({ ...base, aqui: -2, valorAquiUsd: 0 }).ventaUsd!, 80)
+  check('inventario: sin costo de lo que está aquí = margen desconocido', si(margenAPrecioDeHoy({ ...base, valorAquiUsd: null }).margenUsd === null), 1)
+  check('inventario: sin precio = margen desconocido', si(margenAPrecioDeHoy({ ...base, precioUsd: null }).margenUsd === null), 1)
+  check('inventario: medio centavo abajo no es pérdida', si(SE_PIERDE(-0.004)), 0)
+
+  const ens = ensamblesDePieza([
+    { groupName: 'Fasteners', nombre: 'Headlamp Fairing', imageUrl: null, compatibleModels: 'Pulsar 150 BS4' },
+    { groupName: 'Visor', nombre: 'Headlamp Fairing', imageUrl: 'h.jpg', compatibleModels: 'Pulsar 180 BS4 2017 19' },
+    { groupName: 'Mudguard| Black', nombre: 'Black Painted Parts', imageUrl: 'b.jpg', compatibleModels: 'Pulsar 150 BS4' },
+  ])
+  check('inventario: el "|" de 99rpm se lee como " · "', si(ens[1].subgrupo === 'Mudguard · Black'), 1)
+  check('inventario: un ensamble por nombre, el de más motos primero', si(ens.length === 2 && ens[0].nombre === 'Headlamp Fairing' && ens[0].modelos.length === 2), 1)
+  check('inventario: foto de la primera variante que tenga', si(ens[0].imageUrl === 'h.jpg' && ens[0].subgrupo === 'Fasteners'), 1)
+
+  const pieza = (id: number, nombres: string[]) => ({ id, ensambles: nombres.map(nombre => ({ nombre, subgrupo: '', imageUrl: null, modelos: [] })) })
+  const grupos = agruparPorEnsamble([pieza(1, ['Rear Axle', 'Wheel Hub']), pieza(2, ['Rear Axle']), pieza(3, []), pieza(4, ['Black Painted Parts'])])
+  check('inventario: una pieza aparece en todos sus ensambles', grupos.filter(g => g.piezas.some(p => p.fila.id === 1)).length, 2)
+  check('inventario: arriba el ensamble con más piezas tuyas', si(grupos[0].nombre === 'Rear Axle' && grupos[0].piezas.length === 2), 1)
+  check('inventario: sin ensamble va al final', si(grupos[grupos.length - 1].nombre === null), 1)
+  const conMotos = (nombre: string, modelos: string[]) => ({ nombre, subgrupo: '', imageUrl: null, modelos })
+  const empate = agruparPorEnsamble([{ ensambles: [conMotos('Black Painted Parts', ['Pulsar 150 BS4']), conMotos('Headlamp Fairing', ['Pulsar 150 BS4', 'Pulsar 180 BS4 2017 19'])] }])
+  check('inventario: a igualdad de piezas, primero el de más motos (no el alfabético)', si(empate[0].nombre === 'Headlamp Fairing'), 1)
 }
 
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)
