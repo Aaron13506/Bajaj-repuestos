@@ -3,6 +3,7 @@ import type { BundlePiece } from './bundle'
 import { nombreEnsamble } from './linea-pedido'
 import { construirResolver, piezasDeLinea, type LineaStock, type ResolverPieza } from './stock-piezas'
 import { ENVIO_COSTEO_INCLUDE, contextoCosteo, costearAereo, costearMaritimo } from './costo-envios'
+import { ensamblesDePieza, type EnsambleDePieza } from './inventario-vista'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Inventario PROPIO: lo que tengo y lo que ya compré y viene, pieza por pieza.
@@ -139,20 +140,14 @@ export async function posicionesParaArmador(): Promise<PosicionesStock> {
   return out
 }
 
-// Cada nombre una vez, el más repetido primero: el ensamble de la pieza en casi todas las motos
-// ("Rear Axle") va antes que el que aparece en una sola ("Service Kit").
-function porFrecuencia(nombres: string[]): string[] {
-  const n = new Map<string, number>()
-  for (const x of nombres) n.set(x, (n.get(x) ?? 0) + 1)
-  return [...n.keys()].sort((a, b) => n.get(b)! - n.get(a)! || a.localeCompare(b))
-}
-
 export interface FilaInventario extends PosicionPieza {
   nameEs: string
   bajajCode: string | null
   compatibleModels: string | null
+  /** Precio de venta de hoy (Product.price). null = sin precio cargado. */
+  precioUsd: number | null
   /** Dónde va la pieza: los ensambles que la llevan, sin repetir por moto, primero el que está en más motos. */
-  ensambles: string[]
+  ensambles: EnsambleDePieza[]
   /** aquí × costo de reposición. null = hay stock pero la pieza no tiene costo cargado. */
   valorAquiUsd: number | null
   /** Lo que cuesta lo que viene, puesto en Venezuela, según el costeo de su caja. */
@@ -170,6 +165,8 @@ export interface ResumenInventario {
     /** Alguna caja se costeó con datos faltantes (sin pesar, sin factura del tramo, sin peso): es un piso. */
     incompleto: boolean
   }
+  /** Cada caja confirmada con mercancía propia en camino, con lo que vale eso puesto en Venezuela. */
+  cajas: { envioId: number; nombre: string; modo: 'aereo' | 'maritimo_cbm'; valorUsd: number }[]
   /** Piezas de conjuntos en camino que no se pudieron identificar en el catálogo. */
   sinResolver: number
 }
@@ -210,6 +207,7 @@ export async function resumenInventario(): Promise<ResumenInventario> {
   let cajasAereo = 0
   let cajasMar = 0
   let incompleto = false
+  const porCaja: ResumenInventario['cajas'] = []
 
   const ctx = await contextoCosteo(cajas)
   for (const e of cajas) {
@@ -223,6 +221,7 @@ export async function resumenInventario(): Promise<ResumenInventario> {
       }
       valorMar += m.landedUsd
       cajasMar++
+      porCaja.push({ envioId: e.id, nombre: nombreCaja(e), modo: 'maritimo_cbm', valorUsd: m.landedUsd })
       if (m.resumen.sinMedidas > 0) incompleto = true
       continue
     }
@@ -240,6 +239,7 @@ export async function resumenInventario(): Promise<ResumenInventario> {
     })
     valorAereo += suma
     cajasAereo++
+    porCaja.push({ envioId: e.id, nombre: nombreCaja(e), modo: 'aereo', valorUsd: suma })
     if (!calc.caja.medido || calc.tramo?.faltaCosto === true) incompleto = true
   }
 
@@ -248,8 +248,13 @@ export async function resumenInventario(): Promise<ResumenInventario> {
     ? await db.product.findMany({
         where: { id: { in: ids } },
         select: {
-          id: true, nameEs: true, bajajCode: true, compatibleModels: true, landedCostUsd: true,
-          assemblies: { select: { ensamble: { select: { nameEs: true, nameEn: true } } } },
+          id: true, nameEs: true, bajajCode: true, compatibleModels: true, landedCostUsd: true, price: true,
+          assemblies: {
+            select: {
+              groupName: true,
+              ensamble: { select: { nameEs: true, nameEn: true, imageUrl: true, compatibleModels: true } },
+            },
+          },
         },
       })
     : []
@@ -278,12 +283,19 @@ export async function resumenInventario(): Promise<ResumenInventario> {
     }
     unidadesAereo += pos.caminoAereo
     unidadesMar += pos.caminoMaritimo
+    const precio = parseFloat(pr.price.toString())
     filas.push({
       ...pos,
       nameEs: pr.nameEs,
       bajajCode: pr.bajajCode,
       compatibleModels: pr.compatibleModels,
-      ensambles: porFrecuencia(pr.assemblies.map(a => nombreEnsamble(a.ensamble))),
+      precioUsd: precio > 0 ? precio : null,
+      ensambles: ensamblesDePieza(pr.assemblies.map(a => ({
+        groupName: a.groupName,
+        nombre: nombreEnsamble(a.ensamble),
+        imageUrl: a.ensamble.imageUrl,
+        compatibleModels: a.ensamble.compatibleModels,
+      }))),
       valorAquiUsd,
       valorCaminoUsd: valorCamino.get(pr.id) ?? 0,
     })
@@ -301,6 +313,7 @@ export async function resumenInventario(): Promise<ResumenInventario> {
       maritimo: { valorUsd: valorMar, unidades: unidadesMar, cajas: cajasMar },
       incompleto,
     },
+    cajas: porCaja,
     sinResolver,
   }
 }
