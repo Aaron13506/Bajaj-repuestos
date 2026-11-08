@@ -275,6 +275,27 @@ export function eventosGuardados(v: unknown): Checkpoint[] {
   return Array.isArray(v) ? (v as Checkpoint[]).filter(e => e && typeof e.detalle === 'string') : []
 }
 
+/**
+ * La identidad de un evento: `fecha|detalle`, la misma clave con la que datosDeTracking quita
+ * duplicados. CLAVE_ULTIMO_EVENTO (lib/novedades.ts) la arma igual en SQL; cambiar las dos juntas.
+ */
+export function claveEvento(e: { fecha: string | null; detalle: string }): string {
+  return `${e.fecha ?? ''}|${e.detalle}`
+}
+
+/**
+ * Qué trajo un tracking desde el último evento que se vio en el inicio. Null = nada nuevo.
+ * Se compara por identidad del evento, no por hora: la hora es la del courier (a veces sin
+ * zona) y la sincronización la trae una hora después, así que una comparación de fechas
+ * escondería un evento que llegó tarde. Si el evento visto sigue en la lista: cuántos llegaron
+ * después y su estado (`antes`); si no (nunca se vio o ya no está), los dos van en null.
+ */
+export function novedadDeTracking(eventos: Checkpoint[], visto: string | null): { nuevos: number | null; antes: string | null } | null {
+  if (eventos.length === 0 || claveEvento(eventos[0]) === visto) return null
+  const i = visto == null ? -1 : eventos.findIndex(e => claveEvento(e) === visto)
+  return i > 0 ? { nuevos: i, antes: eventos[i].estado } : { nuevos: null, antes: null }
+}
+
 /** Cuándo se consultó, en hora de Venezuela: "01/11, 12:15 a. m.". */
 export function horaConsulta(d: Date): string {
   return d.toLocaleString('es-VE', { timeZone: 'America/Caracas', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
