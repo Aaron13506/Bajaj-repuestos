@@ -7,7 +7,7 @@ type Modo = 'ingreso' | 'egreso' | 'usdt'
 const MODOS: { valor: Modo; texto: string }[] = [
   { valor: 'ingreso', texto: 'Entra plata' },
   { valor: 'egreso', texto: 'Sale plata' },
-  { valor: 'usdt', texto: 'Pasar a USDT' },
+  { valor: 'usdt', texto: 'Convertir' },
 ]
 
 // Qué se anota en el libro: un ingreso, un egreso o una conversión. Cada uno es su formulario (los

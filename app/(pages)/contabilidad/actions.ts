@@ -15,7 +15,7 @@ import {
 import { revalidateClientes } from '@/lib/clientes'
 import { ok, fallo, type ActionResult } from '@/lib/action-result'
 import { isForeignKeyViolation } from '@/lib/prisma-errors'
-import { CUENTAS, cuentaDeMetodo, datosBs, leerCobroBs } from '@/lib/cuentas'
+import { CUENTAS, cuentaDeMetodo, datosBs, leerCobroBs, type Cuenta } from '@/lib/cuentas'
 
 const CATEGORIAS_VALIDAS = new Set<string>([...CATEGORIAS_INGRESO, ...CATEGORIAS_EGRESO])
 
@@ -142,17 +142,21 @@ export async function eliminarMovimiento(id: number) {
   revalidateClientes()
 }
 
-// Pasar Bs a USDT: lo que se dio y lo que se recibió. El libro anota las dos patas y el costo
+// Pasar plata de una cuenta a otra: lo que se dio y lo que se recibió. El libro anota las dos patas y el costo
 // de convertir sale de la diferencia (ver registrarConversion).
 export async function crearConversion(formData: FormData): Promise<ActionResult> {
   const leer = (n: string) => parseFloat(String(formData.get(n) ?? '').trim().replace(',', '.'))
   const rawDate = (formData.get('fecha') as string)?.trim()
+  const esCuenta = (v: unknown): v is Cuenta => (CUENTAS as readonly unknown[]).includes(v)
   const desde = formData.get('desde')
-  if (desde !== 'banco_bs' && desde !== 'efectivo_usd') return fallo('Elegí de dónde sale la plata.')
+  const hacia = formData.get('hacia')
+  if (!esCuenta(desde)) return fallo('Elegí de dónde sale la plata.')
+  if (!esCuenta(hacia)) return fallo('Elegí a dónde va la plata.')
   const r = await registrarConversion({
     desde,
+    hacia,
     dado: leer('dado'),
-    usdt: leer('usdt'),
+    recibido: leer('recibido'),
     fecha: rawDate ? new Date(`${rawDate}T12:00:00`) : new Date(),
     descripcion: (formData.get('descripcion') as string)?.trim() || null,
   })

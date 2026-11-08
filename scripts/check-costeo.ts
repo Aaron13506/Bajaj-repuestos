@@ -706,7 +706,12 @@ console.log('\nCUENTAS Y CONVERSIÓN Bs → USDT')
   check('efectivo: di $100, recibí 97 USDT → costó $3', convertir(100, 97, 1).costoUsd, 3)
   check('efectivo: di $100, recibí 101 USDT → a favor $1', convertir(100, 101, 1).costoUsd, -1)
   // La caja baja exactamente el costo: sale `valor`, entra `usdt`.
-  check('la caja baja lo que costó convertir', Math.round((c.usdt - c.valorLibroUsd) * 100) / 100, -c.costoUsd)
+  check('la caja baja lo que costó convertir', Math.round((c.entradaUsd - c.valorLibroUsd) * 100) / 100, -c.costoUsd)
+  // USDT → Bs: los Bs entran por lo que valían los USDT dados; el costo sale cuando se usen.
+  const aBs = convertir(100, 50000, 1, true)
+  check('USDT → Bs: entran por lo que se dio', aBs.entradaUsd, 100)
+  check('USDT → Bs: sin costo al entrar', aBs.costoUsd, 0)
+  check('USDT → Bs: después valen lo que costaron', (usdPorBsEnCuenta([{ usd: aBs.entradaUsd, bs: 50000 }]) ?? 0) * 50000, 100)
 }
 
 // ── Venta del depósito: stock, costo congelado y margen ─────────────────────────────────

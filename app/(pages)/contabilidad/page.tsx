@@ -212,7 +212,7 @@ export default async function ContabilidadPage({ searchParams }: Props) {
       action={eliminarMovimiento.bind(null, m.id)}
       ariaLabel={`Eliminar ${categoriaDe(m.categoria).toLowerCase()} del ${fechaFila(m.fecha)}, ${montoTexto(m)}`}
       className="inline-flex items-center min-h-8 px-2 rounded-md hover:bg-red-50"
-      confirmMessage={m.grupo ? 'Es una conversión: se borran las dos patas (la salida en Bs y la entrada a USDT). ¿Seguir?' : '¿Eliminar este movimiento del libro?'}
+      confirmMessage={m.grupo ? 'Es una conversión: se borran las dos patas (la salida y la entrada). ¿Seguir?' : '¿Eliminar este movimiento del libro?'}
     />
   )
 

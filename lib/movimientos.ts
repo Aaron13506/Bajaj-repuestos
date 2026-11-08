@@ -427,29 +427,34 @@ async function bsEnLibro(): Promise<{ usd: number; bs: number }[]> {
 }
 
 export interface PedidoConversion {
-  /** De qué cuenta sale la plata: los Bs del banco o el efectivo en dólares. */
-  desde: 'banco_bs' | 'efectivo_usd'
-  /** Lo que se entregó: bolívares si sale del banco, dólares si es efectivo. */
+  /** De qué cuenta sale la plata. */
+  desde: Cuenta
+  /** A qué cuenta entra. Distinta de `desde`. */
+  hacia: Cuenta
+  /** Lo que se entregó: bolívares si sale del banco en Bs, dólares si no. */
   dado: number
-  /** USDT que se recibieron. */
-  usdt: number
+  /** Lo que se recibió, en la moneda de `hacia`. */
+  recibido: number
   fecha: Date
   descripcion?: string | null
 }
 
-// Pasar plata a USDT (Bs del banco o efectivo): dos movimientos con el mismo `grupo`. La cuenta de
-// origen pierde lo que el libro dice que valía lo entregado; USDT gana lo que llegó. El costo de
-// convertir es la diferencia (ver lib/conversion.ts; negativo = salió a favor), y por eso no se
-// anota aparte. El efectivo vale lo que dice (un dólar es un dólar). Los Bs, su costo promedio en el
+// Pasar plata de una cuenta a otra: dos movimientos con el mismo `grupo`. El origen pierde lo que
+// el libro dice que valía lo entregado; el destino gana lo que llegó. El costo de convertir es la
+// diferencia (ver lib/conversion.ts; negativo = salió a favor), y por eso no se anota aparte. Los
+// dólares (efectivo, USDT, banco) valen lo que dicen. Los Bs que salen, su costo promedio en el
 // libro; si el libro no tiene con qué valorarlos (cobros anteriores a anotar los Bs), salen por lo
-// que se recibió: sin costo, antes que inventarlo con una tasa de mercado.
+// que se recibió: sin costo, antes que inventarlo con una tasa de mercado. Los Bs que entran valen
+// lo que se dio por ellos.
 export async function registrarConversion(p: PedidoConversion): Promise<ActionResult> {
-  const enBs = p.desde === 'banco_bs'
-  if (!Number.isFinite(p.dado) || p.dado <= 0) return fallo(enBs ? 'Escribí cuántos bolívares diste.' : 'Escribí cuántos dólares en efectivo diste.')
-  if (!Number.isFinite(p.usdt) || p.usdt <= 0) return fallo('Escribí cuántos USDT recibiste.')
+  if (p.desde === p.hacia) return fallo('Elegí dos cuentas distintas.')
+  const daBs = p.desde === 'banco_bs'
+  const recibeBs = p.hacia === 'banco_bs'
+  if (!Number.isFinite(p.dado) || p.dado <= 0) return fallo(daBs ? 'Escribí cuántos bolívares diste.' : 'Escribí cuántos dólares diste.')
+  if (!Number.isFinite(p.recibido) || p.recibido <= 0) return fallo(recibeBs ? 'Escribí cuántos bolívares recibiste.' : 'Escribí cuántos dólares recibiste.')
 
-  const usdPorUnidad = enBs ? (usdPorBsAlConvertir(p.dado, await bsEnLibro()) ?? p.usdt / p.dado) : 1
-  const c = convertir(p.dado, p.usdt, usdPorUnidad)
+  const usdPorUnidad = daBs ? (usdPorBsAlConvertir(p.dado, await bsEnLibro()) ?? p.recibido / p.dado) : 1
+  const c = convertir(p.dado, p.recibido, usdPorUnidad, recibeBs)
   if (c.valorLibroUsd <= 0) return fallo('Eso vale menos de un centavo en el libro: revisá el monto.')
 
   const grupo = randomUUID()
@@ -458,11 +463,15 @@ export async function registrarConversion(p: PedidoConversion): Promise<ActionRe
     db.movimiento.create({
       data: {
         ...base, tipo: 'egreso', categoria: 'conversion_salida', cuenta: p.desde, monto: c.valorLibroUsd,
-        ...(enBs ? { montoBs: aCentavos(p.dado), tasaBs: c.tasaEfectiva } : {}),
+        ...(daBs ? { montoBs: aCentavos(p.dado), tasaBs: c.tasaEfectiva } : {}),
       },
     }),
     db.movimiento.create({
-      data: { ...base, tipo: 'ingreso', categoria: 'conversion_entrada', cuenta: 'usdt', monto: c.usdt },
+      data: {
+        ...base, tipo: 'ingreso', categoria: 'conversion_entrada', cuenta: p.hacia, monto: c.entradaUsd,
+        // Bs ÷ tasa = los dólares de la pata: así el promedio de la cuenta los toma por lo que costaron.
+        ...(recibeBs ? { montoBs: aCentavos(p.recibido), tasaBs: p.recibido / c.entradaUsd } : {}),
+      },
     }),
   ])
   return ok()

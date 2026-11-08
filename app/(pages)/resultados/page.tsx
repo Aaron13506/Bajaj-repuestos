@@ -105,7 +105,7 @@ export default async function ResultadosPage({ searchParams }: Props) {
                 <th className="text-right px-4 py-2 font-medium">%</th>
                 <th className="text-right px-4 py-2 font-medium" title="Lo cobrado de pedidos cancelados que no se devolvió: plata que se quedó el negocio.">Cancelados</th>
                 <th className="text-right px-4 py-2 font-medium" title="Gastos operativos y otros egresos. El flete, la comisión del giro y la compra ya están dentro del costo de cada pedido.">Gastos</th>
-                <th className="text-right px-4 py-2 font-medium" title="Lo que costó pasar Bs a USDT">Convertir Bs</th>
+                <th className="text-right px-4 py-2 font-medium" title="Lo que costó pasar plata de una cuenta a otra">Convertir</th>
                 <th className="text-right px-4 py-2 font-medium">Resultado</th>
               </tr>
             </thead>

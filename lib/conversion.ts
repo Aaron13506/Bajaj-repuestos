@@ -1,4 +1,4 @@
-// Pasar bolívares a USDT (puro, sin DB: lo usan el server, el formulario y check:costeo).
+// Pasar plata de una cuenta a otra: Bs, efectivo, USDT, banco en dólares (puro, sin DB: lo usan el server, el formulario y check:costeo).
 //
 // Los Bs entraron al libro como dólares reales (`monto`) a la tasa de cada cobro. Cuando se
 // convierten, salen del banco por lo que el libro dice que valen y entran a USDT por lo que
@@ -45,26 +45,31 @@ export function usdPorBsAlConvertir(bsDados: number, movs: { usd: number; bs: nu
 }
 
 export interface Conversion {
-  /** Lo que el libro dice que valían los Bs que salieron del banco, en dólares reales. */
+  /** Lo que el libro dice que valía lo entregado, en dólares reales (la pata que sale). */
   valorLibroUsd: number
-  /** Lo que llegó a USDT. */
-  usdt: number
-  /** valorLibro − usdt: positivo es costo, negativo es ganancia por conversión. */
+  /** Lo que entra al libro por lo recibido (la pata que entra). */
+  entradaUsd: number
+  /** valorLibro − entrada: positivo es costo, negativo es ganancia por conversión. */
   costoUsd: number
-  /** Bs por USDT a los que se hizo, la tasa efectiva. */
+  /** Unidades dadas por unidad recibida (Bs por USDT si se dieron Bs). */
   tasaEfectiva: number
   /** El costo como % del valor en libro. */
   costoPct: number
 }
 
-export function convertir(bs: number, usdt: number, usdPorBs: number): Conversion {
-  const valorLibroUsd = round2(bs * usdPorBs)
-  const costoUsd = round2(valorLibroUsd - usdt)
+// `usdPorDado`: cuánto vale en el libro una unidad de lo dado (1 si son dólares, el promedio de la
+// cuenta si son Bs). Si lo recibido son Bs, entran por lo que valía lo que se dio: el libro no
+// tiene con qué más valorarlos (una tasa de mercado sería inventar), así que esa pata no cuesta
+// nada y su costo real aparece cuando esos Bs se conviertan o se gasten.
+export function convertir(dado: number, recibido: number, usdPorDado: number, recibeBs = false): Conversion {
+  const valorLibroUsd = round2(dado * usdPorDado)
+  const entradaUsd = recibeBs ? valorLibroUsd : round2(recibido)
+  const costoUsd = round2(valorLibroUsd - entradaUsd)
   return {
     valorLibroUsd,
-    usdt: round2(usdt),
+    entradaUsd,
     costoUsd,
-    tasaEfectiva: bs / usdt,
+    tasaEfectiva: dado / recibido,
     costoPct: valorLibroUsd > 0 ? (costoUsd / valorLibroUsd) * 100 : 0,
   }
 }
