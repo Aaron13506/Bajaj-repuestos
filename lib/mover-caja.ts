@@ -62,6 +62,15 @@ export function motivoNoMueve(origen: CajaParaMover, destino: CajaParaMover): st
   return null
 }
 
+/**
+ * Lo mismo para UNA línea que el proveedor no mandó (sin_enviar, la línea entera): nunca llegó al
+ * depósito, así que no viaja con lo que lleva la caja ni la cubre su flete. Que la caja ya haya
+ * salido o pagado el flete no la ata; el destino sí tiene que poder recibirla.
+ */
+export function motivoNoMueveSinEnviar(origen: CajaParaMover, destino: CajaParaMover): string | null {
+  return motivoNoMueve({ ...origen, lineas: [], fleteAereoPagado: false }, destino)
+}
+
 /** La compra de una caja: la caja raíz de la familia (ella misma si no se partió). */
 export const compraDe = (c: { id: number; compraDeId: number | null }) => c.compraDeId ?? c.id
 

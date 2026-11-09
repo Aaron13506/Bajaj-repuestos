@@ -32,6 +32,7 @@ import { repartirEnCentavos } from '../lib/reparto-compra'
 import { financiamientoEnvio } from '../lib/financiamiento-envio'
 import { estadoFlete, excedeFacturado, porSalirDeCaja, resumenFletes } from '../lib/flete-real'
 import { motivoNoEliminable, type PedidoBorrable } from '../lib/pedido-eliminable'
+import { entregable, estadoLista, etapaVisible } from '../lib/pedido-lista'
 import { motivoProveedorEnUso } from '../lib/proveedor-en-uso'
 import { motivoProductoEnUso } from '../lib/producto-en-uso'
 import { compatibleModelsFrom } from '../lib/modelo'
@@ -54,7 +55,8 @@ import { debeSaldo, motivoNoEntregable, saldoReal, seEntregaDesdeElPedido, situa
 import { diasSinMoverse, tiempoDeCompraA, tiemposPorTramo } from '../lib/etapas'
 import { leerDevolucion } from '../lib/devolucion'
 import { motivoNoCambiaReenvio, tarifaEquilibrioKgInr } from '../lib/reenvio'
-import { compraTrasMover, motivoNoMueve, type CajaParaMover } from '../lib/mover-caja'
+import { compraTrasMover, motivoNoMueve, motivoNoMueveSinEnviar, type CajaParaMover } from '../lib/mover-caja'
+import { avanzaSinEstar, motivoNoDespacha, planSeparar, repartirSinStock, tokensSku } from '../lib/sin-stock'
 import { leerTrackingsTramo, MAX_TRACKINGS_POR_TRAMO } from '../lib/tracking'
 import { esCodigoOneway, estadoOneway, fechaOneway, leerDetalle, leerLista } from '../lib/oneway'
 import { cajasQueSeFacturan, leerCajasEtapa, medidasDeCajas, resumenCajas, type CampoCaja } from '../lib/cajas-envio'
@@ -1456,6 +1458,45 @@ console.log('\nMOVER UN PRESUPUESTO A OTRA CAJA (partir en el depósito)')
   check('caja suelta → nueva: la nueva pasa a la compra del origen', compraTrasMover({ id: 1, compraDeId: null }, { id: 2, compraDeId: null }) ?? -1, 1)
   check('hija → nueva: apunta a la raíz (plana)', compraTrasMover({ id: 2, compraDeId: 1 }, { id: 3, compraDeId: null }) ?? -1, 1)
   check('hija → raíz: la raíz sigue sin compraDeId', compraTrasMover({ id: 2, compraDeId: 1 }, { id: 1, compraDeId: null }) ?? -1, -1)
+  const noSE = (o: Partial<CajaParaMover>, d: Partial<CajaParaMover>) => (motivoNoMueveSinEnviar(caja(o), caja({ id: 2, ...d })) != null ? 1 : 0)
+  check('sin stock: la caja ya salió, igual se pasa', noSE({ lineas: [{ shippingStatus: 'camino_usa', isLanded: false }] }, {}), 0)
+  check('sin stock: flete del origen pagado, igual se pasa', noSE({ fleteAereoPagado: true }, {}), 0)
+  check('sin stock: destino ya salió: no', noSE({}, { lineas: [{ shippingStatus: 'camino_usa', isLanded: false }] }), 1)
+  check('sin stock: otro proveedor: no', noSE({}, { supplierId: 5 }), 1)
+}
+
+console.log('\nSIN STOCK POR SKU (quién se queda esperando)')
+{
+  const ls = [
+    { key: 'a', disponibles: 2, propio: false, pedidoId: 41 },
+    { key: 'b', disponibles: 1, propio: false, pedidoId: 47 },
+    { key: 'p', disponibles: 3, propio: true, pedidoId: 30 },
+  ]
+  const r = (n: number) => repartirSinStock(ls, n)
+  check('1 que no tienen: espera el stock propio', r(1).get('p')!, 1)
+  check('1: el cliente más viejo no espera', r(1).get('a')!, 0)
+  check('4: propio entero y después el pedido más nuevo', r(4).get('b')!, 1)
+  check('4: el más viejo recibe', r(4).get('a')!, 0)
+  check('todas: cada línea con lo suyo', r(6).get('a')!, 2)
+  check('más de las que hay: no pasa de lo disponible', [...r(99).values()].reduce((x, y) => x + y, 0), 6)
+  check('pegado con comas, guiones y repetidos', tokensSku('jf-581056, DH151039\nJF581056').length, 2)
+  const esperando = [{ nombre: 'Front Brake Pads', pedidoId: 50 }]
+  check('con una sin decidir, la caja no sale del depósito', motivoNoDespacha([{ hacia: 'camino_usa' }], esperando) != null ? 1 : 0, 1)
+  check('express tampoco sale a Venezuela', motivoNoDespacha([{ hacia: 'camino_venezuela' }], esperando) != null ? 1 : 0, 1)
+  check('dentro del depósito se mueve igual', motivoNoDespacha([{ hacia: 'en_shoppre' }], esperando) != null ? 1 : 0, 0)
+  check('sin pendientes, sale', motivoNoDespacha([{ hacia: 'camino_usa' }], []) != null ? 1 : 0, 0)
+  check('la que no vino no pasa a «en depósito»', avanzaSinEstar('en_shoppre') ? 1 : 0, 1)
+  check('la que no vino puede quedar camino al depósito', avanzaSinEstar('camino_shoppre') ? 1 : 0, 0)
+  // Timing Chain ×2 a $33.33 c/u, pagado $40.01: cadena $20 ×1, junta $5 ×2 por set.
+  const cad = { nameEs: 'Chain', bajajCode: 'A1', quantity: 1 }, jun = { nameEs: 'Gasket', bajajCode: 'B2', quantity: 2 }
+  const precioCat = (x: { bajajCode: string | null }) => (x.bajajCode === 'A1' ? 20 : x.bajajCode === 'B2' ? 5 : null)
+  const sep = planSeparar({ quantity: 2, salePrice: 33.33, costRealUsd: 40.01, piezas: [cad, jun] }, 1, 4, precioCat)
+  if (!sep.ok) throw new Error(sep.error)
+  check('separar: la junta sale con su parte del precio', sep.precioNuevo, 5.56)
+  check('separar: lo vendido del pedido no cambia', sep.precioQueda * 2 + sep.precioNuevo * sep.cantidad, 66.66)
+  check('separar: lo pagado no cambia', sep.costoQueda! + sep.costoNuevo!, 40.01)
+  check('separar: solo si no vino ninguna', planSeparar({ quantity: 2, salePrice: 33.33, costRealUsd: null, piezas: [cad, jun] }, 1, 2, precioCat).ok ? 1 : 0, 0)
+  check('separar: sin catálogo no adivina', planSeparar({ quantity: 1, salePrice: 10, costRealUsd: null, piezas: [cad, { ...jun, bajajCode: 'X' }] }, 1, 2, precioCat).ok ? 1 : 0, 0)
 }
 
 console.log('\nCAMBIAR EL REENVÍO DE UNA CAJA')
@@ -1734,6 +1775,26 @@ console.log('\nSHIP24')
   const conMotos = (nombre: string, modelos: string[]) => ({ nombre, subgrupo: '', imageUrl: null, modelos })
   const empate = agruparPorEnsamble([{ ensambles: [conMotos('Black Painted Parts', ['Pulsar 150 BS4']), conMotos('Headlamp Fairing', ['Pulsar 150 BS4', 'Pulsar 180 BS4 2017 19'])] }])
   check('inventario: a igualdad de piezas, primero el de más motos (no el alfabético)', si(empate[0].nombre === 'Headlamp Fairing'), 1)
+}
+
+{
+  // Pestañas de /presupuestos: en qué estado cae cada pedido de cliente (lib/pedido-lista.ts).
+  const si = (b: boolean) => (b ? 1 : 0)
+  const L = (status: string, ...st: string[]) => ({ status, items: st.map(s => ({ shippingStatus: s, incidencias: [] as { tipo: string; estado: string }[] })) })
+  const en = (e: string, p: Parameters<typeof estadoLista>[0]) => si(estadoLista(p) === e)
+  check('lista: presupuesto sin confirmar', en('presu', L('presupuesto', 'pendiente')), 1)
+  check('lista: todo entregado', en('entregados', L('pedido', 'entregado', 'entregado')), 1)
+  check('lista: algo recibido se entrega aunque falte comprar', en('entregar', L('pedido', 'en_venezuela', 'pendiente')), 1)
+  const conProblema = L('pedido', 'en_venezuela', 'pendiente')
+  conProblema.items[0].incidencias.push({ tipo: 'danada', estado: 'abierta' })
+  check('lista: recibido con un problema abierto queda en Por entregar', en('entregar', conProblema), 1)
+  check('lista: …pero no se puede entregar', si(entregable(conProblema)), 0)
+  check('lista: recibido sin problema se puede entregar', si(entregable(L('pedido', 'en_venezuela'))), 1)
+  check('lista: comprado y viajando', en('camino', L('pedido', 'camino_shoppre', 'pendiente')), 1)
+  check('lista: nada comprado', en('comprar', L('pedido', 'pendiente', 'pendiente')), 1)
+  check('lista: lo propio entregado dice "En depósito"', si(etapaVisible('entregado', true).short === 'En depósito'), 1)
+  check('lista: lo de un cliente entregado dice "Entregado"', si(etapaVisible('entregado', false).short === 'Entregado'), 1)
+  check('lista: un estado intermedio no cambia por ser propio', si(etapaVisible('en_venezuela', true).short === 'Recibido'), 1)
 }
 
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)

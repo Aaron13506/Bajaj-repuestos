@@ -14,6 +14,8 @@ export interface LineaSuelta {
   quantity: number
   salePrice: number
   descontinuada: boolean
+  /** Pagada, y el proveedor no la tenía cuando salió su caja: espera la próxima. */
+  esperaCaja?: boolean
 }
 
 // Dónde está el resto del presupuesto. Sin esto el desglose miente por omisión: muestra
@@ -99,6 +101,11 @@ export default function SueltoPedido({
               Stock propio
             </span>
           )}
+          {lineas.some(l => l.esperaCaja) && (
+            <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+              {lineas.filter(l => l.esperaCaja).length} pagada{lineas.filter(l => l.esperaCaja).length === 1 ? '' : 's'} esperando caja
+            </span>
+          )}
           {sinAprobar && (
             <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700">
               Sin aprobar
@@ -165,6 +172,11 @@ export default function SueltoPedido({
                   <span className="font-mono text-xs text-gray-700 w-8 text-right shrink-0">{l.quantity}×</span>
                   <span className="font-mono text-xs text-gray-500 w-28 shrink-0">{l.bajajCode ?? '—'}</span>
                   <span className="flex-1 text-gray-900 truncate" title={l.nameEs}>{l.nameEs}</span>
+                  {l.esperaCaja && (
+                    <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 shrink-0">
+                      Pagada · esperaba stock
+                    </span>
+                  )}
                   {l.descontinuada && (
                     <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-800 shrink-0">
                       NLS

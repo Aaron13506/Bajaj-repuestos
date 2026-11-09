@@ -9,6 +9,16 @@ import { REENVIOS } from '@/lib/reenvio'
 import { costearEnvios } from '@/lib/costo-envios'
 import { CATEGORIAS_FLETE, resumenFletes } from '@/lib/flete-real'
 import { tiempoDeCompraA, tiemposPorTramo } from '@/lib/etapas'
+import { nombreEnsamble } from '@/lib/linea-pedido'
+import type { BundlePiece } from '@/lib/bundle'
+
+// El código de la pieza, o los de las piezas de un conjunto (hasta 3).
+const codigos = (it: { product: { bajajCode: string | null } | null; bundleItems: unknown }) => {
+  if (it.product?.bajajCode) return it.product.bajajCode
+  const cs = ((it.bundleItems as BundlePiece[] | null) ?? []).flatMap(p => (p.bajajCode ? [p.bajajCode] : []))
+  return cs.length > 3 ? `${cs.slice(0, 3).join(', ')} +${cs.length - 3}` : cs.join(', ')
+}
+const fechaCorta = (d: Date) => d.toLocaleDateString('es-VE', { day: 'numeric', month: 'short', timeZone: 'America/Caracas' })
 
 export const metadata = { title: 'Envíos' }
 
@@ -16,7 +26,7 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
   const verLlegaron = (await searchParams).ver === 'llegaron'
   // Una sola tanda: ninguna de las tres depende de las otras y encadenarlas costaba
   // tres veces la latencia hasta la base.
-  const [envios, sinAsignar, suppliers, costos, pagosFlete, etapas] = await Promise.all([
+  const [envios, sinAsignar, suppliers, costos, pagosFlete, etapas, esperandoCaja] = await Promise.all([
     db.envio.findMany({
       include: {
         items: { select: { id: true, shippingStatus: true, pedidoId: true } },
@@ -47,6 +57,23 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
       select: { itemId: true, desde: true, hacia: true, at: true },
       orderBy: { at: 'desc' },
       take: 5000,
+    }),
+    // Pagadas que el proveedor no mandó y quedaron fuera de su caja («Dejarla para la próxima caja»):
+    // no pueden perderse, viajan en la próxima.
+    db.pedidoItem.findMany({
+      where: {
+        envioId: null, desdeStock: false, pedido: { status: 'pedido' },
+        incidencias: { some: { estado: 'abierta', tipo: 'sin_enviar' } },
+        OR: [{ costRealUsd: { not: null } }, { shippingStatus: { not: 'pendiente' } }],
+      },
+      select: {
+        id: true, pedidoId: true, quantity: true, bundleItems: true,
+        pedido: { select: { clientName: true } },
+        product: { select: { nameEs: true, bajajCode: true } },
+        ensamble: { select: { nameEs: true, nameEn: true } },
+        incidencias: { where: { estado: 'abierta', tipo: 'sin_enviar' }, select: { creadaAt: true }, orderBy: { id: 'asc' }, take: 1 },
+      },
+      orderBy: [{ pedidoId: 'asc' }, { id: 'asc' }],
     }),
   ])
   const tramos = tiemposPorTramo(etapas)
@@ -126,6 +153,35 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
             </Link>
           ))}
         </div>
+      )}
+
+      {esperandoCaja.length > 0 && (
+        <section aria-labelledby="esperando-caja" className="mb-6 rounded-xl border-2 border-amber-300 bg-white">
+          <div className="px-4 sm:px-5 py-3 border-b border-gray-100">
+            <h2 id="esperando-caja" className="font-semibold text-gray-900">Pagadas esperando caja ({esperandoCaja.length})</h2>
+            <p className="text-sm text-gray-600">
+              El proveedor no las tenía cuando salió su caja. Entran en la próxima caja aérea desde «Agregar pedidos».
+            </p>
+          </div>
+          <ul className="divide-y divide-gray-100">
+            {esperandoCaja.map(it => (
+              <li key={it.id} className="px-4 sm:px-5 py-2.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-sm">
+                <span className="min-w-0">
+                  <span className="font-medium text-gray-900">{it.product?.nameEs ?? (it.ensamble ? nombreEnsamble(it.ensamble) : 'Línea')}</span>{' '}
+                  <span className="font-mono text-xs text-gray-500">
+                    {codigos(it) && `${codigos(it)} · `}×{it.quantity}
+                  </span>
+                  {it.incidencias[0] && (
+                    <span className="text-xs text-amber-800"> · sin stock desde el {fechaCorta(it.incidencias[0].creadaAt)}</span>
+                  )}
+                </span>
+                <Link href={`/presupuestos/${it.pedidoId}`} className="text-xs text-blue-700 underline underline-offset-2 hover:no-underline">
+                  #{it.pedidoId} {it.pedido.clientName}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {/* Crear: la ruta se elige acá y ya no se cambia — decide cómo se costea la caja y

@@ -11,13 +11,29 @@ interface Props {
   methods: readonly string[]
   // Modo embebido (en /envios/[id]): una sección con su título y los pedidos plegados, porque
   // casi siempre se paga todo junto. En /contabilidad/comprar el picker ES la página y va abierto.
+  // En la caja el «no mandó» no se ofrece: se anota en «Compradas, esperando que despache».
   collapsible?: boolean
+  /** Solo en la caja: lo ya pagado contra ella, para ver qué se registró sin ir al libro. */
+  pagos?: PagoCaja[]
+}
+
+export interface PagoCaja {
+  id: number
+  fecha: string
+  monto: number
+  metodoPago: string | null
+  descripcion: string | null
+  /** Las líneas a las que este pago les puso el costo real (0 = un pago sin piezas, p. ej. el giro). */
+  piezas: number
+  pedidos: number[]
 }
 
 const usd = (n: number) => `$${n.toFixed(2)}`
 
-export default function RegistrarCompraPicker({ items, action, methods, collapsible = false }: Props) {
+export default function RegistrarCompraPicker({ items, action, methods, collapsible = false, pagos = [] }: Props) {
   const [selected, setSelected] = useState<Set<number>>(new Set())
+  // Por SKU junta las líneas que piden el mismo código: sirve para pagar "todas las pastillas".
+  const [porSku, setPorSku] = useState(false)
   // Qué clientes tienen el detalle por pieza desplegado. En la ficha del envío arrancan todos
   // cerrados: casi siempre se paga todo junto con "Seleccionar todo" y el precio por pieza o
   // por cliente es opcional, así que el detalle no tiene que ocupar la pantalla.
@@ -42,6 +58,15 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
       g.items.push(i)
     }
     return [...porPedido.values()]
+  }, [items])
+
+  const grupoSku = useMemo(() => {
+    const m = new Map<string, ItemPendienteCosto[]>()
+    for (const i of items) {
+      const k = i.sku ?? `linea-${i.id}`
+      m.set(k, [...(m.get(k) ?? []), i])
+    }
+    return [...m.entries()]
   }, [items])
 
   function toggleDesplegado(pedidoId: number) {
@@ -123,19 +148,62 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
     })
   }
 
+  const encabezado = (
+    <div className="px-4 sm:px-6 py-4 border-b border-gray-100 flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+      <div className="min-w-0">
+        <h2 className="text-base font-semibold text-gray-900">Registrar lo que pagaste</h2>
+        <p className="text-sm text-gray-600">
+          Elegí lo que cubre el pago: todo, un pedido o un SKU. El monto se reparte en proporción al estimado,
+          como en Contabilidad → Comprar.
+        </p>
+      </div>
+      {items.length > 0 && (
+        <div role="group" aria-label="Agrupar por" className="inline-flex rounded-lg border border-gray-200 p-0.5 text-sm">
+          {([['pedido', false], ['SKU', true]] as const).map(([t, v]) => (
+            <button key={t} type="button" aria-pressed={porSku === v} onClick={() => setPorSku(v)}
+              className={`min-h-8 px-3 rounded-md ${porSku === v ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-gray-600 hover:bg-gray-50'}`}>
+              Por {t}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+
+  const historial = (marco: string) => pagos.length > 0 && (
+    <div className={`px-4 sm:px-6 py-3 ${marco}`}>
+      <h3 className="text-xs font-semibold text-gray-500 mb-1.5">
+        Pagos ya registrados en esta caja · {usd(pagos.reduce((s, p) => s + p.monto, 0))}
+      </h3>
+      <ul className="space-y-1 text-sm text-gray-700">
+        {pagos.map(p => (
+          <li key={p.id}>
+            <span className="font-mono font-semibold">{usd(p.monto)}</span> · {p.fecha}
+            {p.metodoPago && ` · ${p.metodoPago}`}
+            {p.piezas > 0 && ` · ${p.piezas} ${p.piezas === 1 ? 'pieza' : 'piezas'} de ${p.pedidos.map(n => `#${n}`).join(', ')}`}
+            {p.descripcion && <span className="text-gray-500"> · {p.descripcion}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+
+  if (items.length === 0) {
+    return (
+      <section className="bg-white rounded-xl shadow-sm border border-gray-100 mb-4">
+        {encabezado}
+        <p className="m-4 sm:mx-6 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800">
+          Todas las piezas de esta caja tienen su costo real cargado.
+        </p>
+        {historial('border-t border-gray-100')}
+      </section>
+    )
+  }
+
   const contenido = (
     <>
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto mb-4">
-        {collapsible && (
-          <div className="px-4 sm:px-6 py-4 border-b border-gray-100">
-            <h2 className="text-base font-semibold text-gray-900">Registrar lo que pagaste</h2>
-            <p className="text-sm text-gray-600">
-              Elegí lo que cubre el pago: todo, un pedido o piezas sueltas. El monto se reparte en proporción al
-              estimado, como en Contabilidad → Comprar. Si el proveedor cobró algo que no mandó, desplegá el
-              pedido y anotalo en «no mandó»: la caja no lo va a esperar al llegar.
-            </p>
-          </div>
-        )}
+        {collapsible && encabezado}
         {/* Un solo tilde para agarrar TODO el envío/lista de una — sin esto había que armar
             un pago único para todo tildando pedido por pedido. */}
         <label className="px-4 py-2.5 bg-blue-50/50 border-b border-gray-100 flex flex-wrap items-center gap-x-3 gap-y-1 cursor-pointer">
@@ -153,7 +221,30 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
           </span>
         </label>
         <div className="divide-y divide-gray-100">
-          {grupos.map(g => {
+          {porSku ? grupoSku.map(([k, its]) => {
+            const ids = its.map(i => i.id)
+            const todos = ids.every(id => selected.has(id))
+            const algunos = !todos && ids.some(id => selected.has(id))
+            return (
+              <label key={k} className="px-4 py-2 flex items-center gap-3 text-sm cursor-pointer hover:bg-gray-50">
+                <input
+                  type="checkbox"
+                  checked={todos}
+                  ref={el => { if (el) el.indeterminate = algunos }}
+                  onChange={e => toggleGrupo(ids, e.target.checked)}
+                  className="size-4 shrink-0 rounded border-gray-300"
+                />
+                <span className="font-mono text-xs text-gray-500 w-28 shrink-0">{its[0].sku ?? 'conjunto'}</span>
+                <span className="flex-1 min-w-0 text-gray-900">
+                  {its[0].nombre}
+                  <span className="block text-xs text-gray-500">{its.map(i => `#${i.pedidoId} ×${i.quantity}`).join(' · ')}</span>
+                </span>
+                <span className="font-mono text-xs text-gray-500 whitespace-nowrap">
+                  ×{its.reduce((s, i) => s + i.quantity, 0)} · {usd(its.reduce((s, i) => s + i.estimadoUsd, 0))}
+                </span>
+              </label>
+            )
+          }) : grupos.map(g => {
             const ids = g.items.map(i => i.id)
             const todos = ids.every(id => selected.has(id))
             const algunos = !todos && ids.some(id => selected.has(id))
@@ -222,7 +313,7 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
                         </td>
                         <td className="px-2 py-2 text-right font-mono text-gray-500 w-16">×{i.quantity}</td>
                         <td className="px-2 py-2 w-28">
-                          {i.admiteSinEnviar && selected.has(i.id) && (
+                          {!collapsible && i.admiteSinEnviar && selected.has(i.id) && (
                             <label className="flex items-center justify-end gap-1 text-xs text-gray-600" title="Unidades que el proveedor cobró pero no mandó todavía: la caja no las espera al llegar">
                               no mandó
                               <input
@@ -299,6 +390,7 @@ export default function RegistrarCompraPicker({ items, action, methods, collapsi
           {isPending ? 'Guardando…' : 'Registrar compra'}
         </button>
       </div>
+      {historial('mt-3 bg-white rounded-xl border border-gray-100')}
     </>
   )
 
