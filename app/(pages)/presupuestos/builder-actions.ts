@@ -6,6 +6,7 @@ import { lookupDeConjuntos, expandCostPieces, type ProductCost, type ProductLook
 import type { BundlePiece } from '@/lib/bundle'
 import { calcLanded, CM3_PER_FT3, CM3_PER_M3, type ConfigMap, type EnvioItemInput } from '@/lib/calc'
 import { calcExpress, motivoExpressNoAprobable, type Via } from '@/lib/express'
+import { acompanantesDeCaja } from '@/lib/express-pedido'
 import { toConfigMap, margenPorDefecto, num } from '@/lib/config'
 import type { RefLinea } from '@/lib/linea-pedido'
 import { codigoContiene } from '@/lib/alt-sku'
@@ -99,7 +100,13 @@ export interface CostoCarrito {
 
 export interface ResumenExpress {
   topeUsd: number
+  /** De este presupuesto: su parte del paquete. */
   landedUsd: number
+  /** El paquete entero (con lo que ya va en la caja): lo que se mide contra el tope. */
+  paqueteUsd: number
+  paqueteKg: number
+  /** La caja elegida ya lleva otras cosas. */
+  enCaja: boolean
   holguraUsd: number
   excede: boolean
   fleteUsd: number
@@ -112,7 +119,11 @@ export interface ResumenExpress {
   motivo: string | null
 }
 
-export async function costearCarrito(lineas: CarritoLineaInput[], via: Via = 'normal'): Promise<CostoCarrito> {
+// `cajaId`: la caja express en la que va (lo que ya lleva comparte el flete); `pedidoId` es el
+// presupuesto que se edita, para no contarlo dos veces si ya está en esa caja.
+export async function costearCarrito(
+  lineas: CarritoLineaInput[], via: Via = 'normal', cajaId: number | null = null, pedidoId: number | null = null,
+): Promise<CostoCarrito> {
   const vacio: CostoCarrito = {
     lineas: [], landedUsd: 0, weightKg: 0, volKg: 0, ft3: 0, cbm: 0, sinMedidas: 0, costoOrigenUsd: 0, fleteUsd: 0, sinPeso: 0, proveedor: '99rpm', express: null,
   }
@@ -151,7 +162,10 @@ export async function costearCarrito(lineas: CarritoLineaInput[], via: Via = 'no
   })
   const margenPorId = new Map(margenes.map(m => [m.id, m.margin]))
 
-  if (via === 'express') return costearExpress(lineas, cfg, porId, lookup, divisor)
+  if (via === 'express') {
+    const acompanantes = cajaId != null ? await acompanantesDeCaja(db, cajaId, pedidoId) : []
+    return costearExpress(lineas, cfg, porId, lookup, divisor, acompanantes)
+  }
 
   const out: CostoLinea[] = []
   for (const l of lineas) {
@@ -232,6 +246,7 @@ function costearExpress(
   porId: Map<number, ProductCost>,
   lookup: ProductLookup,
   divisor: number,
+  acompanantes: EnvioItemInput[],
 ): CostoCarrito {
   const porLinea: { l: CarritoLineaInput; desde: number; hasta: number }[] = []
   const items: EnvioItemInput[] = []
@@ -256,7 +271,7 @@ function costearExpress(
     porLinea.push({ l, desde, hasta: items.length })
   }
 
-  const e = calcExpress(items, cfg)
+  const e = calcExpress(items, cfg, { acompanantes })
   const out: CostoLinea[] = porLinea.map(({ l, desde, hasta }) => {
     const piezas = e.envio.lines.slice(desde, hasta)
     const landedUsd = piezas.reduce((s, p) => s + p.landedUsd, 0)
@@ -280,16 +295,19 @@ function costearExpress(
     cbm: cm3Total / CM3_PER_M3,
     sinMedidas,
     costoOrigenUsd: 0,
-    fleteUsd: e.envio.airUsd,
+    fleteUsd: e.fleteUsd,
     sinPeso: e.sinPeso.length,
     proveedor: '99rpm',
     express: {
       topeUsd: e.topeUsd,
       landedUsd: e.landedUsd,
+      paqueteUsd: e.paqueteUsd,
+      paqueteKg: e.envio.air.chargeableKg,
+      enCaja: acompanantes.length > 0,
       holguraUsd: e.holguraUsd,
       excede: e.excede,
-      fleteUsd: e.envio.airUsd,
-      chargeableKg: e.envio.air.chargeableKg,
+      fleteUsd: e.fleteUsd,
+      chargeableKg: e.chargeableKg,
       ataVolumen: e.envio.air.binding === 'volume',
       productoQueEntraUsd: e.productoQueEntraUsd,
       kgHastaProximoEscalon: e.kgHastaProximoEscalon,

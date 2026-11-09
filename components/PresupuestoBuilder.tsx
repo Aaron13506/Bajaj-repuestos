@@ -119,6 +119,8 @@ interface Props {
   initialClienteId?: number | null
   /** Editando un pedido confirmado: el cliente no se cambia (el adelanto y el escalón ya son suyos). */
   clienteFijo?: boolean
+  /** Stock propio con piezas ya en una caja: la vía no se cambia (la caja exige la suya). */
+  viaFija?: boolean
   /** Si guarda sobre un pedido existente. Un duplicado trae líneas pero es nuevo. */
   editando?: boolean
   /** Lo que ya tengo de cada pieza (aquí / en camino / en borrador). Solo informativo. */
@@ -127,6 +129,13 @@ interface Props {
   initialVia?: Via
   /** El plazo express que se le promete al cliente (plazoExpress), para el botón. */
   plazoExpressTexto?: string
+  /** Cajas express abiertas: el presupuesto express se costea con lo que ya lleva la elegida. */
+  cajasExpress?: { id: number; nombre: string }[]
+  initialCajaId?: number | null
+  /** Ya tiene piezas en una caja: la caja no se cambia desde acá. */
+  cajaFija?: boolean
+  /** El presupuesto que se edita (para no contarlo dos veces dentro de su caja). */
+  pedidoId?: number | null
 }
 
 // Mapa vacío de identidad estable: se usa mientras no hay búsqueda por pieza, para no
@@ -145,16 +154,21 @@ export default function PresupuestoBuilder({
   clientes = [],
   initialClienteId = null,
   clienteFijo = false,
+  viaFija = false,
   editando = initialItems.length > 0,
   posiciones,
   initialVia = 'normal',
   plazoExpressTexto = 'Directo desde India',
+  cajasExpress = [],
+  initialCajaId = null,
+  cajaFija = false,
+  pedidoId = null,
 }: Props) {
   const isPropio = tipo === 'propio'
-  // El stock propio viaja siempre por la caja normal; un pedido ya confirmado no cambia de vía
-  // (se cotizó y se cobró así).
-  const [via, setVia] = useState<Via>(isPropio ? 'normal' : initialVia)
+  // Un pedido de cliente ya confirmado no cambia de vía (se cotizó y se cobró así).
+  const [via, setVia] = useState<Via>(initialVia)
   const esExpress = via === 'express'
+  const [cajaId, setCajaId] = useState<number | null>(initialCajaId)
   const [selectedAssemblyId, setSelectedAssemblyId] = useState<number | null>(null)
   const [checked, setChecked] = useState<Record<number, boolean>>({})
   const [quantities, setQuantities] = useState<Record<number, number>>({})
@@ -467,16 +481,17 @@ export default function PresupuestoBuilder({
   const composicion = useMemo(
     () => JSON.stringify([
       via,
+      via === 'express' ? cajaId : null,
       cart.map(c => [c.productId, c.ensambleId, c.quantity, c.bundleItems?.map(p => [p.bajajCode, p.nameEs, p.quantity]) ?? null]),
     ]),
-    [cart, via],
+    [cart, via, cajaId],
   )
   const carritoVacio = cart.length === 0
   const costo = carritoVacio ? null : costoHecho?.costo ?? null
   const costeando = !carritoVacio && costoHecho?.clave !== composicion
 
   useEffect(() => {
-    const [viaCosteo, lineas] = JSON.parse(composicion) as [Via, [number | null, number | null, number, [string | null, string, number][] | null][]]
+    const [viaCosteo, cajaCosteo, lineas] = JSON.parse(composicion) as [Via, number | null, [number | null, number | null, number, [string | null, string, number][] | null][]]
     if (lineas.length === 0) return
     let cancelled = false
     const t = setTimeout(async () => {
@@ -492,6 +507,8 @@ export default function PresupuestoBuilder({
             bundleItems: piezas?.map(([bajajCode, nameEs, qty]) => ({ bajajCode, nameEs, quantity: qty, groupName: '' })) ?? null,
           })),
           viaCosteo,
+          cajaCosteo,
+          pedidoId,
         )
         if (cancelled) return
         setCostoHecho({ clave: composicion, costo: r })
@@ -517,7 +534,7 @@ export default function PresupuestoBuilder({
       }
     }, 250)
     return () => { cancelled = true; clearTimeout(t) }
-  }, [composicion])
+  }, [composicion, pedidoId])
 
   const costoPorLinea = useMemo(
     () => new Map((costo?.lineas ?? []).map(l => [claveLinea(l), l])),
@@ -603,6 +620,62 @@ export default function PresupuestoBuilder({
   // mitad del cálculo dejaba líneas con el precio de antes de agregar o sacar otra pieza.
   const esperandoExpress = esExpress && costeando
 
+  // Normal o express. También en el stock propio: se aprovecha el espacio de una caja express.
+  const selectorVia = (
+    <div>
+      <span className="block text-sm font-medium text-gray-700 mb-1">Envío</span>
+      <div className="grid grid-cols-2 rounded-lg border border-gray-300 overflow-hidden text-sm">
+        {([
+          ['normal', '✈️ Normal', 'Por Miami'],
+          ['express', '⚡ Express', plazoExpressTexto],
+        ] as const).map(([v, titulo, sub]) => (
+          <button
+            key={v}
+            type="button"
+            disabled={clienteFijo || viaFija}
+            onClick={() => setVia(v)}
+            className={`px-3 py-2 text-left disabled:cursor-not-allowed ${
+              via === v ? 'bg-blue-50 text-blue-900' : 'bg-white text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            <span className="block font-medium">{titulo}</span>
+            <span className="block text-[11px] text-gray-500">{sub}</span>
+          </button>
+        ))}
+      </div>
+      {clienteFijo ? (
+        <p className="text-[11px] text-gray-400 mt-1">El pedido ya está confirmado: el envío no se cambia.</p>
+      ) : viaFija ? (
+        <p className="text-[11px] text-gray-400 mt-1">Ya hay piezas en una caja: el envío no se cambia.</p>
+      ) : esExpress && editando && desalineadas.length > 0 && (
+        <p className="text-[11px] text-amber-700 mt-1">
+          Los precios que ya tenía no cambian solos: usá &quot;Aplicar precios sugeridos&quot; para pasarlos a precio express.
+        </p>
+      )}
+      {esExpress && (
+        <div className="mt-2">
+          <label htmlFor="pb-caja-express" className="block text-sm font-medium text-gray-700 mb-1">Caja express en la que va</label>
+          <select
+            id="pb-caja-express"
+            value={cajaId ?? ''}
+            disabled={cajaFija}
+            onChange={e => setCajaId(e.target.value ? Number(e.target.value) : null)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white disabled:bg-gray-50 disabled:cursor-not-allowed"
+          >
+            <option value="">Ninguna todavía (se cotiza como paquete solo)</option>
+            {cajaId != null && !cajasExpress.some(c => c.id === cajaId) && <option value={cajaId}>Caja #{cajaId}</option>}
+            {cajasExpress.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </select>
+          <p className="text-[11px] text-gray-500 mt-1">
+            {cajaFija
+              ? 'Ya está en esa caja: se cambia desde la caja.'
+              : `El flete se calcula con lo que ya lleva la caja y a este presupuesto le toca su parte. ${isPropio ? 'Al guardar entra en la caja.' : 'Entra en la caja recién al confirmarlo con el adelanto.'}`}
+          </p>
+        </div>
+      )}
+    </div>
+  )
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!clienteValid || cart.length === 0 || nlsEnCarrito.length > 0 || submitting || esperandoExpress) return
@@ -621,6 +694,7 @@ export default function PresupuestoBuilder({
     fd.set('notas', notas)
     fd.set('tipo', tipo)
     fd.set('via', via)
+    if (via === 'express' && cajaId != null) fd.set('cajaId', String(cajaId))
     fd.set(
       'items',
       JSON.stringify(sortedCart.map(c => ({
@@ -1300,16 +1374,17 @@ export default function PresupuestoBuilder({
                               : `Entra. Te quedan $${costo.express.holguraUsd.toFixed(2)}`}
                           </p>
                           <span className="text-[11px] font-mono text-gray-600">
-                            ${costo.express.landedUsd.toFixed(2)} de ${costo.express.topeUsd.toFixed(2)}
+                            ${costo.express.paqueteUsd.toFixed(2)} de ${costo.express.topeUsd.toFixed(2)}
                           </span>
                         </div>
                         <div className="mt-1.5 h-2 rounded-full bg-white overflow-hidden border border-gray-200">
                           <div
                             className={`h-full ${costo.express.excede ? 'bg-red-500' : 'bg-green-500'}`}
-                            style={{ width: `${Math.min(100, (costo.express.landedUsd / costo.express.topeUsd) * 100)}%` }}
+                            style={{ width: `${Math.min(100, (costo.express.paqueteUsd / costo.express.topeUsd) * 100)}%` }}
                           />
                         </div>
                         <p className="text-[11px] text-gray-600 mt-1.5">
+                          {costo.express.enCaja && <>Caja con todo: {costo.express.paqueteKg.toFixed(2)} kg · </>}
                           Flete ${costo.express.fleteUsd.toFixed(2)} por {costo.express.chargeableKg.toFixed(2)} kg cobrables
                           {costo.express.ataVolumen && ' (manda el volumen)'}
                           {!costo.express.excede && <> · entran ≈ ${costo.express.productoQueEntraUsd.toFixed(2)} más de producto
@@ -1408,7 +1483,9 @@ export default function PresupuestoBuilder({
             <h2 className="font-semibold text-gray-900">{isPropio ? 'Referencia' : 'Datos del cliente'}</h2>
 
             {isPropio ? (
-              <div>
+              <div className="space-y-3">
+                {selectorVia}
+                <div>
                 <label htmlFor="pb-referencia" className="block text-sm font-medium text-gray-700 mb-1">
                   Etiqueta / referencia <span className="text-red-600">*</span>
                 </label>
@@ -1421,38 +1498,11 @@ export default function PresupuestoBuilder({
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   required
                 />
+                </div>
               </div>
             ) : (
               <div className="space-y-3">
-                <div>
-                  <span className="block text-sm font-medium text-gray-700 mb-1">Envío</span>
-                  <div className="grid grid-cols-2 rounded-lg border border-gray-300 overflow-hidden text-sm">
-                    {([
-                      ['normal', '✈️ Normal', 'Por Miami'],
-                      ['express', '⚡ Express', plazoExpressTexto],
-                    ] as const).map(([v, titulo, sub]) => (
-                      <button
-                        key={v}
-                        type="button"
-                        disabled={clienteFijo}
-                        onClick={() => setVia(v)}
-                        className={`px-3 py-2 text-left disabled:cursor-not-allowed ${
-                          via === v ? 'bg-blue-50 text-blue-900' : 'bg-white text-gray-600 hover:bg-gray-50'
-                        }`}
-                      >
-                        <span className="block font-medium">{titulo}</span>
-                        <span className="block text-[11px] text-gray-500">{sub}</span>
-                      </button>
-                    ))}
-                  </div>
-                  {clienteFijo ? (
-                    <p className="text-[11px] text-gray-400 mt-1">El pedido ya está confirmado: el envío no se cambia.</p>
-                  ) : esExpress && editando && desalineadas.length > 0 && (
-                    <p className="text-[11px] text-amber-700 mt-1">
-                      Los precios que ya tenía no cambian solos: usá &quot;Aplicar precios sugeridos&quot; para pasarlos a precio express.
-                    </p>
-                  )}
-                </div>
+                {selectorVia}
                 <div>
                   <label htmlFor="pb-cliente" className="block text-sm font-medium text-gray-700 mb-1">
                     Cliente <span className="text-red-600">*</span>

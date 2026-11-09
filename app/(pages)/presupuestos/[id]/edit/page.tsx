@@ -9,6 +9,7 @@ import { updatePresupuesto } from '../../actions'
 import { type BundlePiece } from '@/lib/bundle'
 import { cabeceraDeLinea, nombreEnsamble } from '@/lib/linea-pedido'
 import { posicionesParaArmador } from '@/lib/inventario'
+import { cajasExpressAbiertas } from '@/lib/express-pedido'
 import { permisoDeLinea, permisoSinCliente } from '@/lib/pedido-edicion'
 
 export const metadata = { title: 'Editar presupuesto' }
@@ -57,6 +58,9 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
   const confirmado = !!presupuesto && presupuesto.tipo === 'cliente' && presupuesto.status === 'pedido'
   const editable = presupuesto && (presupuesto.status === 'presupuesto' || presupuesto.tipo === 'propio' || confirmado)
   if (!presupuesto || !editable) notFound()
+  // Con líneas ya en una caja, esa caja queda fija; si no, la elegida al cotizar se puede cambiar.
+  const cajaConLineas = presupuesto.items.find(it => it.envioId != null)?.envioId ?? null
+  const cajaExpressId = viaDe(presupuesto.via) === 'express' ? cajaConLineas ?? presupuesto.cajaExpressId : null
 
   const initialItems = presupuesto.items.map(item => {
     const cab = cabeceraDeLinea(item)
@@ -122,12 +126,17 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
         initialClientName={presupuesto.clientName}
         initialClienteId={presupuesto.clienteId}
         clienteFijo={confirmado}
+        viaFija={presupuesto.tipo === 'propio' && presupuesto.items.some(it => it.envioId != null)}
         initialNotas={presupuesto.notas ?? ''}
         initialItems={initialItems}
         clientes={clientes}
         posiciones={posiciones}
         initialVia={viaDe(presupuesto.via)}
         plazoExpressTexto={plazoExpress(await getConfig())}
+        cajasExpress={await cajasExpressAbiertas()}
+        initialCajaId={cajaExpressId}
+        cajaFija={cajaExpressId != null && cajaConLineas != null}
+        pedidoId={id}
       />
     </div>
   )

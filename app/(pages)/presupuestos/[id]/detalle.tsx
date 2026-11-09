@@ -696,7 +696,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
         </dl>
       )}
 
-      {/* Express: el paquete entero contra el tope, y lo que se gana sobre su landed estimado. */}
+      {/* Express: el paquete (con lo que ya va en su caja) contra el tope, y lo que se gana sobre su parte. */}
       {express && (
         <div className={`rounded-xl border-2 p-6 mb-4 ${express.excede ? 'border-red-300 bg-red-50' : 'border-green-300 bg-green-50'}`}>
           <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -705,16 +705,16 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                 ? `se pasa $${(-express.holguraUsd).toFixed(2)} del tope`
                 : `entra, quedan $${express.holguraUsd.toFixed(2)}`}
             </h2>
-            <span className="text-sm font-mono text-gray-600">${express.landedUsd.toFixed(2)} de ${express.topeUsd.toFixed(2)}</span>
+            <span className="text-sm font-mono text-gray-600">${express.paqueteUsd.toFixed(2)} de ${express.topeUsd.toFixed(2)}</span>
           </div>
           <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
             <div>
               <p className="text-xs text-gray-500">Peso cobrable</p>
-              <p className="font-mono font-semibold">{express.envio.air.chargeableKg.toFixed(2)} kg</p>
+              <p className="font-mono font-semibold">{express.chargeableKg.toFixed(2)} kg</p>
             </div>
             <div>
               <p className="text-xs text-gray-500">Flete Shoppre → VEN</p>
-              <p className="font-mono font-semibold">${express.envio.airUsd.toFixed(2)}</p>
+              <p className="font-mono font-semibold">${express.fleteUsd.toFixed(2)}</p>
             </div>
             <div>
               <p className="text-xs text-gray-500">Landed estimado</p>
@@ -729,6 +729,9 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
             </div>
           </div>
           <p className="text-xs text-gray-500 mt-3">
+            {express.cajaId != null
+              ? <>{express.lineasEnCaja ? 'Va en la' : 'Cotizado con la'} <Link href={`/envios/${express.cajaId}`} className="underline">caja #{express.cajaId}</Link> ({express.envio.air.chargeableKg.toFixed(2)} kg con todo): el flete es el de la caja y esto es su parte.{express.lineasEnCaja ? ' ' : ' Entra en la caja al confirmarlo. '}</>
+              : 'Sin caja: se cotiza como paquete solo. '}
             Con las tarifas de hoy, sumando el peso de las piezas: la caja real puede pesar algo más.
           </p>
           {motivoExpress && <p className="text-sm text-red-800 mt-2">No se puede confirmar así: {motivoExpress}</p>}

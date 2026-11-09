@@ -32,6 +32,12 @@ export interface ExpressOptions {
   medidas?: MedidasCaja | null
   /** Margen en fracción (0.3). Ausente = `express_margen_pct`, y si no, el margen por defecto. */
   margen?: number
+  /**
+   * Lo que ya va en la caja express elegida para este presupuesto (las líneas de los otros
+   * presupuestos). Viajan en el mismo paquete: el flete se calcula para todo junto y a este
+   * presupuesto le toca su parte. El tope se mide contra el paquete entero.
+   */
+  acompanantes?: EnvioItemInput[]
 }
 
 export interface LineaExpress {
@@ -45,10 +51,17 @@ export interface LineaExpress {
 }
 
 export interface Express {
+  /** El paquete entero: este presupuesto más lo que ya va en su caja. */
   envio: EnvioBreakdown
   topeUsd: number
+  /** Landed de ESTE presupuesto (su parte del paquete). */
   landedUsd: number
-  /** tope − landed. Negativo = te pasaste por esa cantidad. */
+  /** Landed del paquete entero, el que se mide contra el tope. */
+  paqueteUsd: number
+  /** Kg cobrables y flete (Shoppre → VEN) de ESTE presupuesto, su parte del paquete. */
+  chargeableKg: number
+  fleteUsd: number
+  /** tope − landed del paquete. Negativo = te pasaste por esa cantidad. */
   holguraUsd: number
   excede: boolean
   /**
@@ -83,19 +96,19 @@ const round2 = (n: number) => Math.round(n * 100) / 100
 export function calcExpress(items: EnvioItemInput[], cfg: ConfigMap, opts: ExpressOptions = {}): Express {
   // Todo lo que va por express pasa por el depósito de Shoppre: se fuerza el inbound para
   // que una línea vieja o mal snapshoteada no se cueste como tramo cotizado.
-  const envio = calcEnvio(
-    items.map(it => ({ ...it, inbound: 'shoppre' as const, isLanded: false })),
-    cfg,
-    {
-      modo: 'express',
-      medidas: opts.medidas ? [opts.medidas] : null,
-      fleteFacturado: opts.fleteUsd != null ? { aereoUsd: opts.fleteUsd } : null,
-    },
-  )
+  const acompanantes = opts.acompanantes ?? []
+  const piezas = [...items, ...acompanantes].map(it => ({ ...it, inbound: 'shoppre' as const, isLanded: false }))
+  const envio = calcEnvio(piezas, cfg, {
+    modo: 'express',
+    medidas: opts.medidas ? [opts.medidas] : null,
+    fleteFacturado: opts.fleteUsd != null ? { aereoUsd: opts.fleteUsd } : null,
+  })
+  // Las líneas de este presupuesto van primero: calcEnvio devuelve una línea por ítem, en orden.
+  const propias = envio.lines.slice(0, items.length)
 
   const topeUsd = topeExpressUsd(cfg)
-  const landedUsd = envio.landedUsd
-  const holguraUsd = topeUsd - landedUsd
+  const landedUsd = propias.reduce((s, l) => s + l.landedUsd, 0)
+  const holguraUsd = topeUsd - envio.landedUsd
   const seguro = num(cfg, 'shoppre_insurance_pct', 0.03)
 
   let kgHastaProximoEscalon: number | null = null
@@ -107,7 +120,7 @@ export function calcExpress(items: EnvioItemInput[], cfg: ConfigMap, opts: Expre
   }
 
   const margen = opts.margen ?? margenExpress(cfg)
-  const lineas: LineaExpress[] = envio.lines.map(l => ({
+  const lineas: LineaExpress[] = propias.map(l => ({
     productId: l.productId,
     name: l.name,
     quantity: l.quantity,
@@ -120,6 +133,9 @@ export function calcExpress(items: EnvioItemInput[], cfg: ConfigMap, opts: Expre
     envio,
     topeUsd,
     landedUsd,
+    paqueteUsd: envio.landedUsd,
+    chargeableKg: Math.max(propias.reduce((s, l) => s + l.realKg, 0), propias.reduce((s, l) => s + l.volKg, 0)),
+    fleteUsd: propias.reduce((s, l) => s + l.airUsd, 0),
     holguraUsd,
     excede: holguraUsd < 0,
     productoQueEntraUsd: holguraUsd > 0 ? holguraUsd / (1 + seguro) : 0,

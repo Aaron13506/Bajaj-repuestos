@@ -1534,6 +1534,7 @@ console.log('\nENVÍO EXPRESS')
 {
   const ve = (kg: number, socio = false) => cotizarTramoAereo(kg, CARRIER_EXPRESS_VE, socio, cfg, 've').costUsd
   const inr = 94.95
+  const si0 = (b: boolean) => (b ? 1 : 0)
   const pieza = (gramos: number, inrPrecio: number, dims: [number, number, number] = [20, 15, 10]): EnvioItemInput => ({
     pedidoId: 9, productId: 901, name: 'Express A', weightGrams: gramos, dimL: dims[0], dimA: dims[1], dimH: dims[2],
     priceInr: inrPrecio, quantity: 1, origen: 'india', inbound: 'shoppre', supplierId: null,
@@ -1579,6 +1580,21 @@ console.log('\nENVÍO EXPRESS')
   check('express: precio total = unidad × cantidad', conMargen.precioUsd, unit * 2, 1e-9)
   check('express: margen por defecto es express_margen_pct', calcExpress([pieza(800, 2000)], { ...cfg, express_margen_pct: '25' }).margen, 0.25)
   check('express: tope configurable', calcExpress([pieza(800, 2000)], { ...cfg, express_tope_usd: '120' }).topeUsd, 120)
+
+  // Presupuesto en una caja elegida: el flete es el del paquete entero (este + lo que ya va en
+  // la caja) y le toca su parte; el tope es del paquete.
+  const otro = { ...pieza(1200, 3000), pedidoId: 10, productId: 902 }
+  const enCaja = calcExpress([pieza(800, 2000)], cfg, { acompanantes: [otro] })
+  const juntos = calcExpress([pieza(800, 2000), otro], cfg)
+  check('en caja: el flete es el del paquete de 2 kg', enCaja.envio.airUsd, ve(2))
+  check('en caja: le toca su parte por peso (0.8 de 2 kg)', enCaja.fleteUsd, ve(2) * 0.4, 1e-9)
+  check('en caja: el tope mide el paquete entero', enCaja.paqueteUsd, juntos.landedUsd, 1e-9)
+  check('en caja: holgura del paquete', enCaja.holguraUsd, 100 - juntos.landedUsd, 1e-9)
+  check('en caja: su landed es su línea del paquete', enCaja.landedUsd, juntos.envio.lines[0].landedUsd, 1e-9)
+  check('en caja: sale menos que solo', si0(enCaja.landedUsd < e.landedUsd), 1)
+  check('en caja: el precio es solo de lo suyo', enCaja.lineas.length, 1)
+  check('en caja: solo entra, con la caja se pasa del tope', si0(!e.excede && enCaja.excede), 1)
+
 
   // Confirmar un presupuesto express: pasado del tope o sin peso, no.
   const si = (b: boolean) => (b ? 1 : 0)

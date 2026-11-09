@@ -356,6 +356,7 @@ model Envio {
   compraDeId       Int?
   compraDe         Envio?       @relation("CompraPartida", fields: [compraDeId], references: [id], onDelete: SetNull)
   partes           Envio[]      @relation("CompraPartida")
+  presupuestosExpress Pedido[] @relation("PresupuestoCajaExpress")
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
@@ -474,6 +475,11 @@ model Pedido {
   // sugerido de TODO el presupuesto, porque el flete express es uno por paquete. Ver
   // lib/express.ts.
   via           String       @default("normal")
+  // La caja express con la que se costeó un presupuesto express (comparte su flete). Un
+  // presupuesto de cliente NO entra a la caja hasta confirmarse con su adelanto: hasta ahí es
+  // solo la referencia del costeo. Al confirmar, aprobarPedido mete sus líneas en ella.
+  cajaExpressId Int?
+  cajaExpress   Envio?       @relation("PresupuestoCajaExpress", fields: [cajaExpressId], references: [id], onDelete: SetNull)
   status        String       @default("presupuesto")
   // Adelanto: se llenan al aprobar un presupuesto de cliente (ver aprobarPedido). Desde el
   // libro de movimientos, depositUsd es una CACHÉ de "total recibido hasta ahora" — la

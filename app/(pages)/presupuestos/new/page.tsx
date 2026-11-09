@@ -8,6 +8,7 @@ import { getConfig } from '@/lib/config-db'
 import PresupuestoBuilder from '@/components/PresupuestoBuilder'
 import { createPresupuesto } from '../actions'
 import { posicionesParaArmador } from '@/lib/inventario'
+import { cajasExpressAbiertas } from '@/lib/express-pedido'
 
 export const metadata = { title: 'Nuevo presupuesto' }
 
@@ -107,6 +108,7 @@ export default async function NewPresupuestoPage({
         // Un duplicado sale por la misma vía que el original; si no, la que pida el enlace.
         initialVia={viaDe(desde?.via ?? sp.via)}
         plazoExpressTexto={plazoExpress(await getConfig())}
+        cajasExpress={await cajasExpressAbiertas()}
       />
     </div>
   )

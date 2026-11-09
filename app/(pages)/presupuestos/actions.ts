@@ -26,6 +26,7 @@ import { notaCobroBcv, realDeCobro, resumenCobro } from '@/lib/cobro-bcv'
 import { cobraEnBolivares } from '@/lib/pagos'
 import { motivoExpressNoAprobable, viaDe } from '@/lib/express'
 import { expressDelPedido } from '@/lib/express-pedido'
+import { assignPedido } from '../envios/actions'
 
 type Tx = Prisma.TransactionClient
 
@@ -146,12 +147,31 @@ export async function createPresupuesto(formData: FormData): Promise<ActionResul
   return conErrorDeNegocio(() => crearPresupuesto(formData))
 }
 
+// La caja express elegida en el armador. Se valida ANTES de guardar: si no, el presupuesto
+// quedaba guardado y afuera de la caja, y reintentar lo duplicaba.
+async function cajaExpressElegida(formData: FormData, via: string): Promise<number | null> {
+  const id = parseInt((formData.get('cajaId') as string | null) ?? '')
+  if (via !== 'express' || !Number.isInteger(id)) return null
+  const caja = await db.envio.findUnique({ where: { id }, select: { modo: true, estado: true } })
+  if (!caja || caja.modo !== 'express' || caja.estado === 'entregado') {
+    throw new ErrorDeNegocio('Esa caja express ya no está disponible: elegí otra, o ninguna.')
+  }
+  return id
+}
+
+async function meterEnCaja(cajaId: number | null, pedidoId: number) {
+  if (cajaId == null) return
+  const r = await assignPedido(cajaId, pedidoId)
+  if (!r.ok) throw new ErrorDeNegocio(`Se guardó el presupuesto #${pedidoId}, pero no entró en la caja: ${r.error}`)
+}
+
 async function crearPresupuesto(formData: FormData) {
   const notas = (formData.get('notas') as string)?.trim() || null
   const tipo = (formData.get('tipo') as string) === 'propio' ? 'propio' : 'cliente'
-  // El stock propio viaja siempre por la caja normal (CHECK Pedido_express_solo_cliente).
-  const via = tipo === 'cliente' ? viaDe(formData.get('via') as string | null) : 'normal'
+  // El stock propio también puede ir por express, para aprovechar el espacio de una caja express.
+  const via = viaDe(formData.get('via') as string | null)
   const items = parseItems(formData)
+  const cajaId = await cajaExpressElegida(formData, via)
 
   if (items.length === 0) throw new ErrorDeNegocio('Agregá al menos una pieza.')
   await bloquearDescontinuadas(items)
@@ -185,6 +205,7 @@ async function crearPresupuesto(formData: FormData) {
       notas,
       tipo,
       via,
+      cajaExpressId: cajaId,
       status,
       ...cotizacion,
       items: {
@@ -198,6 +219,8 @@ async function crearPresupuesto(formData: FormData) {
       },
     },
   })
+  // El stock propio entra ya a la caja; el de cliente, recién al confirmarse con su adelanto.
+  if (tipo === 'propio') await meterEnCaja(cajaId, pedido.id)
 
   revalidatePath('/presupuestos')
   revalidateClientes()
@@ -236,10 +259,10 @@ async function editarPresupuesto(id: number, formData: FormData) {
   const existing = await db.pedido.findUnique({
     where: { id },
     select: {
-      tipo: true, status: true,
+      tipo: true, status: true, via: true,
       items: {
         select: {
-          productId: true, ensambleId: true, quantity: true, shippingStatus: true, bundleItems: true, costRealUsd: true,
+          productId: true, ensambleId: true, quantity: true, shippingStatus: true, bundleItems: true, costRealUsd: true, envioId: true,
           salePrice: true, product: { select: { nameEs: true } }, ensamble: { select: { nameEs: true, nameEn: true } },
         },
       },
@@ -397,13 +420,22 @@ async function editarPresupuesto(id: number, formData: FormData) {
   const cotizacion = existing.tipo === 'cliente' && existing.status === 'presupuesto'
     ? { cotizadoAt: new Date(), escalonCotizadoPct: escalonBcvVigente(toConfigMap(await db.config.findMany())) }
     : {}
-  // La vía solo se cambia mientras es presupuesto: un pedido confirmado se cotizó y se cobró así.
-  const via = existing.tipo === 'cliente' && existing.status === 'presupuesto'
+  // La vía solo se cambia mientras es presupuesto (un pedido confirmado se cotizó y se cobró así)
+  // o, en el stock propio, mientras ninguna línea está en una caja (la caja exige su misma vía).
+  const via = (existing.tipo === 'cliente' && existing.status === 'presupuesto') ||
+    (existing.tipo === 'propio' && existing.items.every(it => it.envioId == null))
     ? { via: viaDe(formData.get('via') as string | null) }
     : {}
-  ops.push(db.pedido.update({ where: { id }, data: { clientName, clienteId, notas, ...cotizacion, ...via } }))
+  // Lo que ya está en una caja manda (lo nuevo entra en la misma); si no, la que se eligió.
+  const esExpress = viaDe(via.via ?? existing.via) === 'express'
+  const cajaId = esExpress
+    ? existing.items.find(it => it.envioId != null)?.envioId ?? await cajaExpressElegida(formData, 'express')
+    : null
+  ops.push(db.pedido.update({ where: { id }, data: { clientName, clienteId, notas, cajaExpressId: cajaId, ...cotizacion, ...via } }))
 
   await db.$transaction(ops)
+  // Como al crear: el stock propio entra a la caja; el presupuesto de cliente espera a confirmarse.
+  if (existing.tipo === 'propio') await meterEnCaja(cajaId, id)
 
   revalidatePath('/presupuestos')
   revalidatePath(`/presupuestos/${id}`)
@@ -640,6 +672,7 @@ export async function aprobarPedido(id: number, formData: FormData): Promise<Act
   const enBs = cobraEnBolivares(paymentMethod)
   const cfg = toConfigMap(await db.config.findMany())
 
+  let confirmado = false
   const resultado = await db.$transaction(async (tx): Promise<ActionResult> => {
     const actual = await bloquearPedido(tx, id)
     if (!actual) return fallo(`El pedido #${id} no existe.`)
@@ -726,18 +759,28 @@ export async function aprobarPedido(id: number, formData: FormData): Promise<Act
         tx, id, 'confirmado',
         `Confirmado con adelanto de $${(nuevoDeposito ?? 0).toFixed(2)}` + (escalon != null ? ` · escalón BCV ${escalon}%` : ''),
       )
+      confirmado = true
     }
     return ok()
   }, { maxWait: 10_000, timeout: 20_000 })
 
   if (!resultado.ok) return resultado
 
+  // Express con caja elegida: confirmado con su adelanto, ahora sí entra a la caja.
+  const caja = confirmado
+    ? (await db.pedido.findUnique({ where: { id }, select: { via: true, cajaExpressId: true } }))
+    : null
+  const enCaja = caja && viaDe(caja.via) === 'express' && caja.cajaExpressId != null
+    ? await assignPedido(caja.cajaExpressId, id)
+    : ok()
+
   revalidatePath('/presupuestos')
   revalidatePath(`/presupuestos/${id}`)
   revalidatePath('/contabilidad')
   // El adelanto y el pase a 'pedido' mueven los totales del cliente.
   revalidateClientes()
-  return ok()
+  // Ya está confirmado y cobrado: si la caja no lo aceptó, se dice, y se mete a mano desde la caja.
+  return enCaja.ok ? ok() : fallo(`Se confirmó, pero no entró en la caja express: ${enCaja.error}`)
 }
 
 // Anota un pago adicional (liquidación, cuota) sin tocar el status ni el método/fecha del
