@@ -12,7 +12,8 @@ import PendientesCompraButton, {
   type PendienteRow,
 } from '@/components/PendientesCompraButton'
 import RegistrarPagoProveedorForm from '@/components/RegistrarPagoProveedorForm'
-import RegistrarCompraPicker from '@/components/RegistrarCompraPicker'
+import RegistrarCompraPicker, { type PagoCaja } from '@/components/RegistrarCompraPicker'
+import { SinStockCaja, BuscarSinStock, type SinStockFila, type PiezaComprada } from '@/components/CompraEsperas'
 import { METODOS_PAGO_EGRESO } from '@/lib/pagos'
 import { limpiarNombre } from '@/lib/utils'
 import { calcEnvio, type EnvioItemInput, type ConfigMap, type ProveedorEnvio } from '@/lib/calc'
@@ -21,7 +22,7 @@ import { reenvioDe, reenvioMeta, motivoNoCambiaReenvio, tarifaEquilibrioKgInr } 
 import { modoDeEnvio, MODOS } from '@/lib/modo'
 import { motivoExpressNoAprobable, topeDeCaja } from '@/lib/express'
 import { contextoCosteo, costearAereo, ENVIO_COSTEO_INCLUDE } from '@/lib/costo-envios'
-import { motivoNoMueve, type CajaParaMover } from '@/lib/mover-caja'
+import { motivoNoMueve, motivoNoMueveSinEnviar, type CajaParaMover } from '@/lib/mover-caja'
 import EnvioMaritimo from './maritimo'
 import { lookupDeConjuntos, expandCostPieces, repartirCostoReal } from '@/lib/envio-build'
 import { financiamientoEnvio, type FinanciamientoEnvio } from '@/lib/financiamiento-envio'
@@ -38,7 +39,7 @@ import PestanasCaja from '@/components/PestanasCaja'
 import TrayectoCaja from '@/components/TrayectoCaja'
 import SeccionCaja from '@/components/SeccionCaja'
 import { piezasAContar } from '@/lib/conteo'
-import { etiquetaPieza, lineaNoViene, sinEnviarDe, textoSinEnviar, tiposPara } from '@/lib/incidencias'
+import { etiquetaPieza, lineaNoViene, perdidaSugerida, sinEnviarDe, textoSinEnviar, tiposPara } from '@/lib/incidencias'
 import { statusIndex } from '@/lib/shipping-status'
 import { seEntregaDesdeElPedido } from '@/lib/saldo-entrega'
 import { TRAMOS_FLETE, CATEGORIAS_FLETE, estadoFlete } from '@/lib/flete-real'
@@ -53,7 +54,11 @@ import {
   assignItems,
   assignAllConfirmados,
   removePedido,
-  marcarNoVino,
+  marcarSinStock,
+  resolverSinStock,
+  sacarSinStock,
+  moverSinStockACaja,
+  separarSinStock,
   deleteEnvio,
   saveCostosProveedor,
   guardarTarifaKg,
@@ -73,6 +78,8 @@ import {
 
 const usd = (n: number) => `$${n.toFixed(2)}`
 const kg = (n: number) => `${n.toFixed(2)} kg`
+// Como en el libro: "5 nov", en hora de Venezuela.
+const fechaCorta = (d: Date) => d.toLocaleDateString('es-VE', { day: 'numeric', month: 'short', timeZone: 'America/Caracas' })
 // El m³ se muestra con 3 decimales: una pieza suelta ronda los 0.00x m³ y con 2
 // decimales todo el catálogo se vería como "0.00".
 const m3 = (n: number) => `${n.toFixed(3)} m³`
@@ -166,7 +173,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
           include: {
             product: true, ensamble: true, pedido: true, supplier: true,
             // Lo que el proveedor no mandó todavía: la caja no lo espera al llegar.
-            incidencias: { where: { estado: 'abierta', tipo: 'sin_enviar' }, select: { tipo: true, estado: true, cantidad: true, pieza: true } },
+            incidencias: { where: { estado: 'abierta', tipo: 'sin_enviar' }, select: { id: true, tipo: true, estado: true, cantidad: true, pieza: true, nota: true, creadaAt: true }, orderBy: { id: 'asc' } },
           },
           orderBy: [{ pedidoId: 'asc' }, { id: 'asc' }],
         },
@@ -191,6 +198,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
         product: { select: { nameEs: true, bajajCode: true, discontinuedAt: true } },
         ensamble: { select: { nameEs: true, nameEn: true } },
         pedido: true,
+        incidencias: { where: { estado: 'abierta', tipo: 'sin_enviar' }, select: { id: true } },
       },
       orderBy: [{ pedidoId: 'asc' }, { id: 'asc' }],
     }),
@@ -220,7 +228,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     // relación lo resuelve en una sola consulta, en vez de encadenar un round-trip más.
     db.ensambleComponente.findMany({
       where: {
-        ensamble: { pedidoItems: { some: { envioId: id, supplierId: null, shippingStatus: 'pendiente' } } },
+        ensamble: { pedidoItems: { some: { envioId: id, supplierId: null, shippingStatus: 'pendiente', costRealUsd: null } } },
       },
       select: {
         ensambleId: true,
@@ -246,8 +254,8 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     // flete anotado contra la caja se le pagó a Shoppre o a la naviera, y contarlo acá
     // reducía una deuda que sigue viva. Es la misma definición que usa cuentasPorPagar.
     // Menos lo que el proveedor devolvió por algo que no mandó (CATEGORIAS_REEMBOLSO_PROVEEDOR).
-    db.movimiento.groupBy({
-      by: ['tipo'],
+    // Fila por fila (no sumado) porque la pestaña Comprar lista los pagos de esta caja.
+    db.movimiento.findMany({
       where: {
         envioId: { in: idsCompra },
         OR: [
@@ -255,7 +263,8 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
           { tipo: 'ingreso', categoria: { in: [...CATEGORIAS_REEMBOLSO_PROVEEDOR] } },
         ],
       },
-      _sum: { monto: true },
+      select: { id: true, tipo: true, monto: true, fecha: true, metodoPago: true, descripcion: true, envioId: true, itemsComprados: { select: { pedidoId: true } } },
+      orderBy: [{ fecha: 'asc' }, { id: 'asc' }],
     }),
     // Piezas de ESTA caja sin costRealUsd cargado, para el picker de "cuánto pagué de
     // verdad" — corregir peso/dimensión de la caja no dice cuánto costó lo de adentro.
@@ -302,7 +311,18 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     : []
 
   const pagadoProveedor = egresosCaja.reduce(
-    (t, g) => t + (g.tipo === 'ingreso' ? -1 : 1) * parseFloat((g._sum.monto ?? 0).toString()), 0)
+    (t, g) => t + (g.tipo === 'ingreso' ? -1 : 1) * parseFloat(g.monto.toString()), 0)
+  const pagosCaja: PagoCaja[] = egresosCaja
+    .filter(m => m.envioId === id && m.tipo === 'egreso')
+    .map(m => ({
+      id: m.id,
+      fecha: fechaCorta(m.fecha),
+      monto: parseFloat(m.monto.toString()),
+      metodoPago: m.metodoPago,
+      descripcion: m.descripcion,
+      piezas: m.itemsComprados.length,
+      pedidos: [...new Set(m.itemsComprados.map(i => i.pedidoId))].sort((a, b) => a - b),
+    }))
 
   const cfg = toConfigMap(cfgRows)
 
@@ -317,6 +337,9 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   // hereda el origen y el isLanded de SU línea de pedido: eso define por qué tramo
   // entra y si viaja o no en esta caja.
   const inrUsdPieza = parseFloat(cfg.inr_usd_rate ?? '95')
+  // Comprada = pagada (costo real cargado) o ya en camino, como en estadoLinea: registrar el pago
+  // no mueve la etapa, y una línea pagada que sigue en «Por comprar» no se vuelve a comprar.
+  const pagadas = new Set(envio.items.filter(it => it.costRealUsd != null).map(it => it.id))
   const allPieces = envio.items.flatMap(it => {
     const piezas = expandCostPieces(
       it.product,
@@ -487,7 +510,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   // presupuestos piden la misma pastilla, se pide una sola vez.
   const pendMap = new Map<string, PendienteGrupo>()
   for (const p of allPieces) {
-    if (p.shippingStatus !== 'pendiente') continue
+    if (p.shippingStatus !== 'pendiente' || pagadas.has(p.itemId)) continue
     const gk = p.supplierId != null ? `s${p.supplierId}` : `base-${p.origen}`
     let grupo = pendMap.get(gk)
     if (!grupo) {
@@ -523,7 +546,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   // código. Ver lib/compra-99rpm.ts.
   const compra99datos = armarCompra99rpm(
     envio.items
-      .filter(it => it.supplierId == null && it.shippingStatus === 'pendiente' && it.origen !== 'china')
+      .filter(it => it.supplierId == null && it.shippingStatus === 'pendiente' && it.costRealUsd == null && it.origen !== 'china')
       .map(it => {
         const cab = cabeceraDeLinea(it)
         return {
@@ -641,6 +664,52 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     })(),
   }))
 
+  // Pestaña Comprar: lo que el proveedor avisó que no tiene (un "no lo mandó" abierto) y lo comprado
+  // que todavía no despachó, desde donde se anota ese aviso.
+  const proveedorCaja = envio.supplier?.name ?? '99rpm'
+  const salioDelDeposito = envio.items.some(it => statusIndex(it.shippingStatus) > statusIndex('en_shoppre'))
+  // Las acciones de la línea entera (sacarla, pasarla a otra caja) van en su primera fila, y solo si
+  // no viene nada de ella: de una que vino a medias, la caja lleva lo que vino.
+  const codigosDe = (bundle: BundlePiece[] | null) => {
+    const cs = (bundle ?? []).flatMap(p => (p.bajajCode ? [p.bajajCode] : []))
+    return cs.length === 0 ? null : cs.length > 3 ? `${cs.slice(0, 3).join(', ')} +${cs.length - 3}` : cs.join(', ')
+  }
+  const sinStockFilas: SinStockFila[] = envio.items.flatMap(it => it.incidencias.map((inc, k) => ({
+    incidenciaId: inc.id,
+    itemId: it.id,
+    lineaEntera: k === 0 && lineaNoViene(it.quantity, sinEnviarDe(it.incidencias), (it.bundleItems as BundlePiece[] | null) ?? []),
+    pagadoUsd: inc.pieza == null && it.costRealUsd != null ? perdidaSugerida(Number(it.costRealUsd), it.quantity, inc.cantidad) : null,
+    propio: it.pedido.tipo === 'propio',
+    pedidoId: it.pedidoId,
+    clientName: it.pedido.clientName,
+    nombre: cabeceraDeLinea(it).nameEs,
+    // La pieza ya trae su código en la etiqueta; de un conjunto entero, los códigos de sus piezas.
+    sku: inc.pieza != null ? null : cabeceraDeLinea(it).bajajCode ?? codigosDe(it.bundleItems as BundlePiece[] | null),
+    cantidad: inc.cantidad,
+    pieza: inc.pieza,
+    desde: fechaCorta(inc.creadaAt),
+    nota: inc.nota,
+  })))
+  // El buscador por SKU: cada código de lo comprado que todavía no llegó a Venezuela, con lo que queda
+  // sin anotar como "no vino" (las piezas de un conjunto, una por una).
+  const itemPorId = new Map(envio.items.map(it => [it.id, it]))
+  const piezasCompradas: PiezaComprada[] = itemRows
+    .filter(r => r.admiteNoVino && (r.shippingStatus !== 'pendiente' || pagadas.has(r.id)))
+    .flatMap((r): PiezaComprada[] => {
+      const it = itemPorId.get(r.id)!
+      const base = { itemId: r.id, pedidoId: r.pedidoId, clientName: r.clientName, propio: it.pedido.tipo === 'propio' }
+      const bundle = (it.bundleItems as BundlePiece[] | null) ?? []
+      if (bundle.length === 0) {
+        return [{ ...base, key: `${r.id}::`, etiqueta: '', sku: r.bajajCode, nombre: r.nombre, conjunto: null, disponibles: r.quantity - r.yaNoVino }]
+      }
+      return bundle.map(p => {
+        const e = etiquetaPieza(p)
+        const ya = r.skusNoVino.find(s => s.etiqueta === e)?.yaAnotadas ?? 0
+        return { ...base, key: `${r.id}::${e}`, etiqueta: e, sku: p.bajajCode, nombre: p.nameEs, conjunto: r.nombre, disponibles: p.quantity * r.quantity - ya }
+      })
+    })
+    .filter(p => p.disponibles > 0)
+
   // Lo comprado que viaja en la caja, esté en la etapa que esté: la caja se cuenta cuando se
   // abre, aunque ya la hayas marcado en Venezuela (o entregado). Recibir pasa a "en Venezuela"
   // solo lo que todavía no llegó a esa etapa.
@@ -713,6 +782,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
       quantity: it.quantity,
       salePrice: parseFloat(it.salePrice.toString()),
       descontinuada: it.product?.discontinuedAt != null,
+      esperaCaja: it.incidencias.length > 0 && (it.costRealUsd != null || it.shippingStatus !== 'pendiente'),
     }))
   const otrasCajasDe = (pedidoId: number): EnOtraCaja[] =>
     Array.from(repartoPorPedido.get(pedidoId)?.values() ?? []).sort((a, b) => a.envioId - b.envioId)
@@ -796,6 +866,14 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   const motivoOrigen = motivoNoMueve(origenMover, {
     ...origenMover, id: -1, estado: 'confirmado', lineas: [], fleteAereoPagado: false, tieneHijas: false,
   })
+  // Una pieza sin stock no estuvo en el depósito: se pasa aunque esta caja ya haya salido.
+  const destinosSinStock = candidatasMover
+    .filter(c => motivoNoMueveSinEnviar(origenMover, {
+      id: c.id, modo: c.modo, estado: c.estado, supplierId: c.supplierId, reenvio: c.reenvio,
+      despachaProveedor: inboundCaja === 'cotizado', lineas: c.items,
+      fleteAereoPagado: c.movimientos.length > 0, compraDeId: c.compraDeId, tieneHijas: c._count.partes > 0,
+    }) == null)
+    .map(c => ({ id: c.id, nombre: c.nombre ?? `Caja #${c.id}` }))
   const motivoNoMover = destinosMover.length > 0
     ? null
     : motivoOrigen
@@ -861,7 +939,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   // existen (líneas, caja pesada, libro).
   const pagadoTramo = (cat: string) =>
     pagosFlete.filter(m => m.categoria === cat).reduce((acc, m) => acc + parseFloat(m.monto.toString()), 0)
-  const compradas = envio.items.filter(it => it.shippingStatus !== 'pendiente').length
+  const compradas = envio.items.filter(it => it.shippingStatus !== 'pendiente' || pagadas.has(it.id)).length
   const entregadas = envio.items.filter(it => it.shippingStatus === 'entregado').length
   // Borrador = todavía se está pensando: no cuenta como inventario en camino y no se compra,
   // paga ni avanza (ver confirmarCajaAerea). Vuelve a borrador solo si no pasó nada todavía.
@@ -1100,7 +1178,6 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
             modo={modoEnvio}
             guardar={saveItemChanges}
             quitar={removePedido}
-            marcarNoVino={marcarNoVino}
             bloqueada={esBorrador}
             mover={moverPedidoACaja}
             destinos={destinosMover}
@@ -1275,7 +1352,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
           {
             id: 'comprar',
             label: 'Comprar',
-            badge: !esBorrador && porComprar > 0 ? String(porComprar) : null,
+            badge: esBorrador ? null : sinStockFilas.length > 0 ? `${sinStockFilas.length} sin stock` : porComprar > 0 ? String(porComprar) : null,
             contenido: (
               <>
                 {esBorrador ? (
@@ -1284,6 +1361,17 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                   </p>
                 ) : (
                   <>
+                    <SinStockCaja
+                      filas={sinStockFilas}
+                      proveedor={proveedorCaja}
+                      salio={salioDelDeposito}
+                      resolver={resolverSinStock.bind(null, envio.id)}
+                      sacar={envio.supplierId == null ? sacarSinStock.bind(null, envio.id) : null}
+                      mover={moverSinStockACaja.bind(null, envio.id)}
+                      separar={separarSinStock.bind(null, envio.id)}
+                      destinos={destinosSinStock}
+                      metodos={METODOS_PAGO_EGRESO}
+                    />
                     {porComprar === 0 && items.length > 0 && (
                       <p role="status" className="rounded-xl border border-green-200 bg-green-50 px-4 sm:px-6 py-3 mb-4 text-sm text-green-800">
                         Todo lo de esta caja ya está comprado.
@@ -1295,17 +1383,22 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                       grupos={pendientes}
                       inrUsd={inrUsd}
                       compra99={compra99}
+                      lineas={porComprar}
+                    />
+                    <BuscarSinStock
+                      piezas={piezasCompradas}
+                      proveedor={proveedorCaja}
+                      marcar={marcarSinStock.bind(null, envio.id)}
                     />
                     {/* Costo real de las piezas de ESTA caja: todo, por pedido o por SKU. Mismo picker que
                         /contabilidad/comprar, acotado a este envío. */}
-                    {itemsPendientesCosto.length > 0 && (
-                      <RegistrarCompraPicker
-                        items={itemsPendientesCosto}
-                        action={registrarCompra}
-                        methods={METODOS_PAGO_EGRESO}
-                        collapsible
-                      />
-                    )}
+                    <RegistrarCompraPicker
+                      items={itemsPendientesCosto}
+                      action={registrarCompra}
+                      methods={METODOS_PAGO_EGRESO}
+                      collapsible
+                      pagos={pagosCaja}
+                    />
                   </>
                 )}
                 {/* Lo que se le paga al proveedor de la caja: el giro y sus dos comisiones. */}

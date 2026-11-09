@@ -524,61 +524,85 @@ export async function reportarNoVino(itemId: number, formData: FormData): Promis
   for (const [k, v] of formData.entries()) {
     if (typeof v === 'string' && k.startsWith('cant::') && v.trim() !== '') crudas.push([k.slice('cant::'.length), v.trim()])
   }
+  return reportarNoVinoVarios([{ itemId, crudas }], nota)
+}
 
-  let pedidoId = 0
+/**
+ * Lo mismo para varias líneas a la vez (el buscador por SKU de la caja: un SKU cae en varios
+ * pedidos). Una sola transacción: o se anota todo o nada. Los pedidos se bloquean en orden de id.
+ */
+export async function reportarNoVinoVarios(
+  lineas: { itemId: number; crudas: [string, string][] }[],
+  nota: string | null,
+): Promise<ActionResult> {
+  if (lineas.length === 0) return fallo('Poné cuántas unidades no tienen de al menos un SKU.')
+  const ids = lineas.map(l => l.itemId)
+  let pedidoIds: number[] = []
   const r = await conErrorDeNegocio(async () => {
-    const previo = await db.pedidoItem.findUnique({ where: { id: itemId }, select: { pedidoId: true } })
-    if (!previo) throw new ErrorDeNegocio('Esa línea ya no existe. Recargá la página.')
-    pedidoId = previo.pedidoId
+    const previos = await db.pedidoItem.findMany({ where: { id: { in: ids } }, select: { id: true, pedidoId: true } })
+    if (previos.length !== new Set(ids).size) throw new ErrorDeNegocio('Esa línea ya no existe. Recargá la página.')
+    const pedidoDe = new Map(previos.map(p => [p.id, p.pedidoId]))
+    pedidoIds = [...new Set(previos.map(p => p.pedidoId))].sort((a, b) => a - b)
 
     await db.$transaction(async tx => {
-      const actual = await bloquearPedido(tx, pedidoId)
-      if (!actual) throw new ErrorDeNegocio('Ese pedido ya no existe.')
-      const it = await tx.pedidoItem.findUnique({
-        where: { id: itemId },
-        select: {
-          ...SELECT_LINEA_MOVIBLE,
-          pedido: { select: { tipo: true, status: true } },
-          product: { select: { nameEs: true } },
-          ensamble: { select: { nameEs: true, nameEn: true } },
-          incidencias: { where: { estado: 'abierta', tipo: 'sin_enviar' }, select: { tipo: true, estado: true, cantidad: true, pieza: true } },
-        },
-      })
-      if (!it) throw new ErrorDeNegocio('Esa línea ya no existe. Recargá la página.')
-      if ((it.pedido.tipo !== 'cliente' && it.pedido.tipo !== 'propio') || it.pedido.status !== 'pedido') {
-        throw new ErrorDeNegocio('Solo se anota en un pedido confirmado (de cliente o de stock propio).')
+      for (const id of pedidoIds) {
+        if (!(await bloquearPedido(tx, id))) throw new ErrorDeNegocio('Ese pedido ya no existe.')
       }
-      if (!tiposPara({ shippingStatus: it.shippingStatus, costRealUsd: dec(it.costRealUsd) }).includes('sin_enviar')) {
-        throw new ErrorDeNegocio('Esta línea ya llegó a Venezuela: lo que falte es «Llegó incompleta», desde el pedido.')
+      for (const { itemId, crudas } of lineas) {
+        await anotarNoVino(tx, itemId, pedidoDe.get(itemId)!, crudas, nota, lineas.length > 1)
       }
-      const piezas = Array.isArray(it.bundleItems) ? (it.bundleItems as unknown as BundlePiece[]) : []
-      const cantidades = new Map<string, number>()
-      for (const [clave, v] of crudas) {
-        const p = piezas.find(x => etiquetaPieza(x) === clave)
-        const n = v === 'todo' ? (p ? p.quantity * it.quantity : it.quantity) : Number(v)
-        if (!Number.isInteger(n) || n < 0) throw new ErrorDeNegocio(`«${clave || nombreDeLinea(it)}»: la cantidad tiene que ser un entero ≥ 0.`)
-        cantidades.set(clave, n)
-      }
-      const plan = planNoVino({ quantity: it.quantity, piezas }, cantidades, sinEnviarDe(it.incidencias))
-      if (!plan.ok) throw new ErrorDeNegocio(plan.error)
-
-      const nombre = nombreDeLinea(it)
-      for (const inc of plan.incidencias) {
-        const descripcion = inc.pieza ? `${nombre} — ${inc.pieza}` : nombre
-        await tx.incidencia.create({
-          data: { pedidoId, itemId, descripcion, pieza: inc.pieza, tipo: 'sin_enviar', origen: 'operacion', cantidad: inc.cantidad, nota },
-        })
-      }
-      await registrarEvento(
-        tx, pedidoId, 'incidencia',
-        `Problema: ${TIPO_LABELS.sin_enviar} · ` +
-          plan.incidencias.map(i => `${i.cantidad}× «${i.pieza ?? nombre}»`).join(', ') +
-          (nota ? ` — ${nota}` : ''),
-      )
     }, TX)
   })
-  if (r.ok) revalidarPedido(pedidoId)
+  if (r.ok) for (const id of pedidoIds) revalidarPedido(id)
   return r
+}
+
+// El cuerpo de reportarNoVino, con el pedido ya bloqueado. `conNombre`: en un lote, el error dice de
+// qué línea es.
+async function anotarNoVino(
+  tx: Prisma.TransactionClient, itemId: number, pedidoId: number, crudas: [string, string][], nota: string | null, conNombre: boolean,
+) {
+  const it = await tx.pedidoItem.findUnique({
+    where: { id: itemId },
+    select: {
+      ...SELECT_LINEA_MOVIBLE,
+      pedido: { select: { tipo: true, status: true } },
+      product: { select: { nameEs: true } },
+      ensamble: { select: { nameEs: true, nameEn: true } },
+      incidencias: { where: { estado: 'abierta', tipo: 'sin_enviar' }, select: { tipo: true, estado: true, cantidad: true, pieza: true } },
+    },
+  })
+  if (!it) throw new ErrorDeNegocio('Esa línea ya no existe. Recargá la página.')
+  if ((it.pedido.tipo !== 'cliente' && it.pedido.tipo !== 'propio') || it.pedido.status !== 'pedido') {
+    throw new ErrorDeNegocio('Solo se anota en un pedido confirmado (de cliente o de stock propio).')
+  }
+  if (!tiposPara({ shippingStatus: it.shippingStatus, costRealUsd: dec(it.costRealUsd) }).includes('sin_enviar')) {
+    throw new ErrorDeNegocio('Esta línea ya llegó a Venezuela: lo que falte es «Llegó incompleta», desde el pedido.')
+  }
+  const piezas = Array.isArray(it.bundleItems) ? (it.bundleItems as unknown as BundlePiece[]) : []
+  const cantidades = new Map<string, number>()
+  for (const [clave, v] of crudas) {
+    const p = piezas.find(x => etiquetaPieza(x) === clave)
+    const n = v === 'todo' ? (p ? p.quantity * it.quantity : it.quantity) : Number(v)
+    if (!Number.isInteger(n) || n < 0) throw new ErrorDeNegocio(`«${clave || nombreDeLinea(it)}»: la cantidad tiene que ser un entero ≥ 0.`)
+    cantidades.set(clave, n)
+  }
+  const plan = planNoVino({ quantity: it.quantity, piezas }, cantidades, sinEnviarDe(it.incidencias))
+  if (!plan.ok) throw new ErrorDeNegocio(conNombre ? `«${nombreDeLinea(it)}» (#${pedidoId}): ${plan.error}` : plan.error)
+
+  const nombre = nombreDeLinea(it)
+  for (const inc of plan.incidencias) {
+    const descripcion = inc.pieza ? `${nombre} — ${inc.pieza}` : nombre
+    await tx.incidencia.create({
+      data: { pedidoId, itemId, descripcion, pieza: inc.pieza, tipo: 'sin_enviar', origen: 'operacion', cantidad: inc.cantidad, nota },
+    })
+  }
+  await registrarEvento(
+    tx, pedidoId, 'incidencia',
+    `Problema: ${TIPO_LABELS.sin_enviar} · ` +
+      plan.incidencias.map(i => `${i.cantidad}× «${i.pieza ?? nombre}»`).join(', ') +
+      (nota ? ` — ${nota}` : ''),
+  )
 }
 
 // La plata que vuelve del proveedor entra al libro ligada a su caja y a él: descuenta de lo que

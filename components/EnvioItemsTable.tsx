@@ -19,7 +19,7 @@ import { groupBundlePieces, type BundlePiece } from '@/lib/bundle'
 import { limpiarNombre } from '@/lib/utils'
 import type { CambioItem } from '@/app/(pages)/envios/actions'
 import type { ActionResult } from '@/lib/action-result'
-import MarcarNoVino, { type SkuNoVino } from '@/components/MarcarNoVino'
+import type { SkuNoVino } from '@/components/MarcarNoVino'
 
 export interface EnvioItemRow {
   id: number
@@ -72,8 +72,6 @@ interface Props {
   // Se quita el presupuesto COMPLETO, no piezas sueltas: el presupuesto es lo que se le
   // vendió al cliente y no se parte. O viaja entero en esta caja, o no viaja.
   quitar: (envioId: number, pedidoId: number) => Promise<ActionResult>
-  /** Anota que el proveedor no mandó (parte de) una línea. */
-  marcarNoVino?: (envioId: number, itemId: number, formData: FormData) => Promise<ActionResult>
   // Pasa el presupuesto a otra caja con la etapa que tiene (caja partida en el depósito, ver
   // lib/mover-caja.ts). `destinos` son las cajas que la regla acepta; vacío = `motivoNoMover`.
   mover?: (envioId: number, pedidoId: number, formData: FormData) => Promise<ActionResult>
@@ -165,14 +163,11 @@ export default function EnvioItemsTable({
   modo,
   guardar,
   quitar,
-  marcarNoVino,
   bloqueada = false,
   mover,
   destinos = [],
   motivoNoMover = null,
 }: Props) {
-  // La línea con el formulario "No vino" abierto (una a la vez).
-  const [noVino, setNoVino] = useState<number | null>(null)
   // Estado local de los selects. La base vive en Supabase remoto, así que cada guardado
   // son cientos de ms: la UI no los espera. Se pinta el cambio al instante y el guardado
   // va por detrás; si falla, se revierte y se avisa.
@@ -514,7 +509,6 @@ export default function EnvioItemsTable({
             >
               Estado
             </Th>
-            <th scope="col" className="px-4 py-2 w-28"><span className="sr-only">Acciones</span></th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-50">
@@ -678,16 +672,6 @@ export default function EnvioItemsTable({
                             ))}
                           </div>
                         )}
-                        {noVino === it.id && marcarNoVino && (
-                          <MarcarNoVino
-                            nombre={limpiarNombre(it.nombre)}
-                            cantidad={it.quantity}
-                            piezas={it.skusNoVino}
-                            yaAnotadasLinea={it.yaNoVino}
-                            marcar={fd => marcarNoVino(envioId, it.id, fd)}
-                            cerrar={() => setNoVino(null)}
-                          />
-                        )}
                       </td>
                       <td className="px-3 py-3 text-right font-mono text-gray-700">{usd(it.landed)}</td>
                       <td className="px-3 py-3 text-right font-mono text-gray-700">{usd(it.venta)}</td>
@@ -705,19 +689,6 @@ export default function EnvioItemsTable({
                         </select>
                         {it.shippingStatusAt && (
                           <p className="text-xs text-gray-600 mt-1">desde {fecha(it.shippingStatusAt)}</p>
-                        )}
-                      </td>
-                      {/* Una pieza no se saca sola del envío; lo único por fila es avisar que no vino. */}
-                      <td className="px-4 py-3 text-right">
-                        {it.admiteNoVino && marcarNoVino && (
-                          <button
-                            type="button"
-                            onClick={() => setNoVino(it.id)}
-                            title="El proveedor no la mandó (o no toda): la caja no la espera al llegar"
-                            className="min-h-8 px-2 py-1 text-xs font-medium rounded-lg border border-orange-300 bg-white text-orange-800 hover:bg-orange-50 whitespace-nowrap"
-                          >
-                            Marcar «no vino»
-                          </button>
                         )}
                       </td>
                     </tr>

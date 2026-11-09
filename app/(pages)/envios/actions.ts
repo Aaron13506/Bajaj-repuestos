@@ -2,11 +2,12 @@
 
 import { cuentaDeMetodo } from '@/lib/cuentas'
 import { db } from '@/lib/db'
+import type { Prisma } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { isDelivered, isPending, isValidStatus, normalizeToRoute, routeFor } from '@/lib/shipping-status'
-import { bloqueaCompra, bloqueaEntrega } from '@/lib/incidencias'
-import { reportarNoVino } from '@/app/(pages)/presupuestos/flujos-actions'
+import { bloqueaCompra, bloqueaEntrega, etiquetaPieza, lineaNoViene, sinEnviarDe } from '@/lib/incidencias'
+import { reportarNoVinoVarios, resolverIncidencia } from '@/app/(pages)/presupuestos/flujos-actions'
 import { seEntregaDesdeElPedido } from '@/lib/saldo-entrega'
 import { inboundDe } from '@/lib/inbound'
 import { isModoApp, llevaPedidos, MODOS_CON_PEDIDOS } from '@/lib/modo'
@@ -15,7 +16,11 @@ import { contextoCosteo, costearAereo, ENVIO_COSTEO_INCLUDE } from '@/lib/costo-
 import { isReenvio, motivoNoCambiaReenvio, ETAPAS_FUERA_DEL_DEPOSITO } from '@/lib/reenvio'
 import { fallo, ok, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
 import { isForeignKeyViolation } from '@/lib/prisma-errors'
-import { compraTrasMover, motivoNoMueve, type CajaParaMover } from '@/lib/mover-caja'
+import { compraTrasMover, motivoNoMueve, motivoNoMueveSinEnviar, type CajaParaMover } from '@/lib/mover-caja'
+import { avanzaSinEstar, motivoNoDespacha, planSeparar } from '@/lib/sin-stock'
+import { bloquearPedido } from '@/lib/movimientos'
+import { registrarEvento, SELECT_LINEA_MOVIBLE } from '@/lib/pedido-derivado'
+import { nombreEnsamble } from '@/lib/linea-pedido'
 import { CATEGORIAS_EGRESO } from '@/lib/movimientos'
 import { listarFaltantes, piezasDeLinea } from '@/lib/stock-piezas'
 import { moverEtapas, type FilaEtapa, type PiezaEtapa } from '@/lib/mover-etapas'
@@ -152,14 +157,148 @@ function revalidarCaja(envioId: number) {
   revalidatePath('/')
 }
 
-// "No vino" desde la caja, SKU por SKU: lo que el proveedor no mandó de una línea. Son incidencias
-// "sin_enviar" de su pedido, con las mismas reglas (reportarNoVino); acá solo se ata a esta caja.
-export async function marcarNoVino(envioId: number, itemId: number, formData: FormData): Promise<ActionResult> {
-  const linea = await db.pedidoItem.findUnique({ where: { id: itemId }, select: { envioId: true } })
-  if (linea?.envioId !== envioId) return fallo('Esa línea ya no está en esta caja. Recargá la página.')
-  const r = await reportarNoVino(itemId, formData)
+// "No tienen stock", desde el buscador por SKU de la caja: lo que el proveedor no mandó, repartido
+// entre las líneas que llevan ese SKU. `l::<itemId>::<etiquetaPieza>` = unidades ('' en una pieza
+// suelta). Son incidencias "sin_enviar" de cada pedido, con las reglas de reportarNoVino, todas o ninguna.
+export async function marcarSinStock(envioId: number, formData: FormData): Promise<ActionResult> {
+  const porLinea = new Map<number, [string, string][]>()
+  for (const [k, v] of formData.entries()) {
+    if (typeof v !== 'string' || !k.startsWith('l::') || v.trim() === '' || v.trim() === '0') continue
+    const [, id, ...resto] = k.split('::')
+    const itemId = Number(id)
+    if (!Number.isInteger(itemId)) return fallo('Recargá la página: el formulario quedó viejo.')
+    porLinea.set(itemId, [...(porLinea.get(itemId) ?? []), [resto.join('::'), v.trim()]])
+  }
+  if (porLinea.size === 0) return fallo('Buscá un SKU y poné cuántas no tienen.')
+  const enCaja = await db.pedidoItem.count({ where: { id: { in: [...porLinea.keys()] }, envioId } })
+  if (enCaja !== porLinea.size) return fallo('Alguna de esas líneas ya no está en esta caja. Recargá la página.')
+  const nota = (formData.get('nota') as string)?.trim() || null
+  const r = await reportarNoVinoVarios([...porLinea].map(([itemId, crudas]) => ({ itemId, crudas })), nota)
   if (r.ok) revalidarCaja(envioId)
   return r
+}
+
+// La tarjeta "Sin stock" de la pestaña Comprar cierra un "no lo mandó" de una línea de esta caja:
+// «llegó» (ya la tienen) o «reembolso» (dejaste de esperar; lo que devolvió el proveedor y por
+// dónde). Solo pasan esos campos: devolverle al cliente o reponer se hace en el pedido.
+export async function resolverSinStock(envioId: number, incidenciaId: number, formData: FormData): Promise<ActionResult> {
+  const resolucion = String(formData.get('resolucion') ?? '')
+  if (resolucion !== 'llego' && resolucion !== 'reembolso') return fallo('Eso se resuelve desde el pedido.')
+  const inc = await db.incidencia.findUnique({ where: { id: incidenciaId }, select: { item: { select: { envioId: true } } } })
+  if (inc?.item?.envioId !== envioId) return fallo('Esa pieza ya no está en esta caja. Recargá la página.')
+  const fd = new FormData()
+  fd.set('resolucion', resolucion)
+  if (resolucion === 'reembolso') {
+    fd.set('devueltoProveedorUsd', String(formData.get('devueltoProveedorUsd') ?? ''))
+    fd.set('metodoDevuelto', String(formData.get('metodoDevuelto') ?? ''))
+  }
+  const r = await resolverIncidencia(incidenciaId, fd)
+  if (r.ok) revalidarCaja(envioId)
+  return r
+}
+
+// "No vino en este embarque: sigo esperando": la línea que el proveedor no mandó entera sale de la
+// caja y queda suelta en su pedido, con su "no lo mandó" abierto, para entrar en la próxima. Solo en
+// una caja sin proveedor (99rpm): esa no lleva cuenta de lo pagado, así que el pago puede quedar acá.
+// Con proveedor se pasa a otra caja de la misma compra (moverSinStockACaja).
+export async function sacarSinStock(envioId: number, itemId: number): Promise<ActionResult> {
+  const it = await db.pedidoItem.findUnique({
+    where: { id: itemId },
+    select: {
+      envioId: true, quantity: true, bundleItems: true, pedidoId: true, envio: { select: { supplierId: true } },
+      incidencias: { where: { estado: 'abierta', tipo: 'sin_enviar' }, select: { tipo: true, estado: true, cantidad: true, pieza: true } },
+    },
+  })
+  if (!it || it.envioId !== envioId) return fallo('Esa línea ya no está en esta caja. Recargá la página.')
+  if (it.envio?.supplierId != null) return fallo('Esta caja tiene proveedor: pasala a otra caja de la misma compra.')
+  if (!lineaNoViene(it.quantity, sinEnviarDe(it.incidencias), (it.bundleItems as BundlePiece[] | null) ?? [])) {
+    return fallo('De esta línea vino una parte: la caja la lleva. Lo que falta se resuelve en el pedido.')
+  }
+  // Guardado por caja y etapa: si otra pestaña la movió o la avanzó, no se toca.
+  const r = await db.pedidoItem.updateMany({
+    where: { id: itemId, envioId, shippingStatus: { in: ['pendiente', 'camino_shoppre'] } },
+    data: { envioId: null },
+  })
+  if (r.count === 0) return fallo('Esa línea ya llegó al depósito o cambió. Recargá la página.')
+  revalidarCaja(envioId)
+  revalidatePath(`/presupuestos/${it.pedidoId}`)
+  return ok()
+}
+
+// "Separarla del conjunto": el SKU que no vino sale a una línea propia (pieza suelta: un pedido no
+// lleva dos veces el mismo conjunto, el armador identifica la línea por ensamble). La incidencia
+// pasa a esa línea, que queda esperando entera: la caja no despacha hasta decidirla, el resto sí viaja.
+export async function separarSinStock(envioId: number, incidenciaId: number): Promise<ActionResult> {
+  return conErrorDeNegocio(async () => {
+    const inc = await db.incidencia.findUnique({
+      where: { id: incidenciaId },
+      select: { pedidoId: true, itemId: true, pieza: true, cantidad: true, estado: true, tipo: true },
+    })
+    if (!inc || inc.estado !== 'abierta' || inc.tipo !== 'sin_enviar' || !inc.pieza || inc.itemId == null) {
+      throw new ErrorDeNegocio('Eso ya cambió. Recargá la página.')
+    }
+    const { pedidoId, itemId, pieza } = inc
+    await db.$transaction(async tx => {
+      await bloquearPedido(tx, pedidoId)
+      const it = await tx.pedidoItem.findUnique({ where: { id: itemId }, select: { ...SELECT_LINEA_MOVIBLE, incidencias: { where: { estado: 'abierta', pieza }, select: { id: true } } } })
+      if (!it || it.envioId !== envioId || it.ensambleId == null) throw new ErrorDeNegocio('Esa línea ya no está en esta caja. Recargá la página.')
+      if (isDelivered(it.shippingStatus)) throw new ErrorDeNegocio('Esa línea ya se entregó.')
+      if (it.incidencias.length > 1) throw new ErrorDeNegocio(`«${pieza}» tiene otro problema abierto: resolvelo primero en el pedido.`)
+      const piezas = (it.bundleItems as BundlePiece[] | null) ?? []
+      const i = piezas.findIndex(p => etiquetaPieza(p) === pieza)
+      if (i < 0) throw new ErrorDeNegocio(`«${pieza}» ya no está en este conjunto. Recargá la página.`)
+      const resolver = await resolverDePiezas([{ productId: null, quantity: it.quantity, bundleItems: piezas }])
+      const ids = piezas.map(resolver)
+      const productos = await tx.product.findMany({ where: { id: { in: ids.filter((x): x is number => x != null) } }, select: { id: true, price: true } })
+      const precioDe = new Map(productos.map(p => [p.id, Number(p.price)]))
+      const plan = planSeparar(
+        { quantity: it.quantity, salePrice: Number(it.salePrice), costRealUsd: it.costRealUsd != null ? Number(it.costRealUsd) : null, piezas },
+        i, inc.cantidad, p => { const id = ids[piezas.indexOf(p as BundlePiece)]; return id != null ? precioDe.get(id) ?? null : null },
+      )
+      if (!plan.ok) throw new ErrorDeNegocio(plan.error)
+      const productId = ids[i]!
+      if (await tx.pedidoItem.count({ where: { pedidoId, productId } }) > 0) {
+        throw new ErrorDeNegocio(`El pedido ya tiene «${pieza}» como pieza suelta: no se puede separar en otra línea.`)
+      }
+      const r = await tx.pedidoItem.updateMany({
+        where: { id: itemId, envioId, shippingStatus: it.shippingStatus },
+        data: { bundleItems: plan.quedan as unknown as Prisma.InputJsonValue, salePrice: plan.precioQueda, costRealUsd: plan.costoQueda },
+      })
+      if (r.count === 0) throw new ErrorDeNegocio('Esa línea cambió mientras tanto. Recargá la página.')
+      // shortcut: la línea nueva no copia el historial de etapas (PedidoItemEtapa); si se necesita, copiarlo acá.
+      const nueva = await tx.pedidoItem.create({
+        data: {
+          pedidoId, productId, quantity: plan.cantidad, salePrice: plan.precioNuevo, costRealUsd: plan.costoNuevo,
+          envioId, supplierId: it.supplierId, origen: it.origen, inbound: it.inbound, isLanded: it.isLanded,
+          compradoAt: it.compradoAt, compraId: it.compraId, shippingStatusAt: it.shippingStatusAt,
+          // No vino: no pasa de «camino al depósito» aunque el resto del conjunto ya esté ahí.
+          shippingStatus: avanzaSinEstar(it.shippingStatus) ? 'camino_shoppre' : it.shippingStatus,
+        },
+        select: { id: true },
+      })
+      await tx.incidencia.update({ where: { id: incidenciaId }, data: { itemId: nueva.id, pieza: null, descripcion: piezas[i].nameEs } })
+      await registrarEvento(tx, pedidoId, 'incidencia', `«${pieza}» sale del conjunto a su propia línea (sin stock): $${plan.precioNuevo.toFixed(2)} c/u`)
+    })
+    revalidarCaja(envioId)
+    revalidatePath(`/presupuestos/${pedidoId}`)
+  })
+}
+
+// "Pasarla a esa caja": la línea que el proveedor no mandó entera pasa a otra caja de la misma
+// compra, como un presupuesto partido (moverACaja), pero sin atarse a que esta ya haya salido.
+export async function moverSinStockACaja(envioId: number, itemId: number, formData: FormData): Promise<ActionResult> {
+  const it = await db.pedidoItem.findUnique({
+    where: { id: itemId },
+    select: {
+      envioId: true, quantity: true, bundleItems: true, pedidoId: true,
+      incidencias: { where: { estado: 'abierta', tipo: 'sin_enviar' }, select: { tipo: true, estado: true, cantidad: true, pieza: true } },
+    },
+  })
+  if (!it || it.envioId !== envioId) return fallo('Esa línea ya no está en esta caja. Recargá la página.')
+  if (!lineaNoViene(it.quantity, sinEnviarDe(it.incidencias), (it.bundleItems as BundlePiece[] | null) ?? [])) {
+    return fallo('De esta línea vino una parte: la caja la lleva. Lo que falta se resuelve en el pedido.')
+  }
+  return moverACaja(envioId, formData, { id: itemId }, it.pedidoId, true)
 }
 
 // Mientras la caja está en borrador no es una compra: no se le anota plata ni se mueven sus
@@ -311,8 +450,13 @@ async function asignarAEnvio(envioId: number, itemIds: number[]): Promise<Action
 // la pieza fuera del inventario en camino y lista para entrar a otra caja con otro proveedor.
 // Devuelve cuántas quedaron adentro para que la pantalla lo diga.
 export async function removePedido(envioId: number, pedidoId: number): Promise<ActionResult> {
+  // En borrador no se pagó ni se movió nada en esta caja (registrarCompra y las etapas lo rechazan):
+  // lo que tenga pagado se pagó afuera (p. ej. una pieza que esperaba stock), y vuelve a quedar suelto.
+  const caja = await db.envio.findUnique({ where: { id: envioId }, select: { estado: true } })
   await db.pedidoItem.updateMany({
-    where: { pedidoId, envioId, costRealUsd: null, shippingStatus: 'pendiente' },
+    where: caja?.estado === 'borrador'
+      ? { pedidoId, envioId, envio: { estado: 'borrador' } }
+      : { pedidoId, envioId, costRealUsd: null, shippingStatus: 'pendiente' },
     data: { envioId: null },
   })
   const quedan = await db.pedidoItem.count({ where: { pedidoId, envioId } })
@@ -332,6 +476,14 @@ export async function removePedido(envioId: number, pedidoId: number): Promise<A
 // revés) y el UPDATE va guardado por la caja y la etapa: si otra pestaña movió algo en el medio,
 // no se mueve nada.
 export async function moverPedidoACaja(envioId: number, pedidoId: number, formData: FormData): Promise<ActionResult> {
+  return moverACaja(envioId, formData, { pedidoId }, pedidoId, false)
+}
+
+// `sinEnviar`: es una línea que el proveedor no mandó; no estuvo en el depósito, así que no la
+// atan la salida ni el flete de esta caja, y no cambia lo que pesaron las cajas que llegaron.
+async function moverACaja(
+  envioId: number, formData: FormData, cuales: { pedidoId: number } | { id: number }, pedidoId: number, sinEnviar: boolean,
+): Promise<ActionResult> {
   const destinoId = parseInt((formData.get('destinoId') as string) ?? '')
   if (!Number.isInteger(destinoId)) return fallo('Elegí a qué caja pasarlo.')
 
@@ -364,13 +516,15 @@ export async function moverPedidoACaja(envioId: number, pedidoId: number, formDa
       }
       const origen = leer(envioId)
       const destino = leer(destinoId)
-      const motivo = motivoNoMueve(origen, destino)
+      const motivo = (sinEnviar ? motivoNoMueveSinEnviar : motivoNoMueve)(origen, destino)
       if (motivo) throw new ErrorDeNegocio(motivo)
 
-      const esperadas = await tx.pedidoItem.count({ where: { pedidoId, envioId } })
-      if (esperadas === 0) throw new ErrorDeNegocio('Ese presupuesto ya no está en esta caja. Recargá la página.')
+      const esperadas = await tx.pedidoItem.count({ where: { ...cuales, envioId } })
+      if (esperadas === 0) throw new ErrorDeNegocio(sinEnviar ? 'Esa línea ya no está en esta caja. Recargá la página.' : 'Ese presupuesto ya no está en esta caja. Recargá la página.')
       const r = await tx.pedidoItem.updateMany({
-        where: { pedidoId, envioId, OR: [{ isLanded: true }, { shippingStatus: { notIn: [...ETAPAS_FUERA_DEL_DEPOSITO] } }] },
+        where: sinEnviar
+          ? { ...cuales, envioId, shippingStatus: { in: ['pendiente', 'camino_shoppre'] }, incidencias: { some: { estado: 'abierta', tipo: 'sin_enviar' } } }
+          : { ...cuales, envioId, OR: [{ isLanded: true }, { shippingStatus: { notIn: [...ETAPAS_FUERA_DEL_DEPOSITO] } }] },
         data: { envioId: destinoId },
       })
       if (r.count !== esperadas) throw new ErrorDeNegocio('Alguna línea cambió de etapa mientras tanto. Recargá la página.')
@@ -393,7 +547,7 @@ export async function moverPedidoACaja(envioId: number, pedidoId: number, formDa
       // Las cajas que llegaron al depósito pesan lo que traía la caja entera: desde ahora lo que
       // se factura son las que salen. Con reempaque y sin cajas de salida el costeo queda
       // provisorio hasta cargarlas (ver lib/cajas-envio.ts).
-      if ((cajas.find(c => c.id === envioId)?._count.cajas ?? 0) > 0) {
+      if (!sinEnviar && (cajas.find(c => c.id === envioId)?._count.cajas ?? 0) > 0) {
         await tx.envio.update({ where: { id: envioId }, data: { reempaque: true } })
       }
     })
@@ -844,17 +998,31 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]): P
   const borrador = await motivoCajaEnBorrador(envioId)
   if (borrador) return fallo(borrador)
 
-  const items = await db.pedidoItem.findMany({
-    where: { envioId, id: { in: cambios.map(c => c.id) } },
-    select: {
-      id: true, shippingStatus: true, origen: true, inbound: true, isLanded: true,
-      productId: true, quantity: true, bundleItems: true,
-      pedido: { select: { id: true, tipo: true, status: true, clientName: true } },
-      incidencias: { select: { tipo: true, estado: true } },
-      envio: { select: { modo: true } },
-    },
-  })
+  const [items, conSinEnviar] = await Promise.all([
+    db.pedidoItem.findMany({
+      where: { envioId, id: { in: cambios.map(c => c.id) } },
+      select: {
+        id: true, shippingStatus: true, origen: true, inbound: true, isLanded: true,
+        productId: true, quantity: true, bundleItems: true,
+        pedido: { select: { id: true, tipo: true, status: true, clientName: true } },
+        incidencias: { select: { tipo: true, estado: true } },
+        envio: { select: { modo: true } },
+      },
+    }),
+    // Lo que el proveedor no mandó entero espera en la caja sin estar en el depósito (lib/sin-stock.ts).
+    db.pedidoItem.findMany({
+      where: { envioId, incidencias: { some: { estado: 'abierta', tipo: 'sin_enviar' } } },
+      select: {
+        id: true, pedidoId: true, quantity: true, bundleItems: true,
+        product: { select: { nameEs: true } }, ensamble: { select: { nameEs: true, nameEn: true } },
+        incidencias: { where: { estado: 'abierta', tipo: 'sin_enviar' }, select: { tipo: true, estado: true, cantidad: true, pieza: true } },
+      },
+    }),
+  ])
   if (items.length === 0) return ok()
+  const noVienen = conSinEnviar.filter(l => lineaNoViene(l.quantity, sinEnviarDe(l.incidencias), (l.bundleItems as BundlePiece[] | null) ?? []))
+  const noViene = new Set(noVienen.map(l => l.id))
+  let frenadas = 0
 
   const pedido = new Map(cambios.map(c => [c.id, c]))
 
@@ -877,6 +1045,8 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]): P
     const ruta = routeFor(inboundDe(it.origen, it.inbound), it.isLanded, it.envio?.modo)
     const status = normalizeToRoute(destino, ruta)
     if (status === it.shippingStatus) continue
+    // No está en el depósito: avanza recién cuando se marca que llegó. "Avanzar todo" la saltea.
+    if (noViene.has(it.id) && avanzaSinEstar(status)) { frenadas++; continue }
 
     // Un pedido cancelado ya no viaja: sus piezas compradas pasaron a stock propio y el resto salió de la caja.
     if (it.pedido.status === 'cancelado') {
@@ -904,7 +1074,15 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]): P
     if (signo !== 0) conStock.push(it)
     filas.push({ id: it.id, desde: it.shippingStatus, hacia: status, signo })
   }
-  if (filas.length === 0) return ok()
+  if (filas.length === 0) {
+    return frenadas > 0
+      ? fallo('El proveedor no mandó esa pieza: no está en el depósito. En la pestaña Comprar marcá que llegó antes de moverla.')
+      : ok()
+  }
+  const noDespacha = motivoNoDespacha(filas, noVienen.map(l => ({
+    nombre: l.product?.nameEs ?? (l.ensamble ? nombreEnsamble(l.ensamble) : 'una línea'), pedidoId: l.pedidoId,
+  })))
+  if (noDespacha) return fallo(noDespacha)
 
   // Qué piezas del catálogo mueve cada línea: la pieza suelta, o las piezas del conjunto (ver
   // lib/stock-piezas). Si alguna pieza de un conjunto no se puede identificar no se entrega
@@ -966,7 +1144,8 @@ export async function deleteEnvio(id: number): Promise<ActionResult> {
     return fallo(`Tiene ${envio._count.movimientos} movimiento${envio._count.movimientos === 1 ? '' : 's'} de caja registrado${envio._count.movimientos === 1 ? '' : 's'}: borrarla los dejaría sin caja.`)
   }
   // Lo comprado o en camino viaja en ESTA caja: borrarla lo soltaría a medio camino (ver removePedido).
-  if (envio._count.items > 0) {
+  // En borrador no: nada se pagó ni se movió acá, y lo pagado afuera vuelve a quedar suelto.
+  if (envio.estado !== 'borrador' && envio._count.items > 0) {
     return fallo(`Tiene ${envio._count.items} línea${envio._count.items === 1 ? '' : 's'} ya comprada${envio._count.items === 1 ? '' : 's'} o en camino: no se puede borrar.`)
   }
 
