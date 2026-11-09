@@ -130,7 +130,6 @@ export async function eliminarMovimiento(id: number) {
   })
 
   revalidatePath('/contabilidad')
-  revalidatePath('/contabilidad/comprar')
   revalidatePath('/presupuestos')
   revalidatePath('/resultados')
   // Un pago contra una caja (proveedor, flete) se ve en su ficha y en la lista: sin esto, borrarlo
@@ -209,7 +208,6 @@ export async function registrarCompra(formData: FormData): Promise<ActionResult>
   if (!r.ok) return fallo(r.error)
 
   revalidatePath('/contabilidad')
-  revalidatePath('/contabilidad/comprar')
   for (const id of r.pedidoIds) revalidatePath(`/presupuestos/${id}`)
   // La lista de envíos se refresca siempre: una compra que mezcla cajas no tiene un envío
   // dueño, pero igual movió el costo real de cada una.

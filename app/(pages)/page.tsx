@@ -41,7 +41,7 @@ const msDe = (fecha: string | null | undefined) => (fecha ? Date.parse(fecha) ||
 
 async function getDatos() {
   // Todo independiente: una sola tanda, la latencia se paga una vez.
-  const [cfgRows, pedidos, porComprar, sinCaja, cajas, abiertos, cuentas, inventario, novedades, sinSeguir, consulta, stock] = await Promise.all([
+  const [cfgRows, pedidos, cajas, abiertos, cuentas, inventario, novedades, sinSeguir, consulta, stock] = await Promise.all([
     db.config.findMany(),
     db.pedido.findMany({
       where: { status: VENTA_STATUS, tipo: { not: 'propio' } },
@@ -50,18 +50,6 @@ async function getDatos() {
         items: { select: { salePrice: true, quantity: true, shippingStatus: true } },
       },
     }),
-    // Por comprar: líneas de pedidos confirmados sin compra registrada, fuera de cajas en borrador
-    // (el mismo criterio que /contabilidad/comprar).
-    db.pedidoItem.groupBy({
-      by: ['pedidoId'],
-      where: {
-        costRealUsd: null,
-        pedido: { status: VENTA_STATUS, tipo: 'cliente' },
-        OR: [{ envioId: null }, { envio: { estado: { not: 'borrador' } } }],
-      },
-      _count: { _all: true },
-    }),
-    db.pedidoItem.count({ where: { envioId: null, costRealUsd: null, pedido: { status: VENTA_STATUS, tipo: 'cliente' } } }),
     db.envio.findMany({
       where: { modo: { in: [...MODOS_CON_PEDIDOS] }, estado: { not: 'borrador' } },
       select: {
@@ -117,7 +105,6 @@ async function getDatos() {
     consultadoEn: consulta._max.consultadoEn,
     stock: { piezas: stock._count._all, unidades: stock._sum.stock ?? 0 },
     tasaBcv: num(cfg, 'bcv_usd_rate', 0),
-    porComprar: { lineas: porComprar.reduce((s, g) => s + g._count._all, 0), pedidos: porComprar.length, sinCaja },
   }
 }
 
@@ -275,13 +262,6 @@ function ParaHoy({ d }: { d: Awaited<ReturnType<typeof getDatos>> }) {
     filas.push({ key: `p${c.id}`, tipo: 'Parada', cls: 'bg-amber-100 text-amber-900', href: `/envios/${c.id}`, titulo: c.nombre, sub, der: pl(c.dias, 'día', 'días') })
   }
   mas(d.paradas.length, 'Parada', '/envios', 'cajas paradas')
-  if (d.porComprar.lineas > 0) {
-    filas.push({
-      key: 'comprar', tipo: 'Comprar', cls: 'bg-blue-100 text-blue-800', href: '/contabilidad/comprar',
-      titulo: `${pl(d.porComprar.lineas, 'línea', 'líneas')} en ${pl(d.porComprar.pedidos, 'pedido', 'pedidos')}`,
-      sub: d.porComprar.sinCaja > 0 ? `${d.porComprar.sinCaja} sin caja todavía` : 'Registrar lo que compraste', der: 'Registrar',
-    })
-  }
   if (d.vencidos > 0) {
     filas.push({ key: 'vencidos', tipo: 'Vencidos', cls: 'bg-gray-100 text-gray-700', href: '/presupuestos', titulo: pl(d.vencidos, 'presupuesto sin respuesta', 'presupuestos sin respuesta'), sub: 'Renovar o marcar perdido', der: 'Ver →' })
   }

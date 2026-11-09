@@ -453,8 +453,6 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
       etiqueta="Entregar"
       claseBoton={BOTON.entregar}
     />
-  ) : isConfirmadoCliente && compra && compra.pendientes > 0 ? (
-    <Link href="/contabilidad/comprar" className={BOTON.primario}>Ir a Por comprar</Link>
   ) : cobrarEsPrincipal ? registrarCobro(true)
   : isCancelado && depositUsd != null && depositUsd > 0.005 ? (
     <DevolverClienteForm action={devolverAlCliente.bind(null, id)} maximo={depositUsd} tasaSugerida={tasaDevolucion} claseBoton={BOTON.primario} />
@@ -528,9 +526,6 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
             )}
             {isConfirmadoCliente && saldoAFavor > 0.005 && (
               <DevolverClienteForm action={devolverAlCliente.bind(null, id)} maximo={saldoAFavor} tasaSugerida={tasaDevolucion} etiqueta={`Devolver ${'$'}${saldoAFavor.toFixed(2)} a favor`} claseBoton={ITEM_MENU} />
-            )}
-            {compra && compra.pendientes > 0 && !isPresupuesto && !isCancelado && !(isConfirmadoCliente && !puedeEntregar) && (
-              <Link href="/contabilidad/comprar" className={ITEM_MENU}>Ir a Por comprar ({compra.pendientes})</Link>
             )}
             {!isVenta && (
               <>

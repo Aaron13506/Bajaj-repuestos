@@ -16,7 +16,7 @@ description: Libro de caja y plata (lib/movimientos.ts, lib/cobro-bcv.ts, lib/cu
 
 ## Purchases (`registrarCompra`)
 
-The total paid for a selection of lines is split by catalog estimate with `repartirEnCentavos` (sums to the cent). Guarded write: `UPDATE … WHERE costRealUsd IS NULL`, and if fewer rows update than selected the whole transaction aborts (no double expense). Only lines of confirmed orders (`status = 'pedido'`) outside draft boxes. Each line stores the expense that paid it (`PedidoItem.compraId`): **deleting that expense in Contabilidad undoes the purchase** (lines lose `costRealUsd` and can be registered again). Lines bought before `compraId` existed don't have it.
+Registered **only from the box page** (`/envios/[id]`; there is no purchase page in Contabilidad, and no nag for confirmed orders without a box: where they go is the owner's call). A payment that covers two boxes is split by hand. The total paid for a selection of lines is split by catalog estimate with `repartirEnCentavos` (sums to the cent). Guarded write: `UPDATE … WHERE costRealUsd IS NULL`, and if fewer rows update than selected the whole transaction aborts (no double expense). Only lines of confirmed orders (`status = 'pedido'`) outside draft boxes. Each line stores the expense that paid it (`PedidoItem.compraId`): **deleting that expense in Contabilidad undoes the purchase** (lines lose `costRealUsd` and can be registered again). Lines bought before `compraId` existed don't have it.
 
 ## Charging in "dólar BCV" (`lib/cobro-bcv.ts`)
 

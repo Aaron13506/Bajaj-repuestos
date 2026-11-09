@@ -352,7 +352,6 @@ export default async function PresupuestosPage({
     const presus = porEstado('presu')
     const conSaldo = porEstado('entregados').filter(c => montos(c.p).cobro.saldoBcv > 0.005).length
     const B = ({ children }: { children: React.ReactNode }) => <strong className="font-semibold text-gray-900 tabular-nums">{children}</strong>
-    const irAComprar = <Link href="/contabilidad/comprar" className="font-medium text-blue-700 hover:underline">Ir a Por comprar →</Link>
     const resumen: Record<Estado, React.ReactNode> = {
       todo: <><B>{paraEntregar.length}</B> para entregar (<B>{usd(cobrar)}</B> por cobrar) · <B>{presus.length}</B> {presus.length === 1 ? 'presupuesto' : 'presupuestos'} sin confirmar · <B>{piezasPorComprar}</B> piezas por comprar</>,
       entregar: <><B>{usd(cobrar)}</B> por cobrar al entregar · el que más espera, primero</>,
@@ -368,7 +367,7 @@ export default async function PresupuestosPage({
         </>
       ),
       camino: 'Comprado y viajando: avanza solo cuando avanza su caja.',
-      comprar: <><B>{piezasPorComprar}</B> piezas por comprar · {irAComprar}</>,
+      comprar: <><B>{piezasPorComprar}</B> piezas por comprar · la compra se anota en su caja</>,
       entregados: conSaldo > 0 ? <><B>{conSaldo}</B> se {conSaldo === 1 ? 'llevó' : 'llevaron'} las piezas debiendo</> : 'Todo cobrado.',
     }
     const vacio: Record<Estado, React.ReactNode> = {
@@ -382,7 +381,9 @@ export default async function PresupuestosPage({
     const etiqueta = ESTADOS_LISTA.find(e => e.id === estado)!.label
     return (
       <>
-        <nav aria-label="Filtrar clientes por estado" className="flex items-end gap-1 overflow-x-auto max-w-full mb-3 border-b border-gray-200">
+        {/* La línea gris es una sombra interna y no un border-b: con -mb-px las pestañas desbordaban 1 px y
+            overflow-x-auto mostraba una barra de scroll vertical. */}
+        <nav aria-label="Filtrar clientes por estado" className="flex items-end gap-1 overflow-x-auto max-w-full mb-3 shadow-[inset_0_-1px_0_#e5e7eb]">
           {ESTADOS_LISTA.map(e => {
             const n = conteoEstado(e.id)
             const activo = estado === e.id
@@ -392,7 +393,7 @@ export default async function PresupuestosPage({
                 key={e.id}
                 href={href('clientes', e.id)}
                 aria-current={activo ? 'page' : undefined}
-                className={`shrink-0 inline-flex items-center gap-1.5 min-h-11 px-3 text-sm -mb-px border-b-2 whitespace-nowrap ${
+                className={`shrink-0 inline-flex items-center gap-1.5 min-h-11 px-3 text-sm border-b-2 whitespace-nowrap ${
                   activo ? 'border-blue-600 text-blue-700 font-semibold' : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
                 }`}
               >

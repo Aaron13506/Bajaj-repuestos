@@ -1390,8 +1390,8 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                       proveedor={proveedorCaja}
                       marcar={marcarSinStock.bind(null, envio.id)}
                     />
-                    {/* Costo real de las piezas de ESTA caja: todo, por pedido o por SKU. Mismo picker que
-                        /contabilidad/comprar, acotado a este envío. */}
+                    {/* Costo real de las piezas de ESTA caja: todo, por pedido o por SKU. La compra se anota
+                        solo acá, nunca desde Contabilidad. */}
                     <RegistrarCompraPicker
                       items={itemsPendientesCosto}
                       action={registrarCompra}

@@ -865,15 +865,9 @@ const FUERA_DE_BORRADOR: Prisma.PedidoItemWhereInput = {
   ],
 }
 
-// La lista para el picker: todo lo que todavía no tiene costo real cargado, de pedidos ya
-// confirmados (un presupuesto sin aprobar no se compró).
-export function itemsSinCostoReal(): Promise<ItemPendienteCosto[]> {
-  return itemsConEstimado({ costRealUsd: null, pedido: { status: 'pedido' }, ...FUERA_DE_BORRADOR })
-}
-
-// Lo mismo, pero acotado a UNA caja — para cargar el costo real desde /envios/[id] sin
-// tener que ir a buscar las piezas entre todo lo pendiente. El filtro de status va igual: a una
-// caja también entran presupuestos sin aprobar (ver assignPedido), y eso no se compra.
+// La lista para el picker de /envios/[id]: lo de UNA caja que todavía no tiene costo real. La compra
+// se anota solo en la caja. Va solo lo de pedidos confirmados: a una caja también entran presupuestos
+// sin aprobar (ver assignPedido), y eso no se compra.
 export function itemsSinCostoRealDeEnvio(envioId: number): Promise<ItemPendienteCosto[]> {
   return itemsConEstimado({ costRealUsd: null, envioId, pedido: { status: 'pedido' }, ...FUERA_DE_BORRADOR })
 }

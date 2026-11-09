@@ -2,7 +2,8 @@ import Sidebar from '@/components/Sidebar'
 
 // En el teléfono el menú pasa arriba (fila con scroll horizontal) para dejarle el ancho a la
 // página; desde md vuelve a la columna lateral. h-dvh y no h-screen: en móvil h-screen cuenta la
-// barra del navegador y corta el final de la página.
+// barra del navegador y corta el final de la página. `relative` en <main>: sin él, los `sr-only`
+// (absolute) se ubican contra el <body> y alargan el documento; scrollear sobre el menú movía esa página.
 export default async function PagesLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex flex-col md:flex-row h-dvh bg-gray-50">
@@ -13,7 +14,7 @@ export default async function PagesLayout({ children }: { children: React.ReactN
         Saltar al contenido
       </a>
       <Sidebar />
-      <main id="contenido" tabIndex={-1} className="flex-1 min-w-0 overflow-auto focus:outline-none">
+      <main id="contenido" tabIndex={-1} className="relative flex-1 min-w-0 overflow-auto focus:outline-none">
         <div className="p-4 md:p-8">{children}</div>
       </main>
     </div>

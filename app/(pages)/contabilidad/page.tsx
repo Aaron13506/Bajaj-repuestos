@@ -14,7 +14,6 @@ import {
   valorBsEnLibro,
   listarMovimientos,
   leerFiltroLibro,
-  itemsSinCostoReal,
   aperturaCaja,
   CATEGORIAS_INGRESO,
   CATEGORIAS_EGRESO,
@@ -65,12 +64,11 @@ interface Props {
 }
 
 export default async function ContabilidadPage({ searchParams }: Props) {
-  const [cfgRows, inventario, porVenir, pendientesCosto, pedidosConfirmados, envios, suppliers] =
+  const [cfgRows, inventario, porVenir, pedidosConfirmados, envios, suppliers] =
     await Promise.all([
       db.config.findMany(),
       resumenInventario(),
       gastosPorVenir(),
-      itemsSinCostoReal(),
       db.pedido.findMany({
         where: { status: VENTA_STATUS, tipo: { not: 'propio' } },
         select: {
@@ -462,17 +460,6 @@ export default async function ContabilidadPage({ searchParams }: Props) {
           <h1 className="text-2xl font-bold text-gray-900 text-balance">Contabilidad</h1>
           <p className="text-sm text-gray-500 mt-1 text-pretty">La plata que hay, la que te deben y la que falta pagar.</p>
         </div>
-        <Link
-          href="/contabilidad/comprar"
-          className="inline-flex items-center gap-2 min-h-10 px-4 rounded-lg text-sm font-semibold text-gray-800 border border-gray-300 bg-white hover:bg-gray-50"
-        >
-          Registrar compra
-          {pendientesCosto.length > 0 && (
-            <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-900">
-              {pendientesCosto.length} sin costo
-            </span>
-          )}
-        </Link>
       </div>
 
       <div className="space-y-2">

@@ -10,8 +10,8 @@ interface Props {
   action: (formData: FormData) => Promise<ActionResult>
   methods: readonly string[]
   // Modo embebido (en /envios/[id]): una sección con su título y los pedidos plegados, porque
-  // casi siempre se paga todo junto. En /contabilidad/comprar el picker ES la página y va abierto.
-  // En la caja el «no mandó» no se ofrece: se anota en «Compradas, esperando que despache».
+  // casi siempre se paga todo junto. En la caja el «no mandó» no se ofrece: se anota en
+  // «Compradas, esperando que despache».
   collapsible?: boolean
   /** Solo en la caja: lo ya pagado contra ella, para ver qué se registró sin ir al libro. */
   pagos?: PagoCaja[]
