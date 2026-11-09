@@ -18,7 +18,7 @@ import { METODOS_PAGO_EGRESO } from '@/lib/pagos'
 import { limpiarNombre } from '@/lib/utils'
 import { calcEnvio, type EnvioItemInput, type ConfigMap, type ProveedorEnvio } from '@/lib/calc'
 import { inboundDe, inboundMeta } from '@/lib/inbound'
-import { reenvioDe, reenvioMeta, motivoNoCambiaReenvio, tarifaEquilibrioKgInr } from '@/lib/reenvio'
+import { reenvioDe, reenvioMeta, tarifaEquilibrioKgInr } from '@/lib/reenvio'
 import { modoDeEnvio, MODOS } from '@/lib/modo'
 import { motivoExpressNoAprobable, topeDeCaja } from '@/lib/express'
 import { contextoCosteo, costearAereo, ENVIO_COSTEO_INCLUDE } from '@/lib/costo-envios'
@@ -61,8 +61,7 @@ import {
   separarSinStock,
   deleteEnvio,
   saveCostosProveedor,
-  guardarTarifaKg,
-  cambiarReenvio,
+  guardarCotizacionDeposito,
   guardarCajas,
   guardarTrackings,
   actualizarTrackings,
@@ -429,7 +428,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   const costoRealMaritimo = envio.shippingCostRealMaritimo != null ? parseFloat(envio.shippingCostRealMaritimo.toString()) : null
   // Quién lleva lo que pasa por un depósito: Shoppre (tabla) o el reenvío por kilo (₹/kg que
   // cotizaron para esta caja). Congelado al crear la caja, como el proveedor.
-  const reenvioCaja = { tipo: reenvioDe(envio.reenvio), tarifaKgInr: dec(envio.tarifaKgInr) }
+  const reenvioCaja = { tipo: reenvioDe(envio.reenvio), tarifaKgInr: dec(envio.tarifaKgInr), reempaqueInr: dec(envio.reempaqueInr) }
   const reenvioLabel = reenvioMeta(reenvioCaja.tipo).label
   const porKilo = reenvioCaja.tipo === 'por_kilo'
   const calc = calcEnvio(items, cfg, {
@@ -791,7 +790,6 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   // Los escalones de la tabla solo existen en Shoppre: el reenvío por kilo cotiza cada caja.
   // Con varias cajas reales cargadas, cuántas son es un hecho y no un consejo que dar.
   const tierHint = porKilo || esExpress || calc.caja.cajas > 1 ? null : airTierHint(calc.air.chargeableKg, calc.air.costPerKgUsd, calc.air.cajas, calc.air.capKg)
-  const ratioPct = calc.air.ratioVW != null ? calc.air.ratioVW * 100 : null
   const fmtBound =
     calc.air.binding === 'weight'
       ? { label: 'Atado por PESO', cls: 'bg-green-100 text-green-700' }
@@ -799,33 +797,18 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
 
   const meta = inboundMeta(inboundCaja)
 
-  // Shoppre contra el reenvío por kilo, para ESTA caja y estimado contra estimado (sin facturas):
-  // es para decidir antes de comprar. La tarifa de equilibrio es el ₹/kg máximo que conviene
-  // aceptar. Solo tiene sentido si algo pasa por un depósito.
-  const comparaReenvio = !esCbm && !esExpress && calc.air.items > 0
-  const calcPorShoppre = comparaReenvio ? calcEnvio(items, cfg, { proveedor, modo: modoEnvio, medidas }) : null
-  const calcPorKilo = comparaReenvio
-    ? calcEnvio(items, cfg, { proveedor, modo: modoEnvio, medidas, reenvio: { tipo: 'por_kilo', tarifaKgInr: reenvioCaja.tarifaKgInr } })
-    : null
-  const shoppreTramoUsd = calcPorShoppre ? calcPorShoppre.air.costUsd + calcPorShoppre.insuranceUsd + calcPorShoppre.processingUsd : 0
-  const kiloTramoUsd = calcPorKilo && reenvioCaja.tarifaKgInr != null ? calcPorKilo.air.costUsd + calcPorKilo.processingUsd : null
-  const equilibrioInr = calcPorShoppre && calcPorKilo
+  // La tarifa ₹/kg más alta que conviene aceptar del reenvío por kilo para ESTA caja: Shoppre
+  // estimado (tabla + seguro + processing) sobre los kg cobrables. El reempaque se cancela.
+  const calcPorShoppre = porKilo && !esExpress && calc.air.items > 0 ? calcEnvio(items, cfg, { proveedor, modo: modoEnvio, medidas }) : null
+  const equilibrioInr = calcPorShoppre
     ? tarifaEquilibrioKgInr({
-        shoppreUsd: shoppreTramoUsd,
+        shoppreUsd: calcPorShoppre.air.costUsd + calcPorShoppre.insuranceUsd + calcPorShoppre.processingUsd,
         chargeableKg: calcPorShoppre.air.chargeableKg,
-        gastosFijosInr: calcPorKilo.reenvio.gastosFijosInr,
         inrUsd,
       })
     : null
-  // Cambiar el reenvío: mientras la mercancía no salió del depósito hacia USA y el flete aéreo
-  // no está facturado ni pagado. Comprada sí puede estar (ver motivoNoCambiaReenvio).
-  const motivoCambio = motivoNoCambiaReenvio({
-    modo: envio.modo,
-    despachaProveedor: inboundCaja === 'cotizado',
-    lineas: envio.items.map(it => ({ shippingStatus: it.shippingStatus, isLanded: it.isLanded })),
-    fleteAereoFacturado: costoRealAereo != null,
-    fleteAereoPagado: pagosFlete.some(m => m.categoria === TRAMOS_FLETE.aereo.categoria),
-  })
+  // Lo que cobra el depósito por caja (₹/kg del por kilo, reempaque): solo si algo pasa por uno.
+  const pasaPorDeposito = !esCbm && inboundCaja !== 'cotizado'
 
   // A qué cajas se puede pasar un presupuesto (caja partida en el depósito, ver lib/mover-caja.ts):
   // las confirmadas del mismo proveedor, modo y reenvío que sean de esta compra o de ninguna. La
@@ -900,8 +883,8 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
         icono: esExpress ? '⚡' : TRAMOS_FLETE.aereo.icono,
         facturadoUsd: costoRealAereo, calculadoUsd: calc.airCalculadoUsd,
         nota: porKilo
-          ? `La factura de ${reenvioLabel} incluye los gastos fijos (repack y demás).`
-          : 'La factura de Shoppre incluye el processing y no lleva seguro.',
+          ? `La factura de ${reenvioLabel} incluye el reempaque.`
+          : 'La factura de Shoppre incluye el processing y el reempaque, y no lleva seguro.',
         pagos: pagosDe(TRAMOS_FLETE.aereo.categoria),
         guardar: guardarFleteReal.bind(null, envio.id, 'aereo'),
         pagar: pagarFlete.bind(null, envio.id, 'aereo'),
@@ -934,6 +917,18 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     (costoRealMaritimo != null ? calc.maritimeUsd : 0) +
     (calc.giro ? (calc.giro.salienteCargada ? calc.giro.comisionSalienteUsd : 0) + (calc.giro.entranteCargada ? calc.giro.comisionEntranteUsd : 0) : 0)
   const realPct = calc.landedUsd > 0 ? Math.min(realUsd / calc.landedUsd, 1) * 100 : 0
+
+  // «Actualizar trackings» va junto a las guías de cada tramo.
+  const botonActualizar = (trackingActivo || onewayActivo) && (
+    <FormConResultado action={actualizarTrackings.bind(null, envio.id)}>
+      <PendingButton
+        pendingLabel="Consultando…"
+        className="min-h-9 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+      >
+        <span aria-hidden="true">↻ </span>Actualizar trackings
+      </PendingButton>
+    </FormConResultado>
+  )
 
   // Pasos de la caja: qué falta hacer con ella. Nada se guarda, cada paso sale de datos que ya
   // existen (líneas, caja pesada, libro).
@@ -1412,7 +1407,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                       {inboundCaja === 'cotizado'
                         ? ' Despacha él a USA: no hay tarifa por kilo, se carga el total que te pasó.'
                         : porKilo
-                          ? ` Entra por ${reenvioLabel}: el tramo es la tarifa ₹/kg de la pestaña Envío.`
+                          ? ` Entra por ${reenvioLabel}: el tramo es la tarifa ₹/kg de la pestaña Plata.`
                           : ' Entra por Shoppre: el tramo lo cobra la tabla escalón.'}
                     </>}
                     acciones={
@@ -1506,16 +1501,6 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                 <TrayectoCaja
                   trackings={envio.trackings}
                   express={esExpress}
-                  acciones={(trackingActivo || onewayActivo) && (
-                    <FormConResultado action={actualizarTrackings.bind(null, envio.id)} className="flex flex-col items-end gap-1">
-                      <PendingButton
-                        pendingLabel="Consultando…"
-                        className="min-h-9 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                      >
-                        <span aria-hidden="true">↻ </span>Actualizar trackings
-                      </PendingButton>
-                    </FormConResultado>
-                  )}
                   paneles={{
                     local: (
                       <NumerosTramo
@@ -1526,86 +1511,11 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                         todos={numeros}
                         couriers={couriers}
                         guardar={guardarTrackings.bind(null, envio.id)}
+                        acciones={botonActualizar}
                       />
                     ),
                     [esExpress ? 'venezuela' : 'usa']: (
                       <>
-                {/* Quién la lleva a USA: decide si el tramo sale de la tabla de Shoppre o de la tarifa
-                    ₹/kg + gastos fijos. Se puede cambiar hasta que la mercancía salga del depósito. */}
-                {comparaReenvio && (
-                  <section aria-labelledby="reenvio-titulo" className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-6 mb-4 space-y-4">
-                    <div>
-                      <h3 id="reenvio-titulo" className="text-base font-semibold text-gray-900">Quién la lleva a USA</h3>
-                      <p className="text-sm text-gray-600">
-                        Se elige por caja.{' '}
-                        {motivoCambio == null ? 'Se puede cambiar mientras no salga del depósito.' : <>Queda fijo: {motivoCambio}</>}
-                      </p>
-                    </div>
-                    <div role="group" aria-label="Reenvío de esta caja" className="grid gap-2 sm:grid-cols-2">
-                      {(['shoppre', 'por_kilo'] as const).map(r => {
-                        const elegido = reenvioCaja.tipo === r
-                        const estimado = r === 'shoppre'
-                          ? `≈ ${usd(shoppreTramoUsd)} con tabla + seguro + processing`
-                          : kiloTramoUsd != null ? `≈ ${usd(kiloTramoUsd)} con ₹${reenvioCaja.tarifaKgInr!.toFixed(2)}/kg + gastos fijos` : 'Falta la tarifa ₹/kg que te cotizaron'
-                        const contenido = (
-                          <>
-                            <span className="flex items-center gap-2 text-sm font-semibold">
-                              <span aria-hidden="true" className={`h-4 w-4 shrink-0 rounded-full border-2 ${elegido ? 'border-blue-600 bg-blue-600 ring-2 ring-inset ring-white' : 'border-gray-400'}`} />
-                              {r === 'shoppre' ? 'Shoppre · tabla escalón' : 'Agente · ₹ por kilo + gastos fijos'}
-                              {elegido && <span className="sr-only"> (elegido)</span>}
-                            </span>
-                            <span className="block mt-1 pl-6 text-xs text-gray-600">{estimado}</span>
-                          </>
-                        )
-                        const cls = `w-full h-full text-left rounded-lg border px-4 py-3 ${elegido ? 'border-blue-500 ring-1 ring-blue-500 bg-blue-50/50 text-gray-900' : 'border-gray-200 text-gray-800'}`
-                        return elegido || motivoCambio != null ? (
-                          <div key={r} className={`${cls} ${!elegido ? 'opacity-60' : ''}`} aria-current={elegido ? 'true' : undefined}>{contenido}</div>
-                        ) : (
-                          <FormConResultado key={r} action={cambiarReenvio.bind(null, envio.id)}>
-                            <input type="hidden" name="reenvio" value={r} />
-                            <PendingButton pendingLabel="Cambiando…" className={`${cls} hover:border-gray-300 hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600`}>
-                              {contenido}
-                            </PendingButton>
-                          </FormConResultado>
-                        )
-                      })}
-                    </div>
-                    {/* Por kilo no hay tabla: la tarifa la cotizan para esta caja según su tamaño. */}
-                    {porKilo && (
-                      <div className="rounded-lg border border-gray-200 p-3">
-                        <FormConResultado action={guardarTarifaKg.bind(null, envio.id)} className="flex flex-wrap items-end gap-3">
-                          <label className="block">
-                            <span className="block text-xs font-medium text-gray-700 mb-1">Tarifa cotizada (₹ por kg cobrable)</span>
-                            <input
-                              type="number" step="0.01" min="0" name="tarifaKgInr"
-                              defaultValue={reenvioCaja.tarifaKgInr ?? ''} placeholder="sin cotizar"
-                              className="w-36 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                            />
-                          </label>
-                          <PendingButton className="min-h-9 px-3 py-1.5 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-800">
-                            Guardar
-                          </PendingButton>
-                        </FormConResultado>
-                        <p className="text-xs text-gray-600 mt-2">
-                          {kg(calc.air.chargeableKg)} cobrables
-                          {reenvioCaja.tarifaKgInr != null && ` × ₹${reenvioCaja.tarifaKgInr.toFixed(2)} = ₹${(calc.air.chargeableKg * reenvioCaja.tarifaKgInr).toFixed(0)}`}
-                          {' '}+ gastos fijos {calc.reenvio.gastosFijosInr != null ? `₹${calc.reenvio.gastosFijosInr.toFixed(0)}` : 'sin configurar'}.
-                          {' '}Pasale el peso de la caja (mejor pesada) para que te coticen.
-                        </p>
-                        {calc.reenvio.faltaTarifa && (
-                          <p className="text-xs mt-2 px-3 py-2 rounded-lg bg-amber-50 text-amber-800">
-                            Sin tarifa cargada el tramo a USA cuenta $0: la caja está subcosteada, no es gratis.
-                          </p>
-                        )}
-                        {calc.reenvio.faltaGastos && (
-                          <p className="text-xs mt-2 px-3 py-2 rounded-lg bg-amber-50 text-amber-800">
-                            Los gastos fijos del reenvío no están configurados: cargalos en <Link href="/config" className="underline">/config</Link>.
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </section>
-                )}
                 <NumerosTramo
                   key={firmaNumeros}
                   tramo={esExpress ? 'venezuela' : 'usa'}
@@ -1616,153 +1526,8 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                   todos={numeros}
                   couriers={couriers}
                   guardar={guardarTrackings.bind(null, envio.id)}
+                  acciones={botonActualizar}
                 />
-                {items.length > 0 && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-4">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-                {calc.air.items === 0 && calc.tramo
-                  ? `✈️ Tramo ${calc.tramo.nombre} → USA · DDP`
-                  : esExpress
-                    ? '⚡ Tramo India → Venezuela · Shoppre express · peso cobrable'
-                    : `🇮🇳 Tramo India → USA · ${reenvioLabel} · peso cobrable`}
-              </h2>
-              {calc.air.items > 0 && (
-                <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${fmtBound.cls}`}>{fmtBound.label}</span>
-              )}
-            </div>
-            {calc.air.items === 0 && calc.tramo ? (
-              /* Caja que despacha el proveedor: no hay tabla escalón ni peso cobrable, el
-                 tramo es el total que él facturó. */
-              <>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Piezas</p>
-                    <p className="text-xl font-bold font-mono text-gray-900">{calc.tramo.leg.items}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Peso real</p>
-                    <p className="text-xl font-bold font-mono text-gray-900">{kg(calc.tramo.leg.realKg)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Volumétrico</p>
-                    <p className="text-xl font-bold font-mono text-gray-900">{kg(calc.tramo.leg.volKg)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Facturado / kg</p>
-                    <p className="text-xl font-bold font-mono text-gray-900">{usd(calc.tramo.leg.costPerKgUsd)}</p>
-                  </div>
-                </div>
-                <p className="text-xs mt-4 px-3 py-2 rounded-lg bg-blue-50 text-blue-700">
-                  Despacha {calc.tramo.nombre} a USA: no hay tarifa por kilo, el tramo es el total que
-                  facturó ({usd(calc.tramo.costUsd)}). Se carga en la tarjeta del proveedor, más abajo.
-                </p>
-              </>
-            ) : calc.air.items === 0 ? (
-              <p className="text-sm text-gray-500">No hay piezas que viajen por {reenvioLabel} en este envío.</p>
-            ) : (
-              <>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Peso real (ΣW)</p>
-                    <p className={`text-xl font-bold font-mono ${calc.air.binding === 'weight' ? 'text-green-700' : 'text-gray-900'}`}>{kg(calc.air.realKg)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Volumétrico (ΣV)</p>
-                    <p className={`text-xl font-bold font-mono ${calc.air.binding === 'volume' ? 'text-red-700' : 'text-gray-900'}`}>{kg(calc.air.volKg)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Cobrable max(W,V)</p>
-                    <p className="text-xl font-bold font-mono text-blue-700">{kg(calc.air.chargeableKg)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Aéreo / kg</p>
-                    <p className="text-xl font-bold font-mono text-gray-900">{usd(calc.air.costPerKgUsd)}</p>
-                  </div>
-                </div>
-
-                {/* Utilización volumétrica */}
-                {ratioPct != null && (
-                  <div className="mt-5">
-                    <div className="flex items-center justify-between text-xs mb-1">
-                      <span className="text-gray-500">Utilización volumétrica (V/W) — meta 80–100%</span>
-                      <span className="font-mono font-semibold text-gray-700">{ratioPct.toFixed(0)}%</span>
-                    </div>
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden relative">
-                      {/* zona dulce 80-100% */}
-                      <div className="absolute inset-y-0 bg-green-100" style={{ left: '80%', right: '0%' }} />
-                      <div
-                        className={`h-full rounded-full ${calc.air.binding === 'volume' ? 'bg-red-500' : ratioPct >= 80 ? 'bg-green-500' : 'bg-amber-400'}`}
-                        style={{ width: `${Math.min(ratioPct, 100)}%` }}
-                      />
-                    </div>
-                    <p className="text-xs mt-2 text-gray-600">
-                      {calc.air.binding === 'volume'
-                        ? '⚠️ Volume-bound: el carrier cobra el volumétrico (> peso). Agregá piezas pesadas para volver a estar atado por peso, o tus precios fijos subcostean.'
-                        : ratioPct >= 80
-                          ? '✓ Buena utilización: estás llenando el volumen que ya pagás por peso.'
-                          : 'Desperdiciás volumen pagado. Podés colar piezas voluminosas y ligeras (plásticos) casi gratis hasta llegar al 100%.'}
-                    </p>
-                    {/* La frontera peso/volumen de una caja sin pesar no es un hecho: el reparto entre pedidos
-                        pasa de uno a otro de forma gradual, y esto lo dice para que nadie lea un costo por
-                        pedido como definitivo. */}
-                    {calc.air.repartoVolumen != null && calc.air.repartoVolumen > 0 && calc.air.repartoVolumen < 1 && (
-                      <p className="text-xs mt-2 px-3 py-2 rounded-lg bg-blue-50 text-blue-800">
-                        Caja sin pesar y medir: el volumétrico apenas supera al real, y eso está dentro del error de
-                        sumar las piezas. Por eso el flete aéreo se reparte entre los pedidos{' '}
-                        <strong>{Math.round((1 - calc.air.repartoVolumen) * 100)}% por peso y {Math.round(calc.air.repartoVolumen * 100)}% por volumen</strong>,
-                        y no todo por volumen. Pesala y medila, y cargá el flete facturado, para fijar el reparto.
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {tierHint && (
-                  <p className={`text-xs mt-3 px-3 py-2 rounded-lg ${tierHint.tone === 'good' ? 'bg-green-50 text-green-700' : tierHint.tone === 'warn' ? 'bg-amber-50 text-amber-800' : 'bg-blue-50 text-blue-700'}`}>
-                    {tierHint.text}
-                  </p>
-                )}
-
-                {/* Shoppre contra por kilo, y el botón para cambiar mientras no se compró nada. */}
-                {comparaReenvio && calcPorShoppre && (
-                  <div className="mt-4 rounded-lg bg-violet-50 px-3 py-2.5 text-xs text-violet-900 space-y-1">
-                    <p>
-                      Por <strong>Shoppre</strong> el tramo a USA saldría{' '}
-                      <span className="font-mono font-semibold">{usd(shoppreTramoUsd)}</span>
-                      {' '}(tabla {usd(calcPorShoppre.air.costUsd)} + seguro {usd(calcPorShoppre.insuranceUsd)} + processing {usd(calcPorShoppre.processingUsd)}).
-                      {kiloTramoUsd != null && (
-                        <>
-                          {' '}Por <strong>kilo</strong> con ₹{reenvioCaja.tarifaKgInr!.toFixed(2)}/kg:{' '}
-                          <span className="font-mono font-semibold">{usd(kiloTramoUsd)}</span>
-                          {' '}({kiloTramoUsd < shoppreTramoUsd
-                            ? `ahorrás ${usd(shoppreTramoUsd - kiloTramoUsd)}`
-                            : `cuesta ${usd(kiloTramoUsd - shoppreTramoUsd)} más`}).
-                        </>
-                      )}
-                    </p>
-                    {equilibrioInr != null && (
-                      <p>
-                        El reenvío por kilo conviene si te cotizan menos de{' '}
-                        <span className="font-mono font-semibold">₹{equilibrioInr.toFixed(0)}/kg</span>
-                        {calcPorKilo?.reenvio.gastosFijosInr != null
-                          ? ` (ya descontados ₹${calcPorKilo.reenvio.gastosFijosInr.toFixed(0)} de gastos fijos).`
-                          : ' (sin gastos fijos: no están configurados en /config).'}
-                        {' '}Estimado contra estimado{calc.caja.medido ? ', sobre la caja pesada' : ', sobre la suma de las piezas'}.
-                      </p>
-                    )}
-                  </div>
-                )}
-
-              </>
-            )}
-
-            {anyMissing && (
-              <p className="text-xs mt-3 px-3 py-2 rounded-lg bg-amber-50 text-amber-700">
-                ⚠️ Algunas piezas no tienen peso o dimensiones cargadas — el cálculo las subestima. Revisá las marcadas en la tabla de ítems.
-              </p>
-            )}
-          </div>
-                )}
                   {/* Las cajas reales: lo único que el catálogo no puede saber (pesa el bulto, no la pieza). */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-4">
             <div className="flex items-center justify-between mb-3">
@@ -1777,6 +1542,30 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                 {calc.caja.medido ? 'MEDIDA' : 'SIN MEDIR'}
               </span>
             </div>
+            {/* El peso que se cobra, en una línea. El $/kg solo por Shoppre: el por kilo lo puso el dueño. */}
+            {items.length > 0 && calc.air.items === 0 && calc.tramo && (
+              <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-600 mb-3">
+                <span>DDP {calc.tramo.nombre}</span>
+                <span>real <span className="font-mono text-gray-900">{kg(calc.tramo.leg.realKg)}</span></span>
+                <span>vol <span className="font-mono text-gray-900">{kg(calc.tramo.leg.volKg)}</span></span>
+                <span><span className="font-mono text-gray-900">{usd(calc.tramo.leg.costPerKgUsd)}</span>/kg facturado</span>
+              </p>
+            )}
+            {items.length > 0 && calc.air.items > 0 && (
+              <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-600 mb-3">
+                <span>Cobrable <span className="font-mono font-semibold text-blue-700">{kg(calc.air.chargeableKg)}</span></span>
+                <span>real <span className="font-mono text-gray-900">{kg(calc.air.realKg)}</span></span>
+                <span>vol <span className="font-mono text-gray-900">{kg(calc.air.volKg)}</span></span>
+                {!porKilo && <span><span className="font-mono text-gray-900">{usd(calc.air.costPerKgUsd)}</span>/kg</span>}
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${fmtBound.cls}`}>{fmtBound.label}</span>
+              </p>
+            )}
+            {tierHint && <p className="text-xs text-gray-600 -mt-1 mb-3">{tierHint.text}</p>}
+            {anyMissing && (
+              <p className="text-xs mb-3 px-3 py-2 rounded-lg bg-amber-50 text-amber-800">
+                Algunas piezas no tienen peso o medidas: el cálculo las subestima. Están marcadas en la tabla de ítems.
+              </p>
+            )}
             <CajasEnvio
               key={`${envio.reempaque}|${envio.cajas.map(c => c.id).join(',')}`}
               action={guardarCajas.bind(null, envio.id)}
@@ -1836,6 +1625,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                           todos={numeros}
                           couriers={couriers}
                           guardar={guardarTrackings.bind(null, envio.id)}
+                          acciones={botonActualizar}
                         />
                       ),
                     }),
@@ -1955,15 +1745,12 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                       depósito, y solo se muestran si valen algo (la factura ya trae el processing
                       y Shoppre no cobra seguro: una fila en $0.00 es un cargo que no existe). */}
                   {calc.insuranceUsd > 0 && <Row label="Seguro Shoppre" value={usd(calc.insuranceUsd)} />}
-                  {calc.processingUsd > 0 && (
-                    <Row
-                      label={porKilo ? `Gastos fijos ${reenvioLabel} (repack…)` : 'Processing Shoppre'}
-                      value={usd(calc.processingUsd)}
-                      tag={{ texto: 'estimado', tono: 'est' }}
-                    />
+                  {calc.processingUsd - calc.reenvio.reempaqueUsd > 0.005 && (
+                    <Row label="Processing Shoppre" value={usd(calc.processingUsd - calc.reenvio.reempaqueUsd)} tag={{ texto: 'estimado', tono: 'est' }} />
                   )}
-                  {calc.reenvio.faltaGastos && (
-                    <Row label={`Gastos fijos ${reenvioLabel}`} value="—" tag={{ texto: 'sin configurar', tono: 'falta' }} />
+                  {calc.reenvio.reempaqueUsd > 0 && <Row label="Reempaque" value={usd(calc.reenvio.reempaqueUsd)} />}
+                  {calc.reenvio.faltaReempaque && (
+                    <Row label="Reempaque" value="—" tag={{ texto: 'sin cargar', tono: 'falta' }} />
                   )}
                   {calc.giro && (
                     <>
@@ -2016,6 +1803,38 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               )}
                       </dl>
                       <QuienPonePlata f={financiamiento} />
+                    </div>
+                  </SeccionCaja>
+                )}
+                {/* Lo que cobra el depósito por ESTA caja: no hay número fijo que poner en /config. */}
+                {pasaPorDeposito && (
+                  <SeccionCaja
+                    id="deposito-titulo"
+                    titulo={`Lo que cobra el depósito${esExpress || !porKilo ? ' (Shoppre)' : ''} por esta caja`}
+                    sub="La factura del flete aéreo, cuando la cargues, ya lo trae y lo reemplaza."
+                  >
+                    <div className="px-4 sm:px-6 py-4 space-y-3">
+                      <FormConResultado action={guardarCotizacionDeposito.bind(null, envio.id)} className="flex flex-wrap items-end gap-x-4 gap-y-3">
+                        {porKilo && (
+                          <CampoGiro
+                            id="tarifa-kg" name="tarifaKgInr" valor={reenvioCaja.tarifaKgInr} placeholder="sin cotizar"
+                            label="Tarifa (₹ por kg cobrable)"
+                            ayuda={`sobre ${kg(calc.air.chargeableKg)} cobrables${equilibrioInr != null ? ` · conviene bajo ₹${equilibrioInr.toFixed(0)}/kg` : ''}`}
+                          />
+                        )}
+                        <CampoGiro
+                          id="reempaque" name="reempaqueInr" valor={reenvioCaja.reempaqueInr}
+                          label="Reempaque (₹)" ayuda="lo que cobró por reempacar esta caja · 0 = no cobró"
+                        />
+                        <PendingButton className="min-h-9 px-4 py-1.5 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                          Guardar
+                        </PendingButton>
+                      </FormConResultado>
+                      {calc.reenvio.faltaTarifa && (
+                        <p className="text-sm text-amber-900 bg-amber-50 px-3 py-2 rounded-lg">
+                          Sin tarifa el tramo a USA cuenta $0: la caja está subcosteada, no es gratis.
+                        </p>
+                      )}
                     </div>
                   </SeccionCaja>
                 )}

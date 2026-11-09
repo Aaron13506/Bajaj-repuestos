@@ -13,7 +13,7 @@ import { inboundDe } from '@/lib/inbound'
 import { isModoApp, llevaPedidos, MODOS_CON_PEDIDOS } from '@/lib/modo'
 import { motivoExpressNoAprobable, motivoViaNoCoincide, topeDeCaja } from '@/lib/express'
 import { contextoCosteo, costearAereo, ENVIO_COSTEO_INCLUDE } from '@/lib/costo-envios'
-import { isReenvio, motivoNoCambiaReenvio, ETAPAS_FUERA_DEL_DEPOSITO } from '@/lib/reenvio'
+import { isReenvio, ETAPAS_FUERA_DEL_DEPOSITO } from '@/lib/reenvio'
 import { fallo, ok, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
 import { isForeignKeyViolation } from '@/lib/prisma-errors'
 import { compraTrasMover, motivoNoMueve, motivoNoMueveSinEnviar, type CajaParaMover } from '@/lib/mover-caja'
@@ -627,64 +627,30 @@ export async function guardarCajas(envioId: number, formData: FormData): Promise
   return ok()
 }
 
-// Cambia el reenvío de una caja (Shoppre ↔ por kilo) mientras la mercancía no salió del
-// depósito hacia USA y el flete aéreo no está facturado ni pagado (motivoNoCambiaReenvio).
-// Las piezas pueden estar compradas: la dirección del depósito la decide el dueño al comprar.
-// La tarifa ₹/kg se conserva, así ir y volver para comparar no la borra. El WHERE repite la
-// regla, así que un avance o un pago hecho en otra pestaña no se saltea.
-export async function cambiarReenvio(envioId: number, formData: FormData): Promise<ActionResult> {
-  const reenvio = formData.get('reenvio') as string | null
-  if (!isReenvio(reenvio)) return fallo('Ese reenvío no existe.')
-
-  const e = await db.envio.findUnique({
-    where: { id: envioId },
-    select: {
-      modo: true,
-      shippingCostRealAereo: true,
-      supplier: { select: { origen: true, inbound: true } },
-      items: { select: { shippingStatus: true, isLanded: true } },
-      movimientos: { where: { categoria: TRAMOS_FLETE.aereo.categoria }, select: { id: true } },
-    },
-  })
-  if (!e) return fallo('Ese envío ya no existe.')
-  const motivo = motivoNoCambiaReenvio({
-    modo: e.modo,
-    despachaProveedor: inboundDe(e.supplier?.origen, e.supplier?.inbound) === 'cotizado',
-    lineas: e.items,
-    fleteAereoFacturado: e.shippingCostRealAereo != null,
-    fleteAereoPagado: e.movimientos.length > 0,
-  })
-  if (motivo) return fallo(motivo)
-
-  const r = await db.envio.updateMany({
-    where: {
-      id: envioId,
-      modo: 'aereo',
-      shippingCostRealAereo: null,
-      items: { none: { isLanded: false, shippingStatus: { in: ETAPAS_FUERA_DEL_DEPOSITO } } },
-      movimientos: { none: { categoria: TRAMOS_FLETE.aereo.categoria } },
-    },
-    data: { reenvio },
-  })
-  if (r.count === 0) return fallo('La caja cambió mientras tanto (salió hacia USA o se cargó el flete). Recargá la página.')
-  revalidarCaja(envioId)
-  return ok()
-}
-
-// La tarifa ₹/kg que cotizó el reenvío por kilo para ESTA caja (ver lib/reenvio.ts). Vacío =
-// todavía no cotizaron, y la caja queda subcosteada; un número ilegible se rechaza, no se
-// guarda como vacío (borraría la tarifa ya cargada). Solo en cajas 'por_kilo': la guarda va en
-// el WHERE, así que en una caja de Shoppre no escribe nada.
-export async function guardarTarifaKg(envioId: number, formData: FormData): Promise<ActionResult> {
-  const raw = (formData.get('tarifaKgInr') as string)?.trim()
-  let tarifaKgInr: number | null = null
-  if (raw) {
+// Lo que cotizó el depósito para ESTA caja: la tarifa ₹/kg (solo reenvío por kilo) y el
+// reempaque en ₹ (cualquier caja que pase por un depósito; varía por paquete, por eso no está en
+// /config). Mismo trato que saveCostosProveedor: campo ausente no se toca, vacío = no se sabe
+// (null), un número ilegible se rechaza en vez de borrar lo cargado. La tarifa solo se escribe
+// en cajas 'por_kilo': la guarda va en el WHERE.
+export async function guardarCotizacionDeposito(envioId: number, formData: FormData): Promise<ActionResult> {
+  const campos = [
+    ['tarifaKgInr', 'la tarifa ₹/kg'],
+    ['reempaqueInr', 'el reempaque'],
+  ] as const
+  const data: Partial<Record<(typeof campos)[number][0], number | null>> = {}
+  for (const [name, nombre] of campos) {
+    if (!formData.has(name)) continue
+    const raw = (formData.get(name) as string)?.trim()
+    if (!raw) { data[name] = null; continue }
     const v = parseFloat(raw.replace(',', '.'))
-    if (!Number.isFinite(v) || v < 0) return fallo('Revisá la tarifa: no es un número válido.')
-    tarifaKgInr = v
+    if (!Number.isFinite(v) || v < 0) return fallo(`Revisá ${nombre}: no es un número válido.`)
+    data[name] = v
   }
-  const r = await db.envio.updateMany({ where: { id: envioId, modo: 'aereo', reenvio: 'por_kilo' }, data: { tarifaKgInr } })
-  if (r.count === 0) return fallo('Esta caja no va por el reenvío por kilo (o ya no existe).')
+  const r = await db.envio.updateMany({
+    where: { id: envioId, modo: { in: ['aereo', 'express'] }, ...('tarifaKgInr' in data ? { reenvio: 'por_kilo' } : {}) },
+    data,
+  })
+  if (r.count === 0) return fallo('Esta caja no pasa por ese depósito (o ya no existe).')
   revalidatePath('/envios')
   revalidatePath(`/envios/${envioId}`)
   return ok()

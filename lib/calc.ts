@@ -584,17 +584,21 @@ export interface ReenvioCaja {
   tipo: Reenvio
   /** ₹ por kg cobrable que cotizaron para esta caja. null = no cotizaron todavía (≠ 0). */
   tarifaKgInr?: number | null
+  /** Lo que cobró el depósito por reempacar ESTA caja, en ₹ (Envio.reempaqueInr). null = no se sabe. */
+  reempaqueInr?: number | null
 }
 
 export interface ReenvioBreakdown {
   tipo: Reenvio
   tarifaKgInr: number | null
-  /** Gastos fijos por caja en ₹ (Config reenvio_kilo_gastos_inr). null = no configurados. */
-  gastosFijosInr: number | null
+  /** Reempaque de esta caja en ₹ (Envio.reempaqueInr). null = no se sabe. */
+  reempaqueInr: number | null
+  /** El reempaque en USD que entra en `processingUsd` (0 con la factura cargada, que ya lo trae). */
+  reempaqueUsd: number
   /** 'por_kilo' con piezas que lo usan, sin tarifa ni factura: el tramo cuenta 0 y la caja queda subcosteada. */
   faltaTarifa: boolean
-  /** 'por_kilo' sin gastos fijos en /config ni factura: se cuentan 0, que no es lo mismo que saberlo. */
-  faltaGastos: boolean
+  /** 'por_kilo' sin reempaque anotado ni factura: se cuenta 0, que no es lo mismo que saberlo. */
+  faltaReempaque: boolean
 }
 
 // Lo que el costeo necesita saber del proveedor de la caja. Viene de afuera (Supplier +
@@ -828,12 +832,11 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
     : modo === 'maritimo'
       ? num(cfg, 'maritimo_insurance_pct', 0.06)
       : porKilo ? 0 : num(cfg, 'shoppre_insurance_pct', 0.03)
-  // Cargo fijo por caja del reenvío, en ₹: el processing de Shoppre, o los gastos fijos
-  // (repack y demás) del reenvío por kilo. Este último no tiene default: vacío es "no lo
-  // configuraste", y `reenvio.faltaGastos` lo dice en vez de cobrar un número inventado.
-  const gastosFijosRaw = cfg.reenvio_kilo_gastos_inr?.trim()
-  const gastosFijosInr = gastosFijosRaw && Number.isFinite(parseFloat(gastosFijosRaw)) ? parseFloat(gastosFijosRaw) : null
-  const processingInr = porKilo ? (gastosFijosInr ?? 0) : num(cfg, 'shoppre_processing_inr', 500)
+  // Cargo por caja del depósito, en ₹: el processing de Shoppre (el reenvío por kilo no tiene)
+  // más el reempaque de ESTA caja, que varía de un paquete a otro y por eso no vive en
+  // /config. Sin default: vacío es "no se sabe" y `reenvio.faltaReempaque` lo dice.
+  const reempaqueInr = opts.reenvio?.reempaqueInr ?? null
+  const processingInr = (porKilo ? 0 : num(cfg, 'shoppre_processing_inr', 500)) + (reempaqueInr ?? 0)
 
   // Primera pasada: peso real, volumétrico, volumen en ft³ y costo de producto por línea.
   // Los ítems landed (ya puestos en Venezuela) no viajan: van con peso y volumen en
@@ -1146,9 +1149,10 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   const reenvio: ReenvioBreakdown = {
     tipo: porKilo ? 'por_kilo' : 'shoppre',
     tarifaKgInr,
-    gastosFijosInr: porKilo ? gastosFijosInr : null,
+    reempaqueInr,
+    reempaqueUsd: !esMaritimo && shoppreLines.length > 0 && airFacturadoUsd == null ? (reempaqueInr ?? 0) / inrUsd : 0,
     faltaTarifa: porKilo && usaReenvio && tarifaKgInr == null && airFacturadoUsd == null,
-    faltaGastos: porKilo && usaReenvio && gastosFijosInr == null && airFacturadoUsd == null,
+    faltaReempaque: porKilo && usaReenvio && reempaqueInr == null && airFacturadoUsd == null,
   }
 
   return {

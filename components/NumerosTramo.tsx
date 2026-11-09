@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useState } from 'react'
+import { Fragment, useState, type ReactNode } from 'react'
 import FormConResultado from '@/components/FormConResultado'
 import PendingButton from '@/components/PendingButton'
 import ElegirCourier from '@/components/ElegirCourier'
@@ -32,7 +32,7 @@ export type NumeroGuardado = {
 // lleva ocultos los demás números de la caja tal como están guardados, en su orden, y solo el
 // renglón tocado va visible (o falta, si se quita). La página lo monta con una `key` que cambia
 // con lo guardado: después de guardar arranca de nuevo, sin nada abierto.
-export default function NumerosTramo({ tramo, titulo, sub, todos, couriers, guardar }: {
+export default function NumerosTramo({ tramo, titulo, sub, todos, couriers, guardar, acciones }: {
   tramo: TramoTracking
   titulo: string
   sub: string
@@ -40,6 +40,8 @@ export default function NumerosTramo({ tramo, titulo, sub, todos, couriers, guar
   todos: NumeroGuardado[]
   couriers: Courier[]
   guardar: (formData: FormData) => Promise<ActionResult>
+  /** Junto a «Añadir número»: «Actualizar trackings» de Ship24/One Way. */
+  acciones?: ReactNode
 }) {
   const [editando, setEditando] = useState<number | 'nuevo' | null>(null)
   const [quitando, setQuitando] = useState<number | null>(null)
@@ -53,10 +55,12 @@ export default function NumerosTramo({ tramo, titulo, sub, todos, couriers, guar
   return (
     <section aria-labelledby={idTitulo} className="bg-white rounded-xl shadow-sm border border-gray-100 mb-4">
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 px-4 sm:px-6 py-4 border-b border-gray-100">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1 basis-64">
           <h3 id={idTitulo} className="text-base font-semibold text-gray-900">{titulo}</h3>
           <p className="text-sm text-gray-600">{sub}</p>
         </div>
+        <div className="flex flex-wrap items-start gap-2">
+        {acciones}
         <button
           type="button"
           onClick={() => { setQuitando(null); setEditando('nuevo') }}
@@ -65,6 +69,7 @@ export default function NumerosTramo({ tramo, titulo, sub, todos, couriers, guar
         >
           {lleno ? `Máximo ${MAX_TRACKINGS_POR_TRAMO} números` : '+ Añadir número'}
         </button>
+        </div>
       </div>
 
       <div className="px-4 sm:px-6 py-4">

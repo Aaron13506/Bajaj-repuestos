@@ -16,12 +16,10 @@ const TITULOS: Record<TramoTracking, { titulo: string; sub: string }> = {
 // el botón que elige qué tramo se ve debajo (uno a la vez, no los tres apilados). Arranca en el
 // primer tramo sin terminar. El hash (#tramo-usa) lo abre desde un enlace y sobrevive a recargar.
 // Los paneles los arma el servidor y quedan montados: cambiar de tramo no pierde lo que se escribía.
-export default function TrayectoCaja({ trackings, express, paneles, acciones, children }: {
+export default function TrayectoCaja({ trackings, express, paneles, children }: {
   trackings: TrackingResumen[]
   express: boolean
   paneles: Partial<Record<TramoTracking, ReactNode>>
-  /** A la derecha del título: «Actualizar» de Ship24. */
-  acciones?: ReactNode
   /** Avisos de Ship24 (apagado, sin lista de couriers). */
   children?: ReactNode
 }) {
@@ -77,14 +75,11 @@ export default function TrayectoCaja({ trackings, express, paneles, acciones, ch
   return (
     <>
       <section aria-labelledby="trayecto-titulo" className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-6 mb-4">
-        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 mb-3">
-          <div className="min-w-0">
-            <h2 id="trayecto-titulo" className="text-base font-semibold text-gray-900">Trayecto</h2>
-            <p className="text-sm text-gray-600">
-              Elegí un tramo para ver sus números. Con courier de Ship24 se siguen solos cada hora; sin él quedan anotados.
-            </p>
-          </div>
-          {acciones}
+        <div className="mb-3">
+          <h2 id="trayecto-titulo" className="text-base font-semibold text-gray-900">Trayecto</h2>
+          <p className="text-sm text-gray-600">
+            Elegí un tramo para ver sus números. Con courier de Ship24 se siguen solos cada hora; sin él quedan anotados.
+          </p>
         </div>
         <div role="tablist" aria-label="Tramos del trayecto" className="grid gap-3 grid-cols-1 sm:grid-cols-[repeat(auto-fit,minmax(200px,1fr))]">
           {tramos.map((t, i) => {

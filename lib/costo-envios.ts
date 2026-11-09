@@ -158,7 +158,7 @@ export function costearAereo(e: EnvioCosteo, ctx: ContextoCosteo): CosteoAereo {
   const calc = calcEnvio(piezas, ctx.cfg, {
     proveedor,
     modo: modoDeEnvio(e.modo),
-    reenvio: { tipo: reenvioDe(e.reenvio), tarifaKgInr: dec(e.tarifaKgInr) },
+    reenvio: { tipo: reenvioDe(e.reenvio), tarifaKgInr: dec(e.tarifaKgInr), reempaqueInr: dec(e.reempaqueInr) },
     medidas: medidasDeCajas(cajasQueSeFacturan(e.reempaque, e.cajas.map(cajaFisica)).cajas),
     fleteFacturado: {
       aereoUsd: dec(e.shippingCostRealAereo),

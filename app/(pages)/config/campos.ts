@@ -43,7 +43,6 @@ export const FIELD_META: Record<string, FieldMeta> = {
   caja_sin_pesar_tolerancia_pct: { label: 'Tolerancia de una caja sin pesar (%)', hint: 'En una caja que todavía no se pesó y midió, "ata el volumen" sale de comparar dos sumas de piezas. Si el volumétrico supera al real por menos de este %, el flete aéreo se reparte entre pedidos de forma gradual (peso → volumen) y no todo por volumen. Con la caja pesada y medida no aplica. Default 10', rango: [0, 100] },
   shoppre_insurance_pct:  { label: 'Seguro Shoppre (fracción)',    hint: 'P.ej. 0.03 = 3% sobre el valor declarado', rango: FRACCION },
   shoppre_processing_inr: { label: 'Processing fee Shoppre (INR)', hint: 'Cargo fijo por paquete en rupias', rango: NO_NEGATIVO },
-  reenvio_kilo_gastos_inr: { label: 'Gastos fijos reenvío por kilo (INR)', hint: 'Repack y demás cargos fijos por caja de las cajas que van por el reenvío por kilo. El ₹/kg se carga en cada caja. Vacío = sin configurar (la caja lo avisa). La factura real los reemplaza', rango: NO_NEGATIVO },
   // ── Envío express (Shoppre directo India → Venezuela). La tarifa la trae el cron
   // (shoppre_rates_ve_usd); seguro, processing y socio son los mismos de Shoppre.
   express_tope_usd:   { label: 'Tope del paquete express (USD)', hint: 'El landed de cada paquete express (producto + flete + seguro + processing) no puede pasar de este monto. Vacío = 100', rango: POSITIVO },

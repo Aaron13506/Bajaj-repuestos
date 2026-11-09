@@ -301,8 +301,11 @@ model Envio {
   reenvio          String       @default("shoppre")
   // La tarifa que cotizó el reenvío 'por_kilo' para ESTA caja, en rupias por kg cobrable.
   // Null = todavía no cotizaron: la caja queda subcosteada (no gratis). La factura real
-  // (shippingCostRealAereo) la reemplaza, gastos fijos incluidos.
+  // (shippingCostRealAereo) la reemplaza, reempaque incluido.
   tarifaKgInr      Decimal?     @db.Decimal(10, 2)
+  // Lo que cobró el depósito (Shoppre o el por kilo) por reempacar ESTA caja, en rupias. Varía
+  // de un paquete a otro, por eso no vive en /config. Null = no se sabe; 0 = no cobró.
+  reempaqueInr     Decimal?     @db.Decimal(10, 2)
   // Lo que costó la transferencia con la que se le pagó al proveedor de esta caja. Son DOS
   // montos porque un giro internacional se cobra en las dos puntas, y no son el mismo dato:
   //
