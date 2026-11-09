@@ -25,13 +25,16 @@ interface Props {
   tasaBs: { valor: number; etiqueta: string }
   /** Tasa de cobro directo, para proponer los Bs de un vuelto. */
   tasaDevolucion: number
+  /** Texto y clases del botón que abre el formulario (por defecto, los de siempre). */
+  etiqueta?: React.ReactNode
+  claseBoton?: string
 }
 
 const cls = 'w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
 
 // El cliente se lleva lo recibido: qué piezas, lo que pagó en ese momento y el vuelto, en un solo
 // paso (ver confirmarEntrega). Las piezas pasan a entregado solas, estén en una caja o en el depósito.
-export default function ConfirmarEntregaForm({ action, lineas, methods, modoBcv, saldo, tasaBs, tasaDevolucion }: Props) {
+export default function ConfirmarEntregaForm({ action, lineas, methods, modoBcv, saldo, tasaBs, tasaDevolucion, etiqueta, claseBoton }: Props) {
   const [open, setOpen] = useState(false)
   const { enviar, isPending, error, limpiarError } = useEnviarAccion(action, () => setOpen(false))
   const debe = saldo.divisas > 0.005
@@ -41,9 +44,9 @@ export default function ConfirmarEntregaForm({ action, lineas, methods, modoBcv,
       <button
         type="button"
         onClick={() => { limpiarError(); setOpen(true) }}
-        className="px-3 py-1.5 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition-colors"
+        className={claseBoton ?? "px-3 py-1.5 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition-colors"}
       >
-        ✅ Confirmar entrega
+        {etiqueta ?? '✅ Confirmar entrega'}
       </button>
       {open && (
         <Modal titulo="Confirmar entrega" onClose={() => setOpen(false)} className="w-96 max-w-full">

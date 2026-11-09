@@ -29,7 +29,10 @@ import { getTerminos } from '@/lib/terminos'
 import { METODOS_PAGO_EGRESO, METODOS_PAGO_INGRESO } from '@/lib/pagos'
 import { compararNombre, telefonoIntl, toFileName } from '@/lib/utils'
 import type { PresupuestoPdfData } from '@/lib/pdf/presupuesto-pdf'
-import { isDelivered, stageSummary, shippingStatusMeta, SHIPPING_STATUSES } from '@/lib/shipping-status'
+import { isDelivered, stageSummary, statusIndex } from '@/lib/shipping-status'
+import { etapaVisible } from '@/lib/pedido-lista'
+import MenuMas from '@/components/MenuMas'
+import { BOTON, ITEM_MENU, ITEM_MENU_PELIGRO } from '@/components/clases-boton'
 import { modeloLabel, type MotoModelId, toModelIds } from '@/lib/modelo'
 import { pedidoLogistics } from '@/lib/pedido-logistics'
 import { num, toConfigMap } from '@/lib/config'
@@ -74,6 +77,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
             },
             ensamble: { select: { id: true, nameEs: true, nameEn: true, imageUrl: true, compatibleModels: true } },
             supplier: { select: { name: true } },
+            envio: { select: { id: true, nombre: true } },
             // Por qué etapas pasó la línea. Los trackings NO van acá: una caja grande tiene varios
             // locales e internacionales y no se sabe cuál lleva qué pieza; se ven en la caja.
             etapas: { select: { desde: true, hacia: true, at: true }, orderBy: { at: 'asc' } },
@@ -359,233 +363,231 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
     terminos: isVenta ? null : terminos,
   }
 
+  // ── Cabecera: un estado, un paso siguiente y una acción principal (el resto en "Más") ──
+  const chip = 'inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap'
+  const n = presupuesto.items.length
+  const entregadoTodo = compra?.allDelivered ?? false
+  const etapa = compra && !isPresupuesto && !isVenta ? etapaVisible(entregadoTodo ? 'entregado' : compra.lead.value, isPropio) : null
+  const recibidas = presupuesto.items.filter(it => it.shippingStatus === 'en_venezuela' || isDelivered(it.shippingStatus)).length
+  const puedeEntregar = porEntregar.some(l => !l.motivo)
+  const motos = modeloLabel([...new Set(items.flatMap(it => toModelIds(it.cab.compatibleModels)))])
+  const pasos: { t: string; hecho: boolean }[] | null = isVenta || isCancelado || perdido
+    ? null
+    : isPresupuesto
+      ? [{ t: 'Cotizado', hecho: true }, { t: vencido ? 'Renovar' : 'Confirmar con adelanto', hecho: false }, { t: 'Comprar', hecho: false }, { t: 'Recibir', hecho: false }, { t: 'Entregar', hecho: false }]
+      : compra
+        ? [
+            { t: isPropio ? 'Armado' : 'Confirmado', hecho: true },
+            { t: `Comprado ${compra.comprados}/${n}`, hecho: compra.pendientes === 0 },
+            { t: 'En camino', hecho: recibidas === n || (compra.pendientes === 0 && compra.leadIndex >= statusIndex('camino_usa')) },
+            ...(isPropio
+              ? [{ t: `En depósito ${compra.entregados}/${n}`, hecho: entregadoTodo }]
+              : [{ t: `Recibido ${recibidas}/${n}`, hecho: recibidas === n }, { t: `Entregado ${compra.entregados}/${n}`, hecho: entregadoTodo }]),
+          ]
+        : null
+  const siguiente = pasos?.findIndex(p => !p.hecho) ?? -1
+  // Problemas abiertos en las líneas: se avisan arriba, se resuelven en cada línea.
+  const abiertas = presupuesto.incidencias.filter(i => i.estado === 'abierta' && i.itemId != null)
+  const nombreDeLinea = (itemId: number | null) => items.find(it => it.id === itemId)?.cab.nameEs ?? 'una línea'
+  const saldoBcv = cobro.saldoBcv
+  const cobrarEsPrincipal = (isVenta && cobro.saldoReal > 0.005) || (isConfirmadoCliente && entregadoTodo && saldoBcv > 0.005)
+  const registrarCobro = (principal: boolean) => (
+    <RegistrarPagoClienteForm
+      action={registrarPagoPedido.bind(null, id)}
+      methods={METODOS_PAGO_INGRESO}
+      modoBcv={modoBcv}
+      tasaBs={tasaBsCobro}
+      saldo={{ bs: cobro.saldoBcv, divisas: cobro.saldoReal }}
+      etiqueta="Registrar cobro"
+      claseBoton={principal ? BOTON.primario : ITEM_MENU}
+    />
+  )
+  const separador = <div role="separator" className="my-1 border-t border-gray-100" />
+  const bloqueado = (texto: string, motivo: string) => (
+    <>
+      <button type="button" disabled className={ITEM_MENU}>{texto}</button>
+      <p className="px-3 pb-2 text-xs text-gray-500 text-pretty">{motivo}</p>
+    </>
+  )
+  const eliminar = isVenta ? (
+    <DeleteButton
+      action={anularVenta.bind(null, id)}
+      label="Anular venta…"
+      className={ITEM_MENU_PELIGRO}
+      confirmMessage={`¿Anular la venta a "${presupuesto.clientName}"? Las piezas vuelven al depósito y se sacan sus cobros del libro. Si el cliente ya se llevó la mercancía y hay que devolverle plata, no es esto: anotá un egreso aparte.`}
+    />
+  ) : noEliminable ? bloqueado('Eliminar', `No se elimina: ${noEliminable}`) : (
+    <DeleteButton
+      action={deletePresupuesto.bind(null, id)}
+      label="Eliminar…"
+      className={ITEM_MENU_PELIGRO}
+      confirmMessage={`¿Eliminar ${isPropio ? 'stock propio' : isPresupuesto ? 'presupuesto' : 'pedido'} de "${presupuesto.clientName}"?`}
+    />
+  )
+  const principal = perdido ? (
+    <FormConResultado action={reabrirPresupuesto.bind(null, id)}>
+      <PendingButton pendingLabel="Reabriendo…" className={BOTON.primario}>Reabrir</PendingButton>
+    </FormConResultado>
+  ) : !isPropio && isPresupuesto ? (
+    // Un presupuesto vencido no se confirma: sus precios y su escalón BCV ya no valen.
+    vencido ? <RenovarPresupuestoButton action={renovarPresupuesto.bind(null, id)} etiqueta="Renovar" claseBoton={BOTON.primario} /> : (
+      <AprobarPedidoForm
+        action={aprobarPedido.bind(null, id)}
+        methods={METODOS_PAGO_INGRESO}
+        montos={{ bs: deposit, divisas: depositDivisas }}
+        modoBcv={modoBcv}
+        tasaBs={tasaBsCobro}
+        etiqueta="Confirmar con adelanto"
+        claseBoton={BOTON.primario}
+      />
+    )
+  ) : isConfirmadoCliente && puedeEntregar ? (
+    <ConfirmarEntregaForm
+      action={confirmarEntrega.bind(null, id)}
+      lineas={porEntregar}
+      methods={METODOS_PAGO_INGRESO}
+      modoBcv={modoBcv}
+      saldo={{ bs: cobro.saldoBcv, divisas: cobro.saldoReal }}
+      tasaBs={tasaBsCobro}
+      tasaDevolucion={tasaDevolucion}
+      etiqueta="Entregar"
+      claseBoton={BOTON.entregar}
+    />
+  ) : isConfirmadoCliente && compra && compra.pendientes > 0 ? (
+    <Link href="/contabilidad/comprar" className={BOTON.primario}>Ir a Por comprar</Link>
+  ) : cobrarEsPrincipal ? registrarCobro(true)
+  : isCancelado && depositUsd != null && depositUsd > 0.005 ? (
+    <DevolverClienteForm action={devolverAlCliente.bind(null, id)} maximo={depositUsd} tasaSugerida={tasaDevolucion} claseBoton={BOTON.primario} />
+  ) : null
+  const fechaDoc = isPresupuesto ? fecha : fmtDate(presupuesto.createdAt)
+
   return (
     <div className="max-w-5xl">
+      <nav aria-label="Ruta" className="flex items-center gap-2 mb-1 text-sm">
+        <Link href={`/${ruta}`} className="text-gray-500 hover:text-gray-800 hover:underline">{isVenta ? 'Ventas' : 'Presupuestos'}</Link>
+        <span aria-hidden="true" className="text-gray-300">/</span>
+        <span className="text-gray-600">#{presupuesto.id}</span>
+      </nav>
 
-      <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <Link href={`/${ruta}`} className="text-gray-500 hover:text-gray-600 text-sm">
-              {isVenta ? 'Ventas' : 'Presupuestos'}
-            </Link>
-            <span aria-hidden="true" className="text-gray-300">/</span>
-            <span className="text-sm text-gray-600">#{presupuesto.id}</span>
-          </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <h1 className="text-2xl font-bold text-gray-900 break-words">{presupuesto.clientName}</h1>
-            {express && (
-              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 whitespace-nowrap">⚡ Express</span>
-            )}
-            {presupuesto.clienteId && (
-              <Link href={`/clientes/${presupuesto.clienteId}`} className="text-sm text-blue-600 hover:text-blue-800">
-                Ver cliente →
-              </Link>
-            )}
-            {avisoEstado ? (
-              // Sin teléfono, wa.me deja elegir el contacto en WhatsApp.
-              <a
-                href={`https://wa.me/${tel ?? ''}?text=${encodeURIComponent(avisoEstado)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={avisoEstado}
-                className="text-sm text-green-700 hover:text-green-800"
-              >
-                Avisar por WhatsApp · {compra!.lead.short}
-              </a>
-            ) : tel && (
-              <a
-                href={`https://wa.me/${tel}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-green-700 hover:text-green-800"
-              >
-                WhatsApp
-              </a>
-            )}
-            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-              isPropio
-                ? 'bg-blue-100 text-blue-700'
-                : isCancelado
-                  ? 'bg-red-100 text-red-700'
-                  : isPresupuesto
-                    ? perdido ? 'bg-gray-200 text-gray-600' : vencido ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
-                    : 'bg-green-100 text-green-700'
-            }`}>
-              {isPropio ? 'Stock propio' : isVenta ? 'Venta del depósito' : isCancelado ? 'Cancelado' : isPresupuesto ? (perdido ? 'Presupuesto perdido' : vencido ? 'Presupuesto vencido' : 'Presupuesto') : 'Pedido confirmado'}
-            </span>
+            <h1 className="text-2xl font-bold text-gray-900 break-words text-balance">{presupuesto.clientName}</h1>
+            {isPropio && <span className={`${chip} bg-blue-100 text-blue-700`}>Stock propio</span>}
+            {express && <span className={`${chip} bg-amber-100 text-amber-800`}>⚡ Express</span>}
+            {isVenta ? <span className={`${chip} bg-green-100 text-green-700`}>Venta del depósito</span>
+              : isCancelado ? <span className={`${chip} bg-red-100 text-red-700`}>Cancelado</span>
+              : perdido ? <span className={`${chip} bg-gray-200 text-gray-700`}>Presupuesto perdido</span>
+              : vencido ? <span className={`${chip} bg-red-100 text-red-700`}>Presupuesto vencido</span>
+              : isPresupuesto ? <span className={`${chip} bg-yellow-100 text-yellow-800`}>Presupuesto · sin confirmar</span>
+              : etapa && <span className={`${chip} ${etapa.badge}`}><span aria-hidden="true">{etapa.icon}</span> {etapa.short}{compra?.mixed && !entregadoTodo ? ' +' : ''}</span>}
           </div>
+          <p className="text-sm text-gray-500 mt-1 text-pretty">
+            {isVenta ? 'Vendido' : isPresupuesto ? 'Cotizado' : isPropio ? 'Armado' : 'Confirmado'} el {fechaDoc}
+            {isPresupuesto && !perdido && (
+              vencido
+                ? <> · <span className="text-red-700 font-medium">venció el {validez}</span></>
+                : <> · <span className={vigencia.diasRestantes <= 2 ? 'text-amber-800 font-medium' : ''}>vale hasta el {validez} ({vigencia.diasRestantes === 0 ? 'hoy' : vigencia.diasRestantes === 1 ? 'mañana' : `${vigencia.diasRestantes} días`})</span></>
+            )}
+            {motos && <> · <span title={motos.full}>{motos.label}</span></>}
+            {presupuesto.clienteId && <> · <Link href={`/clientes/${presupuesto.clienteId}`} className="text-blue-700 hover:underline">ver cliente</Link></>}
+          </p>
+          {presupuesto.notas && <p className="text-sm text-gray-700 mt-1 break-words text-pretty"><span className="text-gray-500">Notas:</span> {presupuesto.notas}</p>}
         </div>
-        <div className="flex items-center gap-2 min-w-0 flex-wrap justify-end">
-          {perdido && (
-            <FormConResultado action={reabrirPresupuesto.bind(null, id)} className="flex items-center gap-2">
-              <PendingButton pendingLabel="Reabriendo…" className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">
-                Reabrir
-              </PendingButton>
-            </FormConResultado>
-          )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          {!isPropio && (avisoEstado ? (
+            // Sin teléfono, wa.me deja elegir el contacto en WhatsApp.
+            <a href={`https://wa.me/${tel ?? ''}?text=${encodeURIComponent(avisoEstado)}`} target="_blank" rel="noopener noreferrer" className={BOTON.whatsapp}>
+              {compra?.lead.value === 'en_venezuela' ? 'Avisar que llegó' : 'Avisar por WhatsApp'}
+            </a>
+          ) : tel && (
+            <a href={`https://wa.me/${tel}`} target="_blank" rel="noopener noreferrer" className={BOTON.whatsapp}>WhatsApp</a>
+          ))}
+          <PresupuestoPdfButton fileName={fileName} data={pdfData} />
           {!isPropio && isPresupuesto && !perdido && (
-            <>
-              <div className="relative">
-                {vencido ? (
-                  // Un presupuesto vencido no se confirma: sus precios y su escalón BCV ya no valen.
-                  <RenovarPresupuestoButton action={renovarPresupuesto.bind(null, id)} />
-                ) : (
-                  <AprobarPedidoForm
-                    action={aprobarPedido.bind(null, id)}
-                    methods={METODOS_PAGO_INGRESO}
-                    montos={{ bs: deposit, divisas: depositDivisas }}
-                    modoBcv={modoBcv}
-                    tasaBs={tasaBsCobro}
-                  />
-                )}
-              </div>
-              <Link
-                href={`/presupuestos/${id}/edit`}
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Editar
-              </Link>
-              {presupuesto.tipo === 'cliente' && (
-                // El cliente dijo que no: se cierra sin borrarlo, para que cuente en la conversión.
-                <details className="relative">
-                  <summary className="list-none cursor-pointer px-3 py-1.5 text-sm text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50">
-                    Perdido
-                  </summary>
-                  <FormConResultado
-                    action={marcarPerdido.bind(null, id)}
-                    className="absolute right-0 z-10 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg p-3 flex flex-col gap-2"
-                  >
-                    <label className="text-xs text-gray-600">
-                      ¿Por qué no se cerró? (opcional)
-                      <input name="motivo" className="mt-1 w-full border border-gray-300 rounded px-2 py-1 text-sm" placeholder="Precio, demora, lo consiguió en otro lado…" />
-                    </label>
-                    <PendingButton pendingLabel="Guardando…" className="self-end px-3 py-1.5 text-sm bg-gray-700 text-white rounded-lg hover:bg-gray-800">
-                      Marcar como perdido
-                    </PendingButton>
-                  </FormConResultado>
-                </details>
-              )}
-            </>
+            <Link href={`/presupuestos/${id}/edit`} className={BOTON.secundario}>Editar</Link>
           )}
-          {isCancelado && depositUsd != null && depositUsd > 0.005 && (
-            <DevolverClienteForm action={devolverAlCliente.bind(null, id)} maximo={depositUsd} tasaSugerida={tasaDevolucion} />
-          )}
-          {isConfirmadoCliente && (
-            <>
-              {porEntregar.some(l => !l.motivo) && (
-                <ConfirmarEntregaForm
-                  action={confirmarEntrega.bind(null, id)}
-                  lineas={porEntregar}
-                  methods={METODOS_PAGO_INGRESO}
-                  modoBcv={modoBcv}
-                  saldo={{ bs: cobro.saldoBcv, divisas: cobro.saldoReal }}
-                  tasaBs={tasaBsCobro}
-                  tasaDevolucion={tasaDevolucion}
-                />
-              )}
-              <Link
-                href={`/presupuestos/${id}/edit`}
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Editar pedido
-              </Link>
-              {saldoAFavor > 0.005 && (
-                <DevolverClienteForm action={devolverAlCliente.bind(null, id)} maximo={saldoAFavor} tasaSugerida={tasaDevolucion} />
-              )}
-              {noCancelable ? (
-                <span className="text-xs text-gray-500 cursor-help select-none" title={noCancelable}>
-                  <span aria-hidden="true">🔒</span> No se puede cancelar<span className="sr-only">: {noCancelable}</span>
-                </span>
-              ) : (
-                <CancelarPedidoForm
-                  action={cancelarPedido.bind(null, id)}
-                  clientName={presupuesto.clientName}
-                  depositUsd={depositUsd ?? 0}
-                  compradas={resumenCancel.compradas}
-                  libres={resumenCancel.libres}
-                  devolucionSugerida={devolucionSugerida(depositUsd ?? 0, resumenCancel)}
-                  tasaSugerida={tasaDevolucion}
-                />
-              )}
-            </>
-          )}
-          {!isPropio && !isPresupuesto && !isCancelado && (
-            <div className="relative flex flex-wrap items-center gap-2">
-              {(!isVenta || cobro.saldoReal > 0.005) && (
-                <RegistrarPagoClienteForm
-                  action={registrarPagoPedido.bind(null, id)}
-                  methods={METODOS_PAGO_INGRESO}
-                  modoBcv={modoBcv}
-                  tasaBs={tasaBsCobro}
-                  saldo={{ bs: cobro.saldoBcv, divisas: cobro.saldoReal }}
-                />
-              )}
-              {/* Una venta no tiene adelanto: un cobro mal anotado se borra en Contabilidad. */}
-              {!isVenta && <AprobarPedidoForm
+          <MenuMas etiqueta={`Más acciones de ${isPresupuesto ? 'este presupuesto' : isVenta ? 'esta venta' : 'este pedido'}`}>
+            {isPropio && <Link href={`/presupuestos/${id}/edit`} className={ITEM_MENU}>Editar</Link>}
+            {isConfirmadoCliente && <Link href={`/presupuestos/${id}/edit`} className={ITEM_MENU}>Editar pedido</Link>}
+            {!isPropio && !isPresupuesto && !isCancelado && !cobrarEsPrincipal && (!isVenta || cobro.saldoReal > 0.005) && registrarCobro(false)}
+            {/* Una venta no tiene adelanto: un cobro mal anotado se borra en Contabilidad. */}
+            {!isPropio && !isPresupuesto && !isCancelado && !isVenta && (
+              <AprobarPedidoForm
                 mode="editar"
                 action={aprobarPedido.bind(null, id)}
                 methods={METODOS_PAGO_INGRESO}
-                montos={
-                  depositUsd != null
-                    ? { bs: cobro.abonadoBcv, divisas: depositUsd }
-                    : { bs: deposit, divisas: depositDivisas }
-                }
+                montos={depositUsd != null ? { bs: cobro.abonadoBcv, divisas: depositUsd } : { bs: deposit, divisas: depositDivisas }}
                 modoBcv={modoBcv}
                 tasaBs={tasaBsCobro}
                 initialMethod={presupuesto.paymentMethod}
                 initialDate={depositDateStr}
-              />}
-            </div>
-          )}
-          {isPropio && (
-            <Link
-              href={`/presupuestos/${id}/edit`}
-              className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              Editar
-            </Link>
-          )}
-          {!isVenta && (
-            <>
-              <Link
-                href={`/presupuestos/${id}/comparar`}
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Comparar proveedores
-              </Link>
-              <Link
-                href={`/presupuestos/${id}/proveedor`}
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Para proveedor
-              </Link>
-              <Link
-                href={`/presupuestos/new?desde=${id}`}
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Duplicar
-              </Link>
-            </>
-          )}
-          <PresupuestoPdfButton fileName={fileName} data={pdfData} />
-          {isVenta ? (
-            <DeleteButton
-              action={anularVenta.bind(null, id)}
-              label="Anular venta"
-              confirmMessage={`¿Anular la venta a "${presupuesto.clientName}"? Las piezas vuelven al depósito y se sacan sus cobros del libro. Si el cliente ya se llevó la mercancía y hay que devolverle plata, no es esto: anotá un egreso aparte.`}
-            />
-          ) : noEliminable ? (
-            <span className="text-sm text-gray-500 cursor-help select-none" title={noEliminable}>
-              <span aria-hidden="true">🔒</span> No se puede eliminar<span className="sr-only">: {noEliminable}</span>
-            </span>
-          ) : (
-            <DeleteButton
-              action={deletePresupuesto.bind(null, id)}
-              confirmMessage={`¿Eliminar ${isPropio ? 'stock propio' : isPresupuesto ? 'presupuesto' : 'pedido'} de "${presupuesto.clientName}"?`}
-            />
-          )}
+                claseBoton={ITEM_MENU}
+              />
+            )}
+            {isConfirmadoCliente && saldoAFavor > 0.005 && (
+              <DevolverClienteForm action={devolverAlCliente.bind(null, id)} maximo={saldoAFavor} tasaSugerida={tasaDevolucion} etiqueta={`Devolver ${'$'}${saldoAFavor.toFixed(2)} a favor`} claseBoton={ITEM_MENU} />
+            )}
+            {compra && compra.pendientes > 0 && !isPresupuesto && !isCancelado && !(isConfirmadoCliente && !puedeEntregar) && (
+              <Link href="/contabilidad/comprar" className={ITEM_MENU}>Ir a Por comprar ({compra.pendientes})</Link>
+            )}
+            {!isVenta && (
+              <>
+                <Link href={`/presupuestos/${id}/comparar`} className={ITEM_MENU}>Comparar proveedores</Link>
+                <Link href={`/presupuestos/${id}/proveedor`} className={ITEM_MENU}>Para proveedor</Link>
+                <Link href={`/presupuestos/new?desde=${id}`} className={ITEM_MENU}>Duplicar</Link>
+              </>
+            )}
+            {separador}
+            {presupuesto.tipo === 'cliente' && isPresupuesto && !perdido && (
+              // El cliente dijo que no: se cierra sin borrarlo, para que cuente en la conversión.
+              <details>
+                <summary className={`${ITEM_MENU} list-none cursor-pointer [&::-webkit-details-marker]:hidden`}>Marcar como perdido…</summary>
+                <FormConResultado action={marcarPerdido.bind(null, id)} className="px-3 pb-2 pt-1 flex flex-col gap-2">
+                  <label className="text-xs text-gray-600">
+                    ¿Por qué no se cerró? (opcional)
+                    <input name="motivo" className="mt-1 w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm" placeholder="Precio, demora, lo consiguió en otro lado…" />
+                  </label>
+                  <PendingButton pendingLabel="Guardando…" className={`self-end ${BOTON.secundario}`}>Marcar como perdido</PendingButton>
+                </FormConResultado>
+              </details>
+            )}
+            {isConfirmadoCliente && (noCancelable ? bloqueado('Cancelar pedido', `No se cancela: ${noCancelable}`) : (
+              <CancelarPedidoForm
+                action={cancelarPedido.bind(null, id)}
+                clientName={presupuesto.clientName}
+                depositUsd={depositUsd ?? 0}
+                compradas={resumenCancel.compradas}
+                libres={resumenCancel.libres}
+                devolucionSugerida={devolucionSugerida(depositUsd ?? 0, resumenCancel)}
+                tasaSugerida={tasaDevolucion}
+                etiqueta="Cancelar pedido…"
+                claseBoton={ITEM_MENU_PELIGRO}
+              />
+            ))}
+            {eliminar}
+          </MenuMas>
+          {principal}
         </div>
       </div>
+
+      {pasos && (
+        <ol aria-label={isPropio ? 'Avance del stock propio' : isPresupuesto ? 'Avance del presupuesto' : 'Avance del pedido'} className="flex flex-wrap gap-1.5 mb-4">
+          {pasos.map((p, i) => (
+            <li
+              key={p.t}
+              aria-current={i === siguiente ? 'step' : undefined}
+              className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                p.hecho ? 'bg-green-100 text-green-800' : i === siguiente ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-300' : 'bg-gray-100 text-gray-500'
+              }`}
+            >
+              {p.hecho && <span aria-hidden="true">✓ </span>}{p.t}
+              {p.hecho ? <span className="sr-only"> (hecho)</span> : i === siguiente ? <span className="sr-only"> (siguiente)</span> : null}
+            </li>
+          ))}
+        </ol>
+      )}
 
       {isCancelado && (
         <div className="bg-red-50 border border-red-200 rounded-xl px-5 py-3 mb-4 text-sm text-red-900">
@@ -611,11 +613,26 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
       )}
       {vencido && (
         <div className="bg-red-50 border border-red-200 rounded-xl px-5 py-3 mb-4 text-sm text-red-900">
-          <p className="font-semibold">Este presupuesto venció el {validez}.</p>
-          <p className="text-xs mt-0.5">
-            Los precios y la tasa BCV con que se cotizó ya no valen, así que no se puede confirmar. Mirá si los precios siguen
+          <p className="font-semibold">Este presupuesto venció el {validez}: así no se puede confirmar.</p>
+          <p className="text-xs mt-0.5 text-pretty">
+            Los precios y la tasa BCV con que se cotizó ya no valen. Mirá si los precios siguen
             siendo los de hoy (Editar los vuelve a cotizar) o renovalo tal cual: toma la fecha y el escalón BCV de hoy.
           </p>
+        </div>
+      )}
+      {abiertas.length > 0 && !isCancelado && (
+        <div role="note" className="bg-red-50 border border-red-200 rounded-xl px-5 py-3 mb-4 text-sm text-red-900">
+          <p className="font-semibold">
+            {abiertas.length === 1 ? 'Un problema abierto' : `${abiertas.length} problemas abiertos`}: mientras sigan así, esas líneas no se entregan
+          </p>
+          <ul className="text-xs mt-1 space-y-0.5">
+            {abiertas.map(i => (
+              <li key={i.id}>
+                {nombreDeLinea(i.itemId)}{i.pieza ? ` (${i.pieza})` : ''}: {i.tipo === 'sin_enviar' ? 'el proveedor no la mandó' : (TIPO_LABELS[i.tipo as keyof typeof TIPO_LABELS] ?? i.tipo).toLowerCase()}
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs mt-1">Se cierran en cada línea, abajo.</p>
         </div>
       )}
       {presupuesto.origen && (
@@ -633,87 +650,55 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
         <p className="text-xs text-gray-500 mb-4">
           Pedidos que nacieron de éste:{' '}
           {presupuesto.derivados.map(d => (
-            <Link key={d.id} href={`/presupuestos/${d.id}`} className="text-blue-600 hover:underline mr-2">
+            <Link key={d.id} href={`/presupuestos/${d.id}`} className="text-blue-700 hover:underline mr-2">
               #{d.id} ({d.origenMotivo === 'reposicion' ? 'reposición' : 'sobrante'})
             </Link>
           ))}
         </p>
       )}
 
-      {/* Client info */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-4">
-        <div className="flex justify-between text-sm">
-          <div>
-            <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Cliente</p>
-            <p className="font-semibold text-gray-900 text-base">{presupuesto.clientName}</p>
+      {/* Lo que importa de la plata, de un vistazo. A dólar BCV, lo cobrado y el saldo se muestran en
+          BCV (lo que dice la tabla) y, debajo, en divisas: lo guardado es real y un pago en divisas cancela el real. */}
+      {!isPropio && (
+        <dl className="grid grid-cols-3 bg-white rounded-xl border border-gray-200 shadow-sm mb-4 divide-x divide-gray-100">
+          <div className="px-4 py-3 min-w-0">
+            <dt className="text-xs text-gray-500">{modoBcv ? 'Total (BCV)' : 'Total'}</dt>
+            <dd className="text-lg font-bold font-mono tabular-nums text-gray-900">${totalMostrado.toFixed(2)}</dd>
           </div>
-          <div className="text-right">
-            <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">{isPresupuesto ? 'Cotizado' : 'Fecha'}</p>
-            <p className="text-gray-700">{isPresupuesto ? fecha : fmtDate(presupuesto.createdAt)}</p>
-            {isPresupuesto && (
-              <p className={`text-xs mt-1 ${vencido ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>
-                {vencido ? `Venció el ${validez}` : `Válido hasta ${validez}`}
-              </p>
-            )}
-          </div>
-        </div>
-        {presupuesto.notas && (
-          <div className="mt-4 pt-4 border-t border-gray-100">
-            <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Notas</p>
-            <p className="text-sm text-gray-700">{presupuesto.notas}</p>
-          </div>
-        )}
-      </div>
-
-      {/* Peso y volumen del stock propio. Mismo cálculo que la página de envíos
-          (calcEnvio), medido sobre las piezas reales: un conjunto se expande a lo que
-          efectivamente lleva. Los ítems landed no entran — no viajan en la caja. */}
-      {logistica && logistica.piezas > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-4">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
-            Peso y volumen
-          </h2>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div>
-              <p className="text-xs text-gray-500 mb-1">Peso real</p>
-              <p className={`text-xl font-bold font-mono ${
-                logistica.realKg >= logistica.volKg ? 'text-green-700' : 'text-gray-900'
-              }`}>
-                {logistica.realKg.toFixed(2)} kg
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 mb-1">Volumétrico</p>
-              <p className={`text-xl font-bold font-mono ${
-                logistica.volKg > logistica.realKg ? 'text-red-700' : 'text-gray-900'
-              }`}>
-                {logistica.volKg.toFixed(2)} kg
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 mb-1">Cobrable max(W,V)</p>
-              <p className="text-xl font-bold font-mono text-blue-700">
-                {logistica.chargeableKg.toFixed(2)} kg
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 mb-1">Volumen</p>
-              <p className="text-xl font-bold font-mono text-gray-900">
-                {logistica.ft3.toFixed(2)} ft³
-              </p>
-              <p className="text-xs text-gray-500 mt-0.5 font-mono">
-                {logistica.cbm.toFixed(3)} CBM
-              </p>
-            </div>
-          </div>
-          {logistica.incompletas > 0 && (
-            <p className="text-xs text-amber-700 mt-4">
-              ⚠ {logistica.incompletas} de {logistica.piezas}{' '}
-              {logistica.incompletas === 1 ? 'pieza no tiene' : 'piezas no tienen'} peso o
-              medidas cargadas: el total real es mayor que éste.
-            </p>
+          {isPresupuesto ? (
+            <>
+              <div className="px-4 py-3 min-w-0">
+                <dt className="text-xs text-gray-500">{modoBcv && descuentoDivisasPct > 0 ? `En divisas (−${descuentoDivisasPct}%)` : 'En divisas'}</dt>
+                <dd className={`text-lg font-bold font-mono tabular-nums ${modoBcv && descuentoDivisasPct > 0 ? 'text-green-700' : 'text-gray-900'}`}>${cobro.totalReal.toFixed(2)}</dd>
+              </div>
+              <div className="px-4 py-3 min-w-0">
+                <dt className="text-xs text-gray-500">Adelanto para confirmar</dt>
+                <dd className="text-lg font-bold font-mono tabular-nums text-gray-900">${deposit.toFixed(2)}</dd>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="px-4 py-3 min-w-0">
+                <dt className="text-xs text-gray-500">{isVenta ? 'Pagado' : 'Cobrado'}</dt>
+                <dd className="text-lg font-bold font-mono tabular-nums text-gray-900">${cobro.abonadoBcv.toFixed(2)}</dd>
+                {modoBcv && depositUsd != null && <dd className="text-[11px] text-gray-500 font-mono tabular-nums">${depositUsd.toFixed(2)} en divisas</dd>}
+              </div>
+              <div className="px-4 py-3 min-w-0">
+                <dt className="text-xs text-gray-500">{isCancelado ? 'Se quedó' : saldoAFavor > 0.005 ? 'A favor del cliente' : 'Saldo'}</dt>
+                {isCancelado ? (
+                  <dd className="text-lg font-bold font-mono tabular-nums text-red-800">${(depositUsd ?? 0).toFixed(2)}</dd>
+                ) : (
+                  <>
+                    <dd className={`text-lg font-bold font-mono tabular-nums ${saldoBcv > 0.005 ? 'text-amber-800' : 'text-green-700'}`}>
+                      {Math.abs(saldoBcv) > 0.005 ? `$${Math.abs(saldoBcv).toFixed(2)}` : 'Pagado'}
+                    </dd>
+                    {modoBcv && Math.abs(cobro.saldoReal) > 0.005 && <dd className="text-[11px] text-gray-500 font-mono tabular-nums">${Math.abs(cobro.saldoReal).toFixed(2)} en divisas</dd>}
+                  </>
+                )}
+              </div>
+            </>
           )}
-        </div>
+        </dl>
       )}
 
       {/* Express: el paquete entero contra el tope, y lo que se gana sobre su landed estimado. */}
@@ -748,165 +733,62 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
               </p>
             </div>
           </div>
-          <p className="text-[11px] text-gray-500 mt-3">
+          <p className="text-xs text-gray-500 mt-3">
             Con las tarifas de hoy, sumando el peso de las piezas: la caja real puede pesar algo más.
           </p>
           {motivoExpress && <p className="text-sm text-red-800 mt-2">No se puede confirmar así: {motivoExpress}</p>}
         </div>
       )}
 
-      {/* Margen: lo vendido contra lo que cuesta (o costó) tenerlo puesto acá, en dólares reales.
-          Con todo entregado y costeado con lo pagado de verdad es el margen realizado; antes de
-          eso es una proyección, y se dice. */}
-      {margen && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-4">
-          <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
-            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Margen</h2>
-            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-              margen.estado === 'realizado' ? 'bg-green-100 text-green-700'
-                : margen.estado === 'estimado' ? 'bg-blue-100 text-blue-700'
-                : margen.estado === 'sin_costo' ? 'bg-amber-100 text-amber-700'
-                : 'bg-gray-100 text-gray-600'
-            }`}>
-              {margen.estado === 'realizado' ? 'Realizado'
-                : margen.estado === 'estimado' ? 'Entregado, costo estimado'
-                : margen.estado === 'sin_costo' ? 'Entregado, falta costo'
-                : 'Proyectado'}
-            </span>
-          </div>
-          <div className="grid grid-cols-3 gap-4 text-sm">
-            <div>
-              <p className="text-xs text-gray-500 mb-0.5">Vendido (reales)</p>
-              <p className="font-mono font-semibold text-gray-900">${margen.ventaUsd.toFixed(2)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 mb-0.5">Costo puesto acá</p>
-              <p className="font-mono font-semibold text-gray-900">
-                ${margen.costoUsd.toFixed(2)}
-                {margen.sinCosto > 0 && <span className="text-amber-700" title={`${margen.sinCosto} línea(s) sin costo`}> +?</span>}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 mb-0.5">Margen</p>
-              {margen.margenUsd == null ? (
-                <p className="font-mono text-gray-500">—</p>
-              ) : (
-                <p className={`font-mono font-semibold ${margen.margenUsd < 0 ? 'text-red-700' : 'text-green-700'}`}>
-                  {margen.margenUsd < 0 ? '−' : ''}${Math.abs(margen.margenUsd).toFixed(2)}
-                  {margen.margenPct != null && <span className="text-xs font-normal ml-1">({margen.margenPct.toFixed(1)}%)</span>}
-                </p>
-              )}
-            </div>
-          </div>
-          {margen.sinCosto > 0 && (
-            <p className="text-xs text-amber-700 mt-3">
-              {margen.sinCosto === 1 ? 'Una línea no tiene' : `${margen.sinCosto} líneas no tienen`} costo: no está en ninguna caja ni se cargó lo que costó. Hasta entonces no se sabe cuánto se gana.
-            </p>
-          )}
-          {margen.margenUsd != null && margen.margenUsd < 0 && (
-            <p className="text-xs text-red-700 mt-3">Este pedido pierde plata: lo que costó traerlo supera lo que se le cobró al cliente.</p>
-          )}
-        </div>
-      )}
-
-      {/* Estado de compra — derivado de los ítems, no del pedido: de un mismo
-          presupuesto unas piezas pueden estar compradas y otras no. */}
-      {!isPresupuesto && !isCancelado && !isVenta && compra && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-4">
-          <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
-            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Estado de compra</h2>
-            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${compra.lead.badge}`}>
-              {compra.lead.icon} {compra.allDelivered ? 'Entregado' : compra.lead.short}
-              {compra.mixed && !compra.allDelivered && ' +'}
-            </span>
-          </div>
-          <div className="flex items-center gap-3">
-            <div aria-hidden="true" className="h-2 flex-1 bg-gray-100 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full ${compra.allDelivered ? 'bg-green-500' : 'bg-blue-500'}`}
-                style={{ width: `${Math.round((compra.leadIndex / (SHIPPING_STATUSES.length - 1)) * 100)}%` }}
-              />
-            </div>
-            <span className="text-xs text-gray-500 shrink-0">
-              {compra.comprados} de {compra.total} comprados
-            </span>
-          </div>
-          {compra.pendientes > 0 && (
-            <p className="text-xs text-gray-500 mt-3">
-              Faltan comprar {compra.pendientes} {compra.pendientes === 1 ? 'pieza' : 'piezas'}.{' '}
-              <Link href="/contabilidad/comprar" className="text-blue-600 hover:underline">Ir a Por comprar</Link>
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Carga de medidas, de a un ensamble. Sin dimensiones no hay volumen, y sin
-          volumen el flete por mar de esas piezas cuenta cero. */}
-      {grupos.length > 0 && !isVenta && (
-        <div id="medidas" className="mb-4 scroll-mt-4">
-          <MedidasIA
-            grupos={grupos}
-            revalidate={`/presupuestos/${id}`}
-            titulo="Cargar peso y medidas de este presupuesto"
-          />
-        </div>
-      )}
-
       {/* Items table */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto mb-4">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto mb-4">
         <table className="w-full">
+          <caption className="sr-only">Piezas de {isPresupuesto ? 'este presupuesto' : 'este pedido'}</caption>
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50">
-              <th className="w-16 px-3 py-3"><span className="sr-only">Foto</span></th>
-              <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                Pieza
+              <th scope="col" className="w-16 px-3 py-3 hidden sm:table-cell"><span className="sr-only">Foto</span></th>
+              <th scope="col" className="text-left px-3 py-3 text-xs font-semibold text-gray-500">Pieza</th>
+              <th scope="col" className="text-center px-2 sm:px-4 py-3 text-xs font-semibold text-gray-500 w-14 sm:w-20">Cant.</th>
+              <th scope="col" className="text-right px-4 py-3 text-xs font-semibold text-gray-500 w-28 hidden sm:table-cell">
+                P. unit.{modoBcv && ' (BCV)'}
               </th>
-              <th className="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-20">
-                Cant.
-              </th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">
-                P. Unit.{modoBcv && ' (BCV)'}
-              </th>
-              <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-28">
-                Subtotal
-              </th>
+              <th scope="col" className="text-right px-3 sm:px-6 py-3 text-xs font-semibold text-gray-500 w-24 sm:w-28">Subtotal</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-50">
+          <tbody className="divide-y divide-gray-100">
             {items.map(item => {
               const unitPrice = aBcv(parseFloat(item.salePrice.toString()))
               const subtotal = unitPrice * item.quantity
               const bundlePieces = (item.bundleItems as BundlePiece[] | null) ?? []
               const modelo = modeloLabel(toModelIds(item.cab.compatibleModels))
+              const et = etapaVisible(item.shippingStatus, isPropio)
               return (
-                <tr key={item.id} className="hover:bg-gray-50">
-                  <td className="px-3 py-3 align-top">
+                <tr key={item.id}>
+                  <td className="px-3 py-3 align-top hidden sm:table-cell">
                     {item.cab.imageUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={item.cab.imageUrl}
                         alt={item.cab.nameEs}
                         loading="lazy"
-                        className="w-12 h-12 object-contain rounded-lg border border-gray-100 bg-white"
+                        className="size-12 object-contain rounded-lg border border-gray-100 bg-white"
                       />
                     ) : (
-                      <div className="w-12 h-12 rounded-lg border border-dashed border-gray-200 bg-gray-50" />
+                      <div className="size-12 rounded-lg border border-dashed border-gray-200 bg-gray-50" />
                     )}
                   </td>
                   <td className="px-3 py-3 align-top">
                     <p className="text-sm font-medium text-gray-900">{item.cab.nameEs}</p>
                     {(item.cab.bajajCode || modelo) && (
-                      <p className="flex items-center gap-1.5 flex-wrap">
+                      <p className="flex items-center gap-1.5 flex-wrap mt-0.5">
                         {item.cab.bajajCode && (
                           <span className="text-xs font-mono text-gray-500">{item.cab.bajajCode}</span>
                         )}
                         {modelo && (
                           <span
                             title={modelo.full}
-                            className={`text-[10px] px-1.5 py-0.5 rounded ${
-                              modelo.count === 1
-                                ? 'bg-gray-100 text-gray-700 font-medium'
-                                : 'bg-gray-50 text-gray-500'
+                            className={`text-xs px-1.5 py-0.5 rounded ${
+                              modelo.count === 1 ? 'bg-gray-100 text-gray-700 font-medium' : 'bg-gray-50 text-gray-600'
                             }`}
                           >
                             {modelo.label}
@@ -915,18 +797,18 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                       </p>
                     )}
                     {!isPresupuesto && (
-                      <p className="mt-1 flex items-center gap-1.5 flex-wrap">
-                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${shippingStatusMeta(item.shippingStatus).badge}`}>
-                          {shippingStatusMeta(item.shippingStatus).icon} {shippingStatusMeta(item.shippingStatus).short}
+                      <p className="mt-1 flex items-center gap-x-2 gap-y-1 flex-wrap text-xs">
+                        <span className={`font-semibold px-2 py-0.5 rounded-full ${et.badge}`}>
+                          <span aria-hidden="true">{et.icon}</span> {et.short}
                         </span>
                         {item.compradoAt && (
-                          <span className="text-[10px] text-gray-500">
-                            {item.origen === 'china' ? '🇨🇳' : '🇮🇳'} {item.supplier?.name ?? '99rpm'}
+                          <span className="text-gray-500">
+                            <span aria-hidden="true">{item.origen === 'china' ? '🇨🇳' : '🇮🇳'}</span> {item.supplier?.name ?? '99rpm'}
                           </span>
                         )}
-                        {item.envioId != null && (
-                          <Link href={`/envios/${item.envioId}`} className="text-[10px] text-blue-600 hover:underline">
-                            envío #{item.envioId}
+                        {item.envio && (
+                          <Link href={`/envios/${item.envio.id}`} className="text-blue-700 hover:underline">
+                            caja #{item.envio.id}{item.envio.nombre ? ` ${item.envio.nombre}` : ''}
                           </Link>
                         )}
                       </p>
@@ -964,12 +846,12 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                     )}
                     {!isPresupuesto && item.etapas.length > 0 && (
                       <details className="mt-1">
-                        <summary className="text-[10px] text-gray-500 cursor-pointer hover:text-gray-600">Recorrido ({item.etapas.length})</summary>
-                        <ul className="mt-1 text-[11px] text-gray-500 space-y-0.5">
+                        <summary className="inline-flex items-center min-h-6 text-xs text-gray-500 cursor-pointer hover:text-gray-800">Recorrido ({item.etapas.length})</summary>
+                        <ul className="mt-1 text-xs text-gray-500 space-y-0.5">
                           {item.etapas.map((e, k) => (
                             <li key={k}>
-                              <span className="font-mono text-gray-500">{e.at.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', timeZone: 'America/Caracas' })}</span>{' '}
-                              {shippingStatusMeta(e.desde).short} → <strong>{shippingStatusMeta(e.hacia).short}</strong>
+                              <span className="font-mono tabular-nums">{e.at.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', timeZone: 'America/Caracas' })}</span>{' '}
+                              {etapaVisible(e.desde, isPropio).short} → <strong className="text-gray-700">{etapaVisible(e.hacia, isPropio).short}</strong>
                             </li>
                           ))}
                         </ul>
@@ -980,9 +862,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                         {groupBundlePieces(bundlePieces).map(([groupName, pieces]) => (
                           <div key={groupName}>
                             {groupName !== '—' && (
-                              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-                                {groupName}
-                              </p>
+                              <p className="text-xs font-semibold text-gray-500">{groupName}</p>
                             )}
                             <ul className="space-y-0.5">
                               {pieces.map((p, i) => (
@@ -990,9 +870,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                                   {/* Cantidad POR SET: la columna Cant. ya es el multiplicador
                                       del conjunto, mostrar el total acá lo aplicaba dos veces. */}
                                   {p.quantity}× {p.nameEs}
-                                  {p.bajajCode && (
-                                    <span className="ml-1.5 font-mono text-gray-500">{p.bajajCode}</span>
-                                  )}
+                                  {p.bajajCode && <span className="ml-1.5 font-mono">{p.bajajCode}</span>}
                                 </li>
                               ))}
                             </ul>
@@ -1001,11 +879,11 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
                       </div>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-center text-sm text-gray-700 align-top">{item.quantity}</td>
-                  <td className="px-4 py-3 text-right text-sm font-mono text-gray-700 align-top">
+                  <td className="px-2 sm:px-4 py-3 text-center text-sm text-gray-700 align-top tabular-nums">{item.quantity}</td>
+                  <td className="px-4 py-3 text-right text-sm font-mono text-gray-700 align-top tabular-nums hidden sm:table-cell">
                     ${unitPrice.toFixed(2)}
                   </td>
-                  <td className="px-6 py-3 text-right text-sm font-mono font-semibold text-gray-900 align-top">
+                  <td className="px-3 sm:px-6 py-3 text-right text-sm font-mono font-semibold text-gray-900 align-top tabular-nums">
                     ${subtotal.toFixed(2)}
                   </td>
                 </tr>
@@ -1015,86 +893,39 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
         </table>
       </div>
 
-      {/* Totales */}
+      {/* Las condiciones del documento, como van en el PDF. El total del pedido está arriba; lo
+          propio no tiene franja de plata, así que su total va acá. */}
       <div className="flex justify-end mb-4">
-        <div className="w-full sm:w-80 space-y-1.5">
-          <div className="flex justify-between items-baseline border-t-2 border-gray-200 pt-3">
-            <span className="font-bold text-gray-900">{modoBcv ? 'Total USD (BCV)' : 'Total USD'}</span>
-            <span className="font-bold text-2xl font-mono text-blue-700">${totalMostrado.toFixed(2)}</span>
-          </div>
+        <div className="w-full sm:w-96 space-y-1.5 text-right">
+          {isPropio && (
+            <p className="flex justify-between items-baseline border-t-2 border-gray-200 pt-3">
+              <span className="font-bold text-gray-900">Total USD</span>
+              <span className="font-bold text-2xl font-mono tabular-nums text-gray-900">${totalMostrado.toFixed(2)}</span>
+            </p>
+          )}
           {modoBcv && porPagar && (
-            <div className="text-xs text-gray-500 text-right">
+            <div className="text-xs text-gray-500">
               <p>Monto expresado en dólares a tasa BCV</p>
               <p>Se paga a la tasa BCV del día en que se realice el pago</p>
             </div>
           )}
           {modoBcv && descuentoDivisasPct > 0 && porPagar && (
-            // Punto intermedio: más que las aclaraciones grises, menos que el total BCV.
-            <div className="flex justify-between items-baseline gap-3 pt-1 text-green-700">
-              <span className="text-sm font-semibold">Pagando en divisas se aplica un descuento del {descuentoDivisasPct}%</span>
-              <span className="font-bold text-lg font-mono">${cobro.totalReal.toFixed(2)}</span>
-            </div>
+            <p className="text-sm font-semibold text-green-700">
+              Pagando en divisas se aplica un descuento del {descuentoDivisasPct}%: <span className="font-mono tabular-nums">${cobro.totalReal.toFixed(2)}</span>
+            </p>
           )}
           {totalBsd != null && (
-            <div className="flex justify-between text-sm text-gray-500">
-              <span>Referencia en bolívares</span>
-              <span className="font-mono">Bs {totalBsd.toLocaleString('es-VE', { maximumFractionDigits: 0 })}</span>
-            </div>
+            <p className="text-sm text-gray-500">Referencia en bolívares: <span className="font-mono tabular-nums">Bs {totalBsd.toLocaleString('es-VE', { maximumFractionDigits: 0 })}</span></p>
           )}
           {isPresupuesto && (
-            <p className="text-sm font-semibold text-gray-800 pt-1">Para confirmar el pedido se requiere un abono del 50%.</p>
-          )}
-          {isCancelado && depositUsd != null && depositUsd > 0.005 && (
-            <div className="flex justify-between items-center bg-red-50 border border-red-200 rounded-lg px-3 py-2 mt-2">
-              <span className="text-sm font-semibold text-red-800">Cobrado que se quedó</span>
-              <span className="font-bold font-mono text-red-900">${depositUsd.toFixed(2)}</span>
-            </div>
-          )}
-          {!isPropio && !isPresupuesto && !isCancelado && depositUsd != null && (
-            // A dólar BCV, lo cobrado y el saldo se muestran en BCV (lo que dice la tabla) y, al
-            // lado, en divisas: lo guardado es real y un pago en divisas cancela el real.
-            <div className="mt-2 space-y-1.5">
-              <div className="flex justify-between items-center bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-                <span className="text-sm font-semibold text-green-800">
-                  {isVenta ? 'Pagado' : 'Abonado'}
-                  {presupuesto.paymentMethod && (
-                    <span className="font-normal text-green-700"> · {presupuesto.paymentMethod}</span>
-                  )}
-                </span>
-                <span className="text-right">
-                  <span className="block font-bold font-mono text-green-900">${cobro.abonadoBcv.toFixed(2)}</span>
-                  {modoBcv && <span className="block text-[11px] text-green-700 font-mono">${depositUsd.toFixed(2)} en divisas</span>}
-                </span>
-              </div>
-              <div className="flex justify-between items-center px-3">
-                <span className="text-sm font-semibold text-gray-700">{saldoAFavor > 0.005 ? 'A favor del cliente' : 'Saldo pendiente'}</span>
-                <span className="text-right">
-                  <span className="block font-bold font-mono text-gray-900">${Math.abs(cobro.saldoBcv).toFixed(2)}</span>
-                  {modoBcv && <span className="block text-[11px] text-gray-500 font-mono">${Math.abs(cobro.saldoReal).toFixed(2)} en divisas</span>}
-                </span>
-              </div>
-              {cobros.length > 0 ? (
-                <ul className="px-3 space-y-0.5 text-xs text-gray-600">
-                  {cobros.map(c => (
-                    <li key={c.id} className="flex justify-between gap-3">
-                      <span>{c.texto}</span>
-                      <span className="font-mono tabular-nums shrink-0">{c.monto < 0 ? '−' : ''}${Math.abs(c.monto).toFixed(2)}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : presupuesto.depositAt && (
-                <p className="text-xs text-gray-500 px-3">
-                  Adelanto del {new Date(presupuesto.depositAt).toLocaleDateString('es-VE', { day: '2-digit', month: 'long', year: 'numeric' })}
-                </p>
-              )}
-            </div>
+            <p className="text-sm font-semibold text-gray-800">Para confirmar el pedido se requiere un abono del 50%.</p>
           )}
         </div>
       </div>
 
       {incidenciasSinLinea.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 sm:px-6 py-3 mb-4">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Problemas de piezas que ya no están en el pedido</h2>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 px-4 sm:px-6 py-3 mb-4">
+          <h2 className="text-sm font-semibold text-gray-700 mb-2">Problemas de piezas que ya no están en el pedido</h2>
           <ul className="text-xs text-gray-600 space-y-1">
             {incidenciasSinLinea.map(i => (
               <li key={i.id}>
@@ -1107,36 +938,164 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
         </div>
       )}
 
-      {presupuesto.eventos.length > 0 && (
-        <details className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 sm:px-6 py-3 mb-4">
-          <summary className="text-xs font-semibold uppercase tracking-wide text-gray-500 cursor-pointer">
-            Historial del pedido ({presupuesto.eventos.length})
-          </summary>
-          <ul className="mt-3 space-y-2">
-            {presupuesto.eventos.map(e => (
-              <li key={e.id} className="text-xs text-gray-600 flex gap-3">
-                <span className="font-mono text-gray-500 shrink-0 w-24">
-                  {e.createdAt.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: '2-digit', timeZone: 'America/Caracas' })}
+      {/* Lo secundario, plegado: se abre cuando hace falta. */}
+      <div className="space-y-2">
+        {/* Margen: lo vendido contra lo que cuesta (o costó) tenerlo puesto acá, en dólares reales.
+            Con todo entregado y costeado con lo pagado de verdad es el margen realizado; antes de
+            eso es una proyección, y se dice. */}
+        {margen && (
+          <details className={plegable}>
+            <summary className={resumenPlegable}>
+              <span>Margen · {margen.estado === 'realizado' ? 'realizado'
+                : margen.estado === 'estimado' ? 'entregado, costo estimado'
+                : margen.estado === 'sin_costo' ? 'entregado, falta costo'
+                : 'proyectado'}</span>
+              {margen.margenUsd != null && (
+                <span className={`font-mono tabular-nums ${margen.margenUsd < 0 ? 'text-red-700' : 'text-green-700'}`}>
+                  {margen.margenUsd < 0 ? '−' : ''}${Math.abs(margen.margenUsd).toFixed(2)}
+                  {margen.margenPct != null && <span className="font-normal"> ({margen.margenPct.toFixed(1)}%)</span>}
                 </span>
-                <span className="whitespace-pre-line">{e.detalle}</span>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
+              )}
+            </summary>
+            <div className="px-4 pb-4">
+              <dl className="grid grid-cols-3 gap-4 text-sm">
+                <div>
+                  <dt className="text-xs text-gray-500 mb-0.5">Vendido (reales)</dt>
+                  <dd className="font-mono font-semibold tabular-nums text-gray-900">${margen.ventaUsd.toFixed(2)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-gray-500 mb-0.5">Costo puesto acá</dt>
+                  <dd className="font-mono font-semibold tabular-nums text-gray-900">
+                    ${margen.costoUsd.toFixed(2)}
+                    {margen.sinCosto > 0 && <span className="text-amber-700"> +?<span className="sr-only"> ({margen.sinCosto} línea(s) sin costo)</span></span>}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-gray-500 mb-0.5">Margen</dt>
+                  {margen.margenUsd == null ? (
+                    <dd className="font-mono text-gray-500">—</dd>
+                  ) : (
+                    <dd className={`font-mono font-semibold tabular-nums ${margen.margenUsd < 0 ? 'text-red-700' : 'text-green-700'}`}>
+                      {margen.margenUsd < 0 ? '−' : ''}${Math.abs(margen.margenUsd).toFixed(2)}
+                      {margen.margenPct != null && <span className="text-xs font-normal ml-1">({margen.margenPct.toFixed(1)}%)</span>}
+                    </dd>
+                  )}
+                </div>
+              </dl>
+              {margen.sinCosto > 0 && (
+                <p className="text-xs text-amber-700 mt-3">
+                  {margen.sinCosto === 1 ? 'Una línea no tiene' : `${margen.sinCosto} líneas no tienen`} costo: no está en ninguna caja ni se cargó lo que costó. Hasta entonces no se sabe cuánto se gana.
+                </p>
+              )}
+              {margen.margenUsd != null && margen.margenUsd < 0 && (
+                <p className="text-xs text-red-700 mt-3">Este pedido pierde plata: lo que costó traerlo supera lo que se le cobró al cliente.</p>
+              )}
+            </div>
+          </details>
+        )}
 
-      {/* Términos: los mismos que van al PDF (ver getTerminos), visibles acá para
-          poder revisarlos antes de mandarlo. */}
-      {terminos && !isVenta && (
-        <details className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 sm:px-6 py-3">
-          <summary className="text-xs font-semibold uppercase tracking-wide text-gray-500 cursor-pointer">
-            Términos y condiciones
-          </summary>
-          <p className="mt-2 text-xs leading-relaxed text-gray-600 whitespace-pre-line">
-            {terminos}
-          </p>
-        </details>
-      )}
+        {!isPropio && !isPresupuesto && depositUsd != null && (cobros.length > 0 || presupuesto.depositAt) && (
+          <details className={plegable}>
+            <summary className={resumenPlegable}>
+              <span>Cobros{cobros.length > 0 ? ` (${cobros.length})` : ''}{presupuesto.paymentMethod ? ` · ${presupuesto.paymentMethod}` : ''}</span>
+              <span className="font-mono tabular-nums text-gray-700">${cobro.abonadoBcv.toFixed(2)}</span>
+            </summary>
+            <div className="px-4 pb-4">
+              {cobros.length > 0 ? (
+                <ul className="space-y-1 text-sm text-gray-700">
+                  {cobros.map(c => (
+                    <li key={c.id} className="flex justify-between gap-3">
+                      <span>{c.texto}</span>
+                      <span className="font-mono tabular-nums shrink-0">{c.monto < 0 ? '−' : ''}${Math.abs(c.monto).toFixed(2)}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : presupuesto.depositAt && (
+                <p className="text-sm text-gray-600">
+                  Adelanto del {new Date(presupuesto.depositAt).toLocaleDateString('es-VE', { day: '2-digit', month: 'long', year: 'numeric' })}
+                </p>
+              )}
+            </div>
+          </details>
+        )}
+
+        {/* Peso y volumen del stock propio. Mismo cálculo que la página de envíos
+            (calcEnvio), medido sobre las piezas reales: un conjunto se expande a lo que
+            efectivamente lleva. Los ítems landed no entran — no viajan en la caja. */}
+        {logistica && logistica.piezas > 0 && (
+          <details className={plegable}>
+            <summary className={resumenPlegable}>
+              <span>Peso y volumen</span>
+              <span className="font-mono tabular-nums text-gray-700">{logistica.chargeableKg.toFixed(2)} kg · {logistica.ft3.toFixed(2)} ft³</span>
+            </summary>
+            <div className="px-4 pb-4">
+              <dl className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div>
+                  <dt className="text-xs text-gray-500 mb-1">Peso real</dt>
+                  <dd className={`text-xl font-bold font-mono tabular-nums ${logistica.realKg >= logistica.volKg ? 'text-green-700' : 'text-gray-900'}`}>{logistica.realKg.toFixed(2)} kg</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-gray-500 mb-1">Volumétrico</dt>
+                  <dd className={`text-xl font-bold font-mono tabular-nums ${logistica.volKg > logistica.realKg ? 'text-red-700' : 'text-gray-900'}`}>{logistica.volKg.toFixed(2)} kg</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-gray-500 mb-1">Cobrable max(W,V)</dt>
+                  <dd className="text-xl font-bold font-mono tabular-nums text-blue-700">{logistica.chargeableKg.toFixed(2)} kg</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-gray-500 mb-1">Volumen</dt>
+                  <dd className="text-xl font-bold font-mono tabular-nums text-gray-900">{logistica.ft3.toFixed(2)} ft³</dd>
+                  <dd className="text-xs text-gray-500 mt-0.5 font-mono tabular-nums">{logistica.cbm.toFixed(3)} CBM</dd>
+                </div>
+              </dl>
+              {logistica.incompletas > 0 && (
+                <p className="text-xs text-amber-700 mt-4">
+                  ⚠ {logistica.incompletas} de {logistica.piezas}{' '}
+                  {logistica.incompletas === 1 ? 'pieza no tiene' : 'piezas no tienen'} peso o
+                  medidas cargadas: el total real es mayor que éste.
+                </p>
+              )}
+            </div>
+          </details>
+        )}
+
+        {/* Carga de medidas, de a un ensamble (ya viene plegada). Sin dimensiones no hay volumen,
+            y sin volumen el flete por mar de esas piezas cuenta cero. */}
+        {grupos.length > 0 && !isVenta && (
+          <div id="medidas" className="scroll-mt-4">
+            <MedidasIA grupos={grupos} revalidate={`/presupuestos/${id}`} titulo="Cargar peso y medidas de este presupuesto" />
+          </div>
+        )}
+
+        {presupuesto.eventos.length > 0 && (
+          <details className={plegable}>
+            <summary className={resumenPlegable}><span>Historial ({presupuesto.eventos.length})</span></summary>
+            <ul className="px-4 pb-4 space-y-2">
+              {presupuesto.eventos.map(e => (
+                <li key={e.id} className="text-xs text-gray-600 flex gap-3">
+                  <span className="font-mono tabular-nums text-gray-500 shrink-0 w-24">
+                    {e.createdAt.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: '2-digit', timeZone: 'America/Caracas' })}
+                  </span>
+                  <span className="whitespace-pre-line">{e.detalle}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+
+        {/* Términos: los mismos que van al PDF (ver getTerminos), visibles acá para
+            poder revisarlos antes de mandarlo. */}
+        {terminos && !isVenta && (
+          <details className={plegable}>
+            <summary className={resumenPlegable}><span>Términos y condiciones</span></summary>
+            <p className="px-4 pb-4 text-xs leading-relaxed text-gray-600 whitespace-pre-line">{terminos}</p>
+          </details>
+        )}
+      </div>
     </div>
   )
 }
+
+const plegable = 'bg-white rounded-xl shadow-sm border border-gray-200'
+const resumenPlegable =
+  'list-none [&::-webkit-details-marker]:hidden cursor-pointer flex flex-wrap items-center justify-between gap-x-4 gap-y-1 min-h-11 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 rounded-xl'

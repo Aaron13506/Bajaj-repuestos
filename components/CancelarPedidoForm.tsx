@@ -7,6 +7,9 @@ import CamposDevolucion from '@/components/CamposDevolucion'
 import type { ActionResult } from '@/lib/action-result'
 
 interface Props {
+  /** Texto y clases del botón que abre el formulario (por defecto, los de siempre). */
+  etiqueta?: React.ReactNode
+  claseBoton?: string
   action: (formData: FormData) => Promise<ActionResult>
   clientName: string
   /** Lo que el cliente tiene pagado (reales). */
@@ -23,7 +26,7 @@ interface Props {
 // qué va a pasar con cada cosa: lo cobrado (devolver o quedarse), lo ya comprado (pasa a stock
 // propio con su costo) y lo que no se compró (sale de su caja).
 export default function CancelarPedidoForm({
-  action, clientName, depositUsd, compradas, libres, devolucionSugerida, tasaSugerida,
+  action, clientName, depositUsd, compradas, libres, devolucionSugerida, tasaSugerida, etiqueta, claseBoton,
 }: Props) {
   const [open, setOpen] = useState(false)
   const { enviar, isPending, error, limpiarError } = useEnviarAccion(action, () => setOpen(false))
@@ -33,9 +36,9 @@ export default function CancelarPedidoForm({
       <button
         type="button"
         onClick={() => { limpiarError(); setOpen(true) }}
-        className="px-3 py-1.5 rounded-lg text-sm font-medium border border-red-200 text-red-700 hover:bg-red-50 transition-colors"
+        className={claseBoton ?? "px-3 py-1.5 rounded-lg text-sm font-medium border border-red-200 text-red-700 hover:bg-red-50 transition-colors"}
       >
-        Cancelar pedido
+        {etiqueta ?? 'Cancelar pedido'}
       </button>
       {open && (
         <Modal titulo="Cancelar pedido" onClose={() => setOpen(false)} className="w-96">

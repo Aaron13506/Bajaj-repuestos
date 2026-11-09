@@ -7,6 +7,9 @@ import CamposDevolucion from '@/components/CamposDevolucion'
 import type { ActionResult } from '@/lib/action-result'
 
 interface Props {
+  /** Texto y clases del botón que abre el formulario (por defecto, los de siempre). */
+  etiqueta?: React.ReactNode
+  claseBoton?: string
   action: (formData: FormData) => Promise<ActionResult>
   /** Lo que se puede devolver: el saldo a favor del cliente (o lo cobrado, en un pedido cancelado). */
   maximo: number
@@ -15,7 +18,7 @@ interface Props {
 
 // Le devuelve al cliente lo que tiene de más. Es el segundo paso de editar un pedido a la baja: el
 // sistema no devuelve solo, porque eso se acuerda con el cliente.
-export default function DevolverClienteForm({ action, maximo, tasaSugerida }: Props) {
+export default function DevolverClienteForm({ action, maximo, tasaSugerida, etiqueta, claseBoton }: Props) {
   const [open, setOpen] = useState(false)
   const { enviar, isPending, error, limpiarError } = useEnviarAccion(action, () => setOpen(false))
 
@@ -24,9 +27,9 @@ export default function DevolverClienteForm({ action, maximo, tasaSugerida }: Pr
       <button
         type="button"
         onClick={() => { limpiarError(); setOpen(true) }}
-        className="px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+        className={claseBoton ?? "px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"}
       >
-        Devolver al cliente
+        {etiqueta ?? 'Devolver al cliente'}
       </button>
       {open && (
         <Modal titulo="Devolverle plata al cliente" onClose={() => setOpen(false)} className="w-80">

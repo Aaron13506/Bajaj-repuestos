@@ -21,6 +21,9 @@ interface Props {
   initialMethod?: string | null
   initialDate?: string | null
   mode?: 'aprobar' | 'editar'
+  /** Texto y clases del botón que abre el formulario (por defecto, los de siempre). */
+  etiqueta?: React.ReactNode
+  claseBoton?: string
 }
 
 const money = (n: number) => n.toFixed(2)
@@ -34,6 +37,8 @@ export default function AprobarPedidoForm({
   initialMethod = null,
   initialDate = null,
   mode = 'aprobar',
+  etiqueta,
+  claseBoton,
 }: Props) {
   const [open, setOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
@@ -79,10 +84,11 @@ export default function AprobarPedidoForm({
   if (!open) {
     return (
       <button
+        type="button"
         onClick={() => setOpen(true)}
-        className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${triggerCls}`}
+        className={claseBoton ?? `px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${triggerCls}`}
       >
-        {triggerLabel}
+        {etiqueta ?? triggerLabel}
       </button>
     )
   }
@@ -96,6 +102,9 @@ export default function AprobarPedidoForm({
         ref={formRef}
         onSubmit={handleSubmit}
         onClick={e => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={mode === 'aprobar' ? 'Registrar adelanto y confirmar' : 'Editar adelanto'}
         className="mt-24 w-80 bg-white rounded-xl shadow-xl border border-gray-200 p-4 space-y-3 text-left"
       >
         <p className="text-sm font-semibold text-gray-900">

@@ -8,6 +8,9 @@ import Modal from '@/components/Modal'
 import type { ActionResult } from '@/lib/action-result'
 
 interface Props {
+  /** Texto y clases del botón que abre el formulario (por defecto, los de siempre). */
+  etiqueta?: React.ReactNode
+  claseBoton?: string
   action: (formData: FormData) => Promise<ActionResult>
   methods: readonly string[]
   /** Pedido a dólar BCV: lo cobrado en Bs se escribe en dólares BCV, lo demás en divisas. */
@@ -21,7 +24,7 @@ interface Props {
 // Botón + panel para anotar un pago de cliente SIN reabrir el form de aprobación (que
 // pisa el adelanto entero). Este siempre suma un Movimiento nuevo por el monto exacto
 // que entró — ver registrarPagoPedido.
-export default function RegistrarPagoClienteForm({ action, methods, modoBcv, saldo, tasaBs }: Props) {
+export default function RegistrarPagoClienteForm({ action, methods, modoBcv, saldo, tasaBs, etiqueta, claseBoton }: Props) {
   const [open, setOpen] = useState(false)
   const { enviar, isPending, error, limpiarError } = useEnviarAccion(action, () => setOpen(false))
 
@@ -30,9 +33,9 @@ export default function RegistrarPagoClienteForm({ action, methods, modoBcv, sal
       <button
         type="button"
         onClick={() => { limpiarError(); setOpen(true) }}
-        className="px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+        className={claseBoton ?? "px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"}
       >
-        + Registrar pago
+        {etiqueta ?? '+ Registrar pago'}
       </button>
       {open && (
         <Modal titulo="Registrar pago recibido" onClose={() => setOpen(false)} className="w-80">
