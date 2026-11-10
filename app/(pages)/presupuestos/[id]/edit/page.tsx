@@ -135,6 +135,8 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
         plazoExpressTexto={plazoExpress(await getConfig())}
         cajasExpress={await cajasExpressAbiertas()}
         initialCajaId={cajaExpressId}
+        initialRuta={presupuesto.reenvio}
+        initialTarifaKgInr={presupuesto.tarifaKgInr != null ? Number(presupuesto.tarifaKgInr) : null}
         cajaFija={cajaExpressId != null && cajaConLineas != null}
         pedidoId={id}
       />

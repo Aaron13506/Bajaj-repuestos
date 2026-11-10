@@ -43,7 +43,7 @@ export const MODOS: { value: ModoApp; label: string; short: string; icon: string
     label: 'Express',
     short: 'Express',
     icon: '⚡',
-    hint: 'Shoppre directo India → Venezuela, sin pasar por USA. Lleva un presupuesto express de cliente y el landed del paquete tiene tope.',
+    hint: 'Lleva presupuestos express. Shoppre directo India → Venezuela con tope de landed, o por USA (reenvío por kilo + One Way aéreo), sin tope.',
   },
 ]
 

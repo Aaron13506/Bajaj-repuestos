@@ -701,11 +701,13 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
         <div className={`rounded-xl border-2 p-6 mb-4 ${express.excede ? 'border-red-300 bg-red-50' : 'border-green-300 bg-green-50'}`}>
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h2 className={`font-semibold ${express.excede ? 'text-red-800' : 'text-green-800'}`}>
-              ⚡ Paquete express: {express.excede
-                ? `se pasa $${(-express.holguraUsd).toFixed(2)} del tope`
-                : `entra, quedan $${express.holguraUsd.toFixed(2)}`}
+              ⚡ Paquete express: {express.porUsa
+                ? 'por USA (DDP), sin tope'
+                : express.excede
+                  ? `se pasa $${(-express.holguraUsd).toFixed(2)} del tope`
+                  : `entra, quedan $${express.holguraUsd.toFixed(2)}`}
             </h2>
-            <span className="text-sm font-mono text-gray-600">${express.paqueteUsd.toFixed(2)} de ${express.topeUsd.toFixed(2)}</span>
+            <span className="text-sm font-mono text-gray-600">${express.paqueteUsd.toFixed(2)}{express.porUsa ? '' : ` de ${express.topeUsd.toFixed(2)}`}</span>
           </div>
           <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
             <div>
@@ -713,7 +715,7 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
               <p className="font-mono font-semibold">{express.chargeableKg.toFixed(2)} kg</p>
             </div>
             <div>
-              <p className="text-xs text-gray-500">Flete Shoppre → VEN</p>
+              <p className="text-xs text-gray-500">{express.porUsa ? 'Flete depósito → Miami → VEN' : 'Flete Shoppre → VEN'}</p>
               <p className="font-mono font-semibold">${express.fleteUsd.toFixed(2)}</p>
             </div>
             <div>

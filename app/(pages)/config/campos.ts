@@ -47,6 +47,8 @@ export const FIELD_META: Record<string, FieldMeta> = {
   // (shoppre_rates_ve_usd); seguro, processing y socio son los mismos de Shoppre.
   express_tope_usd:   { label: 'Tope del paquete express (USD)', hint: 'El landed de cada paquete express (producto + flete + seguro + processing) no puede pasar de este monto. Vacío = 100', rango: POSITIVO },
   express_plazo_dias: { label: 'Plazo express (días hábiles)',  hint: 'Lo que se le promete al cliente en el PDF, contado desde la compra. Ej: "10 a 15". Vacío = 10 a 15' },
+  oneway_aereo_usd_lb:      { label: 'One Way aéreo Miami → CCS (USD/lb)', hint: 'Express por USA: lo que cobra One Way por libra cobrable. Vacío = 5', rango: NO_NEGATIVO },
+  oneway_aereo_paquete_usd: { label: 'One Way aéreo: recibir el paquete (USD)', hint: 'Express por USA: cargo de One Way por cada paquete que recibe en Miami. Vacío = 1', rango: NO_NEGATIVO },
   express_margen_pct: { label: 'Margen express (%)',             hint: 'Margen sobre el landed del paquete express. Vacío = el margen por defecto', rango: [0, 95] },
   // ── Escenario marítimo directo (India → Venezuela por mar, sin aéreo ni escala en USA).
   // Solo lo usa el simulador (/simular, modo Marítimo). No afecta ningún costo actual.

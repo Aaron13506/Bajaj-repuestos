@@ -16,7 +16,7 @@ import RegistrarCompraPicker, { type PagoCaja } from '@/components/RegistrarComp
 import { SinStockCaja, BuscarSinStock, type SinStockFila, type PiezaComprada } from '@/components/CompraEsperas'
 import { METODOS_PAGO_EGRESO } from '@/lib/pagos'
 import { limpiarNombre } from '@/lib/utils'
-import { calcEnvio, type EnvioItemInput, type ConfigMap, type ProveedorEnvio } from '@/lib/calc'
+import { calcEnvio, LB_POR_KG, type EnvioItemInput, type ConfigMap, type ProveedorEnvio } from '@/lib/calc'
 import { inboundDe, inboundMeta } from '@/lib/inbound'
 import { reenvioDe, reenvioMeta, tarifaEquilibrioKgInr } from '@/lib/reenvio'
 import { modoDeEnvio, MODOS } from '@/lib/modo'
@@ -282,7 +282,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   if (!envio) notFound()
   const trackingActivo = apiKeyShip24() != null
   const onewayActivo = credencialesOneway() != null
-  const guiasSalida = envio.trackings.filter(t => t.tramo === (envio.modo === 'express' ? 'venezuela' : 'usa'))
+  const guiasSalida = envio.trackings.filter(t => t.tramo === (envio.modo === 'express' && envio.reenvio !== 'por_kilo' ? 'venezuela' : 'usa'))
   // Los números de la caja para NumerosTramo: cada form manda todos (la acción reemplaza todo).
   const numeros: NumeroGuardado[] = envio.trackings.flatMap(t => esTramoTracking(t.tramo)
     ? [{ ...t, tramo: t.tramo, eventos: eventosGuardados(t.eventos), consultado: t.consultadoEn ? horaConsulta(t.consultadoEn) : null }]
@@ -415,7 +415,10 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   // una caja aérea ya armada sigue costeándose como aérea aunque hoy operes en CBM.
   const modoEnvio = modoDeEnvio(envio.modo)
   const esCbm = modoEnvio === 'maritimo_cbm'
-  const esExpress = modoEnvio === 'express'
+  // esExpress = Shoppre directo a Venezuela. La express por USA (reenvío por kilo) se ve como la
+  // aérea: depósito → Miami y One Way aéreo a Caracas, sin tope (lib/calc.ts expressPorUsa).
+  const porUsa = modoEnvio === 'express' && envio.reenvio === 'por_kilo'
+  const esExpress = modoEnvio === 'express' && !porUsa
   // Las cajas como las pesó y midió el transportista: si hubo reempaque, las que salen. Si
   // están cargadas mandan ellas y reemplazan a la suma de las piezas: lo que se factura es
   // lo que leyó la balanza, caja por caja. Ver lib/cajas-envio.ts.
@@ -799,11 +802,12 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
 
   // La tarifa ₹/kg más alta que conviene aceptar del reenvío por kilo para ESTA caja: Shoppre
   // estimado (tabla + seguro + processing) sobre los kg cobrables. El reempaque se cancela.
-  const calcPorShoppre = porKilo && !esExpress && calc.air.items > 0 ? calcEnvio(items, cfg, { proveedor, modo: modoEnvio, medidas }) : null
+  const calcPorShoppre = porKilo && modoEnvio === 'aereo' && calc.air.items > 0 ? calcEnvio(items, cfg, { proveedor, modo: modoEnvio, medidas }) : null
   const equilibrioInr = calcPorShoppre
     ? tarifaEquilibrioKgInr({
         shoppreUsd: calcPorShoppre.air.costUsd + calcPorShoppre.insuranceUsd + calcPorShoppre.processingUsd,
-        chargeableKg: calcPorShoppre.air.chargeableKg,
+        // Lo que factura el por kilo (escalones de 0,5, mínimo 1): es contra eso que se paga la tarifa.
+        chargeableKg: calc.reenvio.kgFacturados,
         inrUsd,
       })
     : null
@@ -894,7 +898,9 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     // El express no tiene naviera: Shoppre lo lleva hasta Venezuela.
     if (!esExpress) {
       filasFlete.push({
-        tramo: 'maritimo', titulo: TRAMOS_FLETE.maritimo.titulo, icono: TRAMOS_FLETE.maritimo.icono,
+        tramo: 'maritimo',
+        titulo: porUsa ? 'One Way aéreo Miami → Caracas' : TRAMOS_FLETE.maritimo.titulo,
+        icono: porUsa ? '✈️' : TRAMOS_FLETE.maritimo.icono,
         facturadoUsd: costoRealMaritimo, calculadoUsd: calc.maritimeCalculadoUsd + calc.fobUsd,
         pagos: pagosDe(TRAMOS_FLETE.maritimo.categoria),
         guardar: guardarFleteReal.bind(null, envio.id, 'maritimo'),
@@ -960,7 +966,8 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     }
     if (!esExpress) {
       const em = estadoFlete(costoRealMaritimo, pagadoTramo(TRAMOS_FLETE.maritimo.categoria)).clave
-      pasos.push({ texto: 'Flete marítimo pagado', hecho: em === 'pagado' || em === 'de_mas', tab: 'plata', accion: 'Cargar y pagar el flete marítimo' })
+      const nombre = porUsa ? 'One Way' : 'marítimo'
+      pasos.push({ texto: `Flete ${nombre} pagado`, hecho: em === 'pagado' || em === 'de_mas', tab: 'plata', accion: `Cargar y pagar el flete ${nombre}` })
     }
   }
   // Express: la caja entera contra el tope de landed (lib/express.ts). Con la caja pesada y la
@@ -996,10 +1003,11 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               {/* Modo con el que se costeó esta caja: se congeló al crearla. */}
               <span
                 title={modoMeta?.hint}
-                className={`text-xs font-semibold px-2.5 py-1 rounded-full ${esExpress ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-800'}`}
+                className={`text-xs font-semibold px-2.5 py-1 rounded-full ${modoEnvio === 'express' ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-800'}`}
               >
                 <span aria-hidden="true">{modoMeta?.icon}</span> {modoMeta?.label}
                 {esExpress && ' · Shoppre directo a Venezuela'}
+                {porUsa && ' · por USA (DDP), sin tope'}
               </span>
               {porKilo && (
                 <span title={reenvioMeta('por_kilo').hint} className="text-xs font-semibold px-2.5 py-1 rounded-full bg-violet-100 text-violet-800">
@@ -1171,6 +1179,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
             items={itemRows}
             inbound={inboundCaja}
             modo={modoEnvio}
+            reenvio={envio.reenvio}
             guardar={saveItemChanges}
             quitar={removePedido}
             bloqueada={esBorrador}
@@ -1183,11 +1192,11 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                 <details id="agregar-pedidos" className="group bg-white rounded-xl shadow-sm border border-gray-100 mb-4" open={items.length === 0 || esBorrador}>
                   <summary className={SUMMARY_CLS}>
                     <span className="min-w-0">
-                      <span className="block text-base font-semibold text-gray-900">{esExpress ? 'Agregar presupuestos express' : 'Agregar pedidos'}</span>
+                      <span className="block text-base font-semibold text-gray-900">{modoEnvio === 'express' ? 'Agregar presupuestos express' : 'Agregar pedidos'}</span>
                       <span className="block text-sm text-gray-600">
                         {confirmadosSinAsignar.length} {confirmadosSinAsignar.length === 1 ? 'confirmado' : 'confirmados'} con líneas sueltas
                         {' · '}{presupuestosSinAsignar.length} sin aprobar
-                        {esExpress && ' · solo entran presupuestos express'}
+                        {modoEnvio === 'express' && ' · solo entran presupuestos express'}
                       </span>
                     </span>
                     <span aria-hidden="true" className="mt-1 text-gray-500 transition-transform group-open:rotate-90">▶</span>
@@ -1714,7 +1723,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               />
                   {calc.air.items > 0 && (
                     <Row
-                      label={`${esExpress ? 'Express Shoppre→Venezuela' : `Aéreo ${reenvioLabel}→USA`} · ${calc.air.chargeableKg.toFixed(1)} kg cobrables${calc.air.cajas > 1 ? ` en ${calc.air.cajas} cajas (${calc.air.cajasKg.map(k => `${k} kg`).join(' + ')})` : ''}${porKilo && reenvioCaja.tarifaKgInr != null && costoRealAereo == null ? ` × ₹${reenvioCaja.tarifaKgInr.toFixed(2)}/kg` : ''}`}
+                      label={`${esExpress ? 'Express Shoppre→Venezuela' : `Aéreo ${reenvioLabel}→USA`} · ${calc.air.chargeableKg.toFixed(1)} kg cobrables${calc.air.cajas > 1 ? ` en ${calc.air.cajas} cajas (${calc.air.cajasKg.map(k => `${k} kg`).join(' + ')})` : ''}${porKilo && reenvioCaja.tarifaKgInr != null && costoRealAereo == null ? ` · ${calc.reenvio.kgFacturados} kg facturables × ₹${reenvioCaja.tarifaKgInr.toFixed(2)}/kg` : ''}`}
                       value={usd(calc.air.costUsd)}
                       tag={costoRealAereo != null
                         ? { texto: 'facturado', tono: 'real' }
@@ -1734,11 +1743,11 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                   )}
                   {!esExpress && (
                     <Row
-                      label="Marítimo USA→VEN (volumen)"
+                      label={porUsa ? `One Way aéreo Miami→CCS · ${(calc.air.chargeableKg * LB_POR_KG).toFixed(1)} lb` : 'Marítimo USA→VEN (volumen)'}
                       value={usd(calc.maritimeUsd)}
                       tag={costoRealMaritimo != null
                         ? { texto: 'facturado', tono: 'real' }
-                        : { texto: 'estimado por ft³', tono: 'est' }}
+                        : { texto: porUsa ? 'estimado por lb' : 'estimado por ft³', tono: 'est' }}
                     />
                   )}
                   {/* Seguro y processing son cargos de Shoppre: solo los paga lo que pasa por su
@@ -1819,7 +1828,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                           <CampoGiro
                             id="tarifa-kg" name="tarifaKgInr" valor={reenvioCaja.tarifaKgInr} placeholder="sin cotizar"
                             label="Tarifa (₹ por kg cobrable)"
-                            ayuda={`sobre ${kg(calc.air.chargeableKg)} cobrables${equilibrioInr != null ? ` · conviene bajo ₹${equilibrioInr.toFixed(0)}/kg` : ''}`}
+                            ayuda={`sobre ${kg(calc.reenvio.kgFacturados)} facturables (escalones de 0,5, mínimo 1)${equilibrioInr != null ? ` · conviene bajo ₹${equilibrioInr.toFixed(0)}/kg` : ''}`}
                           />
                         )}
                         <CampoGiro

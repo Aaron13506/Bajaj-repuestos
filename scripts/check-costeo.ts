@@ -25,7 +25,7 @@ import {
 } from '../lib/comparar-compra'
 import { parseListaSkus } from '../lib/lista-skus'
 import { cotizarTramoAereo, capacidadCajaKg, CARRIER_EXPRESS_VE } from '../lib/shipping-rates'
-import { calcExpress, motivoExpressNoAprobable, motivoViaNoCoincide, plazoExpress, topeDeCaja, viaDe } from '../lib/express'
+import { calcExpress, motivoExpressNoAprobable, reenvioDelPresupuesto, motivoViaNoCoincide, plazoExpress, topeDeCaja, viaDe } from '../lib/express'
 import { nextStatus, normalizeToRoute, routeFor, routeStages } from '../lib/shipping-status'
 import { isModoApp, llevaPedidos } from '../lib/modo'
 import { repartirEnCentavos } from '../lib/reparto-compra'
@@ -54,7 +54,7 @@ import {
 import { debeSaldo, motivoNoEntregable, saldoReal, seEntregaDesdeElPedido, situacionDeCobro } from '../lib/saldo-entrega'
 import { diasSinMoverse, tiempoDeCompraA, tiemposPorTramo } from '../lib/etapas'
 import { leerDevolucion } from '../lib/devolucion'
-import { tarifaEquilibrioKgInr } from '../lib/reenvio'
+import { kgFacturadosPorKilo, tarifaEquilibrioKgInr } from '../lib/reenvio'
 import { compraTrasMover, motivoNoMueve, motivoNoMueveSinEnviar, type CajaParaMover } from '../lib/mover-caja'
 import { avanzaSinEstar, motivoNoDespacha, planSeparar, repartirSinStock, tokensSku } from '../lib/sin-stock'
 import { leerTrackingsTramo, MAX_TRACKINGS_POR_TRAMO } from '../lib/tracking'
@@ -1620,6 +1620,41 @@ console.log('\nENVÍO EXPRESS')
   const cajaX = calcEnvio([pieza(3000, 4000)], cfg, { modo: 'express' })
   check('caja: el tope de la caja usa su landed', topeDeCaja(cajaX, cfg).holguraUsd, 100 - cajaX.landedUsd)
   check('caja: pasada del tope no se confirma', si(motivoExpressNoAprobable(topeDeCaja(cajaX, cfg)) != null), 1)
+
+  // Express por USA: caja express con reenvío por kilo. Depósito → Miami a ₹/kg, One Way aéreo
+  // a Caracas ($/lb cobrable + $ por paquete), sin seguro ni processing, sin tope.
+  const kiloUsa = { tipo: 'por_kilo' as const, tarifaKgInr: 600, reempaqueInr: 200 }
+  const usa = calcExpress([pieza(3000, 4000), otro], cfg, { reenvio: kiloUsa })
+  const kgUsa = 4.2
+  const owc = kgUsa * 2.20462 * 5 + 1
+  check('por USA: tramo a Miami = kg en escalones de 0,5 (4,2 → 4,5) × ₹/kg', usa.envio.airUsd, (4.5 * 600) / inr, 1e-9)
+  check('por USA: los kg facturados se informan', usa.envio.reenvio.kgFacturados, 4.5)
+  check('por kilo: mínimo 1 kg', kgFacturadosPorKilo(0.3), 1)
+  check('por kilo: 1,2 → 1,5', kgFacturadosPorKilo(1.2), 1.5)
+  check('por kilo: 2,5 justo no salta', kgFacturadosPorKilo(0.1 + 2.4), 2.5)
+  check('por kilo: 2,51 → 3', kgFacturadosPorKilo(2.51), 3)
+  check('por kilo: nada = 0', kgFacturadosPorKilo(0), 0)
+  check('por USA: One Way = lb × $5 + $1 por paquete', usa.envio.maritimeUsd, owc, 1e-9)
+  check('por USA: sin seguro', usa.envio.insuranceUsd, 0)
+  check('por USA: solo el reempaque, sin processing de Shoppre', usa.envio.processingUsd, 200 / inr, 1e-9)
+  check('por USA: One Way se reparte por peso (3 de 4.2 kg)', usa.envio.lines[0].maritimeUsd, owc * (3 / kgUsa), 1e-9)
+  check('por USA: el flete del presupuesto suma los dos tramos', usa.fleteUsd, usa.envio.airUsd + usa.envio.maritimeUsd, 1e-9)
+  check('por USA: pasa de $100 y no se pasa del tope', si(usa.paqueteUsd > 100 && !usa.excede && usa.porUsa), 1)
+  check('por USA: se confirma', si(motivoExpressNoAprobable(usa) == null), 1)
+  check('por USA: tarifas de One Way en /config', calcExpress([pieza(3000, 4000)], { ...cfg, oneway_aereo_usd_lb: '4', oneway_aereo_paquete_usd: '2' }, { reenvio: kiloUsa }).envio.maritimeUsd, 3 * 2.20462 * 4 + 2, 1e-9)
+  const usaSinTarifa = calcExpress([pieza(3000, 4000)], cfg, { reenvio: { ...kiloUsa, tarifaKgInr: null } })
+  check('por USA: sin ₹/kg no se confirma', si(motivoExpressNoAprobable(usaSinTarifa)?.includes('₹/kg') ?? false), 1)
+  const usaFacturado = calcEnvio([pieza(3000, 4000)], cfg, { modo: 'express', reenvio: kiloUsa, fleteFacturado: { aereoUsd: 30, maritimoUsd: 40 } })
+  check('por USA: la factura de One Way pisa al estimado', usaFacturado.maritimeUsd, 40)
+  // La ruta del presupuesto: sin caja la suya; con caja manda la de la caja, y su ₹/kg si no anotó uno.
+  const cajaUsa = { tipo: 'por_kilo' as const, tarifaKgInr: 700, reempaqueInr: 300 }
+  check('presupuesto: sin caja, directo', si(reenvioDelPresupuesto('shoppre', null, null) == null), 1)
+  check('presupuesto: sin caja, por USA con su ₹/kg', reenvioDelPresupuesto('por_kilo', 650, null)?.tarifaKgInr ?? -1, 650)
+  check('presupuesto: en caja por USA, su ₹/kg pisa al de la caja', reenvioDelPresupuesto('por_kilo', 650, cajaUsa)?.tarifaKgInr ?? -1, 650)
+  check('presupuesto: en caja por USA sin ₹/kg propio, el de la caja', reenvioDelPresupuesto('por_kilo', null, cajaUsa)?.tarifaKgInr ?? -1, 700)
+  check('presupuesto: en caja directa manda la caja', si(reenvioDelPresupuesto('por_kilo', 650, { tipo: 'shoppre', tarifaKgInr: null, reempaqueInr: null }) == null), 1)
+  const rutaUsa = routeFor('shoppre', false, 'express', 'por_kilo')
+  check('por USA: pasa por USA', si(nextStatus('en_shoppre', rutaUsa) === 'camino_usa'), 1)
   check('plazo: por defecto 10 a 15 días hábiles', si(plazoExpress(cfg) === '10 a 15 días hábiles'), 1)
   check('plazo: configurable', si(plazoExpress({ ...cfg, express_plazo_dias: '12 a 15' }) === '12 a 15 días hábiles'), 1)
 

@@ -130,7 +130,11 @@ interface Props {
   /** El plazo express que se le promete al cliente (plazoExpress), para el botón. */
   plazoExpressTexto?: string
   /** Cajas express abiertas: el presupuesto express se costea con lo que ya lleva la elegida. */
-  cajasExpress?: { id: number; nombre: string }[]
+  cajasExpress?: { id: number; nombre: string; reenvio: string }[]
+  /** Ruta express: 'shoppre' (directo, con tope) o 'por_kilo' (por USA, sin tope). */
+  initialRuta?: string
+  /** ₹/kg del reenvío con el que se cotiza por USA. */
+  initialTarifaKgInr?: number | null
   initialCajaId?: number | null
   /** Ya tiene piezas en una caja: la caja no se cambia desde acá. */
   cajaFija?: boolean
@@ -162,6 +166,8 @@ export default function PresupuestoBuilder({
   cajasExpress = [],
   initialCajaId = null,
   cajaFija = false,
+  initialRuta = 'shoppre',
+  initialTarifaKgInr = null,
   pedidoId = null,
 }: Props) {
   const isPropio = tipo === 'propio'
@@ -169,6 +175,15 @@ export default function PresupuestoBuilder({
   const [via, setVia] = useState<Via>(initialVia)
   const esExpress = via === 'express'
   const [cajaId, setCajaId] = useState<number | null>(initialCajaId)
+  // Con caja, la ruta es la de la caja (es por donde va a viajar).
+  const [ruta, setRuta] = useState(() =>
+    (cajasExpress.find(c => c.id === initialCajaId)?.reenvio ?? initialRuta) === 'por_kilo' ? 'por_kilo' : 'shoppre')
+  const porUsa = ruta === 'por_kilo'
+  const [tarifaKg, setTarifaKg] = useState(initialTarifaKgInr != null ? String(initialTarifaKgInr) : '')
+  // Ilegible o negativa = sin tarifa: el costeo lo marca y no deja confirmar (el server la rechaza al guardar).
+  const tarifaKgNum = tarifaKg.trim() === '' ? null : Number(tarifaKg.replace(',', '.'))
+  const tarifaKgValida = tarifaKgNum != null && Number.isFinite(tarifaKgNum) && tarifaKgNum >= 0 ? tarifaKgNum : null
+  const cajasDeRuta = cajasExpress.filter(c => (c.reenvio === 'por_kilo') === porUsa)
   const [selectedAssemblyId, setSelectedAssemblyId] = useState<number | null>(null)
   const [checked, setChecked] = useState<Record<number, boolean>>({})
   const [quantities, setQuantities] = useState<Record<number, number>>({})
@@ -482,16 +497,18 @@ export default function PresupuestoBuilder({
     () => JSON.stringify([
       via,
       via === 'express' ? cajaId : null,
+      via === 'express' ? ruta : null,
+      via === 'express' && porUsa ? tarifaKgValida : null,
       cart.map(c => [c.productId, c.ensambleId, c.quantity, c.bundleItems?.map(p => [p.bajajCode, p.nameEs, p.quantity]) ?? null]),
     ]),
-    [cart, via, cajaId],
+    [cart, via, cajaId, ruta, porUsa, tarifaKgValida],
   )
   const carritoVacio = cart.length === 0
   const costo = carritoVacio ? null : costoHecho?.costo ?? null
   const costeando = !carritoVacio && costoHecho?.clave !== composicion
 
   useEffect(() => {
-    const [viaCosteo, cajaCosteo, lineas] = JSON.parse(composicion) as [Via, number | null, [number | null, number | null, number, [string | null, string, number][] | null][]]
+    const [viaCosteo, cajaCosteo, rutaCosteo, tarifaCosteo, lineas] = JSON.parse(composicion) as [Via, number | null, string | null, number | null, [number | null, number | null, number, [string | null, string, number][] | null][]]
     if (lineas.length === 0) return
     let cancelled = false
     const t = setTimeout(async () => {
@@ -509,6 +526,8 @@ export default function PresupuestoBuilder({
           viaCosteo,
           cajaCosteo,
           pedidoId,
+          rutaCosteo,
+          tarifaCosteo,
         )
         if (cancelled) return
         setCostoHecho({ clave: composicion, costo: r })
@@ -654,6 +673,56 @@ export default function PresupuestoBuilder({
       )}
       {esExpress && (
         <div className="mt-2">
+          <span className="block text-sm font-medium text-gray-700 mb-1">Ruta express</span>
+          <div className="grid grid-cols-2 rounded-lg border border-gray-300 overflow-hidden text-sm">
+            {([
+              ['shoppre', 'Shoppre directo', 'India → Venezuela · tope de landed'],
+              ['por_kilo', 'Por USA (DDP)', 'Reenvío ₹/kg + One Way aéreo · sin tope'],
+            ] as const).map(([v, titulo, sub]) => (
+              <button
+                key={v}
+                type="button"
+                aria-pressed={ruta === v}
+                disabled={clienteFijo || cajaFija}
+                onClick={() => {
+                  setRuta(v)
+                  // La caja tiene su ruta: una de la otra ruta deja de servir.
+                  if (cajaId != null && cajasExpress.some(c => c.id === cajaId && (c.reenvio === 'por_kilo') !== (v === 'por_kilo'))) setCajaId(null)
+                }}
+                className={`px-3 py-2 text-left disabled:cursor-not-allowed ${
+                  ruta === v ? 'bg-blue-50 text-blue-900' : 'bg-white text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                <span className="block font-medium">{titulo}</span>
+                <span className="block text-[11px] text-gray-500">{sub}</span>
+              </button>
+            ))}
+          </div>
+          {porUsa && (
+            <div className="mt-2">
+              <label htmlFor="pb-tarifa-kg" className="block text-sm font-medium text-gray-700 mb-1">Tarifa del reenvío a USA (₹/kg)</label>
+              <input
+                id="pb-tarifa-kg"
+                type="text"
+                inputMode="decimal"
+                value={tarifaKg}
+                disabled={clienteFijo}
+                onChange={e => setTarifaKg(e.target.value)}
+                placeholder={cajaId != null ? 'vacío = la de la caja' : 'ej. 600'}
+                aria-invalid={tarifaKg.trim() !== '' && tarifaKgValida == null}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white disabled:bg-gray-50"
+              />
+              <p className="text-[11px] text-gray-500 mt-1">
+                {tarifaKg.trim() !== '' && tarifaKgValida == null
+                  ? <span className="text-red-700">No es un número válido.</span>
+                  : 'Con esto y el peso de cada pieza se calcula el flete a Miami; One Way aéreo sale de Configuración.'}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+      {esExpress && (
+        <div className="mt-2">
           <label htmlFor="pb-caja-express" className="block text-sm font-medium text-gray-700 mb-1">Caja express en la que va</label>
           <select
             id="pb-caja-express"
@@ -663,8 +732,8 @@ export default function PresupuestoBuilder({
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white disabled:bg-gray-50 disabled:cursor-not-allowed"
           >
             <option value="">Ninguna todavía (se cotiza como paquete solo)</option>
-            {cajaId != null && !cajasExpress.some(c => c.id === cajaId) && <option value={cajaId}>Caja #{cajaId}</option>}
-            {cajasExpress.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            {cajaId != null && !cajasDeRuta.some(c => c.id === cajaId) && <option value={cajaId}>Caja #{cajaId}</option>}
+            {cajasDeRuta.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
           </select>
           <p className="text-[11px] text-gray-500 mt-1">
             {cajaFija
@@ -695,6 +764,10 @@ export default function PresupuestoBuilder({
     fd.set('tipo', tipo)
     fd.set('via', via)
     if (via === 'express' && cajaId != null) fd.set('cajaId', String(cajaId))
+    if (via === 'express') {
+      fd.set('reenvio', ruta)
+      if (porUsa) fd.set('tarifaKgInr', tarifaKg.trim())
+    }
     fd.set(
       'items',
       JSON.stringify(sortedCart.map(c => ({
@@ -1315,7 +1388,7 @@ export default function PresupuestoBuilder({
                   <div className="mt-3 pt-3 border-t border-gray-100 space-y-2.5">
                     <div className="flex items-center justify-between">
                       <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                        {esExpress ? '⚡ Costo express (Shoppre → Venezuela)' : '✈️ Costo por la ruta aérea'}
+                        {esExpress ? `⚡ Costo express (${costo.express?.porUsa ? 'por USA, DDP' : 'Shoppre → Venezuela'})` : '✈️ Costo por la ruta aérea'}
                         {costeando && <span className="ml-2 font-normal normal-case text-gray-500">calculando…</span>}
                       </h3>
                       {costo.proveedor && (
@@ -1367,6 +1440,11 @@ export default function PresupuestoBuilder({
 
                     {costo.express && (
                       <div className={`rounded-lg border px-3 py-2.5 ${costo.express.excede ? 'border-red-300 bg-red-50' : 'border-green-300 bg-green-50'}`}>
+                        {costo.express.porUsa ? (
+                          <p className="text-sm font-semibold text-green-800">
+                            Por USA (DDP): sin tope · paquete ${costo.express.paqueteUsd.toFixed(2)}
+                          </p>
+                        ) : (<>
                         <div className="flex items-baseline justify-between gap-2">
                           <p className={`text-sm font-semibold ${costo.express.excede ? 'text-red-800' : 'text-green-800'}`}>
                             {costo.express.excede
@@ -1383,11 +1461,12 @@ export default function PresupuestoBuilder({
                             style={{ width: `${Math.min(100, (costo.express.paqueteUsd / costo.express.topeUsd) * 100)}%` }}
                           />
                         </div>
+                        </>)}
                         <p className="text-[11px] text-gray-600 mt-1.5">
                           {costo.express.enCaja && <>Caja con todo: {costo.express.paqueteKg.toFixed(2)} kg · </>}
                           Flete ${costo.express.fleteUsd.toFixed(2)} por {costo.express.chargeableKg.toFixed(2)} kg cobrables
                           {costo.express.ataVolumen && ' (manda el volumen)'}
-                          {!costo.express.excede && <> · entran ≈ ${costo.express.productoQueEntraUsd.toFixed(2)} más de producto
+                          {!costo.express.excede && !costo.express.porUsa && <> · entran ≈ ${costo.express.productoQueEntraUsd.toFixed(2)} más de producto
                             {costo.express.kgHastaProximoEscalon != null && <> ({costo.express.kgHastaProximoEscalon.toFixed(2)} kg en este escalón)</>}</>}
                           {' '}· margen express {(costo.express.margen * 100).toFixed(0)}%
                         </p>

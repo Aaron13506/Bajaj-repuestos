@@ -4,9 +4,9 @@ import { db } from '@/lib/db'
 import { toModelIds } from '@/lib/modelo'
 import { lookupDeConjuntos, expandCostPieces, type ProductCost, type ProductLookup } from '@/lib/envio-build'
 import type { BundlePiece } from '@/lib/bundle'
-import { calcLanded, CM3_PER_FT3, CM3_PER_M3, type ConfigMap, type EnvioItemInput } from '@/lib/calc'
-import { calcExpress, motivoExpressNoAprobable, type Via } from '@/lib/express'
-import { acompanantesDeCaja } from '@/lib/express-pedido'
+import { calcLanded, CM3_PER_FT3, CM3_PER_M3, type ConfigMap, type EnvioItemInput, type ReenvioCaja } from '@/lib/calc'
+import { calcExpress, motivoExpressNoAprobable, reenvioDelPresupuesto, type Via } from '@/lib/express'
+import { cajaExpress } from '@/lib/express-pedido'
 import { toConfigMap, margenPorDefecto, num } from '@/lib/config'
 import type { RefLinea } from '@/lib/linea-pedido'
 import { codigoContiene } from '@/lib/alt-sku'
@@ -99,6 +99,8 @@ export interface CostoCarrito {
 }
 
 export interface ResumenExpress {
+  /** Express por USA (caja con reenvío por kilo): sin tope. */
+  porUsa: boolean
   topeUsd: number
   /** De este presupuesto: su parte del paquete. */
   landedUsd: number
@@ -123,6 +125,7 @@ export interface ResumenExpress {
 // presupuesto que se edita, para no contarlo dos veces si ya está en esa caja.
 export async function costearCarrito(
   lineas: CarritoLineaInput[], via: Via = 'normal', cajaId: number | null = null, pedidoId: number | null = null,
+  ruta: string | null = null, tarifaKgInr: number | null = null,
 ): Promise<CostoCarrito> {
   const vacio: CostoCarrito = {
     lineas: [], landedUsd: 0, weightKg: 0, volKg: 0, ft3: 0, cbm: 0, sinMedidas: 0, costoOrigenUsd: 0, fleteUsd: 0, sinPeso: 0, proveedor: '99rpm', express: null,
@@ -163,8 +166,8 @@ export async function costearCarrito(
   const margenPorId = new Map(margenes.map(m => [m.id, m.margin]))
 
   if (via === 'express') {
-    const acompanantes = cajaId != null ? await acompanantesDeCaja(db, cajaId, pedidoId) : []
-    return costearExpress(lineas, cfg, porId, lookup, divisor, acompanantes)
+    const caja = cajaId != null ? await cajaExpress(db, cajaId, pedidoId) : null
+    return costearExpress(lineas, cfg, porId, lookup, divisor, caja?.acompanantes ?? [], reenvioDelPresupuesto(ruta, tarifaKgInr != null && Number.isFinite(tarifaKgInr) && tarifaKgInr >= 0 ? tarifaKgInr : null, caja?.reenvio ?? null))
   }
 
   const out: CostoLinea[] = []
@@ -247,6 +250,7 @@ function costearExpress(
   lookup: ProductLookup,
   divisor: number,
   acompanantes: EnvioItemInput[],
+  reenvio: ReenvioCaja | null,
 ): CostoCarrito {
   const porLinea: { l: CarritoLineaInput; desde: number; hasta: number }[] = []
   const items: EnvioItemInput[] = []
@@ -271,7 +275,7 @@ function costearExpress(
     porLinea.push({ l, desde, hasta: items.length })
   }
 
-  const e = calcExpress(items, cfg, { acompanantes })
+  const e = calcExpress(items, cfg, { acompanantes, reenvio })
   const out: CostoLinea[] = porLinea.map(({ l, desde, hasta }) => {
     const piezas = e.envio.lines.slice(desde, hasta)
     const landedUsd = piezas.reduce((s, p) => s + p.landedUsd, 0)
@@ -299,6 +303,7 @@ function costearExpress(
     sinPeso: e.sinPeso.length,
     proveedor: '99rpm',
     express: {
+      porUsa: e.porUsa,
       topeUsd: e.topeUsd,
       landedUsd: e.landedUsd,
       paqueteUsd: e.paqueteUsd,

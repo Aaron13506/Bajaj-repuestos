@@ -1,4 +1,4 @@
-import { calcEnvio, calcPrecioBcv, type EnvioBreakdown, type EnvioItemInput, type MedidasCaja } from './calc'
+import { calcEnvio, calcPrecioBcv, type EnvioBreakdown, type EnvioItemInput, type MedidasCaja, type ReenvioCaja } from './calc'
 import { num, margenPorDefecto, type ConfigMap } from './config'
 import { resolveRateTable, CARRIER_EXPRESS_VE } from './shipping-rates'
 
@@ -20,6 +20,11 @@ import { resolveRateTable, CARRIER_EXPRESS_VE } from './shipping-rates'
 // tope, cuánto queda, y el precio, que sale del landed del paquete con su propio margen
 // (`express_margen_pct`) y NO del precio de catálogo, que lleva adentro un flete por
 // Miami y un marítimo que este paquete no paga.
+//
+// EXPRESS POR USA: la caja express con reenvío por kilo. El reenvío la lleva DDP a Miami
+// (₹/kg de la caja) y One Way Cargo en avión a Caracas ($/lb + $ por paquete, /config). Va
+// DDP, así que NO tiene tope: es la salida para un paquete que pasa de $100. Se elige al
+// crear la caja; el presupuesto la toma de la caja en la que va.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface ExpressOptions {
@@ -38,6 +43,8 @@ export interface ExpressOptions {
    * presupuesto le toca su parte. El tope se mide contra el paquete entero.
    */
   acompanantes?: EnvioItemInput[]
+  /** El reenvío de la caja elegida. Por kilo = express por USA, sin tope. Ausente = Shoppre directo. */
+  reenvio?: ReenvioCaja | null
 }
 
 export interface LineaExpress {
@@ -53,12 +60,16 @@ export interface LineaExpress {
 export interface Express {
   /** El paquete entero: este presupuesto más lo que ya va en su caja. */
   envio: EnvioBreakdown
+  /** Express por USA (reenvío por kilo + One Way aéreo): sin tope. */
+  porUsa: boolean
+  /** Por USA sin tarifa ₹/kg cotizada en la caja: el precio no lleva el tramo a Miami. */
+  faltaTarifa: boolean
   topeUsd: number
   /** Landed de ESTE presupuesto (su parte del paquete). */
   landedUsd: number
   /** Landed del paquete entero, el que se mide contra el tope. */
   paqueteUsd: number
-  /** Kg cobrables y flete (Shoppre → VEN) de ESTE presupuesto, su parte del paquete. */
+  /** Kg cobrables y flete (Shoppre → VEN, o depósito → Miami + One Way) de ESTE presupuesto, su parte del paquete. */
   chargeableKg: number
   fleteUsd: number
   /** tope − landed del paquete. Negativo = te pasaste por esa cantidad. */
@@ -98,10 +109,12 @@ export function calcExpress(items: EnvioItemInput[], cfg: ConfigMap, opts: Expre
   // que una línea vieja o mal snapshoteada no se cueste como tramo cotizado.
   const acompanantes = opts.acompanantes ?? []
   const piezas = [...items, ...acompanantes].map(it => ({ ...it, inbound: 'shoppre' as const, isLanded: false }))
+  const porUsa = opts.reenvio?.tipo === 'por_kilo'
   const envio = calcEnvio(piezas, cfg, {
     modo: 'express',
     medidas: opts.medidas ? [opts.medidas] : null,
     fleteFacturado: opts.fleteUsd != null ? { aereoUsd: opts.fleteUsd } : null,
+    reenvio: opts.reenvio,
   })
   // Las líneas de este presupuesto van primero: calcEnvio devuelve una línea por ítem, en orden.
   const propias = envio.lines.slice(0, items.length)
@@ -112,7 +125,7 @@ export function calcExpress(items: EnvioItemInput[], cfg: ConfigMap, opts: Expre
   const seguro = num(cfg, 'shoppre_insurance_pct', 0.03)
 
   let kgHastaProximoEscalon: number | null = null
-  if (opts.fleteUsd == null && envio.air.chargeableKg > 0) {
+  if (!porUsa && opts.fleteUsd == null && envio.air.chargeableKg > 0) {
     const steps = resolveRateTable(cfg, 've').carriers[CARRIER_EXPRESS_VE] ?? []
     const kg = envio.air.chargeableKg
     const escalon = steps.find(st => st[0] >= kg)
@@ -131,14 +144,16 @@ export function calcExpress(items: EnvioItemInput[], cfg: ConfigMap, opts: Expre
 
   return {
     envio,
+    porUsa,
+    faltaTarifa: envio.reenvio.faltaTarifa,
     topeUsd,
     landedUsd,
     paqueteUsd: envio.landedUsd,
     chargeableKg: Math.max(propias.reduce((s, l) => s + l.realKg, 0), propias.reduce((s, l) => s + l.volKg, 0)),
-    fleteUsd: propias.reduce((s, l) => s + l.airUsd, 0),
+    fleteUsd: propias.reduce((s, l) => s + l.airUsd + l.maritimeUsd, 0),
     holguraUsd,
-    excede: holguraUsd < 0,
-    productoQueEntraUsd: holguraUsd > 0 ? holguraUsd / (1 + seguro) : 0,
+    excede: !porUsa && holguraUsd < 0,
+    productoQueEntraUsd: !porUsa && holguraUsd > 0 ? holguraUsd / (1 + seguro) : 0,
     kgHastaProximoEscalon,
     margen,
     precioUsd,
@@ -147,6 +162,18 @@ export function calcExpress(items: EnvioItemInput[], cfg: ConfigMap, opts: Expre
     lineas,
     sinPeso: envio.lines.filter(l => l.missingWeight).map(l => l.name),
   }
+}
+
+/**
+ * El reenvío con el que se cotiza un presupuesto express. Con caja manda la ruta de la caja (es
+ * por donde va a viajar), y por USA el ₹/kg del presupuesto, o el de la caja si no anotó uno. Sin
+ * caja, la ruta que eligió el presupuesto (Pedido.reenvio). null = Shoppre directo.
+ */
+export function reenvioDelPresupuesto(
+  ruta: string | null | undefined, tarifaKgInr: number | null, caja: ReenvioCaja | null,
+): ReenvioCaja | null {
+  if (caja) return caja.tipo === 'por_kilo' ? { ...caja, tarifaKgInr: tarifaKgInr ?? caja.tarifaKgInr } : null
+  return ruta === 'por_kilo' ? { tipo: 'por_kilo', tarifaKgInr, reempaqueInr: null } : null
 }
 
 // ── El presupuesto express ───────────────────────────────────────────────────
@@ -164,12 +191,15 @@ export function viaDe(v: string | null | undefined): Via {
  * armador y la ficha (que avisan) y la confirmación (que es el candado real): confirmar es
  * comprometerse a traerlo, y un paquete pasado del tope no se puede despachar así.
  */
-export function motivoExpressNoAprobable(e: Pick<Express, 'excede' | 'holguraUsd' | 'topeUsd' | 'sinPeso'>): string | null {
+export function motivoExpressNoAprobable(e: Pick<Express, 'excede' | 'holguraUsd' | 'topeUsd' | 'sinPeso'> & { faltaTarifa?: boolean }): string | null {
+  if (e.faltaTarifa) {
+    return 'Va por USA y falta la tarifa ₹/kg del reenvío: sin ella el precio no lleva el tramo a Miami. Anotala en el presupuesto (Ruta express) o en la pestaña Plata de la caja.'
+  }
   if (e.excede) {
-    return `El paquete express se pasa ${(-e.holguraUsd).toFixed(2)} USD del tope de ${e.topeUsd.toFixed(2)} USD. Sacá piezas o pasalo a envío normal.`
+    return `El paquete express se pasa ${(-e.holguraUsd).toFixed(2)} USD del tope de ${e.topeUsd.toFixed(2)} USD. Sacá piezas, mandalo por USA (sin tope) o pasalo a envío normal.`
   }
   if (e.sinPeso.length > 0) {
-    return `Sin peso cargado: ${e.sinPeso.join(', ')}. Sin peso no se sabe si el paquete express entra en el tope.`
+    return `Sin peso cargado: ${e.sinPeso.join(', ')}. Sin peso no se sabe cuánto cuesta el flete del paquete express.`
   }
   return null
 }

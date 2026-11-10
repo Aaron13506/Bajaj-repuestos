@@ -1,6 +1,6 @@
 import { cotizarTramoAereo, CARRIER_EXPRESS_VE } from './shipping-rates'
 import { inboundDe, type Inbound } from './inbound'
-import type { Reenvio } from './reenvio'
+import { kgFacturadosPorKilo, type Reenvio } from './reenvio'
 import { num, flag, margenPorDefecto, type ConfigMap } from './config'
 import { aDolarBcv } from './cobro-bcv'
 
@@ -11,6 +11,7 @@ export type { ConfigMap }
 // cm³ en un pie cúbico. El marítimo cotiza por ft³, pero las medidas de las piezas
 // se cargan en cm, así que toda conversión de volumen pasa por acá.
 export const CM3_PER_FT3 = 28316.846
+export const LB_POR_KG = 2.20462
 
 export interface LandedBreakdown {
   modo: ModoEnvio
@@ -595,6 +596,8 @@ export interface ReenvioBreakdown {
   reempaqueInr: number | null
   /** El reempaque en USD que entra en `processingUsd` (0 con la factura cargada, que ya lo trae). */
   reempaqueUsd: number
+  /** Kg que factura el reenvío por kilo (escalones de 0,5 con mínimo 1, caja por caja). 0 si no aplica. */
+  kgFacturados: number
   /** 'por_kilo' con piezas que lo usan, sin tarifa ni factura: el tramo cuenta 0 y la caja queda subcosteada. */
   faltaTarifa: boolean
   /** 'por_kilo' sin reempaque anotado ni factura: se cuenta 0, que no es lo mismo que saberlo. */
@@ -721,6 +724,17 @@ function cajaFacturable(medidas?: MedidasCaja[] | null): CajaFacturable {
 // grupo puso el 40% de las piezas, le tocan 7,4 kg. Con la caja sin pesar vale 1 y los kg
 // del grupo son la suma de sus piezas, que es un piso. El reparto del costo entre líneas
 // se hace sobre los netos, que están en la misma proporción.
+// La parte de cada línea en un tramo aéreo: por peso, por volumen o mezclado (repartoVolumen).
+function cuotasTramo(lines: EnvioItemLine[], repartoVolumen: number): number[] {
+  const denomPeso = lines.reduce((s, l) => s + l.realKg, 0)
+  const denomVol = lines.reduce((s, l) => s + l.volKg, 0)
+  // Si una de las dos dimensiones no se puede repartir (nada tiene peso, o nada tiene medidas)
+  // se usa la otra entera: no se deja el costo sin imputar.
+  const w = denomPeso <= 0 ? 1 : denomVol <= 0 ? 0 : repartoVolumen
+  return lines.map(l =>
+    (1 - w) * (denomPeso > 0 ? l.realKg / denomPeso : 0) + w * (denomVol > 0 ? l.volKg / denomVol : 0))
+}
+
 function repartirTramo(
   lines: EnvioItemLine[],
   costUsd: number,
@@ -733,22 +747,13 @@ function repartirTramo(
   const chargeableKg = Math.max(realKg, volKg)
   const binding: 'weight' | 'volume' = realKg >= volKg ? 'weight' : 'volume'
 
-  const denomPeso = lines.reduce((s, l) => s + l.realKg, 0)
-  const denomVol = lines.reduce((s, l) => s + l.volKg, 0)
   // Qué parte se reparte por volumen: 0 si ata el peso; 1 si ata el volumen y no hay banda; con
   // banda, crece de 0 a 1 mientras el volumétrico supera al real por la tolerancia entera.
   const repartoVolumen =
     binding === 'weight' ? 0
     : tolerancia > 0 && realKg > 0 ? Math.min(1, (volKg / realKg - 1) / tolerancia)
     : 1
-  for (const l of lines) {
-    const porPeso = denomPeso > 0 ? l.realKg / denomPeso : 0
-    const porVol = denomVol > 0 ? l.volKg / denomVol : 0
-    // Si una de las dos dimensiones no se puede repartir (nada tiene peso, o nada tiene medidas)
-    // se usa la otra entera: no se deja el costo sin imputar.
-    const w = denomPeso <= 0 ? 1 : denomVol <= 0 ? 0 : repartoVolumen
-    l.airUsd = costUsd * ((1 - w) * porPeso + w * porVol)
-  }
+  cuotasTramo(lines, repartoVolumen).forEach((c, i) => { lines[i].airUsd = costUsd * c })
 
   return {
     items: lines.length,
@@ -827,6 +832,10 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   // seguro NO se suma aparte: la tarifa plana ya lo incluye todo.
   // El reenvío por kilo no cobra seguro.
   const porKilo       = opts.reenvio?.tipo === 'por_kilo'
+  // Express por USA: una caja express con reenvío por kilo no va por Shoppre directo. El reenvío
+  // la lleva DDP a Miami (₹/kg de la caja) y One Way Cargo en avión a Caracas, por libra más un
+  // cargo por paquete recibido (Config). Va DDP, así que no tiene el tope de $100.
+  const expressPorUsa = esExpress && porKilo
   const insurancePct  = esCbm
     ? 0
     : modo === 'maritimo'
@@ -935,12 +944,16 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   const cobrablesPorCaja = viajaPorDeposito && cotizadoLines.length === 0 && caja.porCaja
     ? caja.porCaja.map(c => Math.max(c.pesoKg, c.cm3 / divisor))
     : null
+  // El reenvío por kilo factura cada caja en escalones de 0,5 kg con mínimo de 1 kg.
+  const kgPorKilo = porKilo && viajaPorDeposito
+    ? (cobrablesPorCaja ?? [shoppreChargeable]).reduce((s, k) => s + kgFacturadosPorKilo(k), 0)
+    : 0
   const airQuote = !viajaPorDeposito
     ? { costUsd: 0, cajas: 0, pesosKg: [] as number[], capKg: null as number | null }
     : cobrablesPorCaja
       ? porKilo
         ? {
-            costUsd: tarifaKgInr != null ? (cobrablesPorCaja.reduce((s, k) => s + k, 0) * tarifaKgInr) / inrUsd : 0,
+            costUsd: tarifaKgInr != null ? (kgPorKilo * tarifaKgInr) / inrUsd : 0,
             cajas: cobrablesPorCaja.length,
             pesosKg: cobrablesPorCaja.map(k => Number(k.toFixed(2))).sort((a, b) => b - a),
             capKg: null,
@@ -948,7 +961,7 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
         : sumarCotizaciones(cobrablesPorCaja.map(k => cotizarTramoAereo(k, carrier, isMember, cfg, esExpress ? 've' : 'usa')))
     : porKilo
       ? {
-          costUsd: tarifaKgInr != null ? (shoppreChargeable * tarifaKgInr) / inrUsd : 0,
+          costUsd: tarifaKgInr != null ? (kgPorKilo * tarifaKgInr) / inrUsd : 0,
           cajas: 1,
           pesosKg: [Number(shoppreChargeable.toFixed(2))],
           capKg: null,
@@ -1021,8 +1034,13 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
 
   // En CBM el flete es la tarifa plana sobre el volumen facturable; el FOB va aparte
   // (es fijo por embarque y se suma como cargo del envío, más abajo).
-  // El express llega en avión hasta Caracas: no hay tramo por mar que cobrar.
-  const maritimeCalculadoUsd = esExpress ? 0 : esCbm ? billableM3 * cbm.ratePerM3 : billableFt3 * maritimePft3
+  // El express llega en avión hasta Caracas: no hay tramo por mar que cobrar. El express por USA
+  // paga One Way aéreo Miami→CCS sobre los mismos kg cobrables y paquetes que salieron del depósito.
+  // shortcut: usa el volumétrico del depósito (air_volumetric_divisor); si One Way factura con otro divisor, darle el suyo.
+  const onewayAereoUsd = expressPorUsa
+    ? airLeg.chargeableKg * LB_POR_KG * num(cfg, 'oneway_aereo_usd_lb', 5) + airQuote.cajas * num(cfg, 'oneway_aereo_paquete_usd', 1)
+    : 0
+  const maritimeCalculadoUsd = esExpress ? onewayAereoUsd : esCbm ? billableM3 * cbm.ratePerM3 : billableFt3 * maritimePft3
 
   // Reparto: por volumen si hay dimensiones; si no hay ninguna cargada (pero igual se paga
   // el mínimo) se cae al costo de producto para no dejar el flete sin imputar a nadie.
@@ -1030,7 +1048,9 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   // proporción de cada una es la misma con factor o sin él.
   const volDenom  = esCbm ? netM3 : netFt3
   const costDenom = enBarco.reduce((s, l) => s + l.productCostUsd, 0)
-  for (const l of enBarco) {
+  // One Way aéreo se reparte como el tramo del depósito: cobra por kilo igual que él.
+  if (expressPorUsa) cuotasTramo(shoppreLines, airLeg.repartoVolumen ?? 0).forEach((c, i) => { shoppreLines[i].maritimeUsd = maritimeCalculadoUsd * c })
+  else for (const l of enBarco) {
     const vol = esCbm ? l.volumeM3 : l.ft3
     if (volDenom > 0)       l.maritimeUsd = maritimeCalculadoUsd * (vol / volDenom)
     else if (costDenom > 0) l.maritimeUsd = maritimeCalculadoUsd * (l.productCostUsd / costDenom)
@@ -1040,7 +1060,7 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   // Lo que el transportista facturó de verdad por el tramo Miami→Caracas, si ya se cargó,
   // pisa al estimado por ft³/m³ — solo en modo 'aereo': los modos marítimos ya cotizan el
   // tramo completo como tal, sin una segunda factura que reconciliar contra este.
-  const maritimeFacturadoUsd = modo === 'aereo' ? (opts.fleteFacturado?.maritimoUsd ?? null) : null
+  const maritimeFacturadoUsd = modo === 'aereo' || expressPorUsa ? (opts.fleteFacturado?.maritimoUsd ?? null) : null
   const maritimeUsd = aplicarFacturado(enBarco, 'maritimeUsd', maritimeCalculadoUsd, maritimeFacturadoUsd)
 
   // Seguro y processing son cargos DE SHOPPRE, así que se cobran sobre lo que pasa por
@@ -1149,6 +1169,7 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   const reenvio: ReenvioBreakdown = {
     tipo: porKilo ? 'por_kilo' : 'shoppre',
     tarifaKgInr,
+    kgFacturados: kgPorKilo,
     reempaqueInr,
     reempaqueUsd: !esMaritimo && shoppreLines.length > 0 && airFacturadoUsd == null ? (reempaqueInr ?? 0) / inrUsd : 0,
     faltaTarifa: porKilo && usaReenvio && tarifaKgInr == null && airFacturadoUsd == null,

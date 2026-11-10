@@ -36,7 +36,7 @@ export default async function NewPresupuestoPage({
     isNaN(desdeId) ? null : db.pedido.findUnique({
       where: { id: desdeId },
       select: {
-        tipo: true, clientName: true, clienteId: true, via: true,
+        tipo: true, clientName: true, clienteId: true, via: true, reenvio: true, tarifaKgInr: true,
         items: {
           include: {
             product: { select: { id: true, nameEs: true, bajajCode: true, imageUrl: true, compatibleModels: true, discontinuedAt: true } },
@@ -109,6 +109,8 @@ export default async function NewPresupuestoPage({
         initialVia={viaDe(desde?.via ?? sp.via)}
         plazoExpressTexto={plazoExpress(await getConfig())}
         cajasExpress={await cajasExpressAbiertas()}
+        initialRuta={desde?.reenvio}
+        initialTarifaKgInr={desde?.tarifaKgInr != null ? Number(desde.tarifaKgInr) : null}
       />
     </div>
   )

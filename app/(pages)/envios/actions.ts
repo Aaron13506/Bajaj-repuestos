@@ -63,11 +63,12 @@ export async function createEnvio(formData: FormData): Promise<ActionResult> {
   const supplierRaw = parseInt((formData.get('supplierId') as string) ?? '')
   const supplierId = Number.isFinite(supplierRaw) ? supplierRaw : null
 
-  // El reenvío (Shoppre o por kilo) también se congela acá. Solo cuenta en el aéreo y solo
-  // para lo que pasa por un depósito: si el proveedor despacha él, se ignora.
+  // El reenvío (Shoppre o por kilo) también se congela acá. Solo cuenta en el aéreo y el express
+  // (por kilo = express por USA) y solo para lo que pasa por un depósito: si el proveedor
+  // despacha él, se ignora.
   const reenvioRaw = formData.get('reenvio') as string | null
   if (reenvioRaw != null && reenvioRaw !== '' && !isReenvio(reenvioRaw)) return fallo('Ese reenvío no existe.')
-  let reenvio = modo === 'aereo' && isReenvio(reenvioRaw) ? reenvioRaw : 'shoppre'
+  let reenvio = (modo === 'aereo' || modo === 'express') && isReenvio(reenvioRaw) ? reenvioRaw : 'shoppre'
   if (reenvio !== 'shoppre' && supplierId != null) {
     const sp = await db.supplier.findUnique({ where: { id: supplierId }, select: { origen: true, inbound: true } })
     if (sp && inboundDe(sp.origen, sp.inbound) === 'cotizado') reenvio = 'shoppre'
@@ -102,9 +103,10 @@ export async function createEnvio(formData: FormData): Promise<ActionResult> {
 // Transición guardada (`updateMany where estado = 'borrador'`), como las del marítimo: un
 // doble click o una segunda pestaña no hacen nada la segunda vez.
 export async function confirmarCajaAerea(envioId: number): Promise<ActionResult> {
-  // Una caja express pasada del tope no se despacha: confirmarla sería comprarla igual.
+  // Una caja express pasada del tope no se despacha: confirmarla sería comprarla igual. La express
+  // por USA (reenvío por kilo) va DDP y no tiene tope.
   const caja = await db.envio.findUnique({ where: { id: envioId }, include: ENVIO_COSTEO_INCLUDE })
-  if (caja?.modo === 'express' && caja.estado === 'borrador') {
+  if (caja?.modo === 'express' && caja.reenvio !== 'por_kilo' && caja.estado === 'borrador') {
     const ctx = await contextoCosteo([caja])
     const motivo = motivoExpressNoAprobable(topeDeCaja(costearAereo(caja, ctx).calc, ctx.cfg))
     if (motivo) return fallo(motivo)
@@ -376,7 +378,7 @@ async function asignarAEnvio(envioId: number, itemIds: number[]): Promise<Action
   const [envio, items] = await Promise.all([
     db.envio.findUnique({
       where: { id: envioId },
-      select: { modo: true, estado: true, supplier: { select: { id: true, origen: true, inbound: true } } },
+      select: { modo: true, reenvio: true, estado: true, supplier: { select: { id: true, origen: true, inbound: true } } },
     }),
     db.pedidoItem.findMany({
       where: { id: { in: itemIds } },
@@ -438,7 +440,7 @@ async function asignarAEnvio(envioId: number, itemIds: number[]): Promise<Action
         origen,
         inbound,
         isLanded: esLanded,
-        shippingStatus: normalizeToRoute(it.shippingStatus, routeFor(inbound, esLanded, envio.modo)),
+        shippingStatus: normalizeToRoute(it.shippingStatus, routeFor(inbound, esLanded, envio.modo, envio.reenvio)),
       },
     })
   }))
@@ -760,12 +762,13 @@ function revalidarFlete(envioId: number) {
 async function tramoAplica(envioId: number, tramo: TramoFlete) {
   const envio = await db.envio.findUnique({
     where: { id: envioId },
-    select: { modo: true, supplier: { select: { origen: true, inbound: true } } },
+    select: { modo: true, reenvio: true, supplier: { select: { origen: true, inbound: true } } },
   })
   if (!envio) return { error: 'Ese envío ya no existe.' }
   if (!llevaPedidos(envio.modo)) return { error: 'El flete real se carga en las cajas aéreas.' }
   // El express llega en avión hasta Caracas: Shoppre factura todo el trayecto y no hay naviera.
-  if (envio.modo === 'express' && tramo === 'maritimo') return { error: 'Una caja express no tiene tramo marítimo: Shoppre la lleva hasta Venezuela.' }
+  // La express por USA sí tiene un segundo tramo: One Way aéreo Miami → Caracas, en la fila 'maritimo'.
+  if (envio.modo === 'express' && envio.reenvio !== 'por_kilo' && tramo === 'maritimo') return { error: 'Una caja express no tiene tramo marítimo: Shoppre la lleva hasta Venezuela.' }
   if (tramo === 'aereo' && inboundDe(envio.supplier?.origen, envio.supplier?.inbound) === 'cotizado') {
     return { error: 'En esta caja el tramo a USA lo factura el proveedor: se carga como "Envío + impuestos" en su tarjeta.' }
   }
@@ -972,7 +975,7 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]): P
         productId: true, quantity: true, bundleItems: true,
         pedido: { select: { id: true, tipo: true, status: true, clientName: true } },
         incidencias: { select: { tipo: true, estado: true } },
-        envio: { select: { modo: true } },
+        envio: { select: { modo: true, reenvio: true } },
       },
     }),
     // Lo que el proveedor no mandó entero espera en la caja sin estar en el depósito (lib/sin-stock.ts).
@@ -1008,7 +1011,7 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]): P
     if (!c) continue
 
     const destino = isValidStatus(c.shippingStatus) ? c.shippingStatus : it.shippingStatus
-    const ruta = routeFor(inboundDe(it.origen, it.inbound), it.isLanded, it.envio?.modo)
+    const ruta = routeFor(inboundDe(it.origen, it.inbound), it.isLanded, it.envio?.modo, it.envio?.reenvio)
     const status = normalizeToRoute(destino, ruta)
     if (status === it.shippingStatus) continue
     // No está en el depósito: avanza recién cuando se marca que llegó. "Avanzar todo" la saltea.

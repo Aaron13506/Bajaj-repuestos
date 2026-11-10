@@ -63,10 +63,11 @@ const ROUTE_STATUSES: Record<Ruta, readonly ShippingStatus[]> = {
 // venga de donde venga. El país no decide nada acá — inboundDe() ya resolvió que un
 // proveedor chino y uno indio que despacha por su cuenta comparten las mismas etapas.
 //
-// `modo` es el de la caja en la que viaja: una caja express tiene su propia ruta, sin USA.
-export function routeFor(inbound: Inbound, isLanded: boolean, modo?: string | null): Ruta {
+// `modo` y `reenvio` son los de la caja en la que viaja: una caja express tiene su propia ruta,
+// sin USA, salvo la express por USA (reenvío por kilo), que hace las etapas de la aérea.
+export function routeFor(inbound: Inbound, isLanded: boolean, modo?: string | null, reenvio?: string | null): Ruta {
   if (isLanded) return 'landed'
-  if (modo === 'express') return 'express'
+  if (modo === 'express' && reenvio !== 'por_kilo') return 'express'
   return inbound === 'cotizado' ? 'cotizado' : 'shoppre'
 }
 

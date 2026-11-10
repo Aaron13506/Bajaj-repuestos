@@ -9,7 +9,7 @@
 //   'shoppre'   tabla escalón de ShipGlobal en USD, seguro y processing de Shoppre.
 //   'por_kilo'  no hay tabla: el precio por kilo depende del tamaño del envío y lo cotizan
 //               en el momento, en RUPIAS (Envio.tarifaKgInr). El tramo es
-//               kg cobrables × ₹/kg, sin seguro. Sin tarifa cargada la caja queda
+//               kg cobrables (escalones de 0,5, mínimo 1 por caja) × ₹/kg, sin seguro. Sin tarifa cargada la caja queda
 //               subcosteada, no gratis.
 //
 // El reempaque (Envio.reempaqueInr) es de cada caja en los dos: un paquete cuesta ₹100 y otro
@@ -46,6 +46,16 @@ export function reenvioDe(v: string | null | undefined): Reenvio {
 
 export function reenvioMeta(r: Reenvio) {
   return REENVIOS.find(x => x.value === r)!
+}
+
+/**
+ * Los kg que factura el reenvío por kilo por UNA caja: escalones de 0,5 kg hacia arriba, con
+ * mínimo de 1 kg (0,3 → 1; 1,2 → 1,5; 2,5 → 2,5). Sin carga no hay nada que facturar.
+ */
+export function kgFacturadosPorKilo(kg: number): number {
+  if (kg <= 0) return 0
+  // toFixed: que 2,5 calculado como 2,5000000001 no salte al escalón de 3.
+  return Math.max(1, Math.ceil(Number((kg / 0.5).toFixed(6))) * 0.5)
 }
 
 /** Etapas desde las que la mercancía ya dejó el depósito rumbo a USA. */

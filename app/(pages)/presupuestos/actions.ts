@@ -26,6 +26,7 @@ import { notaCobroBcv, realDeCobro, resumenCobro } from '@/lib/cobro-bcv'
 import { cobraEnBolivares } from '@/lib/pagos'
 import { motivoExpressNoAprobable, viaDe } from '@/lib/express'
 import { expressDelPedido } from '@/lib/express-pedido'
+import { isReenvio, reenvioDe, type Reenvio } from '@/lib/reenvio'
 import { assignPedido } from '../envios/actions'
 
 type Tx = Prisma.TransactionClient
@@ -159,6 +160,20 @@ async function cajaExpressElegida(formData: FormData, via: string): Promise<numb
   return id
 }
 
+// La ruta del presupuesto express (Shoppre directo o por USA) y el ₹/kg con el que se cotizó por
+// USA. Vacío = sin tarifa propia (usa la de la caja); un número ilegible se rechaza.
+function rutaExpress(formData: FormData, via: string): { reenvio: Reenvio; tarifaKgInr: number | null } {
+  if (via !== 'express') return { reenvio: 'shoppre', tarifaKgInr: null }
+  const r = formData.get('reenvio') as string | null
+  if (r && !isReenvio(r)) throw new ErrorDeNegocio('Esa ruta express no existe.')
+  const reenvio = reenvioDe(r)
+  const raw = ((formData.get('tarifaKgInr') as string | null) ?? '').trim()
+  if (reenvio !== 'por_kilo' || !raw) return { reenvio, tarifaKgInr: null }
+  const n = Number(raw.replace(',', '.'))
+  if (!Number.isFinite(n) || n < 0) throw new ErrorDeNegocio('Revisá la tarifa ₹/kg: no es un número válido.')
+  return { reenvio, tarifaKgInr: n }
+}
+
 async function meterEnCaja(cajaId: number | null, pedidoId: number) {
   if (cajaId == null) return
   const r = await assignPedido(cajaId, pedidoId)
@@ -172,6 +187,7 @@ async function crearPresupuesto(formData: FormData) {
   const via = viaDe(formData.get('via') as string | null)
   const items = parseItems(formData)
   const cajaId = await cajaExpressElegida(formData, via)
+  const ruta = rutaExpress(formData, via)
 
   if (items.length === 0) throw new ErrorDeNegocio('Agregá al menos una pieza.')
   await bloquearDescontinuadas(items)
@@ -206,6 +222,7 @@ async function crearPresupuesto(formData: FormData) {
       tipo,
       via,
       cajaExpressId: cajaId,
+      ...ruta,
       status,
       ...cotizacion,
       items: {
@@ -431,7 +448,9 @@ async function editarPresupuesto(id: number, formData: FormData) {
   const cajaId = esExpress
     ? existing.items.find(it => it.envioId != null)?.envioId ?? await cajaExpressElegida(formData, 'express')
     : null
-  ops.push(db.pedido.update({ where: { id }, data: { clientName, clienteId, notas, cajaExpressId: cajaId, ...cotizacion, ...via } }))
+  // La ruta express se recotiza con el presupuesto: un pedido confirmado ya se cobró así.
+  const ruta = existing.status === 'presupuesto' || existing.tipo === 'propio' ? rutaExpress(formData, esExpress ? 'express' : 'normal') : {}
+  ops.push(db.pedido.update({ where: { id }, data: { clientName, clienteId, notas, cajaExpressId: cajaId, ...cotizacion, ...via, ...ruta } }))
 
   await db.$transaction(ops)
   // Como al crear: el stock propio entra a la caja; el presupuesto de cliente espera a confirmarse.

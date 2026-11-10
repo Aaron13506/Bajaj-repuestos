@@ -210,7 +210,7 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
             modo: 'express',
             icono: '⚡',
             titulo: 'Envío express',
-            desc: 'Shoppre directo India → Venezuela, sin pasar por USA. Lleva un presupuesto express ya confirmado, con tope de landed por paquete.',
+            desc: 'Lleva presupuestos express. Shoppre directo India → Venezuela con tope de landed por paquete, o por USA (DDP) sin tope.',
             placeholder: 'Ej: Express María',
             cls: 'border-amber-200 bg-amber-50/40',
             btn: 'bg-amber-600 hover:bg-amber-700',
@@ -283,6 +283,23 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
                 </span>
               </label>
             )}
+            {/* La express por USA es la caja express con reenvío por kilo (lib/calc.ts expressPorUsa). */}
+            {r.modo === 'express' && (
+              <label className="block">
+                <span className="text-xs text-gray-500">Ruta</span>
+                <select
+                  name="reenvio"
+                  defaultValue="shoppre"
+                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="shoppre">Shoppre directo a Venezuela · tope de landed</option>
+                  <option value="por_kilo">Por USA (DDP) · reenvío por kilo + One Way aéreo, sin tope</option>
+                </select>
+                <span className="block text-[11px] text-gray-500 mt-1">
+                  Por USA: la tarifa ₹/kg se anota en la caja; One Way (USD/lb y por paquete) sale de Configuración.
+                </span>
+              </label>
+            )}
             <PendingButton
               pendingLabel="Creando…"
               className={`text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors ${r.btn}`}
@@ -339,8 +356,8 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
             const cotizada = e.supplier ? inboundDe(e.supplier.origen, e.supplier.inbound) === 'cotizado' : false
             const fletes = esMar ? 'sin_cargar' : resumenFletes([
               ...(cotizada ? [] : [{ facturadoUsd: e.shippingCostRealAereo != null ? parseFloat(e.shippingCostRealAereo.toString()) : null, pagadoUsd: pagadoFlete.get(`${e.id}:flete_aereo`) ?? 0 }]),
-              // El express no tiene naviera: Shoppre lo lleva hasta Venezuela.
-              ...(esExpress ? [] : [{ facturadoUsd: e.shippingCostRealMaritimo != null ? parseFloat(e.shippingCostRealMaritimo.toString()) : null, pagadoUsd: pagadoFlete.get(`${e.id}:flete_maritimo`) ?? 0 }]),
+              // El express directo no tiene naviera: Shoppre lo lleva hasta Venezuela.
+              ...(esExpress && e.reenvio !== 'por_kilo' ? [] : [{ facturadoUsd: e.shippingCostRealMaritimo != null ? parseFloat(e.shippingCostRealMaritimo.toString()) : null, pagadoUsd: pagadoFlete.get(`${e.id}:flete_maritimo`) ?? 0 }]),
             ])
             const pct = summary
               ? Math.round((summary.leadIndex / (SHIPPING_STATUSES.length - 1)) * 100)

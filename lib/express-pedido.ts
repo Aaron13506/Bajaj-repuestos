@@ -1,9 +1,10 @@
 import type { Prisma } from '@prisma/client'
 import { db } from './db'
 import type { BundlePiece } from './bundle'
-import type { ConfigMap, EnvioItemInput } from './calc'
+import type { ConfigMap, EnvioItemInput, ReenvioCaja } from './calc'
 import { expandCostPieces, lookupDeConjuntos } from './envio-build'
-import { calcExpress, viaDe, type Express } from './express'
+import { calcExpress, reenvioDelPresupuesto, viaDe, type Express } from './express'
+import { ETAPAS_FUERA_DEL_DEPOSITO, reenvioDe } from './reenvio'
 
 type Cliente = Prisma.TransactionClient | typeof db
 
@@ -30,19 +31,29 @@ async function aPiezas(lineas: Linea[]): Promise<EnvioItemInput[]> {
 
 /**
  * Lo que ya va en una caja express, menos el presupuesto que se está costeando: viaja en el
- * mismo paquete, así que el flete se reparte con eso (ver ExpressOptions.acompanantes).
+ * mismo paquete, así que el flete se reparte con eso (ver ExpressOptions.acompanantes). Y su
+ * reenvío: por kilo = express por USA, con la tarifa ₹/kg y el reempaque anotados en la caja.
  * shortcut: suma las piezas aunque la caja ya esté pesada o facturada; si hace falta, usar el costeo de la caja.
  */
-export async function acompanantesDeCaja(tx: Cliente, envioId: number, sinPedidoId: number | null): Promise<EnvioItemInput[]> {
-  const lineas = await tx.pedidoItem.findMany({
-    where: {
-      envioId,
-      ...(sinPedidoId != null ? { pedidoId: { not: sinPedidoId } } : {}),
-      pedido: { status: { not: 'cancelado' } },
-    },
-    select: lineaSelect,
-  })
-  return aPiezas(lineas)
+export async function cajaExpress(
+  tx: Cliente, envioId: number, sinPedidoId: number | null,
+): Promise<{ acompanantes: EnvioItemInput[]; reenvio: ReenvioCaja | null }> {
+  const [lineas, caja] = await Promise.all([
+    tx.pedidoItem.findMany({
+      where: {
+        envioId,
+        ...(sinPedidoId != null ? { pedidoId: { not: sinPedidoId } } : {}),
+        pedido: { status: { not: 'cancelado' } },
+      },
+      select: lineaSelect,
+    }),
+    tx.envio.findUnique({ where: { id: envioId }, select: { reenvio: true, tarifaKgInr: true, reempaqueInr: true } }),
+  ])
+  const dec = (d: Prisma.Decimal | null) => (d != null ? Number(d) : null)
+  return {
+    acompanantes: await aPiezas(lineas),
+    reenvio: caja ? { tipo: reenvioDe(caja.reenvio), tarifaKgInr: dec(caja.tarifaKgInr), reempaqueInr: dec(caja.reempaqueInr) } : null,
+  }
 }
 
 // El paquete express de un presupuesto YA GUARDADO, tal como lo costea el armador: todas sus
@@ -54,30 +65,35 @@ export async function expressDelPedido(
 ): Promise<(Express & { cajaId: number | null; lineasEnCaja: boolean }) | null> {
   const p = await tx.pedido.findUnique({
     where: { id: pedidoId },
-    select: { via: true, cajaExpressId: true, items: { select: { ...lineaSelect, envioId: true } } },
+    select: { via: true, cajaExpressId: true, reenvio: true, tarifaKgInr: true, items: { select: { ...lineaSelect, envioId: true } } },
   })
   if (!p || viaDe(p.via) !== 'express') return null
 
   // La caja donde ya están sus líneas, o la elegida al cotizar (un presupuesto de cliente sin confirmar).
   const enCaja = p.items.find(it => it.envioId != null)?.envioId ?? null
   const cajaId = enCaja ?? p.cajaExpressId
-  const [items, acompanantes] = await Promise.all([
+  const [items, caja] = await Promise.all([
     aPiezas(p.items),
-    cajaId != null ? acompanantesDeCaja(tx, cajaId, pedidoId) : Promise.resolve([]),
+    cajaId != null ? cajaExpress(tx, cajaId, pedidoId) : Promise.resolve(null),
   ])
-  return { ...calcExpress(items, cfg, { acompanantes }), cajaId, lineasEnCaja: enCaja != null }
+  const reenvio = reenvioDelPresupuesto(p.reenvio, p.tarifaKgInr != null ? Number(p.tarifaKgInr) : null, caja?.reenvio ?? null)
+  return { ...calcExpress(items, cfg, { acompanantes: caja?.acompanantes, reenvio }), cajaId, lineasEnCaja: enCaja != null }
 }
 
-/** Cajas express a las que todavía se les puede sumar un presupuesto: nada salió aún del depósito. */
-export async function cajasExpressAbiertas(): Promise<{ id: number; nombre: string }[]> {
+/** Cajas express a las que todavía se les puede sumar un presupuesto: nada salió aún del depósito (ni a Caracas ni a Miami). */
+export async function cajasExpressAbiertas(): Promise<{ id: number; nombre: string; reenvio: string }[]> {
   const cajas = await db.envio.findMany({
     where: {
       modo: 'express',
       estado: { not: 'entregado' },
-      items: { none: { shippingStatus: { in: ['camino_venezuela', 'en_venezuela', 'entregado'] } } },
+      items: { none: { shippingStatus: { in: ETAPAS_FUERA_DEL_DEPOSITO } } },
     },
-    select: { id: true, nombre: true, estado: true },
+    select: { id: true, nombre: true, estado: true, reenvio: true },
     orderBy: { id: 'desc' },
   })
-  return cajas.map(c => ({ id: c.id, nombre: `${c.nombre?.trim() || `Caja #${c.id}`}${c.estado === 'borrador' ? ' (borrador)' : ''}` }))
+  return cajas.map(c => ({
+    id: c.id,
+    reenvio: c.reenvio,
+    nombre: `${c.nombre?.trim() || `Caja #${c.id}`}${c.reenvio === 'por_kilo' ? ' · por USA, sin tope' : ' · directo'}${c.estado === 'borrador' ? ' (borrador)' : ''}`,
+  }))
 }
