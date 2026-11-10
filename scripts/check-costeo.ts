@@ -16,7 +16,7 @@
 //   pnpm check:costeo
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { calcEnvio, calcLanded, calcPrecioBcv, type ConfigMap, type EnvioItemInput, type ProveedorEnvio } from '../lib/calc'
+import { calcEnvio, calcLanded, calcPrecioBcv, cobrableConBanda, type ConfigMap, type EnvioItemInput, type ProveedorEnvio } from '../lib/calc'
 import { telefonoIntl } from '../lib/utils'
 import { mensajeEstado } from '../lib/mensajes-cliente'
 import {
@@ -1646,6 +1646,20 @@ console.log('\nENVÍO EXPRESS')
   check('por USA: sin ₹/kg no se confirma', si(motivoExpressNoAprobable(usaSinTarifa)?.includes('₹/kg') ?? false), 1)
   const usaFacturado = calcEnvio([pieza(3000, 4000)], cfg, { modo: 'express', reenvio: kiloUsa, fleteFacturado: { aereoUsd: 30, maritimoUsd: 40 } })
   check('por USA: la factura de One Way pisa al estimado', usaFacturado.maritimeUsd, 40)
+  // Banda de tolerancia del volumétrico (cotización express sin pesar, 10%): hasta +10% cobra el
+  // peso, de +10% a +20% sube lineal, más allá todo el volumétrico.
+  check('banda: volumétrico 5% arriba cobra el peso', cobrableConBanda(2, 2.1, 0.1), 2, 1e-9)
+  check('banda: 15% arriba, mitad de camino', cobrableConBanda(2, 2.3, 0.1), 2.15, 1e-9)
+  check('banda: 30% arriba, todo volumen', cobrableConBanda(2, 2.6, 0.1), 2.6, 1e-9)
+  check('banda: el peso manda igual que siempre', cobrableConBanda(2, 1.5, 0.1), 2, 1e-9)
+  check('banda: sin tolerancia es el mayor', cobrableConBanda(2, 2.1, 0), 2.1, 1e-9)
+  // 1 kg real en 25×20×10.5 = 1.05 kg volumétrico: dentro de la banda, cobra 1 kg.
+  const justo = calcExpress([pieza(1000, 2000, [25, 20, 10.5])], cfg)
+  check('banda express: 5% de volumétrico de más cobra el peso', justo.envio.air.chargeableKg, 1, 1e-9)
+  check('banda express: y el flete es el de 1 kg', justo.envio.airUsd, ve(1))
+  check('banda express: kg cobrables del presupuesto', justo.chargeableKg, 1, 1e-9)
+  check('banda: la caja real cobra el mayor', calcEnvio([pieza(1000, 2000, [25, 20, 10.5])], cfg, { modo: 'express' }).air.chargeableKg, 1.05, 1e-9)
+
   // La ruta del presupuesto: sin caja la suya; con caja manda la de la caja, y su ₹/kg si no anotó uno.
   const cajaUsa = { tipo: 'por_kilo' as const, tarifaKgInr: 700, reempaqueInr: 300 }
   check('presupuesto: sin caja, directo', si(reenvioDelPresupuesto('shoppre', null, null) == null), 1)

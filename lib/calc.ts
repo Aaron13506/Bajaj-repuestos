@@ -639,6 +639,9 @@ export interface EnvioOptions {
   // Shoppre, que es como se costea todo lo que no es una caja real (catálogo, presupuestos,
   // simulador): los precios de venta salen siempre de la tabla de Shoppre.
   reenvio?: ReenvioCaja | null
+  // Cotización express: el volumétrico de un paquete sin pesar se cobra con banda de tolerancia
+  // (cobrableConBanda) y no entero apenas pasa al peso. La caja real no lo usa: cobra el mayor.
+  bandaVolumetrico?: boolean
 }
 
 export interface FleteFacturado {
@@ -724,6 +727,19 @@ function cajaFacturable(medidas?: MedidasCaja[] | null): CajaFacturable {
 // grupo puso el 40% de las piezas, le tocan 7,4 kg. Con la caja sin pesar vale 1 y los kg
 // del grupo son la suma de sus piezas, que es un piso. El reparto del costo entre líneas
 // se hace sobre los netos, que están en la misma proporción.
+/**
+ * Kg cobrables de un paquete SIN PESAR con banda de tolerancia `tol` (fracción): hasta tol por
+ * encima del peso real se cobra el peso; de tol a 2·tol sube lineal; más allá, todo el
+ * volumétrico. La suma de piezas es un piso de los dos lados, así que un volumétrico apenas
+ * mayor no dice que el paquete ate por volumen. Con tol 0 es el mayor de los dos.
+ */
+export function cobrableConBanda(realKg: number, volKg: number, tol: number): number {
+  if (volKg <= realKg || tol <= 0) return Math.max(realKg, volKg)
+  const exceso = realKg > 0 ? volKg / realKg - 1 : Infinity
+  const w = Math.min(1, Math.max(0, (exceso - tol) / tol))
+  return realKg + w * (volKg - realKg)
+}
+
 // La parte de cada línea en un tramo aéreo: por peso, por volumen o mezclado (repartoVolumen).
 function cuotasTramo(lines: EnvioItemLine[], repartoVolumen: number): number[] {
   const denomPeso = lines.reduce((s, l) => s + l.realKg, 0)
@@ -923,10 +939,15 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   // Tramo Shoppre→USA: tarifa escalón de ShipGlobal sobre el peso cobrable de ESE grupo.
   // En marítimo directo la caja nunca pasa por USA, así que el tramo vale 0 — pero se sigue
   // midiendo en kg para poder comparar los dos escenarios lado a lado.
-  const shoppreChargeable = Math.max(
-    shoppreLines.reduce((s, l) => s + l.realKg, 0) * escala.peso,
-    shoppreLines.reduce((s, l) => s + l.volKg, 0) * escala.volumen,
-  )
+  // La banda de error solo rige mientras la caja no se pesó Y midió: con las dos cosas cargadas
+  // el volumétrico deja de ser una suma de pisos y vale la regla exacta.
+  const cajaCompleta = caja.pesoKg != null && caja.cm3 != null
+  const tolerancia = cajaCompleta ? 0 : num(cfg, 'caja_sin_pesar_tolerancia_pct', 10) / 100
+  const shoppreRealKg = shoppreLines.reduce((s, l) => s + l.realKg, 0) * escala.peso
+  const shoppreVolKg = shoppreLines.reduce((s, l) => s + l.volKg, 0) * escala.volumen
+  const shoppreChargeable = opts.bandaVolumetrico
+    ? cobrableConBanda(shoppreRealKg, shoppreVolKg, tolerancia)
+    : Math.max(shoppreRealKg, shoppreVolKg)
   // El transportista tiene un tope por caja: pasado ese peso no existe "una caja más
   // pesada", existen dos cajas. Saturar en el último escalón —lo que hacía el lookup
   // simple— cobraba 24 kg al precio de 22 y 44 kg también al de 22, y el error crece con
@@ -967,10 +988,6 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
           capKg: null,
         }
       : cotizarTramoAereo(shoppreChargeable, carrier, isMember, cfg, esExpress ? 've' : 'usa')
-  // La banda de error solo rige mientras la caja no se pesó Y midió: con las dos cosas cargadas
-  // el volumétrico deja de ser una suma de pisos y vale la regla exacta.
-  const cajaCompleta = caja.pesoKg != null && caja.cm3 != null
-  const tolerancia = cajaCompleta ? 0 : num(cfg, 'caja_sin_pesar_tolerancia_pct', 10) / 100
   // Lo que Shoppre/el reenvío facturó de verdad, si ya se cargó, pisa al estimado.
   const airFacturadoUsd = modo === 'aereo' || esExpress ? (opts.fleteFacturado?.aereoUsd ?? null) : null
   // Sin tarifa cotizada el estimado es 0, y pisar un 0 con la factura la repartiría en partes
@@ -984,6 +1001,7 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   )
   // Caja por caja, lo cobrable es la suma de cada una (≥ el max de los totales).
   if (cobrablesPorCaja) airLeg.chargeableKg = cobrablesPorCaja.reduce((s, k) => s + k, 0)
+  else if (opts.bandaVolumetrico) airLeg.chargeableKg = shoppreChargeable
 
   // Tramo cotizado: no hay tabla, es el total que facturó el proveedor de la caja.
   const prov = opts.proveedor ?? null

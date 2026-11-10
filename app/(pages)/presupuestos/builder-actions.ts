@@ -313,7 +313,8 @@ function costearExpress(
       excede: e.excede,
       fleteUsd: e.fleteUsd,
       chargeableKg: e.chargeableKg,
-      ataVolumen: e.envio.air.binding === 'volume',
+      // Con la banda, «manda el volumen» es cobrar por encima del peso, no solo que el volumétrico sea mayor.
+      ataVolumen: e.envio.air.chargeableKg > e.envio.air.realKg + 1e-9,
       productoQueEntraUsd: e.productoQueEntraUsd,
       kgHastaProximoEscalon: e.kgHastaProximoEscalon,
       margen: e.margen,

@@ -1400,6 +1400,15 @@ export default function PresupuestoBuilder({
                       <div>
                         <p className="text-[11px] text-gray-500">{isPropio ? 'Peso real' : 'Peso'}</p>
                         <p className={`text-base font-bold font-mono ${isPropio && costo.weightKg >= costo.volKg ? 'text-green-700' : 'text-gray-900'}`}>{costo.weightKg.toFixed(2)} kg</p>
+                        {/* Informativo: peso vs volumétrico y lo que se cobra con la banda de tolerancia
+                            (lib/calc.ts cobrableConBanda). Lo propio ya tiene su columna. */}
+                        {esExpress && !isPropio && costo.express && (
+                          <p className={`text-[10px] ${costo.express.chargeableKg > costo.weightKg + 0.005 ? 'text-red-700' : 'text-gray-500'}`}>
+                            vol {costo.volKg.toFixed(2)} kg
+                            {costo.weightKg > 0 && <> · V/W {((costo.volKg / costo.weightKg) * 100).toFixed(0)}%</>}
+                            {' '}· cobra {costo.express.chargeableKg.toFixed(2)} kg
+                          </p>
+                        )}
                       </div>
                       {isPropio ? (
                         <>
@@ -1486,10 +1495,12 @@ export default function PresupuestoBuilder({
                       </p>
                     )}
 
-                    {isPropio && costo.sinMedidas > 0 && (
+                    {(isPropio || esExpress) && costo.sinMedidas > 0 && (
                       <p className="text-[11px] bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-2.5 py-2">
                         <span className="font-semibold">{costo.sinMedidas} pieza{costo.sinMedidas === 1 ? '' : 's'} sin medidas.</span>{' '}
-                        No suman volumen: el espacio real va a ser mayor que el que ves.
+                        {esExpress
+                          ? 'No suman volumétrico: si el paquete es voluminoso, el flete real va a ser mayor.'
+                          : 'No suman volumen: el espacio real va a ser mayor que el que ves.'}
                       </p>
                     )}
 

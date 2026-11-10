@@ -1,4 +1,4 @@
-import { calcEnvio, calcPrecioBcv, type EnvioBreakdown, type EnvioItemInput, type MedidasCaja, type ReenvioCaja } from './calc'
+import { calcEnvio, calcPrecioBcv, cobrableConBanda, type EnvioBreakdown, type EnvioItemInput, type MedidasCaja, type ReenvioCaja } from './calc'
 import { num, margenPorDefecto, type ConfigMap } from './config'
 import { resolveRateTable, CARRIER_EXPRESS_VE } from './shipping-rates'
 
@@ -69,7 +69,10 @@ export interface Express {
   landedUsd: number
   /** Landed del paquete entero, el que se mide contra el tope. */
   paqueteUsd: number
-  /** Kg cobrables y flete (Shoppre → VEN, o depósito → Miami + One Way) de ESTE presupuesto, su parte del paquete. */
+  /**
+   * Kg cobrables y flete (Shoppre → VEN, o depósito → Miami + One Way) de ESTE presupuesto, su parte
+   * del paquete. Sin pesar, el volumétrico entra con banda de tolerancia (cobrableConBanda).
+   */
   chargeableKg: number
   fleteUsd: number
   /** tope − landed del paquete. Negativo = te pasaste por esa cantidad. */
@@ -115,6 +118,7 @@ export function calcExpress(items: EnvioItemInput[], cfg: ConfigMap, opts: Expre
     medidas: opts.medidas ? [opts.medidas] : null,
     fleteFacturado: opts.fleteUsd != null ? { aereoUsd: opts.fleteUsd } : null,
     reenvio: opts.reenvio,
+    bandaVolumetrico: true,
   })
   // Las líneas de este presupuesto van primero: calcEnvio devuelve una línea por ítem, en orden.
   const propias = envio.lines.slice(0, items.length)
@@ -149,7 +153,11 @@ export function calcExpress(items: EnvioItemInput[], cfg: ConfigMap, opts: Expre
     topeUsd,
     landedUsd,
     paqueteUsd: envio.landedUsd,
-    chargeableKg: Math.max(propias.reduce((s, l) => s + l.realKg, 0), propias.reduce((s, l) => s + l.volKg, 0)),
+    chargeableKg: cobrableConBanda(
+      propias.reduce((s, l) => s + l.realKg, 0),
+      propias.reduce((s, l) => s + l.volKg, 0),
+      envio.caja.pesoKg != null && envio.caja.cm3 != null ? 0 : num(cfg, 'caja_sin_pesar_tolerancia_pct', 10) / 100,
+    ),
     fleteUsd: propias.reduce((s, l) => s + l.airUsd + l.maritimeUsd, 0),
     holguraUsd,
     excede: !porUsa && holguraUsd < 0,
