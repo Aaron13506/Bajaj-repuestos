@@ -106,10 +106,11 @@ export interface CostoCarrito {
    */
   faltaTarifa: boolean
   /**
-   * Por Miami: el mismo carrito por el reenvío que NO está elegido, para ver cuál conviene.
-   * null en express, o si esa ruta no se puede costear (por kilo sin tarifa de referencia).
+   * Por Miami: el landed del mismo carrito por el reenvío que NO está elegido, para comparar cuánto
+   * se gana por cada uno al mismo precio. null en express, o si esa ruta no se puede costear (por
+   * kilo sin tarifa de referencia). El precio sugerido no cambia con la ruta: es siempre Shoppre.
    */
-  alternativa: { reenvio: Reenvio; tarifaKgInr: number | null; landedUsd: number; sugeridoUsd: number | null } | null
+  alternativa: { reenvio: Reenvio; tarifaKgInr: number | null; landedUsd: number } | null
 }
 
 export interface ResumenExpress {
@@ -176,12 +177,9 @@ export async function costearCarrito(
   }
   const margenes = await db.product.findMany({
     where: { id: { in: [...piezasIds] } },
-    select: { id: true, margin: true, price: true, priceLocked: true },
+    select: { id: true, margin: true },
   })
   const margenPorId = new Map(margenes.map(m => [m.id, m.margin]))
-  // Precio fijo: por kilo la pieza sugiere el precio escrito (el precio es el dato, el margen la
-  // consecuencia). En la ruta Shoppre la cuenta de siempre no se toca.
-  const precioFijoPorId = new Map(margenes.filter(m => m.priceLocked).map(m => [m.id, Number(m.price)]))
   const tarifaValida = tarifaKgInr != null && Number.isFinite(tarifaKgInr) && tarifaKgInr >= 0 ? tarifaKgInr : null
 
   if (via === 'express') {
@@ -191,21 +189,15 @@ export async function costearCarrito(
 
   // Por Miami: el reenvío elegido (null = Shoppre, lo de siempre) y la otra ruta, al lado. Por
   // kilo, la tarifa del presupuesto o la de referencia; Shoppre siempre se puede costear.
+  //
+  // El PRECIO sugerido sale siempre de Shoppre, elija la ruta que elija (decisión del dueño: se
+  // cotiza a precio Shoppre y, si conviene, se baja a mano). El reenvío solo cambia el COSTO de
+  // las líneas, o sea el margen que se ve; la otra ruta va en `alternativa` para comparar.
   const elegido = reenvioDelPresupuestoNormal(ruta, tarifaValida, cfg)
   const faltaTarifa = elegido != null && elegido.tarifaKgInr == null
   const tarifaKilo = elegido != null ? elegido.tarifaKgInr : tarifaKgReferencia(cfg)
   const hayAlternativa = elegido != null || tarifaKilo != null
   let altLanded = 0
-  let altSugerido: number | null = 0
-
-  // El precio sugerido por unidad de una pieza en una ruta: landed ÷ (1 − margen), o el precio
-  // fijo si va por kilo. null si no hay margen con el que sugerir.
-  const sugerir = (landedUsd: number, productId: number | null | undefined, kilo: boolean): number | null => {
-    const fijo = kilo && productId != null ? precioFijoPorId.get(productId) : undefined
-    if (fijo != null) return fijo
-    const margen = (productId != null ? margenPorId.get(productId) : null) ?? defaultMargin
-    return Number.isFinite(margen) && margen < 1 ? landedUsd / (1 - margen) : null
-  }
 
   const out: CostoLinea[] = []
   for (const l of lineas) {
@@ -250,22 +242,19 @@ export async function costearCarrito(
       // Sin peso el aéreo no se puede costear: la pieza queda marcada, no estimada.
       if (bShoppre == null) { linea.sinPeso++; continue }
 
-      if (bAlt != null) {
-        altLanded += bAlt.landedCostUsd * pieza.quantity
-        const u = sugerir(bAlt.landedCostUsd, pieza.productId, elegido == null)
-        altSugerido = altSugerido != null && u != null ? altSugerido + u * pieza.quantity : null
-      }
+      if (bAlt != null) altLanded += bAlt.landedCostUsd * pieza.quantity
 
-      // Por kilo sin tarifa: nada que sumar (no se costea con 0); se avisa con faltaTarifa.
-      if (b == null) { linea.sugeridoUsd = null; continue }
-
-      linea.landedUsd += b.landedCostUsd * pieza.quantity
-      const u = sugerir(b.landedCostUsd, pieza.productId, elegido != null)
-      if (linea.sugeridoUsd != null && u != null) {
-        linea.sugeridoUsd += u * pieza.quantity
+      // El sugerido, siempre por Shoppre: la cuenta de siempre.
+      const margen = (pieza.productId != null ? margenPorId.get(pieza.productId) : null) ?? defaultMargin
+      if (linea.sugeridoUsd != null && Number.isFinite(margen) && margen < 1) {
+        linea.sugeridoUsd += (bShoppre.landedCostUsd / (1 - margen)) * pieza.quantity
       } else {
         linea.sugeridoUsd = null
       }
+
+      // El costo, por la ruta elegida. Por kilo sin tarifa no se suma nada (no se costea con 0):
+      // se avisa con faltaTarifa.
+      if (b != null) linea.landedUsd += b.landedCostUsd * pieza.quantity
     }
 
     // El carrito cotiza por unidad (o por conjunto); el costeo agrega la línea entera.
@@ -297,7 +286,6 @@ export async function costearCarrito(
           reenvio: elegido != null ? 'shoppre' : 'por_kilo',
           tarifaKgInr: elegido != null ? null : tarifaKilo,
           landedUsd: altLanded,
-          sugeridoUsd: altSugerido,
         }
       : null,
   }

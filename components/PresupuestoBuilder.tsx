@@ -692,9 +692,9 @@ export default function PresupuestoBuilder({
         <p className="text-[11px] text-gray-400 mt-1">El pedido ya está confirmado: el envío no se cambia.</p>
       ) : viaFija ? (
         <p className="text-[11px] text-gray-400 mt-1">Ya hay piezas en una caja: el envío no se cambia.</p>
-      ) : (esExpress || ruta !== initialRuta) && editando && desalineadas.length > 0 && (
+      ) : esExpress && editando && desalineadas.length > 0 && (
         <p className="text-[11px] text-amber-700 mt-1">
-          Los precios que ya tenía no cambian solos: usá &quot;Aplicar precios sugeridos&quot; para pasarlos a {esExpress ? 'precio express' : 'esta ruta'}.
+          Los precios que ya tenía no cambian solos: usá &quot;Aplicar precios sugeridos&quot; para pasarlos a precio express.
         </p>
       )}
       {!esExpress && (
@@ -740,7 +740,7 @@ export default function PresupuestoBuilder({
               <p className="text-[11px] text-gray-500 mt-1">
                 {tarifaKg.trim() !== '' && tarifaKgValida == null
                   ? <span className="text-red-700">No es un número válido.</span>
-                  : 'Queda guardada en el presupuesto: si después cambia la de Configuración, este no se recotiza. Va en una caja aérea por kilo.'}
+                  : 'El precio sugerido sigue siendo el de Shoppre: esto cambia el costo y el margen que ves. Queda guardada en el presupuesto y va en una caja aérea por kilo.'}
               </p>
             </div>
           )}
@@ -1531,19 +1531,20 @@ export default function PresupuestoBuilder({
                       </p>
                     )}
 
-                    {/* La otra ruta, siempre a la vista: es la respuesta a "cuál me conviene para este pedido". */}
+                    {/* La otra ruta, al mismo precio: cuánto se ganaría si viajara por ella. Es la
+                        respuesta a "cuál me conviene para este pedido". El precio no cambia solo. */}
                     {!esExpress && costo.alternativa && !costo.faltaTarifa && (() => {
                       const alt = costo.alternativa
-                      const sugeridoElegido = costo.lineas.every(l => l.sugeridoUsd != null)
-                        ? costo.lineas.reduce((s, l) => s + l.sugeridoUsd!, 0)
-                        : null
-                      const dif = alt.sugeridoUsd != null && sugeridoElegido != null ? alt.sugeridoUsd - sugeridoElegido : null
+                      const altLanded = cart.length === costo.lineas.length ? alt.landedUsd : null
+                      const ganancia = altLanded != null ? total - altLanded : null
+                      const dif = ganancia != null ? ganancia - (total - landedTotal) : null
                       return (
                         <p className="text-[11px] text-gray-600">
-                          {alt.reenvio === 'por_kilo' ? `Por kilo (₹${alt.tarifaKgInr}/kg)` : 'Por Shoppre'}: landed ${alt.landedUsd.toFixed(2)}
-                          {alt.sugeridoUsd != null && <>, venta sugerida ${alt.sugeridoUsd.toFixed(2)}</>}
+                          {alt.reenvio === 'por_kilo' ? `Por kilo (₹${alt.tarifaKgInr}/kg)` : 'Por Shoppre'}, al mismo precio:
+                          landed ${alt.landedUsd.toFixed(2)}
+                          {ganancia != null && total > 0 && <>, ganancia ${ganancia.toFixed(2)} ({((ganancia / total) * 100).toFixed(1)}%)</>}
                           {dif != null && Math.abs(dif) >= 0.005 && (
-                            <span className={dif < 0 ? 'text-green-700' : 'text-red-600'}> ({dif > 0 ? '+' : '−'}${Math.abs(dif).toFixed(2)})</span>
+                            <span className={dif > 0 ? 'text-green-700' : 'text-red-600'}> ({dif > 0 ? '+' : '−'}${Math.abs(dif).toFixed(2)})</span>
                           )}
                         </p>
                       )
