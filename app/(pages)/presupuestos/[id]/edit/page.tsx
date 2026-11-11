@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { plazoExpress, viaDe } from '@/lib/express'
 import { getConfig } from '@/lib/config-db'
+import { reenvioPorDefecto, tarifaKgReferencia } from '@/lib/reenvio'
 import PresupuestoBuilder from '@/components/PresupuestoBuilder'
 import { updatePresupuesto } from '../../actions'
 import { type BundlePiece } from '@/lib/bundle'
@@ -17,6 +18,7 @@ export const metadata = { title: 'Editar presupuesto' }
 export default async function EditPresupuestoPage({ params }: { params: Promise<{ id: string }> }) {
   const id = parseInt((await params).id)
   if (isNaN(id)) notFound()
+  const cfg = await getConfig()
 
   const [presupuesto, assemblies, clientes, posiciones] = await Promise.all([
     db.pedido.findUnique({
@@ -132,10 +134,14 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
         clientes={clientes}
         posiciones={posiciones}
         initialVia={viaDe(presupuesto.via)}
-        plazoExpressTexto={plazoExpress(await getConfig())}
+        plazoExpressTexto={plazoExpress(cfg)}
         cajasExpress={await cajasExpressAbiertas()}
         initialCajaId={cajaExpressId}
         initialRuta={presupuesto.reenvio}
+        reenvioDefault={reenvioPorDefecto(cfg)}
+        tarifaKgReferencia={tarifaKgReferencia(cfg)}
+        // Por Miami, una línea ya en una caja fija el reenvío (manda la caja).
+        reenvioFijo={presupuesto.items.some(it => it.envioId != null)}
         initialTarifaKgInr={presupuesto.tarifaKgInr != null ? Number(presupuesto.tarifaKgInr) : null}
         cajaFija={cajaExpressId != null && cajaConLineas != null}
         pedidoId={id}

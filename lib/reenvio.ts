@@ -132,3 +132,37 @@ export function reenvioDelPresupuestoNormal(
   if (ruta !== 'por_kilo') return null
   return { tipo: 'por_kilo', tarifaKgInr: tarifaKgInr ?? tarifaKgReferencia(cfg) }
 }
+
+/**
+ * La ruta de un presupuesto tal como llega del armador (`reenvio` + `tarifaKgInr`), o el motivo
+ * para rechazarla. Pura: la usa la acción al guardar y la cubre check:costeo.
+ *
+ * - Express: igual que siempre. Shoppre directo o por USA; vacío = sin tarifa propia (usa la de
+ *   la caja).
+ * - Normal (por Miami): Shoppre, o por kilo con su ₹/kg. Vacío = la tarifa de referencia de
+ *   /config, congelada en el presupuesto (mover la de config no re-costea lo ya dicho al
+ *   cliente). Sin ninguna de las dos no se guarda: nunca se costea con 0.
+ *
+ * Un número ilegible o negativo se rechaza en las dos (un 0 escrito es un dato).
+ */
+export function leerRutaPresupuesto(
+  raw: string | null | undefined,
+  tarifaRaw: string | null | undefined,
+  via: 'normal' | 'express',
+  cfg: ConfigMap,
+): { reenvio: Reenvio; tarifaKgInr: number | null } | { error: string } {
+  const r = (raw ?? '').trim()
+  if (r && !isReenvio(r)) return { error: via === 'express' ? 'Esa ruta express no existe.' : 'Ese reenvío no existe.' }
+  const reenvio = reenvioDe(r)
+  if (reenvio !== 'por_kilo') return { reenvio, tarifaKgInr: null }
+  const t = (tarifaRaw ?? '').trim()
+  if (t) {
+    const n = Number(t.replace(',', '.'))
+    if (!Number.isFinite(n) || n < 0) return { error: 'Revisá la tarifa ₹/kg: no es un número válido.' }
+    return { reenvio, tarifaKgInr: n }
+  }
+  if (via === 'express') return { reenvio, tarifaKgInr: null }
+  const ref = tarifaKgReferencia(cfg)
+  if (ref == null) return { error: 'Falta la tarifa ₹/kg del reenvío por kilo: anotala acá o en Configuración.' }
+  return { reenvio, tarifaKgInr: ref }
+}

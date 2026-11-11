@@ -54,7 +54,7 @@ import {
 import { debeSaldo, motivoNoEntregable, saldoReal, seEntregaDesdeElPedido, situacionDeCobro } from '../lib/saldo-entrega'
 import { diasSinMoverse, tiempoDeCompraA, tiemposPorTramo } from '../lib/etapas'
 import { leerDevolucion } from '../lib/devolucion'
-import { kgFacturadosPorKilo, reenvioDelPresupuestoNormal, reenvioPorDefecto, tarifaEquilibrioKgInr, tarifaKgReferencia } from '../lib/reenvio'
+import { kgFacturadosPorKilo, leerRutaPresupuesto, reenvioDelPresupuestoNormal, reenvioPorDefecto, tarifaEquilibrioKgInr, tarifaKgReferencia } from '../lib/reenvio'
 import { compraTrasMover, motivoNoMueve, motivoNoMueveSinEnviar, type CajaParaMover } from '../lib/mover-caja'
 import { avanzaSinEstar, motivoNoDespacha, planSeparar, repartirSinStock, tokensSku } from '../lib/sin-stock'
 import { leerTrackingsTramo, MAX_TRACKINGS_POR_TRAMO } from '../lib/tracking'
@@ -1919,6 +1919,23 @@ console.log('\nREENVÍO POR KILO POR PIEZA (catálogo y presupuestos)')
   check('presupuesto normal: su 0 es un dato', reenvioDelPresupuestoNormal('por_kilo', 0, conRef)?.tarifaKgInr ?? -1, 0)
   const sinNinguna = reenvioDelPresupuestoNormal('por_kilo', null, {})
   check('presupuesto normal: sin ninguna, por kilo con tarifa null', si(sinNinguna?.tipo === 'por_kilo' && sinNinguna.tarifaKgInr === null), 1)
+
+  // Lo que llega del armador al guardar.
+  const leer = leerRutaPresupuesto
+  const tarifaDe = (r: ReturnType<typeof leer>) => ('error' in r ? -1 : r.tarifaKgInr ?? -2)
+  check('guardar normal: sin reenvío es Shoppre', si(!('error' in leer(null, null, 'normal', conRef)) && (leer(null, null, 'normal', conRef) as { reenvio: string }).reenvio === 'shoppre'), 1)
+  check('guardar normal: Shoppre ignora la tarifa escrita', tarifaDe(leer('shoppre', '700', 'normal', conRef)), -2)
+  check('guardar normal: por kilo vacío congela la de config', tarifaDe(leer('por_kilo', '', 'normal', conRef)), 650)
+  check('guardar normal: por kilo con la suya (coma decimal)', tarifaDe(leer('por_kilo', '700,5', 'normal', conRef)), 700.5)
+  check('guardar normal: un 0 escrito es un dato', tarifaDe(leer('por_kilo', '0', 'normal', conRef)), 0)
+  check('guardar normal: ilegible se rechaza', si('error' in leer('por_kilo', '6x0', 'normal', conRef)), 1)
+  check('guardar normal: negativa se rechaza', si('error' in leer('por_kilo', '-5', 'normal', conRef)), 1)
+  check('guardar normal: sin ninguna tarifa se rechaza', si('error' in leer('por_kilo', '', 'normal', {})), 1)
+  check('guardar: un reenvío que no existe se rechaza', si('error' in leer('dhl', null, 'normal', conRef)), 1)
+  check('guardar express: por USA vacío sigue sin tarifa (la de la caja)', tarifaDe(leer('por_kilo', '', 'express', conRef)), -2)
+  check('guardar express: por USA sin config tampoco se rechaza', tarifaDe(leer('por_kilo', '', 'express', {})), -2)
+  check('guardar express: por USA con la suya', tarifaDe(leer('por_kilo', '600', 'express', {})), 600)
+  check('guardar express: ilegible se rechaza', si('error' in leer('por_kilo', 'abc', 'express', {})), 1)
 }
 
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)

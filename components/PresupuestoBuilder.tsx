@@ -131,10 +131,19 @@ interface Props {
   plazoExpressTexto?: string
   /** Cajas express abiertas: el presupuesto express se costea con lo que ya lleva la elegida. */
   cajasExpress?: { id: number; nombre: string; reenvio: string }[]
-  /** Ruta express: 'shoppre' (directo, con tope) o 'por_kilo' (por USA, sin tope). */
+  /**
+   * El reenvío del presupuesto. Express: 'shoppre' (directo, con tope) o 'por_kilo' (por USA, sin
+   * tope). Normal (por Miami): 'shoppre' (tabla escalón) o 'por_kilo' (₹/kg, sin seguro).
+   */
   initialRuta?: string
-  /** ₹/kg del reenvío con el que se cotiza por USA. */
+  /** ₹/kg del reenvío por kilo con el que se cotiza (por USA en express, o por Miami). */
   initialTarifaKgInr?: number | null
+  /** Con cuál reenvío nace un presupuesto normal (reenvioPorDefecto): al volver a normal, se repone. */
+  reenvioDefault?: 'shoppre' | 'por_kilo'
+  /** ₹/kg de referencia de /config (tarifaKgReferencia): por Miami, vacío = esta. */
+  tarifaKgReferencia?: number | null
+  /** Por Miami, con una línea ya en una caja el reenvío no se cambia (manda la caja). */
+  reenvioFijo?: boolean
   initialCajaId?: number | null
   /** Ya tiene piezas en una caja: la caja no se cambia desde acá. */
   cajaFija?: boolean
@@ -168,6 +177,9 @@ export default function PresupuestoBuilder({
   cajaFija = false,
   initialRuta = 'shoppre',
   initialTarifaKgInr = null,
+  reenvioDefault = 'shoppre',
+  tarifaKgReferencia = null,
+  reenvioFijo = false,
   pedidoId = null,
 }: Props) {
   const isPropio = tipo === 'propio'
@@ -175,9 +187,11 @@ export default function PresupuestoBuilder({
   const [via, setVia] = useState<Via>(initialVia)
   const esExpress = via === 'express'
   const [cajaId, setCajaId] = useState<number | null>(initialCajaId)
-  // Con caja, la ruta es la de la caja (es por donde va a viajar).
-  const [ruta, setRuta] = useState(() =>
+  // Con caja, la ruta es la de la caja (es por donde va a viajar). Por Miami es el reenvío del
+  // presupuesto: el que trae si se edita o duplica, o el de Configuración si es nuevo.
+  const [ruta, setRuta] = useState<'shoppre' | 'por_kilo'>(() =>
     (cajasExpress.find(c => c.id === initialCajaId)?.reenvio ?? initialRuta) === 'por_kilo' ? 'por_kilo' : 'shoppre')
+  // Va por el reenvío por kilo: en express es "por USA"; por Miami, "por kilo".
   const porUsa = ruta === 'por_kilo'
   const [tarifaKg, setTarifaKg] = useState(initialTarifaKgInr != null ? String(initialTarifaKgInr) : '')
   // Ilegible o negativa = sin tarifa: el costeo lo marca y no deja confirmar (el server la rechaza al guardar).
@@ -492,13 +506,14 @@ export default function PresupuestoBuilder({
   // apagar banderas desde el efecto.
   const [costoHecho, setCostoHecho] = useState<{ clave: string; costo: CostoCarrito | null } | null>(null)
 
-  // La vía entra en la composición: pasar a express cambia el costo de TODO el carrito.
+  // La vía y el reenvío entran en la composición: pasar a express, o de Shoppre a por kilo,
+  // cambia el costo de TODO el carrito.
   const composicion = useMemo(
     () => JSON.stringify([
       via,
       via === 'express' ? cajaId : null,
-      via === 'express' ? ruta : null,
-      via === 'express' && porUsa ? tarifaKgValida : null,
+      ruta,
+      porUsa ? tarifaKgValida : null,
       cart.map(c => [c.productId, c.ensambleId, c.quantity, c.bundleItems?.map(p => [p.bajajCode, p.nameEs, p.quantity]) ?? null]),
     ]),
     [cart, via, cajaId, ruta, porUsa, tarifaKgValida],
@@ -577,7 +592,8 @@ export default function PresupuestoBuilder({
   const landedTotal = cart.reduce(
     (s, c) => s + (costoPorLinea.get(claveLinea(c))?.landedUsd ?? 0), 0,
   )
-  const margenTotal = total > 0 ? (total - landedTotal) / total : null
+  // Por kilo sin tarifa no hay landed: el margen no se sabe (no es 100%).
+  const margenTotal = total > 0 && !costo?.faltaTarifa ? (total - landedTotal) / total : null
 
   // Cobertura del carrito moto por moto. Una línea "conjunto" cuenta por el ensamble
   // (una sola moto), no por sus piezas: el conjunto se arma para esa moto puntual.
@@ -638,6 +654,8 @@ export default function PresupuestoBuilder({
   // En express el precio de cada pieza depende del paquete entero (un solo flete): guardar a
   // mitad del cálculo dejaba líneas con el precio de antes de agregar o sacar otra pieza.
   const esperandoExpress = esExpress && costeando
+  // Por kilo sin ₹/kg (ni acá ni en Configuración): no se costea, y la acción lo rechazaría.
+  const faltaTarifaKg = !esExpress && costo?.faltaTarifa === true
 
   // Normal o express. También en el stock propio: se aprovecha el espacio de una caja express.
   const selectorVia = (
@@ -652,7 +670,15 @@ export default function PresupuestoBuilder({
             key={v}
             type="button"
             disabled={clienteFijo || viaFija}
-            onClick={() => setVia(v)}
+            onClick={() => {
+              if (v === via) return
+              setVia(v)
+              // Cada vía tiene su ruta por defecto: "por USA" no debe quedar elegido por arrastre.
+              // En express, con una caja elegida manda la ruta de la caja (como al abrir).
+              setRuta(v === 'express'
+                ? (cajasExpress.find(c => c.id === cajaId)?.reenvio === 'por_kilo' ? 'por_kilo' : 'shoppre')
+                : reenvioDefault)
+            }}
             className={`px-3 py-2 text-left disabled:cursor-not-allowed ${
               via === v ? 'bg-blue-50 text-blue-900' : 'bg-white text-gray-600 hover:bg-gray-50'
             }`}
@@ -666,10 +692,59 @@ export default function PresupuestoBuilder({
         <p className="text-[11px] text-gray-400 mt-1">El pedido ya está confirmado: el envío no se cambia.</p>
       ) : viaFija ? (
         <p className="text-[11px] text-gray-400 mt-1">Ya hay piezas en una caja: el envío no se cambia.</p>
-      ) : esExpress && editando && desalineadas.length > 0 && (
+      ) : (esExpress || ruta !== initialRuta) && editando && desalineadas.length > 0 && (
         <p className="text-[11px] text-amber-700 mt-1">
-          Los precios que ya tenía no cambian solos: usá &quot;Aplicar precios sugeridos&quot; para pasarlos a precio express.
+          Los precios que ya tenía no cambian solos: usá &quot;Aplicar precios sugeridos&quot; para pasarlos a {esExpress ? 'precio express' : 'esta ruta'}.
         </p>
+      )}
+      {!esExpress && (
+        <div className="mt-2">
+          <span className="block text-sm font-medium text-gray-700 mb-1">Reenvío India → USA</span>
+          <div className="grid grid-cols-2 rounded-lg border border-gray-300 overflow-hidden text-sm">
+            {([
+              ['shoppre', 'Shoppre', 'Tabla escalón, con seguro'],
+              ['por_kilo', 'Por kilo', '₹/kg, sin seguro'],
+            ] as const).map(([v, titulo, sub]) => (
+              <button
+                key={v}
+                type="button"
+                aria-pressed={ruta === v}
+                disabled={clienteFijo || viaFija || reenvioFijo}
+                onClick={() => setRuta(v)}
+                className={`px-3 py-2 text-left disabled:cursor-not-allowed ${
+                  ruta === v ? 'bg-blue-50 text-blue-900' : 'bg-white text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                <span className="block font-medium">{titulo}</span>
+                <span className="block text-[11px] text-gray-500">{sub}</span>
+              </button>
+            ))}
+          </div>
+          {reenvioFijo && !clienteFijo && !viaFija && (
+            <p className="text-[11px] text-gray-400 mt-1">Ya hay piezas en una caja: el reenvío es el de la caja.</p>
+          )}
+          {porUsa && (
+            <div className="mt-2">
+              <label htmlFor="pb-tarifa-kg" className="block text-sm font-medium text-gray-700 mb-1">Tarifa del reenvío por kilo (₹/kg)</label>
+              <input
+                id="pb-tarifa-kg"
+                type="text"
+                inputMode="decimal"
+                value={tarifaKg}
+                disabled={clienteFijo || viaFija || reenvioFijo}
+                onChange={e => setTarifaKg(e.target.value)}
+                placeholder={tarifaKgReferencia != null ? `vacío = ₹${tarifaKgReferencia} de Configuración` : 'ej. 650'}
+                aria-invalid={tarifaKg.trim() !== '' && tarifaKgValida == null}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white disabled:bg-gray-50"
+              />
+              <p className="text-[11px] text-gray-500 mt-1">
+                {tarifaKg.trim() !== '' && tarifaKgValida == null
+                  ? <span className="text-red-700">No es un número válido.</span>
+                  : 'Queda guardada en el presupuesto: si después cambia la de Configuración, este no se recotiza. Va en una caja aérea por kilo.'}
+              </p>
+            </div>
+          )}
+        </div>
       )}
       {esExpress && (
         <div className="mt-2">
@@ -747,7 +822,7 @@ export default function PresupuestoBuilder({
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    if (!clienteValid || cart.length === 0 || nlsEnCarrito.length > 0 || submitting || esperandoExpress) return
+    if (!clienteValid || cart.length === 0 || nlsEnCarrito.length > 0 || submitting || esperandoExpress || faltaTarifaKg) return
     setSubmitting(true)
     setErrorGuardado(null)
     const fd = new FormData()
@@ -764,10 +839,9 @@ export default function PresupuestoBuilder({
     fd.set('tipo', tipo)
     fd.set('via', via)
     if (via === 'express' && cajaId != null) fd.set('cajaId', String(cajaId))
-    if (via === 'express') {
-      fd.set('reenvio', ruta)
-      if (porUsa) fd.set('tarifaKgInr', tarifaKg.trim())
-    }
+    // El reenvío va siempre: por Miami también se cotiza por Shoppre o por kilo.
+    fd.set('reenvio', ruta)
+    if (porUsa) fd.set('tarifaKgInr', tarifaKg.trim())
     fd.set(
       'items',
       JSON.stringify(sortedCart.map(c => ({
@@ -1388,7 +1462,11 @@ export default function PresupuestoBuilder({
                   <div className="mt-3 pt-3 border-t border-gray-100 space-y-2.5">
                     <div className="flex items-center justify-between">
                       <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                        {esExpress ? `⚡ Costo express (${costo.express?.porUsa ? 'por USA, DDP' : 'Shoppre → Venezuela'})` : '✈️ Costo por la ruta aérea'}
+                        {esExpress
+                          ? `⚡ Costo express (${costo.express?.porUsa ? 'por USA, DDP' : 'Shoppre → Venezuela'})`
+                          : `✈️ Costo por Miami · ${costo.reenvio === 'por_kilo'
+                            ? `reenvío por kilo${costo.tarifaKgInr != null ? ` ₹${costo.tarifaKgInr}/kg` : ''}`
+                            : 'Shoppre'}`}
                         {costeando && <span className="ml-2 font-normal normal-case text-gray-500">calculando…</span>}
                       </h3>
                       {costo.proveedor && (
@@ -1446,6 +1524,30 @@ export default function PresupuestoBuilder({
                         <p className="text-[10px] text-gray-500">ganancia ${(total - landedTotal).toFixed(2)}</p>
                       </div>
                     </div>
+
+                    {!esExpress && costo.faltaTarifa && (
+                      <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
+                        Falta la tarifa ₹/kg del reenvío por kilo: anotala arriba o en Configuración. Así no se puede guardar.
+                      </p>
+                    )}
+
+                    {/* La otra ruta, siempre a la vista: es la respuesta a "cuál me conviene para este pedido". */}
+                    {!esExpress && costo.alternativa && !costo.faltaTarifa && (() => {
+                      const alt = costo.alternativa
+                      const sugeridoElegido = costo.lineas.every(l => l.sugeridoUsd != null)
+                        ? costo.lineas.reduce((s, l) => s + l.sugeridoUsd!, 0)
+                        : null
+                      const dif = alt.sugeridoUsd != null && sugeridoElegido != null ? alt.sugeridoUsd - sugeridoElegido : null
+                      return (
+                        <p className="text-[11px] text-gray-600">
+                          {alt.reenvio === 'por_kilo' ? `Por kilo (₹${alt.tarifaKgInr}/kg)` : 'Por Shoppre'}: landed ${alt.landedUsd.toFixed(2)}
+                          {alt.sugeridoUsd != null && <>, venta sugerida ${alt.sugeridoUsd.toFixed(2)}</>}
+                          {dif != null && Math.abs(dif) >= 0.005 && (
+                            <span className={dif < 0 ? 'text-green-700' : 'text-red-600'}> ({dif > 0 ? '+' : '−'}${Math.abs(dif).toFixed(2)})</span>
+                          )}
+                        </p>
+                      )
+                    })()}
 
                     {costo.express && (
                       <div className={`rounded-lg border px-3 py-2.5 ${costo.express.excede ? 'border-red-300 bg-red-50' : 'border-green-300 bg-green-50'}`}>
@@ -1665,7 +1767,7 @@ export default function PresupuestoBuilder({
 
             <button
               type="submit"
-              disabled={!clienteValid || cart.length === 0 || nlsEnCarrito.length > 0 || submitting || esperandoExpress}
+              disabled={!clienteValid || cart.length === 0 || nlsEnCarrito.length > 0 || submitting || esperandoExpress || faltaTarifaKg}
               className="w-full bg-blue-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               {submitting ? 'Guardando...' : esperandoExpress ? 'Calculando precios express…' : isEditing ? 'Guardar cambios' : isPropio ? 'Guardar stock' : 'Guardar presupuesto'}

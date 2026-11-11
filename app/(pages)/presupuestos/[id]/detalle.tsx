@@ -473,6 +473,12 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
             <h1 className="text-2xl font-bold text-gray-900 break-words text-balance">{presupuesto.clientName}</h1>
             {isPropio && <span className={`${chip} bg-blue-100 text-blue-700`}>Stock propio</span>}
             {express && <span className={`${chip} bg-amber-100 text-amber-800`}>⚡ Express</span>}
+            {/* Por Miami, el reenvío con el que se cotizó (y en qué caja va a viajar). No va al PDF. */}
+            {!express && presupuesto.via !== 'express' && presupuesto.reenvio === 'por_kilo' && (
+              <span className={`${chip} bg-orange-100 text-orange-800`}>
+                Reenvío por kilo{presupuesto.tarifaKgInr != null ? ` · ₹${Number(presupuesto.tarifaKgInr)}/kg` : ''}
+              </span>
+            )}
             {isVenta ? <span className={`${chip} bg-green-100 text-green-700`}>Venta del depósito</span>
               : isCancelado ? <span className={`${chip} bg-red-100 text-red-700`}>Cancelado</span>
               : perdido ? <span className={`${chip} bg-gray-200 text-gray-700`}>Presupuesto perdido</span>

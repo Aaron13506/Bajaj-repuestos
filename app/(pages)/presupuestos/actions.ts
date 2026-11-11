@@ -16,7 +16,7 @@ import { isForeignKeyViolation } from '@/lib/prisma-errors'
 import { cuentaDeMetodo, datosBs, leerCobroBs, type CobroEnBs } from '@/lib/cuentas'
 import { bloquearPedido, cobrarPedido, descontarIngresosPedido } from '@/lib/movimientos'
 import { escalonBcvVigente } from '@/lib/calc'
-import { toConfigMap } from '@/lib/config'
+import { toConfigMap, type ConfigMap } from '@/lib/config'
 import { bloquearDescontinuadas } from '@/lib/descontinuadas'
 import { estadoValidez, escalonDelPresupuesto, motivoNoAprobable, validezDias } from '@/lib/validez'
 import { describirOps, planEdicion, estadoLinea, motivoEdicionSinCliente, type LineaActual, type LineaNueva } from '@/lib/pedido-edicion'
@@ -26,7 +26,8 @@ import { notaCobroBcv, realDeCobro, resumenCobro } from '@/lib/cobro-bcv'
 import { cobraEnBolivares } from '@/lib/pagos'
 import { motivoExpressNoAprobable, viaDe } from '@/lib/express'
 import { expressDelPedido } from '@/lib/express-pedido'
-import { isReenvio, reenvioDe, type Reenvio } from '@/lib/reenvio'
+import { leerRutaPresupuesto, type Reenvio } from '@/lib/reenvio'
+import { getConfig } from '@/lib/config-db'
 import { assignPedido } from '../envios/actions'
 
 type Tx = Prisma.TransactionClient
@@ -160,18 +161,19 @@ async function cajaExpressElegida(formData: FormData, via: string): Promise<numb
   return id
 }
 
-// La ruta del presupuesto express (Shoppre directo o por USA) y el ₹/kg con el que se cotizó por
-// USA. Vacío = sin tarifa propia (usa la de la caja); un número ilegible se rechaza.
-function rutaExpress(formData: FormData, via: string): { reenvio: Reenvio; tarifaKgInr: number | null } {
-  if (via !== 'express') return { reenvio: 'shoppre', tarifaKgInr: null }
-  const r = formData.get('reenvio') as string | null
-  if (r && !isReenvio(r)) throw new ErrorDeNegocio('Esa ruta express no existe.')
-  const reenvio = reenvioDe(r)
-  const raw = ((formData.get('tarifaKgInr') as string | null) ?? '').trim()
-  if (reenvio !== 'por_kilo' || !raw) return { reenvio, tarifaKgInr: null }
-  const n = Number(raw.replace(',', '.'))
-  if (!Number.isFinite(n) || n < 0) throw new ErrorDeNegocio('Revisá la tarifa ₹/kg: no es un número válido.')
-  return { reenvio, tarifaKgInr: n }
+// La ruta del presupuesto y el ₹/kg con el que se cotizó (leerRutaPresupuesto). Express: Shoppre
+// directo o por USA, vacío = la tarifa de la caja. Normal: Shoppre o por kilo, vacío = la tarifa
+// de referencia de /config, congelada acá. Un número ilegible, o por kilo sin ninguna tarifa, se
+// rechaza.
+function rutaDelPresupuesto(formData: FormData, via: string, cfg: ConfigMap): { reenvio: Reenvio; tarifaKgInr: number | null } {
+  const r = leerRutaPresupuesto(
+    formData.get('reenvio') as string | null,
+    formData.get('tarifaKgInr') as string | null,
+    via === 'express' ? 'express' : 'normal',
+    cfg,
+  )
+  if ('error' in r) throw new ErrorDeNegocio(r.error)
+  return r
 }
 
 async function meterEnCaja(cajaId: number | null, pedidoId: number) {
@@ -187,7 +189,8 @@ async function crearPresupuesto(formData: FormData) {
   const via = viaDe(formData.get('via') as string | null)
   const items = parseItems(formData)
   const cajaId = await cajaExpressElegida(formData, via)
-  const ruta = rutaExpress(formData, via)
+  const cfg = await getConfig()
+  const ruta = rutaDelPresupuesto(formData, via, cfg)
 
   if (items.length === 0) throw new ErrorDeNegocio('Agregá al menos una pieza.')
   await bloquearDescontinuadas(items)
@@ -211,7 +214,7 @@ async function crearPresupuesto(formData: FormData) {
   // Un presupuesto de cliente se cotiza con el escalón de hoy y desde hoy: es lo que el cliente
   // va a ver y lo que se le va a cobrar mientras esté vigente (lib/validez.ts).
   const cotizacion = tipo === 'cliente'
-    ? { cotizadoAt: new Date(), escalonCotizadoPct: escalonBcvVigente(toConfigMap(await db.config.findMany())) }
+    ? { cotizadoAt: new Date(), escalonCotizadoPct: escalonBcvVigente(cfg) }
     : {}
 
   const pedido = await db.pedido.create({
@@ -448,8 +451,13 @@ async function editarPresupuesto(id: number, formData: FormData) {
   const cajaId = esExpress
     ? existing.items.find(it => it.envioId != null)?.envioId ?? await cajaExpressElegida(formData, 'express')
     : null
-  // La ruta express se recotiza con el presupuesto: un pedido confirmado ya se cobró así.
-  const ruta = existing.status === 'presupuesto' || existing.tipo === 'propio' ? rutaExpress(formData, esExpress ? 'express' : 'normal') : {}
+  // La ruta se recotiza con el presupuesto (o el stock propio): un pedido confirmado ya se cobró
+  // así. Por Miami, además, una línea ya en una caja fija el reenvío: manda la caja (un pedido
+  // viaja solo en una caja de su mismo reenvío, motivoReenvioNoCoincide).
+  const ruta = (existing.status === 'presupuesto' || existing.tipo === 'propio') &&
+    (esExpress || existing.items.every(it => it.envioId == null))
+    ? rutaDelPresupuesto(formData, esExpress ? 'express' : 'normal', await getConfig())
+    : {}
   ops.push(db.pedido.update({ where: { id }, data: { clientName, clienteId, notas, cajaExpressId: cajaId, ...cotizacion, ...via, ...ruta } }))
 
   await db.$transaction(ops)
