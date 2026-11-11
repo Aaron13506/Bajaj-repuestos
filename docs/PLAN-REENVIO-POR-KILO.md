@@ -175,7 +175,7 @@ como el celeste del mar), y el mismo patrón de apagado que `maritimo`:
 
   donde `k = calcLanded(forAereo, cfg, 'aereo', { reenvio: { tipo: 'por_kilo', tarifaKgInr: tarifaKgReferencia(cfg) } })`
   (mismo `forAereo`: el por kilo también es 99rpm por el depósito). Con precio fijo (`precioFijo`)
-  `Venta kilo` es el precio fijo y la columna útil es `Margen hoy`. Sin peso: `—`.
+  `Venta kilo` es el precio fijo y la columna útil es `Margen hoy`. Sin peso: la celda va vacía, con el mismo guion que usan las demás columnas.
 - Llamadores a actualizar (verificar con `grep -rn "costHeaders(\|<CostCells"`):
   `app/(pages)/products/page.tsx:194`, `components/ProductRow.tsx:173` (`COLUMNAS`, sale de
   `costHeaders().length`: tiene que recibir las mismas opciones o los `colSpan` se corren) y `:254`,
