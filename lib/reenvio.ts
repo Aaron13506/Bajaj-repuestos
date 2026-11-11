@@ -15,11 +15,20 @@
 // El reempaque (Envio.reempaqueInr) es de cada caja en los dos: un paquete cuesta ₹100 y otro
 // ₹1000, así que no hay número fijo que guardar en /config.
 //
-// Los precios de venta y el catálogo siguen con la tabla de Shoppre: este reenvío solo
-// abarata la caja real, nunca lo que se le cobra al cliente.
+// Los dos reenvíos conviven también al cotizar. El catálogo muestra las dos rutas lado a
+// lado (el por kilo con el ₹/kg de REFERENCIA de /config, `reenvio_kilo_tarifa_inr`), y cada
+// presupuesto por Miami elige la suya (Pedido.reenvio + Pedido.tarifaKgInr, congelada al
+// guardar). `reenvio_precios` solo dice con cuál nacen los presupuestos nuevos. El precio de
+// venta del catálogo (Product.price, reprice) sigue saliendo de Shoppre.
+//
+// La referencia de /config NO es la tarifa de la caja: la caja real sigue con la que le
+// cotizan a ella (Envio.tarifaKgInr), sin fallback. Y el pedido viaja solo en una caja de su
+// mismo reenvío (motivoReenvioNoCoincide): si no, el precio que se le dijo al cliente y el
+// costo de la caja saldrían de tarifas distintas.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { SHIPPING_STATUSES, statusIndex } from './shipping-status'
+import type { ConfigMap } from './config'
 
 export type Reenvio = 'shoppre' | 'por_kilo'
 
@@ -83,4 +92,43 @@ export function tarifaEquilibrioKgInr(p: {
 }): number | null {
   if (p.chargeableKg <= 0 || p.inrUsd <= 0) return null
   return Math.max(0, (p.shoppreUsd * p.inrUsd) / p.chargeableKg)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// La tarifa de REFERENCIA para cotizar (catálogo y presupuestos), no la de la caja
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * ₹/kg de referencia (Config.reenvio_kilo_tarifa_inr). null = no cargada: la ruta por kilo no
+ * se cotiza. No pasa por num(): su fallback inventaría una tarifa, y vacío no es cero.
+ */
+export function tarifaKgReferencia(cfg: ConfigMap): number | null {
+  const raw = (cfg.reenvio_kilo_tarifa_inr ?? '').trim()
+  if (raw === '') return null
+  const v = Number(raw)
+  return Number.isFinite(v) && v > 0 ? v : null
+}
+
+/**
+ * Con cuál reenvío nacen los presupuestos normales nuevos (Config.reenvio_precios). Sin tarifa
+ * de referencia, siempre Shoppre: un presupuesto por kilo sin tarifa no se podría guardar.
+ */
+export function reenvioPorDefecto(cfg: ConfigMap): Reenvio {
+  return reenvioDe(cfg.reenvio_precios?.trim()) === 'por_kilo' && tarifaKgReferencia(cfg) != null
+    ? 'por_kilo'
+    : 'shoppre'
+}
+
+/**
+ * El reenvío con el que se costea un presupuesto NORMAL (por Miami), o null si es Shoppre (lo
+ * de siempre). Por kilo: la tarifa del presupuesto, si no la de referencia; puede quedar null
+ * (falta la tarifa: no se costea con 0).
+ */
+export function reenvioDelPresupuestoNormal(
+  ruta: string | null | undefined,
+  tarifaKgInr: number | null,
+  cfg: ConfigMap,
+): { tipo: 'por_kilo'; tarifaKgInr: number | null } | null {
+  if (ruta !== 'por_kilo') return null
+  return { tipo: 'por_kilo', tarifaKgInr: tarifaKgInr ?? tarifaKgReferencia(cfg) }
 }
