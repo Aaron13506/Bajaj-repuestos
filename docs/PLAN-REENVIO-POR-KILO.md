@@ -8,7 +8,8 @@ Rama: `claude/parallel-shipping-kilo-pricing-sd02og`.
 1. Cargar los skills `costeo`, `pedidos` y `catalogo` antes de tocar nada (y `envios` para la fase 5).
 2. Ejecutar las fases **en orden**, un commit por fase. Cada fase deja la app funcionando.
 3. Después de cada fase: `pnpm typecheck && pnpm lint && pnpm check:costeo`.
-4. **No hace falta cambiar el esquema** (ver §2). Se despliega sin `--migrar`.
+4. **No hace falta cambiar el esquema** (ver §2). Lo único que va por `--migrar` es el SQL de
+   datos de la fase 5 (§7.1), que alinea los pedidos viejos con el reenvío de su caja.
 5. La fase 6 **no se ejecuta** sin el visto bueno explícito del dueño: cambia precios de venta guardados.
 6. Regla que no se negocia: **con la ruta en Shoppre, ningún número de hoy cambia**. Todo lo nuevo
    entra por un parámetro opcional cuyo valor ausente es el comportamiento actual. `check:costeo`
@@ -24,7 +25,7 @@ Hoy el por kilo existe solo en la caja real y en el express por USA:
 
 | Lugar | Hoy | Después |
 |---|---|---|
-| Caja aérea / express (`Envio.reenvio`, `Envio.tarifaKgInr`) | Shoppre o por kilo, cotizado por caja | igual, no se toca |
+| Caja aérea (`Envio.reenvio`, `Envio.tarifaKgInr`) | Shoppre o por kilo, cotizado por caja; recibe cualquier pedido normal | mismo costeo, pero **solo recibe pedidos cotizados con su mismo reenvío** |
 | Presupuesto express (`Pedido.reenvio`, `Pedido.tarifaKgInr`) | elige ruta y ₹/kg | igual |
 | Presupuesto **normal** (por Miami) | siempre Shoppre (`rutaExpress` lo fuerza) | **elige Shoppre o por kilo** |
 | Catálogo y ficha de producto | solo Shoppre (+ marítimo CBM) | **las dos, lado a lado** |
@@ -37,6 +38,11 @@ Decisiones de diseño (ya tomadas, con su porqué):
   `lib/cost-columns.ts` lo cuentan). Las dos rutas se **muestran siempre juntas** en el catálogo,
   y **el presupuesto elige la suya** con un botón de dos opciones, igual que hoy elige normal/express.
   El "alternar" es por presupuesto; `/config` solo dice con cuál **nacen** los nuevos.
+- **El reenvío del presupuesto decide en qué caja viaja** (pedido del dueño). Un pedido cotizado
+  por kilo entra solo en una caja aérea por kilo, y uno cotizado por Shoppre solo en una caja
+  Shoppre: es la misma regla que ya separa express de normal (`motivoViaNoCoincide`), y se
+  **bloquea**, no se avisa. Si no, el precio que se le dijo al cliente y el costo de la caja salen
+  de tarifas distintas. Detalle en §7.1.
 - **El ₹/kg de `/config` es una referencia para cotizar, no el costo de la caja.** La caja real
   sigue con su `Envio.tarifaKgInr` cotizado por caja y sin fallback: una caja por kilo sin tarifa
   sigue marcada `faltaTarifa` (subcosteada, no gratis). No inventar el número de la caja desde config.
@@ -206,9 +212,10 @@ importador, `prices:99rpm`, ventas del depósito, inventario. Todo eso sigue en 
   - `por_kilo`: tarifa escrita → se valida (ilegible o negativa se **rechaza** con `ErrorDeNegocio`,
     como hoy); vacía → **snapshot de `tarifaKgReferencia(cfg)`**; si tampoco hay →
     `ErrorDeNegocio('Falta la tarifa ₹/kg del reenvío por kilo: anotala acá o en Configuración.')`.
-- Llamadores: creación (~línea 190) y edición (~línea 452). La regla de cuándo se puede cambiar es
-  la que ya rige ahí: solo en `status = 'presupuesto'` o stock propio; un pedido confirmado ya se
-  cobró con esa ruta. `cfg` ya se lee en esos caminos o cuesta un `getConfig()`.
+- Llamadores: creación (~línea 190) y edición (~línea 452). Desde el armador el reenvío se
+  cambia como hoy la ruta express: en `status = 'presupuesto'` o stock propio, y nunca con una
+  línea ya en una caja (manda la caja). Un pedido confirmado lo cambia desde su ficha, sin
+  recotizar (§7.1). `cfg` ya se lee en esos caminos o cuesta un `getConfig()`.
 - "Duplicar / desde" (`new/page.tsx`, `desde`) ya copia `reenvio` y `tarifaKgInr`: verificar que
   ahora también lo haga para vía normal.
 
@@ -262,7 +269,7 @@ const b = calcLanded({...}, cfg, 'aereo', { reenvio })
 
 ### 6.4 Ficha del presupuesto (`app/(pages)/presupuestos/[id]/detalle.tsx`)
 
-Solo información: un chip junto a la vía cuando `via = normal` y `reenvio = por_kilo`:
+Un chip junto a la vía (el control para cambiarlo en un pedido confirmado está en §7.1) cuando `via = normal` y `reenvio = por_kilo`:
 "Reenvío por kilo · ₹650/kg". No va al PDF del cliente (`lib/pdf/presupuesto-pdf.ts` no se toca).
 
 Nota a dejar escrita, no a resolver: el margen estimado de un pedido que todavía no está en una
@@ -285,15 +292,85 @@ se rechaza, sin ninguna tarifa se rechaza, express no cambia.
   la caja" (`faltaReempaque` va a venir en `true`: es correcto, no forzarlo a 0).
 - **`pnpm q`** (`scripts/q.ts` + `lib/quote-metrics.ts`): opción `--por-kilo[=₹]` que pasa
   `opts.reenvio` a `calcEnvio`. Sin número usa la referencia de config.
-- **Caja vs presupuesto**: un presupuesto normal por kilo puede terminar en una caja Shoppre y al
-  revés (la caja congela su reenvío al crearse). **No bloquear** (a diferencia del express, acá
-  las dos cajas hacen el mismo recorrido): en la ficha de la caja, en las listas "Pedidos
-  confirmados con ítems sueltos" y en `EnvioItemsTable`, un chip "cotizado por kilo" / "cotizado
-  por Shoppre" cuando `Pedido.reenvio` difiere de `Envio.reenvio`. El margen real ya lo calcula la
-  caja con su propio reenvío.
 - **Alta de caja** (`app/(pages)/envios/page.tsx`, select `reenvio`): preseleccionar
   `reenvioPorDefecto(cfg)`. En la pestaña Plata, el placeholder de `tarifa-kg` puede decir
   "referencia ₹650": solo placeholder, **el valor guardado sigue vacío hasta que se cotice la caja**.
+
+### 7.1 Caja compatible: el pedido viaja en una caja de su mismo reenvío
+
+Alternar el reenvío de un presupuesto cambia también por dónde viaja, así que la caja tiene que
+coincidir. Se hace con el mismo patrón que express vs normal: una función pura en `lib/`, que la
+pantalla usa para no ofrecer y la acción para trabar.
+
+**La regla** (`lib/reenvio.ts`, con casos en `check:costeo`):
+
+```ts
+/** Por qué un pedido NORMAL no entra en esta caja aérea por su reenvío, o null si entra. */
+export function motivoReenvioNoCoincide(
+  pedido: { via: string | null; reenvio: string | null },
+  caja: { modo: string | null; reenvio: string | null },
+): string | null
+```
+
+- Solo opina cuando `viaDe(pedido.via) === 'normal'` y `caja.modo === 'aereo'`. Express contra
+  express **no cambia**: ahí ya manda la ruta de la caja (`reenvioDelPresupuesto`).
+- `reenvioDe(pedido.reenvio) !== reenvioDe(caja.reenvio)` → motivo, por ejemplo: "Este pedido se
+  cotizó por kilo: va en una caja aérea por kilo, no en esta (Shoppre). Cambiale el reenvío al
+  pedido o usá otra caja."
+- Una caja de proveedor `cotizado` tiene `reenvio = 'shoppre'` forzado (`createEnvio`): con la
+  regla literal recibe solo pedidos Shoppre. Dejarlo así y decirlo en el comentario.
+
+**Dónde se aplica** (todos en `app/(pages)/envios/`):
+
+- `asignarAEnvio` (`actions.ts:~375`): sumar `reenvio` al `select` del pedido y llamar a
+  `motivoReenvioNoCoincide` junto a `motivoViaNoCoincide` (línea ~401). Es el candado real: por
+  ahí pasan `assignPedido`, "agregar todos" y la confirmación.
+- `assignAllConfirmados` (`actions.ts:~570`): filtrar también por `pedido.reenvio = caja.reenvio`
+  cuando la caja es aérea, para que "agregar todos" no falle entero por un pedido del otro reenvío.
+- Ficha de la caja (`[id]/page.tsx:~195`, las listas "Pedidos confirmados con ítems sueltos" y
+  "Presupuestos sin aprobar"): mismo filtro. Debajo, una línea chica: "N pedidos sueltos cotizados
+  por {el otro reenvío} no se muestran: van en una caja {…}", para que no parezca que se perdieron.
+- Stock propio creado desde la caja (`actions.ts:~574`, donde hoy se copia `via` del modo de la
+  caja): copiar también `reenvio` y `tarifaKgInr` de la caja al pedido que se crea.
+- `moverPedidoACaja` ya exige el mismo reenvío entre las dos cajas (`lib/mover-caja.ts:50`): nada.
+- La caja congela su reenvío al crearse y eso no cambia: lo que se adapta es el pedido.
+
+**Cambiar el reenvío de un pedido ya confirmado.** Con el bloqueo hace falta una salida para
+cuando la caja por kilo no se arma (o al revés), y para los pedidos confirmados de hoy:
+
+- Mientras **ninguna línea esté en una caja**, el reenvío del pedido se puede cambiar aunque esté
+  confirmado. No toca precios de venta ni cobros: solo dice por dónde va a viajar. Con una línea
+  en una caja queda fijo (manda la caja), igual que `viaFija`.
+- La **vía** (normal/express) sigue sin poder cambiarse en un pedido confirmado: esa sí cambia
+  el precio y el plazo que se le prometió al cliente.
+- UI: en la ficha del pedido (`presupuestos/[id]/detalle.tsx`), junto al chip del reenvío, un
+  control chico "Cambiar a Shoppre / por kilo" con `useAccionDirecta`. Acción nueva
+  `cambiarReenvioPedido(id, reenvio)`: `bloquearPedido`, verifica vía normal y que no haya líneas
+  con `envioId`, y hace `updateMany where { id, items: { none: { envioId: { not: null } } } }`
+  actuando sobre el `count`. Al pasar a por kilo guarda el snapshot de la tarifa de referencia
+  (sin tarifa en config, se rechaza); al pasar a Shoppre deja `tarifaKgInr = null`.
+- La ficha muestra el margen estimado con el reenvío nuevo, para que se vea lo que cuesta el cambio.
+
+**Datos viejos** (`prisma/manual/2026-11-xx-pedido-reenvio-de-su-caja.sql`, va con `--migrar`):
+hoy todos los pedidos normales dicen `shoppre`, también los que ya viajan en cajas por kilo.
+Alinear cada pedido normal con el reenvío de la caja aérea donde están sus líneas:
+
+```sql
+UPDATE "Pedido" p SET "reenvio" = e."reenvio", "tarifaKgInr" = e."tarifaKgInr"
+FROM (
+  SELECT i."pedidoId", MIN(en."reenvio") AS "reenvio", MAX(en."tarifaKgInr") AS "tarifaKgInr"
+  FROM "PedidoItem" i JOIN "Envio" en ON en.id = i."envioId"
+  WHERE en."modo" = 'aereo'
+  GROUP BY i."pedidoId"
+  HAVING COUNT(DISTINCT en."reenvio") = 1
+) e
+WHERE p.id = e."pedidoId" AND p."via" = 'normal' AND p."reenvio" <> e."reenvio";
+```
+
+Probarlo con `pnpm db:migrar --probar` contra la copia local y revisar cuántas filas toca. Los
+pedidos con líneas repartidas entre cajas de los dos reenvíos (el `HAVING` los deja afuera) se
+listan y se le muestran al dueño: no se corrigen solos. Las líneas que ya están en una caja no se
+mueven aunque no coincidan: la regla traba al **entrar**, no revisa lo que ya viajó.
 
 ## 8. Fase 6 (NO ejecutar sin confirmación del dueño): que el precio de catálogo salga del por kilo
 
@@ -321,9 +398,9 @@ El por kilo se cotiza por caja y varía; Shoppre es una tabla publicada. Mientra
   prices never use the per-kilo lane" deja de ser cierta (decir cuál sí y cuál no); el bloque por
   kilo del catálogo; `tarifaKgReferencia`.
 - `.claude/skills/pedidos/SKILL.md`: `Pedido.reenvio` / `tarifaKgInr` valen para la vía normal;
-  snapshot al guardar; cuándo se puede cambiar.
-- `.claude/skills/envios/SKILL.md`: la referencia de config no es la tarifa de la caja; el chip de
-  reenvío distinto.
+  snapshot al guardar; cuándo se puede cambiar; el pedido viaja solo en una caja de su reenvío.
+- `.claude/skills/envios/SKILL.md`: la referencia de config no es la tarifa de la caja; una caja
+  aérea lleva solo pedidos de su mismo reenvío (`motivoReenvioNoCoincide`).
 - `CLAUDE.md`: en "Product" la frase "always the air lane" sigue valiendo (por kilo también es la
   ruta aérea); no hace falta más salvo que se ejecute la fase 6.
 
@@ -341,7 +418,13 @@ El por kilo se cotiza por caja y varía; Shoppre es una tabla publicada. Mientra
 5. Borrar la tarifa de config y guardar un presupuesto por kilo sin tarifa: se rechaza con el
    mensaje, y no queda guardado.
 6. Un presupuesto express (directo y por USA) se comporta igual que antes.
-7. Confirmar un pedido por kilo y meterlo en una caja Shoppre: entra, con el chip de aviso.
+7. Confirmar un pedido por kilo e intentar meterlo en una caja Shoppre: se rechaza con el motivo,
+   y no aparece en la lista de sueltos de esa caja. En una caja aérea por kilo entra.
+8. Con ese pedido todavía sin caja, cambiarle el reenvío a Shoppre desde su ficha: ahora entra en
+   la caja Shoppre y sus precios de venta no cambiaron. Ya en la caja, el control no se ofrece.
+9. "Agregar todos los confirmados" en una caja trae solo los de su reenvío.
+10. Tras el SQL de datos: ningún pedido normal con todas sus líneas en una caja aérea tiene un
+    reenvío distinto al de esa caja.
 
 ## 11. Fuera de alcance
 
