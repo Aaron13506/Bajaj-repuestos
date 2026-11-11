@@ -29,6 +29,7 @@ import { nombreEnsamble } from '@/lib/linea-pedido'
 import type { BundlePiece } from '@/lib/bundle'
 import { debeSaldo, mensajeEntregaConSaldo, motivoNoEntregable, saldoReal, seEntregaDesdeElPedido } from '@/lib/saldo-entrega'
 import { costoDeLinea, motivoNoServible } from '@/lib/venta-stock'
+import { isReenvio, motivoReenvioFijo, tarifaKgReferencia } from '@/lib/reenvio'
 
 const dec = (v: { toString(): string } | null | undefined) => (v != null ? parseFloat(v.toString()) : null)
 const usd = (n: number) => `$${n.toFixed(2)}`
@@ -774,5 +775,47 @@ export async function resolverIncidencia(incidenciaId: number, formData: FormDat
     }, TX)
   })
   if (r.ok) revalidarPedido(pedidoId, reposicionId != null ? [reposicionId] : [])
+  return r
+}
+
+/**
+ * Cambia por dónde viaja un pedido por Miami (Shoppre o reenvío por kilo), aunque ya esté
+ * confirmado, mientras ninguna línea esté en una caja: el pedido entra solo en una caja aérea de
+ * su mismo reenvío (motivoReenvioNoCoincide), y esto es la salida cuando la caja de ese reenvío
+ * no se arma. No toca precios de venta ni cobros. Al pasar a por kilo congela la tarifa de
+ * referencia de /config (sin ella se rechaza); al pasar a Shoppre la borra.
+ */
+export async function cambiarReenvioPedido(id: number, reenvio: string): Promise<ActionResult> {
+  const r = await conErrorDeNegocio(async () => {
+    if (!isReenvio(reenvio)) throw new ErrorDeNegocio('Ese reenvío no existe.')
+    const tarifaKgInr = reenvio === 'por_kilo' ? tarifaKgReferencia(toConfigMap(await db.config.findMany())) : null
+    if (reenvio === 'por_kilo' && tarifaKgInr == null) {
+      throw new ErrorDeNegocio('Falta la tarifa ₹/kg de referencia en Configuración: sin ella no se puede pasar a por kilo.')
+    }
+    await db.$transaction(async tx => {
+      const estado = await bloquearPedido(tx, id)
+      if (!estado) throw new ErrorDeNegocio(`El pedido #${id} ya no existe.`)
+      const p = await tx.pedido.findUniqueOrThrow({
+        where: { id },
+        select: { via: true, reenvio: true, items: { where: { envioId: { not: null } }, select: { id: true }, take: 1 } },
+      })
+      const motivo = motivoReenvioFijo({ via: p.via, status: estado.status, enCaja: p.items.length > 0 })
+      if (motivo) throw new ErrorDeNegocio(motivo)
+      if (p.reenvio === reenvio) return
+      // Guardado: si una línea entró a una caja entre la lectura y acá, no se cambia nada.
+      const hecho = await tx.pedido.updateMany({
+        where: { id, via: { not: 'express' }, items: { none: { envioId: { not: null } } } },
+        data: { reenvio, tarifaKgInr },
+      })
+      if (hecho.count === 0) throw new ErrorDeNegocio('Una línea del pedido acaba de entrar a una caja: el reenvío es el de la caja. Recargá la página.')
+      await registrarEvento(tx, id, 'reenvio', reenvio === 'por_kilo'
+        ? `Reenvío cambiado a por kilo (₹${tarifaKgInr}/kg): va en una caja aérea por kilo`
+        : 'Reenvío cambiado a Shoppre: va en una caja aérea Shoppre')
+    })
+  })
+  if (r.ok) {
+    revalidarPedido(id)
+    revalidatePath('/envios')
+  }
   return r
 }

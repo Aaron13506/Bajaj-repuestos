@@ -54,7 +54,7 @@ import {
 import { debeSaldo, motivoNoEntregable, saldoReal, seEntregaDesdeElPedido, situacionDeCobro } from '../lib/saldo-entrega'
 import { diasSinMoverse, tiempoDeCompraA, tiemposPorTramo } from '../lib/etapas'
 import { leerDevolucion } from '../lib/devolucion'
-import { kgFacturadosPorKilo, leerRutaPresupuesto, reenvioDelPresupuestoNormal, reenvioPorDefecto, tarifaEquilibrioKgInr, tarifaKgReferencia } from '../lib/reenvio'
+import { kgFacturadosPorKilo, leerRutaPresupuesto, motivoReenvioFijo, motivoReenvioNoCoincide, reenvioDelPresupuestoNormal, reenvioPorDefecto, tarifaEquilibrioKgInr, tarifaKgReferencia } from '../lib/reenvio'
 import { compraTrasMover, motivoNoMueve, motivoNoMueveSinEnviar, type CajaParaMover } from '../lib/mover-caja'
 import { avanzaSinEstar, motivoNoDespacha, planSeparar, repartirSinStock, tokensSku } from '../lib/sin-stock'
 import { leerTrackingsTramo, MAX_TRACKINGS_POR_TRAMO } from '../lib/tracking'
@@ -1936,6 +1936,24 @@ console.log('\nREENVÍO POR KILO POR PIEZA (catálogo y presupuestos)')
   check('guardar express: por USA sin config tampoco se rechaza', tarifaDe(leer('por_kilo', '', 'express', {})), -2)
   check('guardar express: por USA con la suya', tarifaDe(leer('por_kilo', '600', 'express', {})), 600)
   check('guardar express: ilegible se rechaza', si('error' in leer('por_kilo', 'abc', 'express', {})), 1)
+
+  // El pedido viaja en una caja aérea de su mismo reenvío.
+  const entra = (pv: string, pr: string | null, cm: string, cr: string | null) =>
+    si(motivoReenvioNoCoincide({ via: pv, reenvio: pr }, { modo: cm, reenvio: cr }) == null)
+  check('caja: pedido Shoppre en caja aérea Shoppre', entra('normal', 'shoppre', 'aereo', 'shoppre'), 1)
+  check('caja: pedido por kilo en caja aérea por kilo', entra('normal', 'por_kilo', 'aereo', 'por_kilo'), 1)
+  check('caja: pedido por kilo NO va en caja Shoppre', entra('normal', 'por_kilo', 'aereo', 'shoppre'), 0)
+  check('caja: pedido Shoppre NO va en caja por kilo', entra('normal', 'shoppre', 'aereo', 'por_kilo'), 0)
+  check('caja: reenvío vacío del pedido cuenta como Shoppre', entra('normal', null, 'aereo', 'shoppre'), 1)
+  check('caja: express no opina (manda la caja express)', entra('express', 'shoppre', 'express', 'por_kilo'), 1)
+  check('caja: una caja no aérea no opina', entra('normal', 'por_kilo', 'express', 'shoppre'), 1)
+  check('caja: el motivo dice cuál caja', si((motivoReenvioNoCoincide({ via: 'normal', reenvio: 'por_kilo' }, { modo: 'aereo', reenvio: 'shoppre' }) ?? '').includes('por kilo')), 1)
+
+  // Cambiar el reenvío desde la ficha: solo por Miami y sin líneas en una caja.
+  check('cambiar reenvío: pedido confirmado sin caja', si(motivoReenvioFijo({ via: 'normal', status: 'pedido', enCaja: false }) == null), 1)
+  check('cambiar reenvío: con una línea en una caja, no', si(motivoReenvioFijo({ via: 'normal', status: 'pedido', enCaja: true }) != null), 1)
+  check('cambiar reenvío: express, no', si(motivoReenvioFijo({ via: 'express', status: 'pedido', enCaja: false }) != null), 1)
+  check('cambiar reenvío: cancelado, no', si(motivoReenvioFijo({ via: 'normal', status: 'cancelado', enCaja: false }) != null), 1)
 }
 
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)

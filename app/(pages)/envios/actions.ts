@@ -13,7 +13,7 @@ import { inboundDe } from '@/lib/inbound'
 import { isModoApp, llevaPedidos, MODOS_CON_PEDIDOS } from '@/lib/modo'
 import { motivoExpressNoAprobable, motivoViaNoCoincide, topeDeCaja } from '@/lib/express'
 import { contextoCosteo, costearAereo, ENVIO_COSTEO_INCLUDE } from '@/lib/costo-envios'
-import { isReenvio, ETAPAS_FUERA_DEL_DEPOSITO } from '@/lib/reenvio'
+import { isReenvio, reenvioDe, ETAPAS_FUERA_DEL_DEPOSITO, motivoReenvioNoCoincide } from '@/lib/reenvio'
 import { fallo, ok, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
 import { isForeignKeyViolation } from '@/lib/prisma-errors'
 import { compraTrasMover, motivoNoMueve, motivoNoMueveSinEnviar, type CajaParaMover } from '@/lib/mover-caja'
@@ -382,7 +382,7 @@ async function asignarAEnvio(envioId: number, itemIds: number[]): Promise<Action
     }),
     db.pedidoItem.findMany({
       where: { id: { in: itemIds } },
-      select: { id: true, productId: true, shippingStatus: true, costRealUsd: true, pedido: { select: { tipo: true, status: true, via: true } } },
+      select: { id: true, productId: true, shippingStatus: true, costRealUsd: true, pedido: { select: { tipo: true, status: true, via: true, reenvio: true } } },
     }),
   ])
 
@@ -397,8 +397,10 @@ async function asignarAEnvio(envioId: number, itemIds: number[]): Promise<Action
   if (!llevaPedidos(envio.modo)) {
     return fallo('Esa caja es marítima: lleva mercancía propia pieza por pieza, no pedidos.')
   }
+  // Express con express, y por Miami cada pedido en una caja aérea de su mismo reenvío: es lo que
+  // se le cotizó al cliente. Candado real de assignPedido, "agregar todos" y la confirmación.
   for (const it of items) {
-    const motivo = motivoViaNoCoincide(it.pedido.via, envio.modo)
+    const motivo = motivoViaNoCoincide(it.pedido.via, envio.modo) ?? motivoReenvioNoCoincide(it.pedido, envio)
     if (motivo) return fallo(motivo)
   }
   if (envio.estado === 'entregado') {
@@ -570,8 +572,10 @@ async function moverACaja(
 export async function assignAllConfirmados(envioId: number, formData: FormData): Promise<ActionResult> {
   const incluirPropio = formData.get('incluirPropio') === 'on'
   // Una caja express se llena solo con presupuestos express, y una aérea con los demás.
-  const caja = await db.envio.findUnique({ where: { id: envioId }, select: { modo: true } })
+  const caja = await db.envio.findUnique({ where: { id: envioId }, select: { modo: true, reenvio: true } })
   const via = caja?.modo === 'express' ? 'express' : 'normal'
+  // Y una aérea, solo con los de su mismo reenvío: si no, un pedido del otro hacía fallar todo.
+  const reenvio = caja?.modo === 'aereo' ? { reenvio: reenvioDe(caja.reenvio) } : {}
 
   const ids = await db.pedidoItem.findMany({
     where: {
@@ -579,6 +583,7 @@ export async function assignAllConfirmados(envioId: number, formData: FormData):
       pedido: {
         status: 'pedido',
         via,
+        ...reenvio,
         // Las ventas del depósito ya están entregadas: nunca van a una caja.
         tipo: incluirPropio ? { not: 'venta' } : { notIn: ['propio', 'venta'] },
       },

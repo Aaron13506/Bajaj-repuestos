@@ -5,7 +5,8 @@ import PendingButton from '@/components/PendingButton'
 import FormConResultado from '@/components/FormConResultado'
 import { stageSummary, statusIndex, SHIPPING_STATUSES } from '@/lib/shipping-status'
 import { inboundDe, inboundMeta } from '@/lib/inbound'
-import { REENVIOS } from '@/lib/reenvio'
+import { REENVIOS, reenvioPorDefecto } from '@/lib/reenvio'
+import { getConfig } from '@/lib/config-db'
 import { costearEnvios } from '@/lib/costo-envios'
 import { CATEGORIAS_FLETE, resumenFletes } from '@/lib/flete-real'
 import { tiempoDeCompraA, tiemposPorTramo } from '@/lib/etapas'
@@ -26,7 +27,7 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
   const verLlegaron = (await searchParams).ver === 'llegaron'
   // Una sola tanda: ninguna de las tres depende de las otras y encadenarlas costaba
   // tres veces la latencia hasta la base.
-  const [envios, sinAsignar, suppliers, costos, pagosFlete, etapas, esperandoCaja] = await Promise.all([
+  const [envios, sinAsignar, suppliers, costos, pagosFlete, etapas, esperandoCaja, cfg] = await Promise.all([
     db.envio.findMany({
       include: {
         items: { select: { id: true, shippingStatus: true, pedidoId: true } },
@@ -75,6 +76,8 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
       },
       orderBy: [{ pedidoId: 'asc' }, { id: 'asc' }],
     }),
+    // Con cuál reenvío nace una caja aérea nueva (el mismo default que los presupuestos).
+    getConfig(),
   ])
   const tramos = tiemposPorTramo(etapas)
   const compraAVenezuela = tiempoDeCompraA(etapas, 'en_venezuela')
@@ -271,7 +274,7 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
                 <span className="text-xs text-gray-500">Reenvío a USA (si no despacha el proveedor)</span>
                 <select
                   name="reenvio"
-                  defaultValue="shoppre"
+                  defaultValue={reenvioPorDefecto(cfg)}
                   className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   {REENVIOS.map(rv => (

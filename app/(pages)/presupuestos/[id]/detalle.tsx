@@ -15,10 +15,12 @@ import ConfirmarEntregaForm, { type LineaEntrega } from '@/components/ConfirmarE
 import { motivoNoServible } from '@/lib/venta-stock'
 import { deletePresupuesto, aprobarPedido, registrarPagoPedido } from '../actions'
 import {
-  cancelarPedido, confirmarEntrega, devolverAlCliente, devolverAlDeposito, marcarPerdido, servirDesdeStock, reabrirPresupuesto, renovarPresupuesto, reportarIncidencia,
+  cambiarReenvioPedido, cancelarPedido, confirmarEntrega, devolverAlCliente, devolverAlDeposito, marcarPerdido, servirDesdeStock, reabrirPresupuesto, renovarPresupuesto, reportarIncidencia,
   resolverIncidencia,
 } from '../flujos-actions'
 import FormConResultado from '@/components/FormConResultado'
+import CambiarReenvioPedido from '@/components/CambiarReenvioPedido'
+import { motivoReenvioFijo, reenvioDe, tarifaKgReferencia } from '@/lib/reenvio'
 import PendingButton from '@/components/PendingButton'
 import { anularVenta } from '../../ventas/actions'
 import { type BundlePiece, groupBundlePieces } from '@/lib/bundle'
@@ -142,6 +144,14 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
   // hoy. Es lo que el armador mostró al cotizar, y lo que se revisa al confirmar.
   const express = await expressDelPedido(db, id, cfg)
   const motivoExpress = express && isPresupuesto ? motivoExpressNoAprobable(express) : null
+  // Por Miami: el reenvío decide en qué caja aérea viaja. Mientras ninguna línea esté en una caja
+  // se cambia desde acá, sin recotizar (cambiarReenvioPedido); a por kilo, solo con tarifa de
+  // referencia. Un presupuesto sin confirmar se cambia desde el armador.
+  const reenvioPedido = reenvioDe(presupuesto.reenvio)
+  const porMiami = !isVenta && presupuesto.via !== 'express'
+  const puedeCambiarReenvio = porMiami && !isPresupuesto &&
+    motivoReenvioFijo({ via: presupuesto.via, status: presupuesto.status, enCaja: presupuesto.items.some(it => it.envioId != null) }) == null &&
+    (reenvioPedido === 'por_kilo' || tarifaKgReferencia(cfg) != null)
 
   // ── Volumen y costo por mar ────────────────────────────────────────────────
   // El presupuesto es donde se decide el precio, así que es donde tiene que verse el
@@ -474,10 +484,18 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
             {isPropio && <span className={`${chip} bg-blue-100 text-blue-700`}>Stock propio</span>}
             {express && <span className={`${chip} bg-amber-100 text-amber-800`}>⚡ Express</span>}
             {/* Por Miami, el reenvío con el que se cotizó (y en qué caja va a viajar). No va al PDF. */}
-            {!express && presupuesto.via !== 'express' && presupuesto.reenvio === 'por_kilo' && (
-              <span className={`${chip} bg-orange-100 text-orange-800`}>
-                Reenvío por kilo{presupuesto.tarifaKgInr != null ? ` · ₹${Number(presupuesto.tarifaKgInr)}/kg` : ''}
+            {porMiami && (reenvioPedido === 'por_kilo' || puedeCambiarReenvio) && (
+              <span className={`${chip} ${reenvioPedido === 'por_kilo' ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-700'}`}>
+                {reenvioPedido === 'por_kilo'
+                  ? `Reenvío por kilo${presupuesto.tarifaKgInr != null ? ` · ₹${Number(presupuesto.tarifaKgInr)}/kg` : ''}`
+                  : 'Reenvío Shoppre'}
               </span>
+            )}
+            {puedeCambiarReenvio && (
+              <CambiarReenvioPedido
+                a={reenvioPedido === 'por_kilo' ? 'shoppre' : 'por_kilo'}
+                action={cambiarReenvioPedido.bind(null, presupuesto.id, reenvioPedido === 'por_kilo' ? 'shoppre' : 'por_kilo')}
+              />
             )}
             {isVenta ? <span className={`${chip} bg-green-100 text-green-700`}>Venta del depósito</span>
               : isCancelado ? <span className={`${chip} bg-red-100 text-red-700`}>Cancelado</span>

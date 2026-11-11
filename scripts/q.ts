@@ -9,11 +9,14 @@
  *   pnpm q missing --limit=30              # piezas sin peso o sin medidas
  *
  * Flags de `quote`: --inbound-china=USD (factura real del tramo China→USA),
- * --china=SKU,SKU (marca esas líneas como origen china), --json (salida cruda).
+ * --china=SKU,SKU (marca esas líneas como origen china), --json (salida cruda),
+ * --por-kilo[=₹] (el tramo a USA por el reenvío por kilo; sin número, la tarifa de referencia
+ * de Configuración; sin el reempaque de la caja).
  */
 import { db } from '@/lib/db'
 import { quoteMetrics, resolveSkus, volumeOf, type SkuLine } from '@/lib/quote-metrics'
 import { getConfig } from '@/lib/config-db'
+import { tarifaKgReferencia } from '@/lib/reenvio'
 import { codigoContiene } from '@/lib/alt-sku'
 
 // ── formato ──────────────────────────────────────────────────────────────────
@@ -113,8 +116,20 @@ async function cmdQuote(args: string[]) {
   }
 
   const tramoUsd = flags['inbound-china'] ? Number(flags['inbound-china']) : null
+  // --por-kilo: el reenvío por kilo en lugar de Shoppre. Sin número, la referencia de /config.
+  const cfg = await getConfig()
+  let reenvio = null
+  if (flags['por-kilo']) {
+    const tarifa = flags['por-kilo'] === 'true' ? tarifaKgReferencia(cfg) : Number(flags['por-kilo'].replace(',', '.'))
+    if (tarifa == null || !Number.isFinite(tarifa) || tarifa < 0) {
+      return console.error('--por-kilo: falta la tarifa ₹/kg (pasala como --por-kilo=650 o cargala en Configuración)')
+    }
+    reenvio = { tipo: 'por_kilo' as const, tarifaKgInr: tarifa, reempaqueInr: null }
+  }
   const r = await quoteMetrics(lines, {
     proveedor: china.size ? { supplierId: PROV_COTIZADO, nombre: 'Tramo cotizado', tramoUsd } : null,
+    cfg,
+    reenvio,
   })
   if (flags.json) return console.log(JSON.stringify(r, null, 2))
 
@@ -140,7 +155,10 @@ async function cmdQuote(args: string[]) {
   console.log(`  ─`)
   console.log(`  Producto .......... $${n(b.productCostUsd)}`)
   const cotizado = b.tramo ? ` · ${b.tramo.nombre} $${n(b.tramo.costUsd)}` : ''
-  console.log(`  Aéreo a USA ....... $${n(b.airUsd)}   (Shoppre $${n(b.air.costUsd)}${cotizado})`)
+  const deposito = b.reenvio.tipo === 'por_kilo'
+    ? `por kilo ${n(b.reenvio.kgFacturados, 1)} kg × ₹${b.reenvio.tarifaKgInr}, sin el reempaque`
+    : 'Shoppre'
+  console.log(`  Aéreo a USA ....... $${n(b.airUsd)}   (${deposito} $${n(b.air.costUsd)}${cotizado})`)
   console.log(`  Marítimo .......... $${n(b.maritimeUsd)}   (${r.cfg.miami_caracas_per_ft3 ?? '45'} USD/ft³)`)
   console.log(`  Seguro + proc. .... $${n(b.insuranceUsd + b.processingUsd)}`)
   if (b.comisionUsd > 0) console.log(`  Comisiones giro ... $${n(b.comisionUsd)}`)

@@ -166,3 +166,46 @@ export function leerRutaPresupuesto(
   if (ref == null) return { error: 'Falta la tarifa ₹/kg del reenvío por kilo: anotala acá o en Configuración.' }
   return { reenvio, tarifaKgInr: ref }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// El pedido viaja en una caja de su mismo reenvío
+//
+// El reenvío de un presupuesto por Miami decide en qué caja aérea viaja: uno cotizado por kilo
+// entra solo en una caja aérea por kilo, y uno por Shoppre solo en una caja Shoppre. Si no, el
+// precio que se le dijo al cliente y el costo de la caja saldrían de tarifas distintas. Es la
+// misma regla que separa express de normal (motivoViaNoCoincide), y se BLOQUEA, no se avisa.
+// La traba es al ENTRAR: lo que ya viaja no se revisa.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ETIQUETA_REENVIO: Record<Reenvio, string> = { shoppre: 'Shoppre', por_kilo: 'por kilo' }
+
+/**
+ * Por qué un pedido NORMAL no entra en esta caja aérea por su reenvío, o null si entra. Solo opina
+ * entre un pedido por Miami y una caja aérea: express contra express no cambia (ahí manda la ruta
+ * de la caja, reenvioDelPresupuesto). Una caja de proveedor `cotizado` nace con reenvío Shoppre
+ * (createEnvio), así que con esta regla recibe solo pedidos Shoppre.
+ */
+export function motivoReenvioNoCoincide(
+  pedido: { via: string | null | undefined; reenvio: string | null | undefined },
+  caja: { modo: string | null | undefined; reenvio: string | null | undefined },
+): string | null {
+  // viaDe (lib/express) en línea: importarlo cerraría un ciclo express → calc → reenvio.
+  if (pedido.via === 'express' || caja.modo !== 'aereo') return null
+  const delPedido = reenvioDe(pedido.reenvio)
+  const deLaCaja = reenvioDe(caja.reenvio)
+  if (delPedido === deLaCaja) return null
+  return `Este pedido se cotizó ${delPedido === 'por_kilo' ? 'por kilo' : 'por Shoppre'}: va en una caja aérea ` +
+    `${ETIQUETA_REENVIO[delPedido]}, no en esta (${ETIQUETA_REENVIO[deLaCaja]}). Cambiale el reenvío al pedido o usá otra caja.`
+}
+
+/**
+ * Por qué no se le puede cambiar el reenvío a este pedido (desde su ficha, sin recotizar), o null
+ * si se puede. Solo por Miami; y mientras ninguna línea esté en una caja (con una adentro, manda
+ * la caja). No toca precios ni cobros: solo dice por dónde va a viajar.
+ */
+export function motivoReenvioFijo(p: { via: string | null | undefined; status: string; enCaja: boolean }): string | null {
+  if (p.via === 'express') return 'Es express: la ruta es la de su caja express.'
+  if (p.status === 'cancelado') return 'Este pedido está cancelado.'
+  if (p.enCaja) return 'Ya tiene piezas en una caja: el reenvío es el de la caja.'
+  return null
+}
