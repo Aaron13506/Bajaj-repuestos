@@ -9,6 +9,7 @@ import IndicadorMedido from '@/components/IndicadorMedido'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
 import { formatModels } from '@/lib/modelo'
 import { costHeaders } from '@/lib/cost-columns'
+import { tarifaKgReferencia } from '@/lib/reenvio'
 import { deleteProduct } from '@/app/(pages)/products/actions'
 
 // Los encabezados de las columnas de costo viven en lib/cost-columns: este módulo es
@@ -39,12 +40,14 @@ function fmt(n: number | null | undefined, decimals = 2) {
  * priceInr/price son SIEMPRE por unidad; con `quantity` (solo en sub-filas de un ensamble
  * puntual) se agrega el total de esa línea en chico, para no confundir unidad con total.
  */
-export function CostCells({ d, cfg, quantity, maritimo = true }: {
+export function CostCells({ d, cfg, quantity, maritimo = true, porKilo = false }: {
   d: QuickEditValues
   cfg: ConfigMap
   quantity?: number
   /** false = sin el bloque marítimo. Va igual que el `maritimo` de costHeaders. */
   maritimo?: boolean
+  /** true = con el bloque del reenvío por kilo. Va igual que el `porKilo` de costHeaders. */
+  porKilo?: boolean
 }) {
   const fisico = {
     weightGrams: d.weightGrams,
@@ -67,6 +70,10 @@ export function CostCells({ d, cfg, quantity, maritimo = true }: {
   // abastecerse — cuánto más barato sale la misma pieza si puede esperar el barco.
   const b = calcLanded(forAereo, cfg, 'aereo')
   const m = calcLanded(forMar, cfg, 'maritimo_cbm')
+  // La misma ruta aérea con el reenvío por kilo (también es 99rpm por el depósito), con el ₹/kg
+  // de referencia. Es para ver, no manda en el precio.
+  const tarifaKg = porKilo ? tarifaKgReferencia(cfg) : null
+  const k = tarifaKg != null ? calcLanded(forAereo, cfg, 'aereo', { reenvio: { tipo: 'por_kilo', tarifaKgInr: tarifaKg } }) : null
 
   // Flete de hoy = lo que se paga para mover la pieza (Shoppre aéreo + marítimo Miami→CCS).
   // Flete por mar = un solo tramo. Se comparan estos dos, y los landed que resultan.
@@ -78,6 +85,9 @@ export function CostCells({ d, cfg, quantity, maritimo = true }: {
 
   const multi = (quantity ?? 1) > 1
   const saleUsd = b?.priceUsd ?? parseFloat(d.price.toString())
+  // El margen que deja el precio de hoy si la pieza viaja por kilo.
+  const margenKilo = k && saleUsd > 0 ? 1 - k.landedCostUsd / saleUsd : null
+  const fleteKilo = k ? k.shoppreShippingUsd + k.maritimeUsd : null
   const hasSupplierOverride = d.priceUsd != null
 
   // Costo de origen: el de 99rpm en ₹ (la base aérea) y, si hay proveedor con precio
@@ -127,6 +137,36 @@ export function CostCells({ d, cfg, quantity, maritimo = true }: {
       <td className="px-4 py-3 text-right font-medium text-gray-700">{fleteHoy != null ? fmt(fleteHoy) : '—'}</td>
       <td className="px-4 py-3 text-right font-semibold text-gray-900 border-l border-gray-200">{b ? fmt(b.landedCostUsd) : '—'}</td>
 
+      {/* ── Ruta aérea por el reenvío por kilo: lo que costaría y el margen al precio de hoy ── */}
+      {porKilo && <>
+      <td
+        className="px-4 py-3 text-right text-amber-900 bg-amber-50/50 border-l-2 border-amber-200"
+        title={k ? `Tramo a USA ${fmt(k.shoppreShippingUsd)} (kg × ₹${tarifaKg}/kg ÷ tasa, sin seguro) + Miami → CCS ${fmt(k.maritimeUsd)}` : undefined}
+      >
+        {fleteKilo != null ? fmt(fleteKilo) : <span className="text-amber-700" title="Falta el peso">—</span>}
+      </td>
+      <td className="px-4 py-3 text-right font-semibold text-amber-900 bg-amber-50/50">
+        {k ? fmt(k.landedCostUsd) : <span className="text-amber-700" title="Falta el peso">—</span>}
+      </td>
+      <td className="px-4 py-3 text-right font-medium text-amber-900 bg-amber-50/50">
+        {k?.priceUsd != null ? (
+          <>
+            {fmt(k.priceUsd)}
+            {multi && (
+              <span className="block text-[11px] font-normal text-amber-700">total: {fmt(k.priceUsd * quantity!)}</span>
+            )}
+          </>
+        ) : (
+          <span className="text-amber-700" title={k ? 'Sin margen definido' : 'Falta el peso'}>—</span>
+        )}
+      </td>
+      <td className={`px-4 py-3 text-right font-semibold bg-amber-50/50 border-r-2 border-amber-200 ${
+        margenKilo == null ? 'text-amber-700' : margenKilo < 0 ? 'text-red-600' : 'text-amber-900'
+      }`}>
+        {margenKilo == null ? '—' : `${(margenKilo * 100).toFixed(1)}%`}
+      </td>
+      </>}
+
       {/* ── Ruta marítima (CBM): lo que costaría la misma pieza por barco ── */}
       {maritimo && <>
       <td className="px-4 py-3 text-right text-sky-800 bg-sky-50/50 border-l-2 border-sky-200 text-xs font-mono">
@@ -169,8 +209,8 @@ export function CostCells({ d, cfg, quantity, maritimo = true }: {
 }
 
 // Columnas de la tabla de /products: 4 fijas + las de costo + stock y acciones. Para que la
-// fila desplegada ocupe el ancho entero.
-const COLUMNAS = 4 + costHeaders().length + 2
+// fila desplegada ocupe el ancho entero. Con las mismas opciones que la tabla (`porKilo`).
+const columnas = (porKilo: boolean) => 4 + costHeaders('list', { porKilo }).length + 2
 
 export default function ProductRow({ product, cfg, activeSupplierId }: { product: ProductRowData; cfg: ConfigMap; activeSupplierId: number | null }) {
   // Override optimista: al guardar mostramos los valores nuevos al instante,
@@ -192,6 +232,8 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
   }
 
   const [expanded, setExpanded] = useState(false)
+  // El bloque del reenvío por kilo va cuando hay tarifa de referencia: igual que en la tabla.
+  const porKilo = tarifaKgReferencia(cfg) != null
 
   const d = optimistic ? { ...product, ...optimistic } : product
   const ensambles = product.assemblies
@@ -251,7 +293,7 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
           <IndicadorMedido medidoAt={d.medidoAt} className="mt-0.5" />
         </td>
 
-        <CostCells d={d} cfg={cfg}  />
+        <CostCells d={d} cfg={cfg} porKilo={porKilo} />
 
         <td className="px-4 py-3 text-right border-l border-gray-100">
           <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
@@ -298,7 +340,7 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
 
       {expanded && (
         <tr className="bg-gray-50/60 text-xs">
-          <td colSpan={COLUMNAS} className="pl-10 pr-4 py-2 whitespace-normal">
+          <td colSpan={columnas(porKilo)} className="pl-10 pr-4 py-2 whitespace-normal">
             <ul className="space-y-1">
               {ensambles.map((e) => (
                 <li key={e.id} className="flex flex-wrap items-center gap-x-2 text-gray-700">

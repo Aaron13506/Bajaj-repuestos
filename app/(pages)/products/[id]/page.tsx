@@ -9,6 +9,7 @@ import AssemblyImage from '@/components/AssemblyImage'
 import { addToAssembly } from '../../ensambles/component-actions'
 import { deleteProduct } from '../actions'
 import { calcLanded } from '@/lib/calc'
+import { tarifaKgReferencia } from '@/lib/reenvio'
 import { getSupplierPriceMap } from '@/lib/suppliers'
 import { toConfigMap } from '@/lib/config'
 
@@ -79,6 +80,12 @@ export default async function ProductDetailPage({
   // componentes, que es donde la pregunta "¿conviene por barco?" tiene sentido.
   const breakdown = calcLanded(forCalc, cfg, 'aereo')
   const breakdownMar = calcLanded(forMar, cfg, 'maritimo_cbm')
+  // La misma ruta aérea con el reenvío por kilo, al ₹/kg de referencia de /config. Sin tarifa
+  // de referencia el bloque no aparece. No cambia el precio de venta (sale de Shoppre).
+  const tarifaKg = tarifaKgReferencia(cfg)
+  const breakdownKilo = tarifaKg != null
+    ? calcLanded(forCalc, cfg, 'aereo', { reenvio: { tipo: 'por_kilo', tarifaKgInr: tarifaKg } })
+    : null
 
   return (
     <div className="max-w-7xl space-y-6">
@@ -261,6 +268,51 @@ export default async function ProductDetailPage({
                 )}
               </div>
             </div>
+
+            {/* La misma pieza por el reenvío por kilo, al ₹/kg de referencia: cuánto costaría,
+                a qué precio saldría con el mismo margen y qué margen deja el precio de hoy. */}
+            {tarifaKg != null && (() => {
+              const precioHoy = breakdown.priceUsd ?? parseFloat(product.price.toString())
+              const margenHoy = breakdownKilo && precioHoy > 0 ? 1 - breakdownKilo.landedCostUsd / precioHoy : null
+              const delta = breakdownKilo && breakdown.landedCostUsd > 0
+                ? (breakdownKilo.landedCostUsd - breakdown.landedCostUsd) / breakdown.landedCostUsd
+                : null
+              return (
+                <div className="mt-2 rounded-lg bg-amber-50 border border-amber-100 px-3 py-2 space-y-1">
+                  <div className="flex justify-between text-amber-900">
+                    <span>✈️ Landed por el reenvío por kilo</span>
+                    <span className="font-mono font-semibold">
+                      {breakdownKilo ? `$${breakdownKilo.landedCostUsd.toFixed(2)}` : '—'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs text-amber-800">
+                    <span>
+                      {breakdownKilo
+                        ? `₹${tarifaKg}/kg · tramo a USA $${breakdownKilo.shoppreShippingUsd.toFixed(2)}, sin seguro`
+                        : 'Falta el peso'}
+                    </span>
+                    {delta != null && (
+                      <span className={`font-semibold ${delta < 0 ? 'text-green-700' : 'text-red-600'}`}>
+                        {delta < 0 ? '−' : '+'}{Math.abs(delta * 100).toFixed(0)}% vs Shoppre
+                      </span>
+                    )}
+                  </div>
+                  {breakdownKilo && (
+                    <div className="flex justify-between text-xs text-amber-800">
+                      <span>
+                        Venta al mismo margen {breakdownKilo.priceUsd != null ? `$${breakdownKilo.priceUsd.toFixed(2)}` : '—'}
+                      </span>
+                      <span className={margenHoy != null && margenHoy < 0 ? 'font-semibold text-red-600' : ''}>
+                        Margen al precio de hoy {margenHoy != null ? `${(margenHoy * 100).toFixed(1)}%` : '—'}
+                      </span>
+                    </div>
+                  )}
+                  <p className="text-[11px] text-amber-700">
+                    Sin el redondeo a 0,5 kg ni el reempaque, que son por caja.
+                  </p>
+                </div>
+              )
+            })()}
 
             <div className="flex justify-between py-1.5 border-t border-gray-100 text-gray-600">
               <span>Margen</span>

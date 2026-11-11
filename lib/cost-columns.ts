@@ -8,7 +8,10 @@
 // la comparación ES la respuesta.
 //
 // El bloque gris (aéreo) es el que manda en el precio de venta: los pedidos de cliente
-// salen por ahí. El bloque celeste (marítimo CBM) es la ruta de abastecimiento propio.
+// salen por ahí. El bloque ámbar es la misma ruta aérea con el reenvío por kilo en lugar de
+// Shoppre (con el ₹/kg de referencia de /config; sin él no aparece): dice cuánto costaría y
+// qué margen quedaría al precio de hoy. El bloque celeste (marítimo CBM) es la ruta de
+// abastecimiento propio.
 //
 // Viven en lib y no junto a las celdas (components/ProductRow) porque ese módulo es
 // 'use client' y las tablas se arman en el server, que no puede llamar a una función
@@ -22,11 +25,17 @@ export interface CostColumn { label: string; title?: string; className?: string 
 export type CostHeaderVariant = 'list' | 'compact'
 
 // `maritimo: false` quita el bloque celeste (lo apaga la ficha del ensamble según
-// `ensambles_columnas_maritimas`). Tiene que ir igual que el `maritimo` de CostCells.
-export function costHeaders(variant: CostHeaderVariant = 'list', { maritimo = true }: { maritimo?: boolean } = {}): CostColumn[] {
+// `ensambles_columnas_maritimas`). `porKilo: true` agrega el bloque ámbar (va cuando hay
+// tarifa de referencia, `tarifaKgReferencia(cfg) != null`). Los dos tienen que ir igual que
+// los de CostCells, o las columnas se corren.
+export function costHeaders(
+  variant: CostHeaderVariant = 'list',
+  { maritimo = true, porKilo = false }: { maritimo?: boolean; porKilo?: boolean } = {},
+): CostColumn[] {
   const TH_BASE = variant === 'compact' ? 'text-right px-2 py-2 font-medium' : 'text-right px-4 py-3 font-medium'
   const gris = variant === 'compact' ? TH_BASE : `${TH_BASE} text-gray-500`
   const mar = `${TH_BASE} text-sky-700 bg-sky-50`
+  const kilo = `${TH_BASE} text-amber-800 bg-amber-50`
   return [
     { label: 'Costo origen', className: `${gris} border-l border-gray-100` },
     { label: 'Producto',     className: gris },
@@ -36,6 +45,13 @@ export function costHeaders(variant: CostHeaderVariant = 'list', { maritimo = tr
     { label: 'Marítimo',     title: 'Tramo Miami → Caracas del recorrido aéreo', className: gris },
     { label: 'Flete hoy',    className: gris },
     { label: '✈️ Landed',    title: 'Costo puesto en Venezuela por la ruta aérea. Es el que define el precio de venta', className: `${TH_BASE} text-gray-500 font-semibold border-l border-gray-200` },
+    // ── Ruta aérea con el reenvío por kilo en vez de Shoppre ──
+    ...(!porKilo ? [] : [
+    { label: 'Flete kilo',   title: 'Tramo a USA por el reenvío por kilo (kg × ₹/kg de referencia ÷ tasa, sin seguro) + el Miami → Caracas', className: `${kilo} border-l-2 border-amber-200` },
+    { label: 'Landed kilo',  title: 'Costo puesto en Venezuela si viaja por el reenvío por kilo. Sin el redondeo a 0,5 kg ni el reempaque, que son por caja', className: `${TH_BASE} font-semibold text-amber-900 bg-amber-50` },
+    { label: 'Venta kilo',   title: 'Precio de venta al mismo margen sobre el landed por kilo (con precio fijo, el precio fijo)', className: kilo },
+    { label: 'Margen hoy',   title: 'El margen que queda si se vende al precio de hoy y viaja por kilo', className: `${kilo} border-r-2 border-amber-200` },
+    ]),
     // ── Ruta marítima (CBM): la de abastecimiento propio ──
     ...(!maritimo ? [] : [
     { label: 'm³',           title: 'Volumen de la pieza — la unidad que factura la naviera', className: `${mar} border-l-2 border-sky-200` },
