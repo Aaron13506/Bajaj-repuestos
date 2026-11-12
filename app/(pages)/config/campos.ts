@@ -47,6 +47,7 @@ export const FIELD_META: Record<string, FieldMeta> = {
   // cotizar: la caja real sigue con la tarifa que le cotizan a ella (Envio.tarifaKgInr).
   reenvio_kilo_tarifa_inr: { label: 'Reenvío por kilo: tarifa de referencia (₹/kg)', hint: 'Lo que cobra el reenvío por kilo cobrable para llevar a USA. Se usa para ver el catálogo y cotizar presupuestos por kilo. La caja real sigue con la tarifa que te cotizan para esa caja. Vacío = la ruta por kilo no se muestra', rango: POSITIVO },
   reenvio_precios:         { label: 'Reenvío con el que se cotiza', hint: 'Con cuál nacen los presupuestos nuevos por Miami (shoppre o por_kilo). En cada presupuesto se puede cambiar. Sin tarifa de referencia, siempre Shoppre', options: ['shoppre', 'por_kilo'] },
+  reenvio_kilo_en_catalogo: { label: 'Ruta por kilo en el catálogo', hint: 'Muestra el bloque ámbar (flete, landed, venta y margen por kilo) en Productos, la ficha de producto y la de ensamble. Necesita la tarifa de referencia. Solo cambia qué se ve: los presupuestos siguen pudiendo cotizar por kilo', boolean: true, booleanDefault: true, checkLabel: 'Mostrar la ruta por kilo en el catálogo' },
   // ── Envío express (Shoppre directo India → Venezuela). La tarifa la trae el cron
   // (shoppre_rates_ve_usd); seguro, processing y socio son los mismos de Shoppre.
   express_tope_usd:   { label: 'Tope del paquete express (USD)', hint: 'El landed de cada paquete express (producto + flete + seguro + processing) no puede pasar de este monto. Vacío = 100', rango: POSITIVO },

@@ -9,7 +9,7 @@ import IndicadorMedido from '@/components/IndicadorMedido'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
 import { formatModels } from '@/lib/modelo'
 import { costHeaders } from '@/lib/cost-columns'
-import { tarifaKgReferencia } from '@/lib/reenvio'
+import { tarifaKgReferencia, verPorKiloEnCatalogo } from '@/lib/reenvio'
 import { deleteProduct } from '@/app/(pages)/products/actions'
 
 // Los encabezados de las columnas de costo viven en lib/cost-columns: este módulo es
@@ -233,7 +233,7 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
 
   const [expanded, setExpanded] = useState(false)
   // El bloque del reenvío por kilo va cuando hay tarifa de referencia: igual que en la tabla.
-  const porKilo = tarifaKgReferencia(cfg) != null
+  const porKilo = verPorKiloEnCatalogo(cfg)
 
   const d = optimistic ? { ...product, ...optimistic } : product
   const ensambles = product.assemblies

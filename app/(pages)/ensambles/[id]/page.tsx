@@ -17,7 +17,7 @@ import { addComponent, removeComponent } from '../component-actions'
 import { eliminarEnsamble } from '../actions'
 import { getSupplierPriceMap } from '@/lib/suppliers'
 import { toConfigMap, flag } from '@/lib/config'
-import { tarifaKgReferencia } from '@/lib/reenvio'
+import { verPorKiloEnCatalogo } from '@/lib/reenvio'
 
 export const metadata = { title: 'Ensamble' }
 
@@ -55,8 +55,8 @@ export default async function EnsambleDetailPage({
   // Las columnas 🚢 son opcionales (Config): ensanchan la tabla y el carril marítimo
   // todavía no se usa. Apagadas, tampoco hace falta el aviso de la tarifa.
   const verMaritimo = flag(cfg, 'ensambles_columnas_maritimas', false)
-  // El bloque ámbar del reenvío por kilo va cuando hay tarifa de referencia (igual que /products).
-  const verPorKilo = tarifaKgReferencia(cfg) != null
+  // El bloque ámbar del reenvío por kilo: con tarifa de referencia y sin apagarlo en /config.
+  const verPorKilo = verPorKiloEnCatalogo(cfg)
   // Sin tarifa por m³ el flete marítimo cuenta 0 y esa comparación sale falsamente barata.
   const tarifaMaritimaCargada = parseFloat(cfg.cbm_rate_usd ?? '') > 0
 

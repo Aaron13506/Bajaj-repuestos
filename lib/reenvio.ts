@@ -28,7 +28,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { SHIPPING_STATUSES, statusIndex } from './shipping-status'
-import type { ConfigMap } from './config'
+import { flag, type ConfigMap } from './config'
 
 export type Reenvio = 'shoppre' | 'por_kilo'
 
@@ -107,6 +107,15 @@ export function tarifaKgReferencia(cfg: ConfigMap): number | null {
   if (raw === '') return null
   const v = Number(raw)
   return Number.isFinite(v) && v > 0 ? v : null
+}
+
+/**
+ * Si el catálogo (/products, ficha de producto y de ensamble) muestra el bloque por kilo: hace
+ * falta la tarifa de referencia y que Config.reenvio_kilo_en_catalogo no esté apagado. Solo es
+ * vista: los presupuestos siguen pudiendo cotizar por kilo.
+ */
+export function verPorKiloEnCatalogo(cfg: ConfigMap): boolean {
+  return tarifaKgReferencia(cfg) != null && flag(cfg, 'reenvio_kilo_en_catalogo', true)
 }
 
 /**

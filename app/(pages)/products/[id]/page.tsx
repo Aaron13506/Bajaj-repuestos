@@ -9,7 +9,7 @@ import AssemblyImage from '@/components/AssemblyImage'
 import { addToAssembly } from '../../ensambles/component-actions'
 import { deleteProduct } from '../actions'
 import { calcLanded } from '@/lib/calc'
-import { tarifaKgReferencia } from '@/lib/reenvio'
+import { tarifaKgReferencia, verPorKiloEnCatalogo } from '@/lib/reenvio'
 import { getSupplierPriceMap } from '@/lib/suppliers'
 import { toConfigMap } from '@/lib/config'
 
@@ -82,7 +82,7 @@ export default async function ProductDetailPage({
   const breakdownMar = calcLanded(forMar, cfg, 'maritimo_cbm')
   // La misma ruta aérea con el reenvío por kilo, al ₹/kg de referencia de /config. Sin tarifa
   // de referencia el bloque no aparece. No cambia el precio de venta (sale de Shoppre).
-  const tarifaKg = tarifaKgReferencia(cfg)
+  const tarifaKg = verPorKiloEnCatalogo(cfg) ? tarifaKgReferencia(cfg) : null
   const breakdownKilo = tarifaKg != null
     ? calcLanded(forCalc, cfg, 'aereo', { reenvio: { tipo: 'por_kilo', tarifaKgInr: tarifaKg } })
     : null
