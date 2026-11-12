@@ -400,7 +400,9 @@ async function asignarAEnvio(envioId: number, itemIds: number[]): Promise<Action
   // Express con express, y por Miami cada pedido en una caja aérea de su mismo reenvío: es lo que
   // se le cotizó al cliente. Candado real de assignPedido, "agregar todos" y la confirmación.
   for (const it of items) {
-    const motivo = motivoViaNoCoincide(it.pedido.via, envio.modo) ?? motivoReenvioNoCoincide(it.pedido, envio)
+    const motivo = motivoViaNoCoincide(it.pedido.via, envio.modo) ?? motivoReenvioNoCoincide(it.pedido, {
+      ...envio, despachaProveedor: envio.supplier != null && inboundDe(envio.supplier.origen, envio.supplier.inbound) === 'cotizado',
+    })
     if (motivo) return fallo(motivo)
   }
   if (envio.estado === 'entregado') {
@@ -572,10 +574,15 @@ async function moverACaja(
 export async function assignAllConfirmados(envioId: number, formData: FormData): Promise<ActionResult> {
   const incluirPropio = formData.get('incluirPropio') === 'on'
   // Una caja express se llena solo con presupuestos express, y una aérea con los demás.
-  const caja = await db.envio.findUnique({ where: { id: envioId }, select: { modo: true, reenvio: true } })
+  const caja = await db.envio.findUnique({
+    where: { id: envioId },
+    select: { modo: true, reenvio: true, supplier: { select: { origen: true, inbound: true } } },
+  })
   const via = caja?.modo === 'express' ? 'express' : 'normal'
   // Y una aérea, solo con los de su mismo reenvío: si no, un pedido del otro hacía fallar todo.
-  const reenvio = caja?.modo === 'aereo' ? { reenvio: reenvioDe(caja.reenvio) } : {}
+  // Salvo que despache el proveedor: ahí no hay depósito y el reenvío no aplica.
+  const despachaProveedor = caja?.supplier != null && inboundDe(caja.supplier.origen, caja.supplier.inbound) === 'cotizado'
+  const reenvio = caja?.modo === 'aereo' && !despachaProveedor ? { reenvio: reenvioDe(caja.reenvio) } : {}
 
   const ids = await db.pedidoItem.findMany({
     where: {

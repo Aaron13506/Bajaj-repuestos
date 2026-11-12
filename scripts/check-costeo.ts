@@ -1947,6 +1947,8 @@ console.log('\nREENVÍO POR KILO POR PIEZA (catálogo y presupuestos)')
   check('caja: reenvío vacío del pedido cuenta como Shoppre', entra('normal', null, 'aereo', 'shoppre'), 1)
   check('caja: express no opina (manda la caja express)', entra('express', 'shoppre', 'express', 'por_kilo'), 1)
   check('caja: una caja no aérea no opina', entra('normal', 'por_kilo', 'express', 'shoppre'), 1)
+  check('caja: proveedor que despacha él (Garuda) recibe uno por kilo',
+    si(motivoReenvioNoCoincide({ via: 'normal', reenvio: 'por_kilo' }, { modo: 'aereo', reenvio: 'shoppre', despachaProveedor: true }) == null), 1)
   check('caja: el motivo dice cuál caja', si((motivoReenvioNoCoincide({ via: 'normal', reenvio: 'por_kilo' }, { modo: 'aereo', reenvio: 'shoppre' }) ?? '').includes('por kilo')), 1)
 
   // Cambiar el reenvío desde la ficha: solo por Miami y sin líneas en una caja.

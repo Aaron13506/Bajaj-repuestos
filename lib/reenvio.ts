@@ -182,15 +182,15 @@ const ETIQUETA_REENVIO: Record<Reenvio, string> = { shoppre: 'Shoppre', por_kilo
 /**
  * Por qué un pedido NORMAL no entra en esta caja aérea por su reenvío, o null si entra. Solo opina
  * entre un pedido por Miami y una caja aérea: express contra express no cambia (ahí manda la ruta
- * de la caja, reenvioDelPresupuesto). Una caja de proveedor `cotizado` nace con reenvío Shoppre
- * (createEnvio), así que con esta regla recibe solo pedidos Shoppre.
+ * de la caja, reenvioDelPresupuesto). Una caja cuyo proveedor despacha él mismo (`cotizado`) no
+ * pasa por ningún depósito: el reenvío no aplica y entra cualquier pedido.
  */
 export function motivoReenvioNoCoincide(
   pedido: { via: string | null | undefined; reenvio: string | null | undefined },
-  caja: { modo: string | null | undefined; reenvio: string | null | undefined },
+  caja: { modo: string | null | undefined; reenvio: string | null | undefined; despachaProveedor?: boolean },
 ): string | null {
   // viaDe (lib/express) en línea: importarlo cerraría un ciclo express → calc → reenvio.
-  if (pedido.via === 'express' || caja.modo !== 'aereo') return null
+  if (pedido.via === 'express' || caja.modo !== 'aereo' || caja.despachaProveedor) return null
   const delPedido = reenvioDe(pedido.reenvio)
   const deLaCaja = reenvioDe(caja.reenvio)
   if (delPedido === deLaCaja) return null

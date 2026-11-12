@@ -753,7 +753,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   // entran al agregado masivo.
   // Una caja aérea lleva solo pedidos de su mismo reenvío (motivoReenvioNoCoincide): los del otro
   // no se ofrecen, pero se cuentan para que no parezca que se perdieron.
-  const cajaReenvio = { modo: envio.modo, reenvio: envio.reenvio }
+  const cajaReenvio = { modo: envio.modo, reenvio: envio.reenvio, despachaProveedor: inboundCaja === 'cotizado' }
   const entraPorReenvio = (it: (typeof sinAsignar)[number]) => motivoReenvioNoCoincide(it.pedido, cajaReenvio) == null
   const pedidosDelOtroReenvio = new Set(sinAsignar.filter(it => !entraPorReenvio(it)).map(it => it.pedidoId)).size
   const agruparSueltos = (pred: (p: (typeof sinAsignar)[number]) => boolean) => {
