@@ -54,7 +54,7 @@ import {
 import { debeSaldo, motivoNoEntregable, saldoReal, seEntregaDesdeElPedido, situacionDeCobro } from '../lib/saldo-entrega'
 import { diasSinMoverse, tiempoDeCompraA, tiemposPorTramo } from '../lib/etapas'
 import { leerDevolucion } from '../lib/devolucion'
-import { kgFacturadosPorKilo, leerRutaPresupuesto, motivoReenvioFijo, motivoReenvioNoCoincide, reenvioDelPresupuestoNormal, reenvioPorDefecto, tarifaEquilibrioKgInr, tarifaKgReferencia } from '../lib/reenvio'
+import { costoTablaPorKiloInr, kgFacturadosPorKilo, leerRutaPresupuesto, parsearTablaPorKilo, motivoReenvioFijo, motivoReenvioNoCoincide, reenvioDelPresupuestoNormal, reenvioPorDefecto, tarifaEquilibrioKgInr, tarifaKgReferencia } from '../lib/reenvio'
 import { compraTrasMover, motivoNoMueve, motivoNoMueveSinEnviar, type CajaParaMover } from '../lib/mover-caja'
 import { avanzaSinEstar, motivoNoDespacha, planSeparar, repartirSinStock, tokensSku } from '../lib/sin-stock'
 import { leerTrackingsTramo, MAX_TRACKINGS_POR_TRAMO } from '../lib/tracking'
@@ -1905,6 +1905,40 @@ console.log('\nREENVÍO POR KILO POR PIEZA (catálogo y presupuestos)')
   check('referencia: negativa → null', si(ref('-650') === null), 1)
   check('referencia: "650" → 650', ref('650') ?? -1, 650)
   check('referencia: " 650 " → 650', ref(' 650 ') ?? -1, 650)
+
+  // La tabla por peso de caja (la de UPS, recortada).
+  const TABLA = '1: 6100 total\n4: 9878 total\n5: 1760\n11: 1240\n20: 1065\n40: 940'
+  const tabla = parsearTablaPorKilo(TABLA)!
+  check('tabla: se lee', tabla?.length ?? -1, 6)
+  check('tabla: desordenada → null', si(parsearTablaPorKilo('5: 1760\n4: 9878 total') === null), 1)
+  check('tabla: una línea ilegible → null (no a medias)', si(parsearTablaPorKilo('4: 9878 total\n5 kg 1760') === null), 1)
+  check('tabla: "5kg = 1760,5" se lee', parsearTablaPorKilo('5kg = 1760,5')?.[0].inr ?? -1, 1760.5)
+  check('tabla: 1 kg, total', costoTablaPorKiloInr(tabla, 1), 6100)
+  check('tabla: 1,5 kg cae en el total de 4', costoTablaPorKiloInr(tabla, 1.5), 9878)
+  check('tabla: 4,5 kg al ₹/kg de 5', costoTablaPorKiloInr(tabla, 4.5), 4.5 * 1760)
+  check('tabla: 20 kg al de 20', costoTablaPorKiloInr(tabla, 20), 20 * 1065)
+  check('tabla: 20,5 kg al de 40', costoTablaPorKiloInr(tabla, 20.5), 20.5 * 940)
+  check('tabla: pasado el último sigue su tarifa', costoTablaPorKiloInr(tabla, 60), 60 * 940)
+  check('referencia: con tabla, el tramo del peso de referencia', tarifaKgReferencia({ reenvio_kilo_tarifa_inr: TABLA, reference_weight_kg: '11' }) ?? -1, 1240)
+  check('referencia: con tabla, caja de 1 kg = el total', tarifaKgReferencia({ reenvio_kilo_tarifa_inr: TABLA, reference_weight_kg: '1' }) ?? -1, 6100)
+  {
+    // Caja sin tarifa propia: la tabla por SU peso; con tarifa propia, esa.
+    const cfgT = { ...cfg, reenvio_kilo_tarifa_inr: TABLA }
+    const its = (g: number): EnvioItemInput[] => [{
+      pedidoId: 9, productId: 1, name: 'K', weightGrams: g, dimL: 10, dimA: 10, dimH: 10,
+      priceInr: 1000, quantity: 1, origen: 'india', inbound: 'shoppre', supplierId: null,
+    }]
+    const inr = parseFloat(cfg.inr_usd_rate)
+    const t20 = calcEnvio(its(20000), cfgT, { reenvio: { tipo: 'por_kilo', tarifaKgInr: null, reempaqueInr: 0 } })
+    check('caja por tabla: 20 kg cobra 20 × 1065', t20.air.costUsd, (20 * 1065) / inr, 1e-6)
+    check('caja por tabla: no falta tarifa', si(!t20.reenvio.faltaTarifa && t20.reenvio.tablaKgInr === 1065), 1)
+    const t3 = calcEnvio(its(3000), cfgT, { reenvio: { tipo: 'por_kilo', tarifaKgInr: null, reempaqueInr: 0 } })
+    check('caja por tabla: 3 kg cobra el total de 4', t3.air.costUsd, 9878 / inr, 1e-6)
+    const propia = calcEnvio(its(20000), cfgT, { reenvio: { tipo: 'por_kilo', tarifaKgInr: 900, reempaqueInr: 0 } })
+    check('caja por tabla: su tarifa propia pisa la tabla', propia.air.costUsd, (20 * 900) / inr, 1e-6)
+    const sinNada = calcEnvio(its(20000), cfg, { reenvio: { tipo: 'por_kilo', tarifaKgInr: null, reempaqueInr: 0 } })
+    check('caja sin tarifa ni tabla: falta tarifa', si(sinNada.reenvio.faltaTarifa && sinNada.air.costUsd === 0), 1)
+  }
 
   check('por defecto: sin nada, shoppre', si(reenvioPorDefecto({}) === 'shoppre'), 1)
   check('por defecto: por_kilo pero sin tarifa, shoppre', si(reenvioPorDefecto({ reenvio_precios: 'por_kilo' }) === 'shoppre'), 1)

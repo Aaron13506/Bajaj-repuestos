@@ -57,6 +57,7 @@ export async function saveConfig(formData: FormData) {
       const n = Number(normalized)
       if (!Number.isFinite(n) || n < rango[0] || n > rango[1]) { invalidos.push(key); continue }
     }
+    if (FIELD_META[key]?.valido && normalized !== '' && !FIELD_META[key].valido!(normalized)) { invalidos.push(key); continue }
 
     // El cron escribió esta tasa DESPUÉS de que se abrió el formulario: lo que trae el
     // campo es el valor viejo, y guardarlo desharía la actualización. Se respeta la del

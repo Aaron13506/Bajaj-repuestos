@@ -125,7 +125,7 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
   // Arranca en el modo con el que se está operando, pero acá sí se puede saltar entre los
   // tres escenarios sin cambiar nada global: el simulador es justamente para comparar.
   const [modo, setModo] = useState<ModoEnvio>(modoInicial)
-  // El aéreo con el reenvío por kilo en vez de Shoppre (con el ₹/kg de referencia de /config).
+  // El aéreo con el reenvío por kilo en vez de Shoppre (la tabla de /config por el peso de la caja).
   // Es el mismo modo 'aereo': solo cambia quién lleva la caja a USA.
   const [porKiloElegido, setPorKiloElegido] = useState(false)
   const tarifaKg = tarifaKgReferencia(cfg)
@@ -222,7 +222,7 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
   // viene en true y está bien que así sea, no se fuerza a 0.
   const calcKilo = useMemo(
     () => tarifaKg != null
-      ? calcEnvio(items, cfg, { modo: 'aereo', reenvio: { tipo: 'por_kilo', tarifaKgInr: tarifaKg, reempaqueInr: null } })
+      ? calcEnvio(items, cfg, { modo: 'aereo', reenvio: { tipo: 'por_kilo', tarifaKgInr: null, reempaqueInr: null } })
       : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [itemsKey, cfg, tarifaKg],

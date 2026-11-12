@@ -151,7 +151,7 @@ export default async function ConfigPage({
         <div role="alert" className="mb-6 bg-red-50 border border-red-200 text-red-800 rounded-lg px-4 py-3 text-sm">
           No se guardó nada: {invalido.split(',').map(k => {
             const m = FIELD_META[k]
-            return m?.rango ? `${m.label} (entre ${m.rango[0]} y ${m.rango[1] === Infinity ? '∞' : m.rango[1]})` : k
+            return m?.rango ? `${m.label} (entre ${m.rango[0]} y ${m.rango[1] === Infinity ? '∞' : m.rango[1]})` : m?.valido ? `${m.label} (no se entiende la tabla)` : k
           }).join(' · ')} {invalido.split(',').length === 1 ? 'está' : 'están'} fuera de rango. Los seguros van en
           fracción (0.03 = 3%).
         </div>

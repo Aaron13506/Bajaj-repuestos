@@ -18,7 +18,7 @@ import { METODOS_PAGO_EGRESO } from '@/lib/pagos'
 import { limpiarNombre } from '@/lib/utils'
 import { calcEnvio, LB_POR_KG, type EnvioItemInput, type ConfigMap, type ProveedorEnvio } from '@/lib/calc'
 import { inboundDe, inboundMeta } from '@/lib/inbound'
-import { reenvioDe, reenvioMeta, tarifaEquilibrioKgInr, motivoReenvioNoCoincide, tarifaKgReferencia } from '@/lib/reenvio'
+import { reenvioDe, reenvioMeta, tarifaEquilibrioKgInr, motivoReenvioNoCoincide, tablaPorKilo } from '@/lib/reenvio'
 import { modoDeEnvio, MODOS } from '@/lib/modo'
 import { motivoExpressNoAprobable, topeDeCaja } from '@/lib/express'
 import { contextoCosteo, costearAereo, ENVIO_COSTEO_INCLUDE } from '@/lib/costo-envios'
@@ -1736,13 +1736,13 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               />
                   {calc.air.items > 0 && (
                     <Row
-                      label={`${esExpress ? 'Express Shoppre→Venezuela' : `Aéreo ${reenvioLabel}→USA`} · ${calc.air.chargeableKg.toFixed(1)} kg cobrables${calc.air.cajas > 1 ? ` en ${calc.air.cajas} cajas (${calc.air.cajasKg.map(k => `${k} kg`).join(' + ')})` : ''}${porKilo && reenvioCaja.tarifaKgInr != null && costoRealAereo == null ? ` · ${calc.reenvio.kgFacturados} kg facturables × ₹${reenvioCaja.tarifaKgInr.toFixed(2)}/kg` : ''}`}
+                      label={`${esExpress ? 'Express Shoppre→Venezuela' : `Aéreo ${reenvioLabel}→USA`} · ${calc.air.chargeableKg.toFixed(1)} kg cobrables${calc.air.cajas > 1 ? ` en ${calc.air.cajas} cajas (${calc.air.cajasKg.map(k => `${k} kg`).join(' + ')})` : ''}${porKilo && costoRealAereo == null && (reenvioCaja.tarifaKgInr ?? calc.reenvio.tablaKgInr) != null ? ` · ${calc.reenvio.kgFacturados} kg facturables × ₹${(reenvioCaja.tarifaKgInr ?? calc.reenvio.tablaKgInr)!.toFixed(2)}/kg${reenvioCaja.tarifaKgInr == null ? ' (tabla)' : ''}` : ''}`}
                       value={usd(calc.air.costUsd)}
                       tag={costoRealAereo != null
                         ? { texto: 'facturado', tono: 'real' }
                         : calc.reenvio.faltaTarifa
                           ? { texto: 'sin cotizar', tono: 'falta' }
-                          : porKilo
+                          : porKilo && reenvioCaja.tarifaKgInr != null
                             ? { texto: 'cotizado', tono: 'est' }
                             : { texto: calc.caja.medido ? 'estimado s/ caja real' : 'estimado', tono: 'est' }}
                     />
@@ -1840,8 +1840,8 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                         {porKilo && (
                           <CampoGiro
                             id="tarifa-kg" name="tarifaKgInr" valor={reenvioCaja.tarifaKgInr}
-                            // Solo una pista: la referencia de /config no es la tarifa de esta caja.
-                            placeholder={tarifaKgReferencia(cfg) != null ? `sin cotizar (referencia ₹${tarifaKgReferencia(cfg)})` : 'sin cotizar'}
+                            // Vacío = la tabla de /config por el peso de esta caja.
+                            placeholder={calc.reenvio.tablaKgInr != null ? `vacío = tabla (₹${calc.reenvio.tablaKgInr.toFixed(0)}/kg a este peso)` : tablaPorKilo(cfg) ? 'vacío = tabla de Configuración' : 'sin cotizar'}
                             label="Tarifa (₹ por kg cobrable)"
                             ayuda={`sobre ${kg(calc.reenvio.kgFacturados)} facturables (escalones de 0,5, mínimo 1)${equilibrioInr != null ? ` · conviene bajo ₹${equilibrioInr.toFixed(0)}/kg` : ''}`}
                           />
@@ -1856,7 +1856,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                       </FormConResultado>
                       {calc.reenvio.faltaTarifa && (
                         <p className="text-sm text-amber-900 bg-amber-50 px-3 py-2 rounded-lg">
-                          Sin tarifa el tramo a USA cuenta $0: la caja está subcosteada, no es gratis.
+                          Sin tarifa (ni tabla en Configuración) el tramo a USA cuenta $0: la caja está subcosteada, no es gratis.
                         </p>
                       )}
                     </div>

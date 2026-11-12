@@ -1,3 +1,5 @@
+import { parsearTablaPorKilo } from '@/lib/reenvio'
+
 // Los campos de /config que el código conoce. Vive aparte de la página porque lo comparten
 // dos: la página, que lo pinta, y `saveConfig`, que lo usa para decidir qué claves acepta
 // y cuáles escribe el cron (un módulo `page.tsx` no puede exportar nada más que la página).
@@ -19,6 +21,8 @@ export type FieldMeta = {
    *  notar en la UI un cron caído en vez de arrastrar una tasa vieja sin que nada lo diga.
    *  Además `saveConfig` no la pisa si el cron escribió después de abrirse el formulario. */
   cron?: boolean
+  /** Texto con formato propio: `saveConfig` rechaza lo que no lee (vacío sí entra). */
+  valido?: (v: string) => boolean
   /** Rango aceptado [mín, máx] para un número. `saveConfig` rechaza lo de afuera: `num()` lee
    *  cualquier texto con parseFloat, así que "3" en un seguro que va en fracción era un 300%. */
   rango?: [number, number]
@@ -43,9 +47,8 @@ export const FIELD_META: Record<string, FieldMeta> = {
   caja_sin_pesar_tolerancia_pct: { label: 'Tolerancia de una caja sin pesar (%)', hint: 'En una caja que todavía no se pesó y midió, "ata el volumen" sale de comparar dos sumas de piezas. Si el volumétrico supera al real por menos de este %, el flete aéreo se reparte entre pedidos de forma gradual (peso → volumen) y no todo por volumen. Con la caja pesada y medida no aplica. Default 10', rango: [0, 100] },
   shoppre_insurance_pct:  { label: 'Seguro Shoppre (fracción)',    hint: 'P.ej. 0.03 = 3% sobre el valor declarado', rango: FRACCION },
   shoppre_processing_inr: { label: 'Processing fee Shoppre (INR)', hint: 'Cargo fijo por paquete en rupias', rango: NO_NEGATIVO },
-  // El otro reenvío India → USA, en paralelo a Shoppre (lib/reenvio.ts). Es una REFERENCIA para
-  // cotizar: la caja real sigue con la tarifa que le cotizan a ella (Envio.tarifaKgInr).
-  reenvio_kilo_tarifa_inr: { label: 'Reenvío por kilo: tarifa de referencia (₹/kg)', hint: 'Lo que cobra el reenvío por kilo cobrable para llevar a USA. Se usa para ver el catálogo y cotizar presupuestos por kilo. La caja real sigue con la tarifa que te cotizan para esa caja. Vacío = la ruta por kilo no se muestra', rango: POSITIVO },
+  // El otro reenvío India → USA, en paralelo a Shoppre (lib/reenvio.ts): su tabla por peso de caja.
+  reenvio_kilo_tarifa_inr: { label: 'Reenvío por kilo: tabla (₹)', hint: 'Una línea por tramo, "hasta kg: ₹ por kg", en orden; "total" al final = precio de la caja entera (ej. "4: 9878 total", "5: 1760", "50: 925"). Pasado el último tramo sigue su tarifa. Un número solo = tarifa plana. Cada caja por kilo se costea con el tramo de su peso (salvo que le anotes su propia tarifa); el catálogo y los presupuestos, con el tramo del peso de referencia, como Shoppre. Vacío = la ruta por kilo no se muestra', multiline: true, valido: v => parsearTablaPorKilo(v) != null },
   reenvio_precios:         { label: 'Reenvío con el que se cotiza', hint: 'Con cuál nacen los presupuestos nuevos por Miami (shoppre o por_kilo). En cada presupuesto se puede cambiar. Sin tarifa de referencia, siempre Shoppre', options: ['shoppre', 'por_kilo'] },
   reenvio_kilo_en_catalogo: { label: 'Ruta por kilo en el catálogo', hint: 'Muestra el bloque ámbar (flete, landed, venta y margen por kilo) en Productos, la ficha de producto y la de ensamble. Necesita la tarifa de referencia. Solo cambia qué se ve: los presupuestos siguen pudiendo cotizar por kilo', boolean: true, booleanDefault: true, checkLabel: 'Mostrar la ruta por kilo en el catálogo' },
   // ── Envío express (Shoppre directo India → Venezuela). La tarifa la trae el cron

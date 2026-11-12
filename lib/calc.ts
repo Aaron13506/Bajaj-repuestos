@@ -1,6 +1,6 @@
 import { cotizarTramoAereo, CARRIER_EXPRESS_VE } from './shipping-rates'
 import { inboundDe, type Inbound } from './inbound'
-import { kgFacturadosPorKilo, type Reenvio } from './reenvio'
+import { costoTablaPorKiloInr, kgFacturadosPorKilo, tablaPorKilo, type Reenvio } from './reenvio'
 import { num, flag, margenPorDefecto, type ConfigMap } from './config'
 import { aDolarBcv } from './cobro-bcv'
 
@@ -613,7 +613,7 @@ export interface EnvioBreakdown {
 // le carga a ESTA caja.
 export interface ReenvioCaja {
   tipo: Reenvio
-  /** ₹ por kg cobrable que cotizaron para esta caja. null = no cotizaron todavía (≠ 0). */
+  /** ₹ por kg cobrable que cotizaron para esta caja. null = no cotizaron: la tabla de /config (≠ 0). */
   tarifaKgInr?: number | null
   /** Lo que cobró el depósito por reempacar ESTA caja, en ₹ (Envio.reempaqueInr). null = no se sabe. */
   reempaqueInr?: number | null
@@ -622,13 +622,15 @@ export interface ReenvioCaja {
 export interface ReenvioBreakdown {
   tipo: Reenvio
   tarifaKgInr: number | null
+  /** Sin tarifa propia: el ₹/kg promedio que salió de la tabla de /config para esta caja. null = no se usó. */
+  tablaKgInr: number | null
   /** Reempaque de esta caja en ₹ (Envio.reempaqueInr). null = no se sabe. */
   reempaqueInr: number | null
   /** El reempaque en USD que entra en `processingUsd` (0 con la factura cargada, que ya lo trae). */
   reempaqueUsd: number
   /** Kg que factura el reenvío por kilo (escalones de 0,5 con mínimo 1, caja por caja). 0 si no aplica. */
   kgFacturados: number
-  /** 'por_kilo' con piezas que lo usan, sin tarifa ni factura: el tramo cuenta 0 y la caja queda subcosteada. */
+  /** 'por_kilo' con piezas que lo usan, sin tarifa, tabla ni factura: el tramo cuenta 0 y la caja queda subcosteada. */
   faltaTarifa: boolean
   /** 'por_kilo' sin reempaque anotado ni factura: se cuenta 0, que no es lo mismo que saberlo. */
   faltaReempaque: boolean
@@ -984,9 +986,11 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   // el peso justo en el sentido peligroso: el aéreo se abarata al juntar kilos, así que
   // subcostear el exceso premiaba amontonar en una caja que ya no se puede despachar.
   //
-  // El reenvío por kilo no tiene tabla ni tope: es kg cobrables × la tarifa en ₹ que cotizaron
-  // para esta caja, convertida con inr_usd_rate (es lo único de este tramo que está en rupias).
+  // El reenvío por kilo no tiene tope: cada caja paga sus kg facturados × la tarifa en ₹ que
+  // cotizaron para ella o, sin esa, la de su tramo en la tabla de /config (lib/reenvio.ts).
+  // Pasa por inr_usd_rate (es lo único de este tramo que está en rupias).
   const tarifaKgInr = porKilo ? (opts.reenvio?.tarifaKgInr ?? null) : null
+  const tablaKilo = porKilo && tarifaKgInr == null ? tablaPorKilo(cfg) : null
   const viajaPorDeposito = !esMaritimo && shoppreChargeable > 0
   // Con las cajas reales pesadas y medidas, el depósito cobra CADA caja por su max(peso,
   // volumétrico): dos cajas de 10 kg pagan dos veces el escalón de 10, no una vez el de 20
@@ -996,15 +1000,18 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
     ? caja.porCaja.map(c => Math.max(c.pesoKg, c.cm3 / divisor))
     : null
   // El reenvío por kilo factura cada caja en escalones de 0,5 kg con mínimo de 1 kg.
-  const kgPorKilo = porKilo && viajaPorDeposito
-    ? (cobrablesPorCaja ?? [shoppreChargeable]).reduce((s, k) => s + kgFacturadosPorKilo(k), 0)
-    : 0
+  const kgPorCajaKilo = porKilo && viajaPorDeposito ? (cobrablesPorCaja ?? [shoppreChargeable]).map(kgFacturadosPorKilo) : []
+  const kgPorKilo = kgPorCajaKilo.reduce((s, k) => s + k, 0)
+  // null = ni tarifa de la caja ni tabla: el tramo no tiene precio (≠ 0).
+  const inrPorKilo = tarifaKgInr != null
+    ? kgPorKilo * tarifaKgInr
+    : tablaKilo ? kgPorCajaKilo.reduce((s, k) => s + costoTablaPorKiloInr(tablaKilo, k), 0) : null
   const airQuote = !viajaPorDeposito
     ? { costUsd: 0, cajas: 0, pesosKg: [] as number[], capKg: null as number | null }
     : cobrablesPorCaja
       ? porKilo
         ? {
-            costUsd: tarifaKgInr != null ? (kgPorKilo * tarifaKgInr) / inrUsd : 0,
+            costUsd: (inrPorKilo ?? 0) / inrUsd,
             cajas: cobrablesPorCaja.length,
             pesosKg: cobrablesPorCaja.map(k => Number(k.toFixed(2))).sort((a, b) => b - a),
             capKg: null,
@@ -1012,7 +1019,7 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
         : sumarCotizaciones(cobrablesPorCaja.map(k => cotizarTramoAereo(k, carrier, isMember, cfg, esExpress ? 've' : 'usa')))
     : porKilo
       ? {
-          costUsd: tarifaKgInr != null ? (kgPorKilo * tarifaKgInr) / inrUsd : 0,
+          costUsd: (inrPorKilo ?? 0) / inrUsd,
           cajas: 1,
           pesosKg: [Number(shoppreChargeable.toFixed(2))],
           capKg: null,
@@ -1023,7 +1030,7 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   // Sin tarifa cotizada el estimado es 0, y pisar un 0 con la factura la repartiría en partes
   // iguales por línea (no hay proporción de la cual escalar). Se reparte la factura directo,
   // por la misma dimensión que ata: es lo que haría la tarifa si se hubiera cargado.
-  const sinEstimado = porKilo && tarifaKgInr == null
+  const sinEstimado = porKilo && inrPorKilo == null
   const airLeg = repartirTramo(
     shoppreLines,
     sinEstimado ? (airFacturadoUsd ?? 0) : airQuote.costUsd,
@@ -1217,10 +1224,11 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
   const reenvio: ReenvioBreakdown = {
     tipo: porKilo ? 'por_kilo' : 'shoppre',
     tarifaKgInr,
+    tablaKgInr: tablaKilo && kgPorKilo > 0 ? inrPorKilo! / kgPorKilo : null,
     kgFacturados: kgPorKilo,
     reempaqueInr,
     reempaqueUsd: !esMaritimo && shoppreLines.length > 0 && airFacturadoUsd == null ? (reempaqueInr ?? 0) / inrUsd : 0,
-    faltaTarifa: porKilo && usaReenvio && tarifaKgInr == null && airFacturadoUsd == null,
+    faltaTarifa: porKilo && usaReenvio && inrPorKilo == null && airFacturadoUsd == null,
     faltaReempaque: porKilo && usaReenvio && reempaqueInr == null && airFacturadoUsd == null,
   }
 

@@ -7,28 +7,29 @@
 // Se elige al crear la caja y se congela como el proveedor.
 //
 //   'shoppre'   tabla escalón de ShipGlobal en USD, seguro y processing de Shoppre.
-//   'por_kilo'  no hay tabla: el precio por kilo depende del tamaño del envío y lo cotizan
-//               en el momento, en RUPIAS (Envio.tarifaKgInr). El tramo es
-//               kg cobrables (escalones de 0,5, mínimo 1 por caja) × ₹/kg, sin seguro. Sin tarifa cargada la caja queda
-//               subcosteada, no gratis.
+//   'por_kilo'  tabla escalón en RUPIAS por peso de caja (Config.reenvio_kilo_tarifa_inr, ver
+//               `tablaPorKilo`): kg cobrables (escalones de 0,5, mínimo 1 por caja) × el ₹/kg de
+//               su tramo, sin seguro. Una caja con su propia tarifa cotizada (Envio.tarifaKgInr)
+//               la usa en lugar de la tabla. Sin ninguna de las dos la caja queda subcosteada,
+//               no gratis.
 //
 // El reempaque (Envio.reempaqueInr) es de cada caja en los dos: un paquete cuesta ₹100 y otro
 // ₹1000, así que no hay número fijo que guardar en /config.
 //
 // Los dos reenvíos conviven también al cotizar. El catálogo muestra las dos rutas lado a
-// lado (el por kilo con el ₹/kg de REFERENCIA de /config, `reenvio_kilo_tarifa_inr`), y cada
+// lado (el por kilo con el ₹/kg de REFERENCIA: la tabla en la caja de referencia, como Shoppre), y cada
 // presupuesto por Miami elige la suya (Pedido.reenvio + Pedido.tarifaKgInr, congelada al
 // guardar). `reenvio_precios` solo dice con cuál nacen los presupuestos nuevos. El precio de
 // venta del catálogo (Product.price, reprice) sigue saliendo de Shoppre.
 //
-// La referencia de /config NO es la tarifa de la caja: la caja real sigue con la que le
-// cotizan a ella (Envio.tarifaKgInr), sin fallback. Y el pedido viaja solo en una caja de su
+// La caja real se costea con la tabla por SU peso (o con la tarifa que le cotizaron a ella),
+// no con la referencia por kilo de una caja promedio. Y el pedido viaja solo en una caja de su
 // mismo reenvío (motivoReenvioNoCoincide): si no, el precio que se le dijo al cliente y el
 // costo de la caja saldrían de tarifas distintas.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { SHIPPING_STATUSES, statusIndex } from './shipping-status'
-import { flag, type ConfigMap } from './config'
+import { flag, num, type ConfigMap } from './config'
 
 export type Reenvio = 'shoppre' | 'por_kilo'
 
@@ -98,15 +99,63 @@ export function tarifaEquilibrioKgInr(p: {
 // La tarifa de REFERENCIA para cotizar (catálogo y presupuestos), no la de la caja
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// La tabla del reenvío por kilo (Config.reenvio_kilo_tarifa_inr)
+//
+// Una línea por tramo, `hasta_kg: ₹` en orden: el ₹ es por kg, o el precio de la caja entera si
+// la línea dice "total" (los "all in" de las cajas chicas). Un número solo es una tarifa plana.
+//
+//   4: 9878 total     ← una caja de hasta 4 kg cuesta ₹9878
+//   5: 1760           ← de más de 4 hasta 5 kg, ₹1760 por kg
+//   50: 925
+//
+// Pasado el último tramo sigue su tarifa. La caja cae en el tramo de sus kg facturados.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type TramoPorKilo = { hastaKg: number; inr: number; total: boolean }
+
+const numero = (t: string) => (/^\d+(?:[.,]\d+)?$/.test(t) ? Number(t.replace(',', '.')) : NaN)
+
+/** La tabla escrita en /config, o null si está vacía o no se puede leer (nunca una a medias). */
+export function parsearTablaPorKilo(raw: string | null | undefined): TramoPorKilo[] | null {
+  const lineas = (raw ?? '').split(/[\n;]/).map(l => l.trim()).filter(Boolean)
+  if (lineas.length === 0) return null
+  if (lineas.length === 1) {
+    const plana = numero(lineas[0])
+    if (!Number.isNaN(plana)) return plana > 0 ? [{ hastaKg: Infinity, inr: plana, total: false }] : null
+  }
+  const tabla: TramoPorKilo[] = []
+  for (const l of lineas) {
+    const m = /^([\d.,]+)\s*(?:kg)?\s*[:=]\s*([\d.,]+)\s*(total)?$/i.exec(l)
+    const hastaKg = m ? numero(m[1]) : NaN
+    const inr = m ? numero(m[2]) : NaN
+    if (!(hastaKg > 0) || !(inr > 0) || hastaKg <= (tabla.at(-1)?.hastaKg ?? 0)) return null
+    tabla.push({ hastaKg, inr, total: !!m![3] })
+  }
+  return tabla
+}
+
+export function tablaPorKilo(cfg: ConfigMap): TramoPorKilo[] | null {
+  return parsearTablaPorKilo(cfg.reenvio_kilo_tarifa_inr)
+}
+
+/** ₹ que cobra la tabla por UNA caja de estos kg facturados (kgFacturadosPorKilo). */
+export function costoTablaPorKiloInr(tabla: TramoPorKilo[], kgFacturados: number): number {
+  if (kgFacturados <= 0) return 0
+  const t = tabla.find(x => kgFacturados <= x.hastaKg) ?? tabla[tabla.length - 1]
+  return t.total ? t.inr : kgFacturados * t.inr
+}
+
 /**
- * ₹/kg de referencia (Config.reenvio_kilo_tarifa_inr). null = no cargada: la ruta por kilo no
- * se cotiza. No pasa por num(): su fallback inventaría una tarifa, y vacío no es cero.
+ * ₹/kg de referencia para cotizar una pieza suelta: lo que cobra la tabla por kg en la caja de
+ * referencia (reference_weight_kg), igual que Shoppre prorratea su tabla. null = sin tabla: la
+ * ruta por kilo no se cotiza. Vacío no es cero.
  */
 export function tarifaKgReferencia(cfg: ConfigMap): number | null {
-  const raw = (cfg.reenvio_kilo_tarifa_inr ?? '').trim()
-  if (raw === '') return null
-  const v = Number(raw)
-  return Number.isFinite(v) && v > 0 ? v : null
+  const tabla = tablaPorKilo(cfg)
+  if (!tabla) return null
+  const kg = kgFacturadosPorKilo(num(cfg, 'reference_weight_kg', 15))
+  return Math.round((costoTablaPorKiloInr(tabla, kg) / kg) * 100) / 100
 }
 
 /**
