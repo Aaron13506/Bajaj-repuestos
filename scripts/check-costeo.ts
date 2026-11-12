@@ -1907,12 +1907,21 @@ console.log('\nREENVÍO POR KILO POR PIEZA (catálogo y presupuestos)')
   check('referencia: " 650 " → 650', ref(' 650 ') ?? -1, 650)
 
   // La tabla por peso de caja (la de UPS, recortada).
-  const TABLA = '1: 6100 total\n4: 9878 total\n5: 1760\n11: 1240\n20: 1065\n40: 940'
+  const TABLA = JSON.stringify([
+    { hastaKg: 1, totalInr: 6100 }, { hastaKg: 4, totalInr: 9878 }, { hastaKg: 5, inrPorKg: 1760 },
+    { hastaKg: 11, inrPorKg: 1240 }, { hastaKg: 20, inrPorKg: 1065 }, { hastaKg: 40, inrPorKg: 940 },
+  ])
   const tabla = parsearTablaPorKilo(TABLA)!
   check('tabla: se lee', tabla?.length ?? -1, 6)
-  check('tabla: desordenada → null', si(parsearTablaPorKilo('5: 1760\n4: 9878 total') === null), 1)
-  check('tabla: una línea ilegible → null (no a medias)', si(parsearTablaPorKilo('4: 9878 total\n5 kg 1760') === null), 1)
-  check('tabla: "5kg = 1760,5" se lee', parsearTablaPorKilo('5kg = 1760,5')?.[0].inr ?? -1, 1760.5)
+  const tablaDe = (x: unknown) => parsearTablaPorKilo(JSON.stringify(x))
+  check('tabla: desordenada → null', si(tablaDe([{ hastaKg: 5, inrPorKg: 1760 }, { hastaKg: 4, totalInr: 9878 }]) === null), 1)
+  check('tabla: un tramo malo → null (no a medias)', si(tablaDe([{ hastaKg: 4, totalInr: 9878 }, { hastaKg: 5, inrPorKg: '1760' }]) === null), 1)
+  check('tabla: las dos tarifas en un tramo → null', si(tablaDe([{ hastaKg: 4, totalInr: 9878, inrPorKg: 1 }]) === null), 1)
+  check('tabla: ninguna tarifa → null', si(tablaDe([{ hastaKg: 4 }]) === null), 1)
+  check('tabla: clave desconocida → null', si(tablaDe([{ hastaKg: 4, inr: 9878 }]) === null), 1)
+  check('tabla: arreglo vacío → null', si(tablaDe([]) === null), 1)
+  check('tabla: texto que no es JSON → null', si(parsearTablaPorKilo('4: 9878 total') === null), 1)
+  check('tabla: un número solo es plana', costoTablaPorKiloInr(parsearTablaPorKilo('1230')!, 30), 30 * 1230)
   check('tabla: 1 kg, total', costoTablaPorKiloInr(tabla, 1), 6100)
   check('tabla: 1,5 kg cae en el total de 4', costoTablaPorKiloInr(tabla, 1.5), 9878)
   check('tabla: 4,5 kg al ₹/kg de 5', costoTablaPorKiloInr(tabla, 4.5), 4.5 * 1760)
