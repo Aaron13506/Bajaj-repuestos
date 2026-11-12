@@ -11,6 +11,7 @@ import { toConfigMap } from '@/lib/config'
 import { toInt } from '@/lib/parse'
 import { nombreEnsamble } from '@/lib/linea-pedido'
 import { codigoContiene } from '@/lib/alt-sku'
+import { tarifaKgReferencia } from '@/lib/reenvio'
 
 export const metadata = { title: 'Productos' }
 
@@ -190,8 +191,9 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Nombre</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Modelos</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-500"><abbr title="Peso en gramos" className="no-underline">g</abbr></th>
-                {/* El set de columnas de costo depende del modo (ver costHeaders). */}
-                {costHeaders().map(c => (
+                {/* Las columnas de costo (ver costHeaders). El bloque por kilo va con tarifa de
+                    referencia: ProductRow decide lo mismo con el mismo cfg. */}
+                {costHeaders('list', { porKilo: tarifaKgReferencia(cfg) != null }).map(c => (
                   <th key={c.label} className={c.className} title={c.title}>{c.label}</th>
                 ))}
                 <th className="text-right px-4 py-3 font-medium text-gray-500 border-l border-gray-100">Stock</th>

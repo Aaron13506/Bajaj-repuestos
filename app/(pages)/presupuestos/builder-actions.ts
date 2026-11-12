@@ -10,6 +10,7 @@ import { cajaExpress } from '@/lib/express-pedido'
 import { toConfigMap, margenPorDefecto, num } from '@/lib/config'
 import type { RefLinea } from '@/lib/linea-pedido'
 import { codigoContiene } from '@/lib/alt-sku'
+import { reenvioDelPresupuestoNormal, tarifaKgReferencia, type Reenvio } from '@/lib/reenvio'
 
 // Componentes de UN ensamble, cargados on-demand cuando se selecciona (evita traer
 // los ~14k componentes de todo el catálogo al abrir el armador de presupuestos).
@@ -96,6 +97,20 @@ export interface CostoCarrito {
   proveedor: string | null
   /** Solo en un presupuesto express: el paquete contra el tope. */
   express: ResumenExpress | null
+  /** Por Miami: con qué reenvío se costeó el tramo a USA, y a qué ₹/kg si es por kilo. */
+  reenvio: Reenvio
+  tarifaKgInr: number | null
+  /**
+   * Por kilo sin ₹/kg (ni en el presupuesto ni en /config): no se costea con 0. Las líneas van
+   * con landed 0 y sin sugerido, y el presupuesto no se puede guardar así.
+   */
+  faltaTarifa: boolean
+  /**
+   * Por Miami: el landed del mismo carrito por el reenvío que NO está elegido, para comparar cuánto
+   * se gana por cada uno al mismo precio. null en express, o si esa ruta no se puede costear (por
+   * kilo sin tarifa de referencia). El precio sugerido no cambia con la ruta: es siempre Shoppre.
+   */
+  alternativa: { reenvio: Reenvio; tarifaKgInr: number | null; landedUsd: number } | null
 }
 
 export interface ResumenExpress {
@@ -129,6 +144,7 @@ export async function costearCarrito(
 ): Promise<CostoCarrito> {
   const vacio: CostoCarrito = {
     lineas: [], landedUsd: 0, weightKg: 0, volKg: 0, ft3: 0, cbm: 0, sinMedidas: 0, costoOrigenUsd: 0, fleteUsd: 0, sinPeso: 0, proveedor: '99rpm', express: null,
+    reenvio: 'shoppre', tarifaKgInr: null, faltaTarifa: false, alternativa: null,
   }
   if (lineas.length === 0) return vacio
 
@@ -164,11 +180,24 @@ export async function costearCarrito(
     select: { id: true, margin: true },
   })
   const margenPorId = new Map(margenes.map(m => [m.id, m.margin]))
+  const tarifaValida = tarifaKgInr != null && Number.isFinite(tarifaKgInr) && tarifaKgInr >= 0 ? tarifaKgInr : null
 
   if (via === 'express') {
     const caja = cajaId != null ? await cajaExpress(db, cajaId, pedidoId) : null
-    return costearExpress(lineas, cfg, porId, lookup, divisor, caja?.acompanantes ?? [], reenvioDelPresupuesto(ruta, tarifaKgInr != null && Number.isFinite(tarifaKgInr) && tarifaKgInr >= 0 ? tarifaKgInr : null, caja?.reenvio ?? null))
+    return costearExpress(lineas, cfg, porId, lookup, divisor, caja?.acompanantes ?? [], reenvioDelPresupuesto(ruta, tarifaValida, caja?.reenvio ?? null))
   }
+
+  // Por Miami: el reenvío elegido (null = Shoppre, lo de siempre) y la otra ruta, al lado. Por
+  // kilo, la tarifa del presupuesto o la de referencia; Shoppre siempre se puede costear.
+  //
+  // El PRECIO sugerido sale siempre de Shoppre, elija la ruta que elija (decisión del dueño: se
+  // cotiza a precio Shoppre y, si conviene, se baja a mano). El reenvío solo cambia el COSTO de
+  // las líneas, o sea el margen que se ve; la otra ruta va en `alternativa` para comparar.
+  const elegido = reenvioDelPresupuestoNormal(ruta, tarifaValida, cfg)
+  const faltaTarifa = elegido != null && elegido.tarifaKgInr == null
+  const tarifaKilo = elegido != null ? elegido.tarifaKgInr : tarifaKgReferencia(cfg)
+  const hayAlternativa = elegido != null || tarifaKilo != null
+  let altLanded = 0
 
   const out: CostoLinea[] = []
   for (const l of lineas) {
@@ -187,14 +216,21 @@ export async function costearCarrito(
     // Los conjuntos se costean por las piezas que llevan, no por el ensamble entero
     // (que agrega TODAS sus piezas y sobreestima).
     for (const pieza of expandCostPieces(product, l.quantity, l.bundleItems ?? null, lookup)) {
-      const b = calcLanded({
+      const base = {
         priceInr:      pieza.priceInr,
         weightGrams:   pieza.weightGrams,
         dimL:          pieza.dimL,
         dimA:          pieza.dimA,
         dimH:          pieza.dimH,
         margin:        null,
-      }, cfg, 'aereo')
+      }
+      // Las dos rutas piden el mismo dato (peso y costo): Shoppre dice si la pieza se puede costear.
+      const bShoppre = calcLanded(base, cfg, 'aereo')
+      const bKilo = tarifaKilo != null
+        ? calcLanded(base, cfg, 'aereo', { reenvio: { tipo: 'por_kilo', tarifaKgInr: tarifaKilo } })
+        : null
+      const b = elegido != null ? bKilo : bShoppre
+      const bAlt = elegido != null ? bShoppre : bKilo
 
       linea.totalPiezas++
       linea.weightKg += ((pieza.weightGrams ?? 0) / 1000) * pieza.quantity
@@ -204,15 +240,21 @@ export async function costearCarrito(
         sinMedidas++
       }
       // Sin peso el aéreo no se puede costear: la pieza queda marcada, no estimada.
-      if (b == null) { linea.sinPeso++; continue }
+      if (bShoppre == null) { linea.sinPeso++; continue }
 
-      linea.landedUsd += b.landedCostUsd * pieza.quantity
+      if (bAlt != null) altLanded += bAlt.landedCostUsd * pieza.quantity
+
+      // El sugerido, siempre por Shoppre: la cuenta de siempre.
       const margen = (pieza.productId != null ? margenPorId.get(pieza.productId) : null) ?? defaultMargin
       if (linea.sugeridoUsd != null && Number.isFinite(margen) && margen < 1) {
-        linea.sugeridoUsd += (b.landedCostUsd / (1 - margen)) * pieza.quantity
+        linea.sugeridoUsd += (bShoppre.landedCostUsd / (1 - margen)) * pieza.quantity
       } else {
         linea.sugeridoUsd = null
       }
+
+      // El costo, por la ruta elegida. Por kilo sin tarifa no se suma nada (no se costea con 0):
+      // se avisa con faltaTarifa.
+      if (b != null) linea.landedUsd += b.landedCostUsd * pieza.quantity
     }
 
     // El carrito cotiza por unidad (o por conjunto); el costeo agrega la línea entera.
@@ -236,6 +278,16 @@ export async function costearCarrito(
     sinPeso: sum(l => l.sinPeso),
     proveedor: '99rpm',
     express: null,
+    reenvio: elegido != null ? 'por_kilo' : 'shoppre',
+    tarifaKgInr: elegido?.tarifaKgInr ?? null,
+    faltaTarifa,
+    alternativa: hayAlternativa
+      ? {
+          reenvio: elegido != null ? 'shoppre' : 'por_kilo',
+          tarifaKgInr: elegido != null ? null : tarifaKilo,
+          landedUsd: altLanded,
+        }
+      : null,
   }
 }
 
@@ -302,6 +354,11 @@ function costearExpress(
     fleteUsd: e.fleteUsd,
     sinPeso: e.sinPeso.length,
     proveedor: '99rpm',
+    // El express elige su ruta aparte (ResumenExpress.porUsa); estos campos son de la vía normal.
+    reenvio: 'shoppre',
+    tarifaKgInr: null,
+    faltaTarifa: false,
+    alternativa: null,
     express: {
       porUsa: e.porUsa,
       topeUsd: e.topeUsd,

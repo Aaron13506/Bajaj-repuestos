@@ -8,6 +8,7 @@ import {
   type EnvioBreakdown,
   type EnvioItemInput,
   type ProveedorEnvio,
+  type ReenvioCaja,
 } from './calc'
 import type { Inbound } from './inbound'
 
@@ -99,7 +100,8 @@ export async function resolveSkus(skus: string[]): Promise<Map<string, ResolvedP
 
 export async function quoteMetrics(
   lines: SkuLine[],
-  opts: { proveedor?: ProveedorEnvio | null; cfg?: ConfigMap } = {},
+  // `reenvio`: quién lleva lo que pasa por un depósito (ausente = Shoppre), como en una caja real.
+  opts: { proveedor?: ProveedorEnvio | null; cfg?: ConfigMap; reenvio?: ReenvioCaja | null } = {},
 ): Promise<QuoteMetrics> {
   const cfg = opts.cfg ?? await getConfig()
   const found = await resolveSkus(lines.map(l => l.sku))
@@ -132,7 +134,7 @@ export async function quoteMetrics(
     })
   }
 
-  const breakdown = calcEnvio(items, cfg, { proveedor: opts.proveedor })
+  const breakdown = calcEnvio(items, cfg, { proveedor: opts.proveedor, reenvio: opts.reenvio })
   const volume = volumes.reduce<VolumeMetrics>(
     (acc, v) => ({ cm3: acc.cm3 + v.cm3, ft3: acc.ft3 + v.ft3, cbm: acc.cbm + v.cbm }),
     { cm3: 0, ft3: 0, cbm: 0 },

@@ -195,7 +195,7 @@ export default async function EnsambleDetailPage({
                   <th className="text-left font-medium px-2 py-2">Código</th>
                   <th className="text-right font-medium px-2 py-2">Peso (g)</th>
                   <th className="text-right font-medium px-2 py-2">L×A×H (cm)</th>
-                  {costHeaders('compact', { maritimo: verMaritimo }).map(c => (
+                  {costHeaders('compact', { maritimo: verMaritimo, porKilo: false }).map(c => (
                     <th key={c.label} className={c.className} title={c.title}>{c.label}</th>
                   ))}
                   <th className="text-right font-medium px-2 py-2">Acciones</th>
@@ -270,7 +270,7 @@ export default async function EnsambleDetailPage({
                               <span className="block text-[10px] text-gray-500 font-normal">alto {c.dimH} c/u × {comp.quantity}</span>
                             )}
                           </td>
-                          <CostCells d={costD} cfg={cfg} quantity={comp.quantity} maritimo={verMaritimo} />
+                          <CostCells d={costD} cfg={cfg} quantity={comp.quantity} maritimo={verMaritimo} porKilo={false} />
                           <td className="px-2 py-2">
                             <div className="flex items-center justify-end gap-3">
                               <QuickEditProduct

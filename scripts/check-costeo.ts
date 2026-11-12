@@ -54,7 +54,7 @@ import {
 import { debeSaldo, motivoNoEntregable, saldoReal, seEntregaDesdeElPedido, situacionDeCobro } from '../lib/saldo-entrega'
 import { diasSinMoverse, tiempoDeCompraA, tiemposPorTramo } from '../lib/etapas'
 import { leerDevolucion } from '../lib/devolucion'
-import { kgFacturadosPorKilo, tarifaEquilibrioKgInr } from '../lib/reenvio'
+import { kgFacturadosPorKilo, leerRutaPresupuesto, motivoReenvioFijo, motivoReenvioNoCoincide, reenvioDelPresupuestoNormal, reenvioPorDefecto, tarifaEquilibrioKgInr, tarifaKgReferencia } from '../lib/reenvio'
 import { compraTrasMover, motivoNoMueve, motivoNoMueveSinEnviar, type CajaParaMover } from '../lib/mover-caja'
 import { avanzaSinEstar, motivoNoDespacha, planSeparar, repartirSinStock, tokensSku } from '../lib/sin-stock'
 import { leerTrackingsTramo, MAX_TRACKINGS_POR_TRAMO } from '../lib/tracking'
@@ -1847,6 +1847,115 @@ console.log('\nSHIP24')
   check('lista: lo propio entregado dice "En depósito"', si(etapaVisible('entregado', true).short === 'En depósito'), 1)
   check('lista: lo de un cliente entregado dice "Entregado"', si(etapaVisible('entregado', false).short === 'Entregado'), 1)
   check('lista: un estado intermedio no cambia por ser propio', si(etapaVisible('en_venezuela', true).short === 'Recibido'), 1)
+}
+
+console.log('\nREENVÍO POR KILO POR PIEZA (catálogo y presupuestos)')
+{
+  const si = (b: boolean) => (b ? 1 : 0)
+  const TARIFA = 650
+  const tasa = parseFloat(cfg.inr_usd_rate)
+  const p = { priceInr: 4000, weightGrams: 1200, dimL: 20, dimA: 15, dimH: 10, margin: 0.3 }
+
+  // Con la ruta en Shoppre ningún número de hoy cambia.
+  const hoy = calcLanded(p, cfg, 'aereo')
+  const igual = (o: Parameters<typeof calcLanded>[3]) => si(JSON.stringify(calcLanded(p, cfg, 'aereo', o)) === JSON.stringify(hoy))
+  check('shoppre: opts {} da el mismo objeto', igual({}), 1)
+  check('shoppre: { tipo: shoppre } da el mismo objeto', igual({ reenvio: { tipo: 'shoppre' } }), 1)
+  check('shoppre: reenvio null da el mismo objeto', igual({ reenvio: null }), 1)
+  check('shoppre: el desglose dice shoppre', si(hoy?.reenvio === 'shoppre'), 1)
+
+  const k = calcLanded(p, cfg, 'aereo', { reenvio: { tipo: 'por_kilo', tarifaKgInr: TARIFA } })!
+  check('por kilo: tramo = kg × ₹ ÷ tasa', k.shoppreShippingUsd, 1.2 * TARIFA / tasa)
+  check('por kilo: sin seguro', k.insuranceUsd, 0)
+  check('por kilo: el marítimo es el de Shoppre', k.maritimeUsd, hoy!.maritimeUsd)
+  check('por kilo: landed = producto + tramo + marítimo', k.landedCostUsd, k.productCostUsd + k.shoppreShippingUsd + k.maritimeUsd)
+  check('por kilo: el desglose dice por_kilo', si(k.reenvio === 'por_kilo'), 1)
+  check('por kilo: sin tarifa no hay landed', si(calcLanded(p, cfg, 'aereo', { reenvio: { tipo: 'por_kilo', tarifaKgInr: null } }) === null), 1)
+  check('por kilo: tarifa ausente tampoco', si(calcLanded(p, cfg, 'aereo', { reenvio: { tipo: 'por_kilo' } }) === null), 1)
+  check('por kilo: tarifa 0 explícita es un dato (tramo 0)', calcLanded(p, cfg, 'aereo', { reenvio: { tipo: 'por_kilo', tarifaKgInr: 0 } })?.shoppreShippingUsd ?? -1, 0)
+  check('por kilo: en el mar se ignora', si(JSON.stringify(calcLanded(p, cfg, 'maritimo', { reenvio: { tipo: 'por_kilo', tarifaKgInr: TARIFA } })) === JSON.stringify(calcLanded(p, cfg, 'maritimo'))), 1)
+  const landed = calcLanded({ ...p, priceUsd: 50, priceIsLanded: true }, cfg, 'aereo', { reenvio: { tipo: 'por_kilo', tarifaKgInr: TARIFA } })
+  check('por kilo: una pieza landed no viaja por ningún reenvío', landed?.landedCostUsd ?? -1, 50)
+
+  // Empate pieza vs caja: piezas que suman un múltiplo exacto de 0,5 kg, atadas por peso, sin
+  // reempaque. Lo que dice el catálogo por pieza es lo que cobra la caja. Si no, divergen.
+  const piezas = [
+    { id: 1, g: 1200, qty: 2, inr: 4000 },
+    { id: 2, g: 600,  qty: 1, inr: 2500 },
+  ]
+  const items: EnvioItemInput[] = piezas.map(x => ({
+    pedidoId: 9, productId: x.id, name: `K${x.id}`, weightGrams: x.g, dimL: 10, dimA: 10, dimH: 10,
+    priceInr: x.inr, quantity: x.qty, origen: 'india', inbound: 'shoppre', supplierId: null,
+  }))
+  const caja = calcEnvio(items, cfg, { reenvio: { tipo: 'por_kilo', tarifaKgInr: TARIFA, reempaqueInr: 0 } })
+  const sumaPiezas = piezas.reduce((s, x) => s + calcLanded(
+    { priceInr: x.inr, weightGrams: x.g, dimL: 10, dimA: 10, dimH: 10, margin: null }, cfg, 'aereo',
+    { reenvio: { tipo: 'por_kilo', tarifaKgInr: TARIFA } },
+  )!.landedCostUsd * x.qty, 0)
+  check('empate: la caja va atada por peso (3 kg)', si(caja.binding === 'weight' && caja.reenvio.kgFacturados === 3), 1)
+  check('empate: Σ landed por pieza = landed de la caja', sumaPiezas, caja.landedUsd, 1e-6)
+
+  // La tarifa de referencia de /config.
+  const ref = (v: string | undefined) => tarifaKgReferencia(v === undefined ? {} : { reenvio_kilo_tarifa_inr: v })
+  check('referencia: ausente → null', si(ref(undefined) === null), 1)
+  check('referencia: vacía → null', si(ref('') === null), 1)
+  check('referencia: espacios → null', si(ref('   ') === null), 1)
+  check('referencia: texto → null', si(ref('mucho') === null), 1)
+  check('referencia: 0 → null (vacío no es cero, y 0 no es una tarifa de referencia)', si(ref('0') === null), 1)
+  check('referencia: negativa → null', si(ref('-650') === null), 1)
+  check('referencia: "650" → 650', ref('650') ?? -1, 650)
+  check('referencia: " 650 " → 650', ref(' 650 ') ?? -1, 650)
+
+  check('por defecto: sin nada, shoppre', si(reenvioPorDefecto({}) === 'shoppre'), 1)
+  check('por defecto: por_kilo pero sin tarifa, shoppre', si(reenvioPorDefecto({ reenvio_precios: 'por_kilo' }) === 'shoppre'), 1)
+  check('por defecto: por_kilo con tarifa', si(reenvioPorDefecto({ reenvio_precios: 'por_kilo', reenvio_kilo_tarifa_inr: '650' }) === 'por_kilo'), 1)
+  check('por defecto: valor raro, shoppre', si(reenvioPorDefecto({ reenvio_precios: 'otro', reenvio_kilo_tarifa_inr: '650' }) === 'shoppre'), 1)
+
+  const conRef = { reenvio_kilo_tarifa_inr: '650' }
+  check('presupuesto normal: shoppre → null', si(reenvioDelPresupuestoNormal('shoppre', 700, conRef) === null), 1)
+  check('presupuesto normal: sin ruta → null', si(reenvioDelPresupuestoNormal(null, null, conRef) === null), 1)
+  check('presupuesto normal: su tarifa pisa la de config', reenvioDelPresupuestoNormal('por_kilo', 700, conRef)?.tarifaKgInr ?? -1, 700)
+  check('presupuesto normal: sin la suya, la de config', reenvioDelPresupuestoNormal('por_kilo', null, conRef)?.tarifaKgInr ?? -1, 650)
+  check('presupuesto normal: su 0 es un dato', reenvioDelPresupuestoNormal('por_kilo', 0, conRef)?.tarifaKgInr ?? -1, 0)
+  const sinNinguna = reenvioDelPresupuestoNormal('por_kilo', null, {})
+  check('presupuesto normal: sin ninguna, por kilo con tarifa null', si(sinNinguna?.tipo === 'por_kilo' && sinNinguna.tarifaKgInr === null), 1)
+
+  // Lo que llega del armador al guardar.
+  const leer = leerRutaPresupuesto
+  const tarifaDe = (r: ReturnType<typeof leer>) => ('error' in r ? -1 : r.tarifaKgInr ?? -2)
+  check('guardar normal: sin reenvío es Shoppre', si(!('error' in leer(null, null, 'normal', conRef)) && (leer(null, null, 'normal', conRef) as { reenvio: string }).reenvio === 'shoppre'), 1)
+  check('guardar normal: Shoppre ignora la tarifa escrita', tarifaDe(leer('shoppre', '700', 'normal', conRef)), -2)
+  check('guardar normal: por kilo vacío congela la de config', tarifaDe(leer('por_kilo', '', 'normal', conRef)), 650)
+  check('guardar normal: por kilo con la suya (coma decimal)', tarifaDe(leer('por_kilo', '700,5', 'normal', conRef)), 700.5)
+  check('guardar normal: un 0 escrito es un dato', tarifaDe(leer('por_kilo', '0', 'normal', conRef)), 0)
+  check('guardar normal: ilegible se rechaza', si('error' in leer('por_kilo', '6x0', 'normal', conRef)), 1)
+  check('guardar normal: negativa se rechaza', si('error' in leer('por_kilo', '-5', 'normal', conRef)), 1)
+  check('guardar normal: sin ninguna tarifa se rechaza', si('error' in leer('por_kilo', '', 'normal', {})), 1)
+  check('guardar: un reenvío que no existe se rechaza', si('error' in leer('dhl', null, 'normal', conRef)), 1)
+  check('guardar express: por USA vacío sigue sin tarifa (la de la caja)', tarifaDe(leer('por_kilo', '', 'express', conRef)), -2)
+  check('guardar express: por USA sin config tampoco se rechaza', tarifaDe(leer('por_kilo', '', 'express', {})), -2)
+  check('guardar express: por USA con la suya', tarifaDe(leer('por_kilo', '600', 'express', {})), 600)
+  check('guardar express: ilegible se rechaza', si('error' in leer('por_kilo', 'abc', 'express', {})), 1)
+
+  // El pedido viaja en una caja aérea de su mismo reenvío.
+  const entra = (pv: string, pr: string | null, cm: string, cr: string | null) =>
+    si(motivoReenvioNoCoincide({ via: pv, reenvio: pr }, { modo: cm, reenvio: cr }) == null)
+  check('caja: pedido Shoppre en caja aérea Shoppre', entra('normal', 'shoppre', 'aereo', 'shoppre'), 1)
+  check('caja: pedido por kilo en caja aérea por kilo', entra('normal', 'por_kilo', 'aereo', 'por_kilo'), 1)
+  check('caja: pedido por kilo NO va en caja Shoppre', entra('normal', 'por_kilo', 'aereo', 'shoppre'), 0)
+  check('caja: pedido Shoppre NO va en caja por kilo', entra('normal', 'shoppre', 'aereo', 'por_kilo'), 0)
+  check('caja: reenvío vacío del pedido cuenta como Shoppre', entra('normal', null, 'aereo', 'shoppre'), 1)
+  check('caja: express no opina (manda la caja express)', entra('express', 'shoppre', 'express', 'por_kilo'), 1)
+  check('caja: una caja no aérea no opina', entra('normal', 'por_kilo', 'express', 'shoppre'), 1)
+  check('caja: proveedor que despacha él (Garuda) recibe uno por kilo',
+    si(motivoReenvioNoCoincide({ via: 'normal', reenvio: 'por_kilo' }, { modo: 'aereo', reenvio: 'shoppre', despachaProveedor: true }) == null), 1)
+  check('caja: el motivo dice cuál caja', si((motivoReenvioNoCoincide({ via: 'normal', reenvio: 'por_kilo' }, { modo: 'aereo', reenvio: 'shoppre' }) ?? '').includes('por kilo')), 1)
+
+  // Cambiar el reenvío desde la ficha: solo por Miami y sin líneas en una caja.
+  check('cambiar reenvío: pedido confirmado sin caja', si(motivoReenvioFijo({ via: 'normal', status: 'pedido', enCaja: false }) == null), 1)
+  check('cambiar reenvío: con una línea en una caja, no', si(motivoReenvioFijo({ via: 'normal', status: 'pedido', enCaja: true }) != null), 1)
+  check('cambiar reenvío: express, no', si(motivoReenvioFijo({ via: 'express', status: 'pedido', enCaja: false }) != null), 1)
+  check('cambiar reenvío: cancelado, no', si(motivoReenvioFijo({ via: 'normal', status: 'cancelado', enCaja: false }) != null), 1)
 }
 
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)

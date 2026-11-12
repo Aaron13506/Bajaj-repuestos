@@ -18,7 +18,7 @@ import { METODOS_PAGO_EGRESO } from '@/lib/pagos'
 import { limpiarNombre } from '@/lib/utils'
 import { calcEnvio, LB_POR_KG, type EnvioItemInput, type ConfigMap, type ProveedorEnvio } from '@/lib/calc'
 import { inboundDe, inboundMeta } from '@/lib/inbound'
-import { reenvioDe, reenvioMeta, tarifaEquilibrioKgInr } from '@/lib/reenvio'
+import { reenvioDe, reenvioMeta, tarifaEquilibrioKgInr, motivoReenvioNoCoincide, tarifaKgReferencia } from '@/lib/reenvio'
 import { modoDeEnvio, MODOS } from '@/lib/modo'
 import { motivoExpressNoAprobable, topeDeCaja } from '@/lib/express'
 import { contextoCosteo, costearAereo, ENVIO_COSTEO_INCLUDE } from '@/lib/costo-envios'
@@ -751,10 +751,15 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   // Lo confirmado (status='pedido') es lo que hay que comprar sí o sí; los
   // presupuestos sin aprobar todavía pueden caerse, así que se separan y nunca
   // entran al agregado masivo.
+  // Una caja aérea lleva solo pedidos de su mismo reenvío (motivoReenvioNoCoincide): los del otro
+  // no se ofrecen, pero se cuentan para que no parezca que se perdieron.
+  const cajaReenvio = { modo: envio.modo, reenvio: envio.reenvio, despachaProveedor: inboundCaja === 'cotizado' }
+  const entraPorReenvio = (it: (typeof sinAsignar)[number]) => motivoReenvioNoCoincide(it.pedido, cajaReenvio) == null
+  const pedidosDelOtroReenvio = new Set(sinAsignar.filter(it => !entraPorReenvio(it)).map(it => it.pedidoId)).size
   const agruparSueltos = (pred: (p: (typeof sinAsignar)[number]) => boolean) => {
     const m = new Map<number, typeof sinAsignar>()
     for (const it of sinAsignar) {
-      if (!pred(it)) continue
+      if (!pred(it) || !entraPorReenvio(it)) continue
       const arr = m.get(it.pedidoId) ?? []
       arr.push(it)
       m.set(it.pedidoId, arr)
@@ -1202,6 +1207,13 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                     </span>
                     <span aria-hidden="true" className="mt-1 text-gray-500 transition-transform group-open:rotate-90">▶</span>
                   </summary>
+                  {pedidosDelOtroReenvio > 0 && (
+                    <p className="px-4 sm:px-6 pt-3 text-xs text-gray-500">
+                      {pedidosDelOtroReenvio === 1 ? 'Un pedido suelto cotizado' : `${pedidosDelOtroReenvio} pedidos sueltos cotizados`}
+                      {reenvioDe(envio.reenvio) === 'por_kilo' ? ' por Shoppre no se muestra' : ' por kilo no se muestra'}{pedidosDelOtroReenvio === 1 ? '' : 'n'}
+                      {reenvioDe(envio.reenvio) === 'por_kilo' ? ': va en una caja Shoppre.' : ': va en una caja aérea por kilo.'}
+                    </p>
+                  )}
                   {confirmadosSinAsignar.length === 0 ? (
                     <p className="px-4 sm:px-6 py-4 text-sm text-gray-600">No hay pedidos confirmados con líneas sueltas.</p>
                   ) : (
@@ -1827,7 +1839,9 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                       <FormConResultado action={guardarCotizacionDeposito.bind(null, envio.id)} className="flex flex-wrap items-end gap-x-4 gap-y-3">
                         {porKilo && (
                           <CampoGiro
-                            id="tarifa-kg" name="tarifaKgInr" valor={reenvioCaja.tarifaKgInr} placeholder="sin cotizar"
+                            id="tarifa-kg" name="tarifaKgInr" valor={reenvioCaja.tarifaKgInr}
+                            // Solo una pista: la referencia de /config no es la tarifa de esta caja.
+                            placeholder={tarifaKgReferencia(cfg) != null ? `sin cotizar (referencia ₹${tarifaKgReferencia(cfg)})` : 'sin cotizar'}
                             label="Tarifa (₹ por kg cobrable)"
                             ayuda={`sobre ${kg(calc.reenvio.kgFacturados)} facturables (escalones de 0,5, mínimo 1)${equilibrioInr != null ? ` · conviene bajo ₹${equilibrioInr.toFixed(0)}/kg` : ''}`}
                           />

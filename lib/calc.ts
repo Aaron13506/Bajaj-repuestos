@@ -15,8 +15,13 @@ export const LB_POR_KG = 2.20462
 
 export interface LandedBreakdown {
   modo: ModoEnvio
+  // Qué reenvío cobró el tramo India → USA. 'shoppre' en todo lo de siempre (y en el mar, donde
+  // no hay tramo aéreo); 'por_kilo' solo si se pidió con LandedOptions.reenvio.
+  reenvio: Reenvio
   productCostUsd: number
-  shoppreShippingUsd: number   // 0 en marítimo: no hay tramo aéreo
+  // El tramo del depósito a USA, cualquiera sea el reenvío (el nombre quedó de cuando solo
+  // existía Shoppre). 0 en marítimo: no hay tramo aéreo.
+  shoppreShippingUsd: number
   insuranceUsd: number
   maritimeUsd: number
   landedCostUsd: number
@@ -155,12 +160,21 @@ function applyMargin(landedCostUsd: number, margin: number | null, cfg: ConfigMa
   return { priceUsd, priceBcv: calcPrecioBcv(priceUsd, cfg) }
 }
 
+export interface LandedOptions {
+  /**
+   * Reenvío del tramo India → USA. Ausente o 'shoppre' = la tabla escalón (lo de siempre).
+   * 'por_kilo' solo cuenta en el aéreo; en los modos marítimos se ignora (no hay tramo aéreo).
+   */
+  reenvio?: { tipo: Reenvio; tarifaKgInr?: number | null } | null
+}
+
 export function calcLanded(
   product: ProductForCalc,
   cfg: ConfigMap,
   // El express no tiene landed por pieza suelta: el flete es UNA tarifa por paquete y el
   // paquete tiene tope ($100), así que se costea siempre como paquete (lib/express.ts).
   modo: Exclude<ModoEnvio, 'express'> = 'aereo',
+  opts: LandedOptions = {},
 ): LandedBreakdown | null {
   const hasCost = product.priceUsd != null || !!product.priceInr
   if (!hasCost) return null
@@ -173,6 +187,7 @@ export function calcLanded(
     const { priceUsd, priceBcv } = applyMargin(landedCostUsd, product.margin, cfg, product.precioFijo)
     return {
       modo,
+      reenvio: 'shoppre',
       productCostUsd: landedCostUsd,
       shoppreShippingUsd: 0,
       insuranceUsd: 0,
@@ -194,6 +209,12 @@ export function calcLanded(
   // — peor que no mostrar nada, porque haría ver el mar como una ganga que no es.
   if (esMaritimo ? !hasDims : !product.weightGrams) return null
 
+  // Reenvío por kilo (solo aéreo): sin ₹/kg falta el dato que cobra la ruta, igual que sin peso.
+  // Nunca se costea con 0. Un 0 explícito sí es un dato.
+  const porKilo = !esMaritimo && opts.reenvio?.tipo === 'por_kilo'
+  const tarifaKgInr = porKilo ? (opts.reenvio?.tarifaKgInr ?? null) : null
+  if (porKilo && tarifaKgInr == null) return null
+
   const inrUsd         = num(cfg, 'inr_usd_rate', 95)
   const productCostUsd = product.priceUsd != null ? product.priceUsd : product.priceInr! / inrUsd
 
@@ -214,6 +235,7 @@ export function calcLanded(
 
     return {
       modo,
+      reenvio: 'shoppre',
       productCostUsd,
       shoppreShippingUsd: 0,
       insuranceUsd: 0,
@@ -228,7 +250,13 @@ export function calcLanded(
 
   // Tramo aéreo India → USA, prorrateado sobre una caja de referencia. Por mar no existe.
   let shoppreShippingUsd = 0
-  if (!esMaritimo) {
+  if (porKilo) {
+    // Lineal por kilo: no hay tabla ni caja de referencia. El redondeo a 0,5 kg con mínimo de
+    // 1 kg y el reempaque son por CAJA y los pone calcEnvio, como el processing de Shoppre.
+    // Peso real sin volumétrico por pieza: el mismo optimismo que la ruta Shoppre (las cajas
+    // se arman para ir atadas por peso). La tarifa está en ₹: pasa por inr_usd_rate.
+    shoppreShippingUsd = (product.weightGrams! / 1000) * tarifaKgInr! / inrUsd
+  } else if (!esMaritimo) {
     const isMember    = flag(cfg, 'shoppre_member', true)
     const carrier     = cfg.shoppre_carrier                ?? 'ShipGlobal USA - Duty Free'
     const refWeightKg = num(cfg, 'reference_weight_kg', 15)
@@ -242,7 +270,8 @@ export function calcLanded(
 
   const insurancePct = esMaritimo
     ? num(cfg, 'maritimo_insurance_pct', 0.06)
-    : num(cfg, 'shoppre_insurance_pct', 0.03)
+    : porKilo ? 0 : num(cfg, 'shoppre_insurance_pct', 0.03)
+  // El reenvío por kilo no cobra seguro (mismo criterio que calcEnvio).
   const insuranceUsd = productCostUsd * insurancePct
 
   // Flete por volumen. En aéreo es el tramo corto Miami→CCS; en marítimo directo es el
@@ -261,6 +290,7 @@ export function calcLanded(
 
   return {
     modo,
+    reenvio: porKilo ? 'por_kilo' : 'shoppre',
     productCostUsd,
     shoppreShippingUsd,
     insuranceUsd,

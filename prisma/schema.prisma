@@ -480,10 +480,13 @@ model Pedido {
   // solo la referencia del costeo. Al confirmar, aprobarPedido mete sus líneas en ella.
   cajaExpressId Int?
   cajaExpress   Envio?       @relation("PresupuestoCajaExpress", fields: [cajaExpressId], references: [id], onDelete: SetNull)
-  // Ruta del presupuesto express: 'shoppre' = Shoppre directo (con tope), 'por_kilo' = por USA
-  // (reenvío por kilo + One Way aéreo, sin tope). Con caja elegida manda la de la caja. Ver lib/express.ts.
+  // El reenvío con el que se cotizó (lib/reenvio.ts). Express: 'shoppre' = Shoppre directo (con
+  // tope), 'por_kilo' = por USA (reenvío por kilo + One Way aéreo, sin tope); con caja elegida manda
+  // la de la caja (lib/express.ts). Normal (por Miami): Shoppre o reenvío por kilo, y decide en qué
+  // caja aérea viaja (solo en una de su mismo reenvío, motivoReenvioNoCoincide).
   reenvio       String       @default("shoppre")
-  // ₹/kg del reenvío con el que se cotizó por USA. Vacío = el de la caja (si tiene).
+  // ₹/kg del reenvío por kilo con el que se cotizó. Express por USA: vacío = el de la caja. Normal
+  // por kilo: siempre cargado, congelado al guardar (la de referencia de /config si no se escribió).
   tarifaKgInr   Decimal?     @db.Decimal(10, 2)
   status        String       @default("presupuesto")
   // Adelanto: se llenan al aprobar un presupuesto de cliente (ver aprobarPedido). Desde el

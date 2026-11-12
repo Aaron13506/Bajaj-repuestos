@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { calcEnvio, type EnvioItemInput, type ConfigMap, type ModoEnvio } from '@/lib/calc'
+import { tarifaKgReferencia } from '@/lib/reenvio'
 
 export interface SimProduct {
   id: number
@@ -124,6 +125,10 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
   // Arranca en el modo con el que se está operando, pero acá sí se puede saltar entre los
   // tres escenarios sin cambiar nada global: el simulador es justamente para comparar.
   const [modo, setModo] = useState<ModoEnvio>(modoInicial)
+  // El aéreo con el reenvío por kilo en vez de Shoppre (con el ₹/kg de referencia de /config).
+  // Es el mismo modo 'aereo': solo cambia quién lleva la caja a USA.
+  const [porKiloElegido, setPorKiloElegido] = useState(false)
+  const tarifaKg = tarifaKgReferencia(cfg)
   // El escenario viejo en ft³ no es una ruta que exista: es una cotización anterior que se
   // conserva para poder mirarla. Estaba como tercer botón al mismo nivel que las dos rutas
   // reales, y eso hacía leer como una decisión ("¿cuál de las tres?") algo que tiene una
@@ -213,12 +218,22 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
   const calcMaritimo = useMemo(() => calcEnvio(items, cfg, { modo: 'maritimo' }), [itemsKey, cfg])
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const calcCbm      = useMemo(() => calcEnvio(items, cfg, { modo: 'maritimo_cbm' }), [itemsKey, cfg])
+  // Sin el reempaque de la caja (es de cada paquete y no se sabe hasta que llega): faltaReempaque
+  // viene en true y está bien que así sea, no se fuerza a 0.
+  const calcKilo = useMemo(
+    () => tarifaKg != null
+      ? calcEnvio(items, cfg, { modo: 'aereo', reenvio: { tipo: 'por_kilo', tarifaKgInr: tarifaKg, reempaqueInr: null } })
+      : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [itemsKey, cfg, tarifaKg],
+  )
 
   const esCbm = modo === 'maritimo_cbm'
   // `esMaritimo` cubre los dos escenarios por mar: en ambos se cobra volumen y el peso deja
   // de importar. Lo específico de CBM (tarifa por m³, FOB fijo, mínimo LCL) va con `esCbm`.
   const esMaritimo = modo === 'maritimo' || esCbm
-  const calc = esCbm ? calcCbm : esMaritimo ? calcMaritimo : calcAereo
+  const esKilo = modo === 'aereo' && porKiloElegido && calcKilo != null
+  const calc = esCbm ? calcCbm : esMaritimo ? calcMaritimo : esKilo ? calcKilo : calcAereo
 
   // El marítimo directo todavía no tiene tarifa cargada: calcEnvio cae a la de Miami→CCS,
   // que subcotiza mucho el tramo completo desde India. Hay que decirlo, no esconderlo.
@@ -241,7 +256,8 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
   // sin dimensiones sí, porque el flete ES el volumen.
   const anyMissing = calc.lines.some(l => l.missingDims || (!esMaritimo && l.missingWeight))
   const ratioPct = calc.ratioVW != null ? calc.ratioVW * 100 : null
-  const tierHint = airTierHint(calc.chargeableKg, calc.air.costPerKgUsd, calc.air.cajas, calc.air.capKg)
+  // La tabla escalón es de Shoppre: el reenvío por kilo no tiene escalones que aconsejar.
+  const tierHint = esKilo ? null : airTierHint(calc.chargeableKg, calc.air.costPerKgUsd, calc.air.cajas, calc.air.capKg)
 
   // Contra qué mar se mide el aéreo. Es CBM salvo que estés mirando a propósito el
   // escenario viejo en ft³.
@@ -456,15 +472,25 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
             {/* Modo de traída: las dos rutas que existen de verdad */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
               <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Modo de traída</h2>
-              <div className="grid grid-cols-2 gap-2">
+              <div className={`grid grid-cols-2 gap-2 ${calcKilo ? 'sm:grid-cols-3' : ''}`}>
                 <ModoButton
-                  active={modo === 'aereo'}
-                  onClick={() => setModo('aereo')}
+                  active={modo === 'aereo' && !esKilo}
+                  onClick={() => { setModo('aereo'); setPorKiloElegido(false) }}
                   title="✈️ Aéreo"
                   sub="India → USA en avión, luego mar a VEN. Es el carril de los pedidos."
                   tag="comercial"
                   total={usd(calcAereo.landedUsd)}
                 />
+                {calcKilo && (
+                  <ModoButton
+                    active={esKilo}
+                    onClick={() => { setModo('aereo'); setPorKiloElegido(true) }}
+                    title="✈️ Aéreo por kilo"
+                    sub={`El mismo aéreo con el reenvío por kilo (₹${tarifaKg}/kg de Configuración), sin seguro. Sin el reempaque de la caja.`}
+                    tag="reenvío"
+                    total={usd(calcKilo.landedUsd)}
+                  />
+                )}
                 <ModoButton
                   active={modo === 'maritimo_cbm'}
                   onClick={() => { setModo('maritimo_cbm'); setVerLegacy(false) }}
@@ -653,6 +679,13 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
                 </div>
               )}
 
+              {esKilo && (
+                <p className="text-xs mt-3 px-3 py-2 rounded-lg bg-amber-50 text-amber-800">
+                  El reenvío por kilo factura {kg(calc.reenvio.kgFacturados)} (escalones de 0,5 kg, mínimo 1 kg) a ₹{tarifaKg}/kg,
+                  sin seguro ni processing. Falta el reempaque de la caja: se cobra por paquete y se anota cuando llega.
+                </p>
+              )}
+
               {tierHint && (
                 <p className={`text-xs mt-3 px-3 py-2 rounded-lg ${tierHint.tone === 'good' ? 'bg-green-50 text-green-700' : tierHint.tone === 'warn' ? 'bg-amber-50 text-amber-800' : 'bg-blue-50 text-blue-700'}`}>
                   {tierHint.text}
@@ -670,7 +703,7 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
             {/* Desglose de costo */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
               <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
-                Costo aproximado (landed) · {esCbm ? 'marítimo CBM' : esMaritimo ? 'marítimo directo' : 'aéreo'}
+                Costo aproximado (landed) · {esCbm ? 'marítimo CBM' : esMaritimo ? 'marítimo directo' : esKilo ? 'aéreo por kilo' : 'aéreo'}
               </h2>
               <dl className="space-y-2 text-sm">
                 <Row label="Costo de producto (India)" value={usd(calc.productCostUsd)} />
@@ -694,12 +727,14 @@ export default function SimuladorEnvio({ products, pedidos, cfg, modoInicial = '
                 ) : (
                   <>
                     <Row
-                      label={`Aéreo India→USA · ${calc.air.chargeableKg.toFixed(1)} kg cobrables${calc.air.cajas > 1 ? ` en ${calc.air.cajas} cajas` : ''}`}
+                      label={esKilo
+                        ? `Reenvío por kilo India→USA · ${calc.reenvio.kgFacturados.toFixed(1)} kg × ₹${tarifaKg}`
+                        : `Aéreo India→USA · ${calc.air.chargeableKg.toFixed(1)} kg cobrables${calc.air.cajas > 1 ? ` en ${calc.air.cajas} cajas` : ''}`}
                       value={usd(calc.airUsd)}
                     />
                     <Row label="Marítimo USA→VEN (volumen)" value={usd(calc.maritimeUsd)} />
                     <Row label="Seguro" value={usd(calc.insuranceUsd)} />
-                    <Row label="Processing" value={usd(calc.processingUsd)} />
+                    <Row label={esKilo ? 'Reempaque (sin anotar: se sabe al llegar)' : 'Processing'} value={usd(calc.processingUsd)} />
                   </>
                 )}
                 <div className="flex justify-between pt-3 mt-2 border-t-2 border-gray-200">
