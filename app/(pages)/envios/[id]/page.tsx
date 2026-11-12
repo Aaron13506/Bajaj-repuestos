@@ -846,26 +846,27 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
       fleteAereoPagado: c.movimientos.length > 0, compraDeId: c.compraDeId, tieneHijas: c._count.partes > 0,
     }),
   }))
-  const destinosMover = motivosMover
-    .filter(m => m.motivo == null)
-    .map(({ c }) => ({ id: c.id, nombre: c.nombre ?? `Caja #${c.id}` }))
-  // Lo que depende solo de esta caja (borrador, ya salió, flete pagado), contra una caja ideal.
-  const motivoOrigen = motivoNoMueve(origenMover, {
-    ...origenMover, id: -1, estado: 'confirmado', lineas: [], fleteAereoPagado: false, tieneHijas: false,
-  })
+  // Lo que depende solo de esta caja (borrador, ya salió, flete pagado), contra una caja ideal: si
+  // pasa, también se ofrece una caja nueva de esta compra (la acción la crea en el mismo paso).
+  const cajaIdeal: CajaParaMover = { ...origenMover, id: -1, estado: 'confirmado', lineas: [], fleteAereoPagado: false, tieneHijas: false }
+  const motivoOrigen = motivoNoMueve(origenMover, cajaIdeal)
+  const cajaNueva = { id: 'nueva' as const, nombre: '＋ Caja nueva (misma compra)' }
+  const destinosMover = [
+    ...motivosMover.filter(m => m.motivo == null).map(({ c }) => ({ id: c.id, nombre: c.nombre ?? `Caja #${c.id}` })),
+    ...(motivoOrigen == null ? [cajaNueva] : []),
+  ]
   // Una pieza sin stock no estuvo en el depósito: se pasa aunque esta caja ya haya salido.
-  const destinosSinStock = candidatasMover
-    .filter(c => motivoNoMueveSinEnviar(origenMover, {
-      id: c.id, modo: c.modo, estado: c.estado, supplierId: c.supplierId, reenvio: c.reenvio,
-      despachaProveedor: inboundCaja === 'cotizado', lineas: c.items,
-      fleteAereoPagado: c.movimientos.length > 0, compraDeId: c.compraDeId, tieneHijas: c._count.partes > 0,
-    }) == null)
-    .map(c => ({ id: c.id, nombre: c.nombre ?? `Caja #${c.id}` }))
-  const motivoNoMover = destinosMover.length > 0
-    ? null
-    : motivoOrigen
-      ?? motivosMover[0]?.motivo
-      ?? 'Para partir la caja, creá otra del mismo proveedor y reenvío y confirmala: ahí podés pasarle presupuestos.'
+  const destinosSinStock = [
+    ...candidatasMover
+      .filter(c => motivoNoMueveSinEnviar(origenMover, {
+        id: c.id, modo: c.modo, estado: c.estado, supplierId: c.supplierId, reenvio: c.reenvio,
+        despachaProveedor: inboundCaja === 'cotizado', lineas: c.items,
+        fleteAereoPagado: c.movimientos.length > 0, compraDeId: c.compraDeId, tieneHijas: c._count.partes > 0,
+      }) == null)
+      .map(c => ({ id: c.id, nombre: c.nombre ?? `Caja #${c.id}` })),
+    ...(motivoNoMueveSinEnviar(origenMover, cajaIdeal) == null ? [cajaNueva] : []),
+  ]
+  const motivoNoMover = destinosMover.length > 0 ? null : motivoOrigen
 
   // Una fila por tramo que existe en ESTA caja. En una caja que despacha el proveedor no hay
   // flete aéreo que cargar: ese tramo es `tramoUsd` y se le paga a él dentro del giro.

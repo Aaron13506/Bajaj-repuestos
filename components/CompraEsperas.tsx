@@ -61,7 +61,8 @@ interface AccionesSinStock {
   mover: (itemId: number, formData: FormData) => Promise<ActionResult>
   /** Saca la pieza que no vino del conjunto a una línea propia, que ya puede esperar o cambiar de caja. */
   separar: (incidenciaId: number) => Promise<ActionResult>
-  destinos: { id: number; nombre: string }[]
+  /** 'nueva' = la acción crea la otra caja (misma compra) y le pasa la pieza. */
+  destinos: { id: number | 'nueva'; nombre: string }[]
   metodos: readonly string[]
 }
 
@@ -85,7 +86,7 @@ export function SinStockCaja({ filas, ...acciones }: AccionesSinStock & { filas:
 function SinStockItem({ f, proveedor, salio, resolver, sacar, mover, separar, destinos, metodos }: AccionesSinStock & { f: SinStockFila }) {
   const { pending, error, ejecutar } = useAccionDirecta()
   const [reembolso, setReembolso] = useState(false)
-  const [destino, setDestino] = useState(destinos[0]?.id ?? 0)
+  const [destino, setDestino] = useState(String(destinos[0]?.id ?? ''))
   const campos = (c: Record<string, string>) => {
     const d = new FormData()
     for (const [k, v] of Object.entries(c)) d.set(k, v)
@@ -142,12 +143,12 @@ function SinStockItem({ f, proveedor, salio, resolver, sacar, mover, separar, de
         {f.lineaEntera && destinos.length > 0 && (
           <>
             <label className="sr-only" htmlFor={`ss-dest-${f.incidenciaId}`}>Caja a la que pasa {nombre}</label>
-            <select id={`ss-dest-${f.incidenciaId}`} value={destino} onChange={e => setDestino(Number(e.target.value))}
+            <select id={`ss-dest-${f.incidenciaId}`} value={destino} onChange={e => setDestino(e.target.value)}
               className="min-h-8 max-w-full border border-gray-300 rounded-lg px-2 py-1 text-xs bg-white">
-              {destinos.map(d => <option key={d.id} value={d.id}>#{d.id} {d.nombre}</option>)}
+              {destinos.map(d => <option key={d.id} value={d.id}>{d.id === 'nueva' ? d.nombre : `#${d.id} ${d.nombre}`}</option>)}
             </select>
             <button type="button" disabled={pending} className={btn}
-              onClick={() => ejecutar(() => mover(f.itemId, campos({ destinoId: String(destino) })))}>
+              onClick={() => ejecutar(() => mover(f.itemId, campos({ destinoId: destino })))}>
               Pasarla a esa caja
             </button>
           </>

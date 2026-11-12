@@ -77,7 +77,8 @@ interface Props {
   // Pasa el presupuesto a otra caja con la etapa que tiene (caja partida en el depósito, ver
   // lib/mover-caja.ts). `destinos` son las cajas que la regla acepta; vacío = `motivoNoMover`.
   mover?: (envioId: number, pedidoId: number, formData: FormData) => Promise<ActionResult>
-  destinos?: { id: number; nombre: string }[]
+  /** 'nueva' = la acción crea la otra caja (misma compra) y le pasa el presupuesto. */
+  destinos?: { id: number | 'nueva'; nombre: string }[]
   motivoNoMover?: string | null
 }
 
@@ -339,7 +340,7 @@ export default function EnvioItemsTable({
     })
   }
 
-  function moverPresupuesto(pedidoId: number, clientName: string, destinoId: number) {
+  function moverPresupuesto(pedidoId: number, clientName: string, destinoId: number | 'nueva') {
     const destino = destinos.find(d => d.id === destinoId)
     if (!mover || !destino) return
     if (!confirm(
@@ -592,8 +593,8 @@ export default function EnvioItemsTable({
                         value=""
                         disabled={guardando}
                         onChange={e => {
-                          const destinoId = parseInt(e.target.value)
-                          if (Number.isInteger(destinoId)) moverPresupuesto(pedidoId, its[0].clientName, destinoId)
+                          const d = destinos.find(x => String(x.id) === e.target.value)
+                          if (d) moverPresupuesto(pedidoId, its[0].clientName, d.id)
                         }}
                         aria-label={`Mover el pedido #${pedidoId} (${its[0].clientName}) a otra caja, con la etapa que tiene`}
                         className="ml-1 min-h-8 text-xs text-blue-700 bg-transparent border-0 rounded cursor-pointer focus:ring-2 focus:ring-blue-500 py-0 pl-1 pr-6"
