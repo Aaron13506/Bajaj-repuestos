@@ -1908,17 +1908,17 @@ console.log('\nREENVÍO POR KILO POR PIEZA (catálogo y presupuestos)')
 
   // La tabla por peso de caja (la de UPS, recortada).
   const TABLA = JSON.stringify([
-    { hastaKg: 1, totalInr: 6100 }, { hastaKg: 4, totalInr: 9878 }, { hastaKg: 5, inrPorKg: 1760 },
-    { hastaKg: 11, inrPorKg: 1240 }, { hastaKg: 20, inrPorKg: 1065 }, { hastaKg: 40, inrPorKg: 940 },
+    { hastaKg: 1, inr: 6100, total: true }, { hastaKg: 4, inr: 9878, total: true }, { hastaKg: 5, inr: 1760, total: false },
+    { hastaKg: 11, inr: 1240, total: false }, { hastaKg: 20, inr: 1065, total: false }, { hastaKg: 40, inr: 940, total: false },
   ])
   const tabla = parsearTablaPorKilo(TABLA)!
   check('tabla: se lee', tabla?.length ?? -1, 6)
   const tablaDe = (x: unknown) => parsearTablaPorKilo(JSON.stringify(x))
-  check('tabla: desordenada → null', si(tablaDe([{ hastaKg: 5, inrPorKg: 1760 }, { hastaKg: 4, totalInr: 9878 }]) === null), 1)
-  check('tabla: un tramo malo → null (no a medias)', si(tablaDe([{ hastaKg: 4, totalInr: 9878 }, { hastaKg: 5, inrPorKg: '1760' }]) === null), 1)
-  check('tabla: las dos tarifas en un tramo → null', si(tablaDe([{ hastaKg: 4, totalInr: 9878, inrPorKg: 1 }]) === null), 1)
-  check('tabla: ninguna tarifa → null', si(tablaDe([{ hastaKg: 4 }]) === null), 1)
-  check('tabla: clave desconocida → null', si(tablaDe([{ hastaKg: 4, inr: 9878 }]) === null), 1)
+  check('tabla: desordenada → null', si(tablaDe([{ hastaKg: 5, inr: 1760, total: false }, { hastaKg: 4, inr: 9878, total: true }]) === null), 1)
+  check('tabla: un tramo malo → null (no a medias)', si(tablaDe([{ hastaKg: 4, inr: 9878, total: true }, { hastaKg: 5, inr: '1760', total: false }]) === null), 1)
+  check('tabla: total que no es booleano → null', si(tablaDe([{ hastaKg: 4, inr: 9878, total: 'true' }]) === null), 1)
+  check('tabla: sin total → null (no se adivina)', si(tablaDe([{ hastaKg: 4, inr: 9878 }]) === null), 1)
+  check('tabla: clave desconocida → null', si(tablaDe([{ hastaKg: 4, inr: 9878, total: true, nota: 'x' }]) === null), 1)
   check('tabla: arreglo vacío → null', si(tablaDe([]) === null), 1)
   check('tabla: texto que no es JSON → null', si(parsearTablaPorKilo('4: 9878 total') === null), 1)
   check('tabla: un número solo es plana', costoTablaPorKiloInr(parsearTablaPorKilo('1230')!, 30), 30 * 1230)

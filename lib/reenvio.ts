@@ -102,15 +102,15 @@ export function tarifaEquilibrioKgInr(p: {
 // ─────────────────────────────────────────────────────────────────────────────
 // La tabla del reenvío por kilo (Config.reenvio_kilo_tarifa_inr), en JSON
 //
-// Un arreglo de tramos en orden de peso. Cada tramo lleva `hastaKg` y UNA de dos tarifas:
-//   { "hastaKg": 4, "totalInr": 9878 }   ← una caja de hasta 4 kg cuesta ₹9878 entera ("all in")
-//   { "hastaKg": 5, "inrPorKg": 1760 }   ← de más de 4 hasta 5 kg, ₹1760 por kg
+// Un arreglo de tramos en orden de peso, todos con la misma forma:
+//   { "hastaKg": 4, "inr": 9878, "total": true }    ← una caja de hasta 4 kg cuesta ₹9878 entera ("all in")
+//   { "hastaKg": 5, "inr": 1760, "total": false }   ← de más de 4 hasta 5 kg, ₹1760 por kg
 // Un número solo (1230) es una tarifa plana por kg.
 //
 // Pasado el último tramo sigue su tarifa. La caja cae en el tramo de sus kg facturados.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type TramoPorKilo = { hastaKg: number } & ({ inrPorKg: number } | { totalInr: number })
+export type TramoPorKilo = { hastaKg: number; inr: number; total: boolean }
 
 const positivo = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0
 
@@ -118,16 +118,15 @@ const positivo = (v: unknown): v is number => typeof v === 'number' && Number.is
 export function parsearTablaPorKilo(raw: string | null | undefined): TramoPorKilo[] | null {
   let json: unknown
   try { json = JSON.parse((raw ?? '').trim()) } catch { return null }
-  if (positivo(json)) return [{ hastaKg: Infinity, inrPorKg: json }]
+  if (positivo(json)) return [{ hastaKg: Infinity, inr: json, total: false }]
   if (!Array.isArray(json) || json.length === 0) return null
   const tabla: TramoPorKilo[] = []
   for (const t of json as Record<string, unknown>[]) {
     const claves = t && typeof t === 'object' ? Object.keys(t).sort().join(',') : ''
     const previo = tabla.at(-1)?.hastaKg ?? 0
     if (!positivo(t.hastaKg) || t.hastaKg <= previo) return null
-    if (claves === 'hastaKg,inrPorKg' && positivo(t.inrPorKg)) tabla.push({ hastaKg: t.hastaKg, inrPorKg: t.inrPorKg })
-    else if (claves === 'hastaKg,totalInr' && positivo(t.totalInr)) tabla.push({ hastaKg: t.hastaKg, totalInr: t.totalInr })
-    else return null
+    if (claves !== 'hastaKg,inr,total' || !positivo(t.inr) || typeof t.total !== 'boolean') return null
+    tabla.push({ hastaKg: t.hastaKg, inr: t.inr, total: t.total })
   }
   return tabla
 }
@@ -140,7 +139,7 @@ export function tablaPorKilo(cfg: ConfigMap): TramoPorKilo[] | null {
 export function costoTablaPorKiloInr(tabla: TramoPorKilo[], kgFacturados: number): number {
   if (kgFacturados <= 0) return 0
   const t = tabla.find(x => kgFacturados <= x.hastaKg) ?? tabla[tabla.length - 1]
-  return 'totalInr' in t ? t.totalInr : kgFacturados * t.inrPorKg
+  return t.total ? t.inr : kgFacturados * t.inr
 }
 
 /**
