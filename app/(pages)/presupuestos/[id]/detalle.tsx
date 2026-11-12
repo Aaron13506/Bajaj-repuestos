@@ -942,8 +942,9 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
       <div className="space-y-2">
         {/* Margen: lo vendido contra lo que cuesta (o costó) tenerlo puesto acá, en dólares reales.
             Con todo entregado y costeado con lo pagado de verdad es el margen realizado; antes de
-            eso es una proyección, y se dice. */}
-        {margen && (
+            eso es una proyección, y se dice. En un express no va: su margen está arriba, sobre el
+            flete de su caja, y este lo costeaba más barato. */}
+        {margen && !express && (
           <details className={plegable}>
             <summary className={resumenPlegable}>
               <span>Margen · {margen.estado === 'realizado' ? 'realizado'
