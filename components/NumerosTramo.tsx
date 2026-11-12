@@ -7,7 +7,7 @@ import ElegirCourier from '@/components/ElegirCourier'
 import type { ActionResult } from '@/lib/action-result'
 import { MAX_TRACKINGS_POR_TRAMO, TRAMO_TRACKING_META, type TramoTracking } from '@/lib/tracking'
 import { fechaCourier, metaEstado, type Checkpoint, type Courier } from '@/lib/ship24'
-import { ONEWAY_CODE } from '@/lib/oneway'
+import { esCodigoOneway, ONEWAY_CODE, ONEWAY_NOMBRE } from '@/lib/oneway'
 
 export type NumeroGuardado = {
   id: number
@@ -220,6 +220,7 @@ function Edicion({ tramo, todos, reemplaza, inicial, couriers, guardar, placehol
   const despues = i === -1 ? [] : todos.slice(i + 1)
   const idNumero = `numero-${tramo}-${reemplaza ?? 'nuevo'}`
   const [numero, setNumero] = useState(inicial?.numero ?? '')
+  const oneway = esCodigoOneway(tramo, numero)
   return (
     <FormConResultado action={guardar} className="flex flex-wrap items-end gap-3">
       <Ocultos filas={antes} />
@@ -235,12 +236,22 @@ function Edicion({ tramo, todos, reemplaza, inicial, couriers, guardar, placehol
       </div>
       <div className="flex flex-col gap-1 min-w-0">
         <span aria-hidden="true" className="text-xs font-medium text-gray-700">Courier</span>
-        <ElegirCourier
-          tramo={tramo}
-          inicial={{ code: inicial?.courierCode ?? null, nombre: inicial?.transportista ?? null }}
-          couriers={couriers}
-          placeholder={transportista}
-        />
+        {oneway ? (
+          // La acción lo fija a One Way Cargo por el código: no hay nada que elegir.
+          <div className="w-64 border border-green-300 bg-green-50 rounded-lg px-3 py-1.5 text-sm">
+            <input type="hidden" name={`courier_${tramo}`} value="" />
+            <input type="hidden" name={`libre_${tramo}`} value="" />
+            <input type="hidden" name={`transportista_${tramo}`} value={ONEWAY_NOMBRE} />
+            📡 {ONEWAY_NOMBRE}
+          </div>
+        ) : (
+          <ElegirCourier
+            tramo={tramo}
+            inicial={{ code: inicial?.courierCode ?? null, nombre: inicial?.transportista ?? null }}
+            couriers={couriers}
+            placeholder={transportista}
+          />
+        )}
       </div>
       <Ocultos filas={despues} />
       <div className="flex gap-2">
@@ -255,7 +266,9 @@ function Edicion({ tramo, todos, reemplaza, inicial, couriers, guardar, placehol
         </button>
       </div>
       <p className="basis-full text-xs text-gray-600">
-        {couriers.length > 0
+        {oneway
+          ? 'Código de One Way Cargo: se sigue solo cada hora con la cuenta.'
+          : couriers.length > 0
           ? 'Elegido de la lista de Ship24, se sigue solo cada hora. Si no está (Zoom, Tealca), anotalo sin seguimiento.'
           : 'Ship24 está apagado: el courier queda anotado tal cual.'}
       </p>

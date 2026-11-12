@@ -154,11 +154,20 @@ export async function entrarOneway(cred: { email: string; password: string }): P
   }
 }
 
-/** Código → uuid de todos los pedidos de la cuenta (en tránsito e historial). */
+// Tope de páginas por pestaña: solo frena un bucle si la paginación cambiara.
+const MAX_PAGINAS = 30
+
+/** Código → uuid de todos los pedidos de la cuenta (en tránsito e historial, todas las páginas). */
 export async function pedidosOneway(s: SesionOneway): Promise<Map<string, string>> {
   const todos = new Map<string, string>()
   for (const tab of ['transit', 'history']) {
-    for (const [k, v] of leerLista(await s.pagina(`/onewayidv2/orders?tab=${tab}`))) todos.set(k, v)
+    // Paginación de Laravel (?page=N): pasada la última viene la lista vacía. Se corta también si
+    // una página no trae nada nuevo, por si alguna vez repite la última en vez de vaciarse.
+    for (let page = 1; page <= MAX_PAGINAS; page++) {
+      const antes = todos.size
+      for (const [k, v] of leerLista(await s.pagina(`/onewayidv2/orders?tab=${tab}&page=${page}`))) todos.set(k, v)
+      if (todos.size === antes) break
+    }
   }
   return todos
 }
