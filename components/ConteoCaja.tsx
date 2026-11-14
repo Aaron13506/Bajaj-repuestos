@@ -20,15 +20,12 @@ export default function ConteoCaja({
   piezas,
   recibir,
   aviso,
-  yaRecibida = false,
 }: {
   envioId: number
   piezas: PiezaAContar[]
   recibir: () => Promise<ActionResult>
   // Qué hace "Marcar recibido" en esta caja (suma stock, mueve etapas…).
   aviso: string
-  // Ya está recibida (o en Venezuela): contar sigue sirviendo, y el botón solo cierra el conteo.
-  yaRecibida?: boolean
 }) {
   const clave = `conteo-caja-${envioId}`
   const [conteo, setConteo] = useState<Record<string, string>>({})
@@ -93,7 +90,7 @@ export default function ConteoCaja({
   const conDiferencia = piezas.filter(p => llego(p) != null && llego(p) !== p.esperado).length
   const completo = contadas === piezas.length
 
-  const textoBoton = yaRecibida ? 'Terminar conteo' : 'Marcar recibido'
+  const textoBoton = 'Marcar recibido'
   const difs = piezas.filter(p => llego(p) != null && llego(p) !== p.esperado)
   function marcarRecibido() {
     ejecutar(async () => {
@@ -118,7 +115,7 @@ export default function ConteoCaja({
           <p className="text-sm text-gray-600">
             {contadas} de {piezas.length} {piezas.length === 1 ? 'código contado' : 'códigos contados'}
             {conDiferencia > 0 && <span className="font-semibold text-red-700"> · {conDiferencia} con diferencia</span>}
-            {!completo && ` · contá los ${piezas.length - contadas} que faltan para ${yaRecibida ? 'terminar' : 'recibir'}`}
+            {!completo && ` · contá los ${piezas.length - contadas} que faltan para recibir`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -282,14 +279,14 @@ export default function ConteoCaja({
   )
 }
 
-// El botón que abre el conteo, arriba a la derecha de la caja.
-export function BotonConteo({ yaRecibida }: { yaRecibida: boolean }) {
+// El botón que abre el conteo, arriba a la derecha de la caja. Recibida la caja ya no se ofrece.
+export function BotonConteo() {
   return (
     <a
       href="#conteo"
       className="inline-flex items-center min-h-9 px-4 py-1.5 text-sm border border-gray-300 rounded-lg bg-white hover:bg-gray-50 transition-colors font-medium text-gray-700"
     >
-      {yaRecibida ? 'Contar caja' : 'Contar y recibir'}
+      Contar y recibir
     </a>
   )
 }

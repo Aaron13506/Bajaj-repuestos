@@ -1041,7 +1041,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                 {proximoPaso.accion}
               </a>
             ) : null}
-            {!esBorrador && aContar.length > 0 && enCaminoAVenezuela && <BotonConteo yaRecibida={false} />}
+            {!esBorrador && aContar.length > 0 && enCaminoAVenezuela && <BotonConteo />}
             <details className="relative">
               <summary className="list-none cursor-pointer px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white hover:bg-gray-50 font-medium text-gray-700 [&::-webkit-details-marker]:hidden">
                 Más <span aria-hidden="true">▾</span>
@@ -1682,21 +1682,20 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                   <SeccionCaja
                     id="llegada-titulo"
                     titulo={porRecibir.length === 0 ? 'La caja ya está recibida' : enCaminoAVenezuela ? 'Contar lo que llegó y recibir' : 'Todavía no llegó a Venezuela'}
-                    sub={<>
+                    sub={porRecibir.length === 0 ? 'Ya se contó y se recibió: no se vuelve a contar.' : <>
                       {aContar.length} {aContar.length === 1 ? 'código' : 'códigos'} a contar, los conjuntos abiertos en sus piezas.
-                      {' '}{enCaminoAVenezuela || porRecibir.length === 0
-                        ? 'Buscás el código, Enter suma uno; lo que falte se reporta como faltante en su pedido.'
+                      {' '}{enCaminoAVenezuela
+                        ?'Buscás el código, Enter suma uno; lo que falte se reporta como faltante en su pedido.'
                         : 'El conteo se hace cuando la caja va camino a Venezuela o llegó; podés abrirlo antes si hace falta.'}
                     </>}
-                    acciones={<BotonConteo yaRecibida={porRecibir.length === 0} />}
+                    acciones={porRecibir.length > 0 ? <BotonConteo /> : null}
                   />
                 )}
-          {!esBorrador && aContar.length > 0 && (
+          {!esBorrador && porRecibir.length > 0 && (
             <ConteoCaja
               envioId={envio.id}
               piezas={aContar}
               recibir={saveItemChanges.bind(null, envio.id, porRecibir.map(it => ({ id: it.id, shippingStatus: 'en_venezuela' })))}
-              yaRecibida={porRecibir.length === 0}
               aviso={`${porRecibir.length > 0 ? `Pasa ${porRecibir.length} ${porRecibir.length === 1 ? 'línea' : 'líneas'} a "Recibido". ` : ''}${noVinieron.length > 0 ? `${noVinieron.length} ${noVinieron.length === 1 ? 'línea queda' : 'líneas quedan'} sin recibir porque el proveedor no la${noVinieron.length === 1 ? '' : 's'} mandó. ` : ''}Lo que falte, reportalo como incidencia "faltante" en su pedido.`}
             />
           )}

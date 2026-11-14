@@ -1644,6 +1644,11 @@ console.log('\nENVÍO EXPRESS')
   check('por USA: tarifas de One Way en /config', calcExpress([pieza(3000, 4000)], { ...cfg, oneway_aereo_usd_lb: '4', oneway_aereo_paquete_usd: '2' }, { reenvio: kiloUsa }).envio.maritimeUsd, 3 * 2.20462 * 4 + 2, 1e-9)
   const usaSinTarifa = calcExpress([pieza(3000, 4000)], cfg, { reenvio: { ...kiloUsa, tarifaKgInr: null } })
   check('por USA: sin ₹/kg no se confirma', si(motivoExpressNoAprobable(usaSinTarifa)?.includes('₹/kg') ?? false), 1)
+  // Vacío en el armador = la tabla de /config por el peso del paquete (4,2 → 4,5 kg, tramo hasta 5 a ₹1760/kg).
+  const conTablaKilo = { ...cfg, reenvio_kilo_tarifa_inr: '[{"hastaKg":4,"inr":9878,"total":true},{"hastaKg":5,"inr":1760,"total":false}]' }
+  const usaTabla = calcExpress([pieza(3000, 4000), otro], conTablaKilo, { reenvio: { ...kiloUsa, tarifaKgInr: null } })
+  check('por USA: sin ₹/kg cotiza con la tabla de /config', usaTabla.envio.airUsd, (4.5 * 1760) / inr, 1e-9)
+  check('por USA: con la tabla se confirma', si(motivoExpressNoAprobable(usaTabla) == null), 1)
   const usaFacturado = calcEnvio([pieza(3000, 4000)], cfg, { modo: 'express', reenvio: kiloUsa, fleteFacturado: { aereoUsd: 30, maritimoUsd: 40 } })
   check('por USA: la factura de One Way pisa al estimado', usaFacturado.maritimeUsd, 40)
   // Banda de tolerancia del volumétrico (cotización express sin pesar, 10%): hasta +10% cobra el

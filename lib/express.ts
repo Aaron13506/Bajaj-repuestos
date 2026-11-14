@@ -201,7 +201,7 @@ export function viaDe(v: string | null | undefined): Via {
  */
 export function motivoExpressNoAprobable(e: Pick<Express, 'excede' | 'holguraUsd' | 'topeUsd' | 'sinPeso'> & { faltaTarifa?: boolean }): string | null {
   if (e.faltaTarifa) {
-    return 'Va por USA y falta la tarifa ₹/kg del reenvío: sin ella el precio no lleva el tramo a Miami. Anotala en el presupuesto (Ruta express) o en la pestaña Plata de la caja.'
+    return 'Va por USA y falta la tarifa ₹/kg del reenvío: sin ella el precio no lleva el tramo a Miami. Cargá la tabla por kilo en Configuración, o anotala en el presupuesto (Ruta express) o en la pestaña Plata de la caja.'
   }
   if (e.excede) {
     return `El paquete express se pasa ${(-e.holguraUsd).toFixed(2)} USD del tope de ${e.topeUsd.toFixed(2)} USD. Sacá piezas, mandalo por USA (sin tope) o pasalo a envío normal.`

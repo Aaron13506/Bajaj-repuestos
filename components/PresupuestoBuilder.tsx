@@ -775,7 +775,7 @@ export default function PresupuestoBuilder({
           </div>
           {porUsa && (
             <div className="mt-2">
-              <label htmlFor="pb-tarifa-kg" className="block text-sm font-medium text-gray-700 mb-1">Tarifa del reenvío a USA (₹/kg)</label>
+              <label htmlFor="pb-tarifa-kg" className="block text-sm font-medium text-gray-700 mb-1">Tarifa del reenvío a USA (₹/kg, opcional)</label>
               <input
                 id="pb-tarifa-kg"
                 type="text"
@@ -783,14 +783,18 @@ export default function PresupuestoBuilder({
                 value={tarifaKg}
                 disabled={clienteFijo}
                 onChange={e => setTarifaKg(e.target.value)}
-                placeholder={cajaId != null ? 'vacío = la de la caja' : 'ej. 600'}
+                placeholder={tarifaKgReferencia != null
+                  ? `vacío = ${cajaId != null ? 'la de la caja o ' : ''}la tabla de Configuración`
+                  : cajaId != null ? 'vacío = la de la caja' : 'ej. 600'}
                 aria-invalid={tarifaKg.trim() !== '' && tarifaKgValida == null}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white disabled:bg-gray-50"
               />
               <p className="text-[11px] text-gray-500 mt-1">
                 {tarifaKg.trim() !== '' && tarifaKgValida == null
                   ? <span className="text-red-700">No es un número válido.</span>
-                  : 'Con esto y el peso de cada pieza se calcula el flete a Miami; One Way aéreo sale de Configuración.'}
+                  : tarifaKgReferencia != null
+                    ? 'Dejalo vacío: el flete a Miami sale de la tabla por kilo de Configuración según el peso del paquete. Escribí un número solo si el depósito te cotizó otro. One Way aéreo también sale de Configuración.'
+                    : 'Con esto y el peso de cada pieza se calcula el flete a Miami; One Way aéreo sale de Configuración.'}
               </p>
             </div>
           )}

@@ -346,7 +346,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {!esBorrador && lineas.length > 0 && <BotonConteo yaRecibida={esEntregado} />}
+          {!esBorrador && !esEntregado && lineas.length > 0 && <BotonConteo />}
           {esBorrador ? (
             <FormConResultado action={cerrarEmbarque.bind(null, envio.id)}>
               <PendingButton
@@ -393,7 +393,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
       </div>
 
       {/* "Marcar recibido" vive al final del conteo: primero se verifica, después se suma a stock. */}
-      {!esBorrador && lineas.length > 0 && (
+      {!esBorrador && !esEntregado && lineas.length > 0 && (
         <ConteoCaja
           envioId={envio.id}
           piezas={piezasAContar(envio.lineas.map(l => ({ nombre: l.product.nameEs, codigo: l.product.bajajCode, quantity: l.quantity, piezas: [] })))
@@ -403,8 +403,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
               return { ...p, estimada: x && x.medidoAt == null ? { productId: x.id, weightGrams: x.weightGrams, dimL: x.dimL, dimA: x.dimA, dimH: x.dimH } : null }
             })}
           recibir={recibirEmbarque.bind(null, envio.id)}
-          yaRecibida={esEntregado}
-          aviso={`${esEntregado ? 'Ya se sumaron al stock' : 'Se suman al stock'} las cantidades del embarque, no las contadas: lo que falte, corregilo en el stock de esa pieza.`}
+          aviso={`Se suman al stock las cantidades del embarque, no las contadas: lo que falte, corregilo en el stock de esa pieza.`}
         />
       )}
 
