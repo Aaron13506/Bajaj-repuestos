@@ -255,7 +255,8 @@ export async function separarSinStock(envioId: number, incidenciaId: number): Pr
       const precioDe = new Map(productos.map(p => [p.id, Number(p.price)]))
       const plan = planSeparar(
         { quantity: it.quantity, salePrice: Number(it.salePrice), costRealUsd: it.costRealUsd != null ? Number(it.costRealUsd) : null, piezas },
-        i, inc.cantidad, p => { const id = ids[piezas.indexOf(p as BundlePiece)]; return id != null ? precioDe.get(id) ?? null : null },
+        // Por etiqueta, no por identidad: planSeparar puede pasar copias de las piezas (al dejar la línea en 1 set).
+        i, inc.cantidad, p => { const id = ids[piezas.findIndex(x => etiquetaPieza(x) === etiquetaPieza(p))]; return id != null ? precioDe.get(id) ?? null : null },
       )
       if (!plan.ok) throw new ErrorDeNegocio(plan.error)
       // Pasar a 1 set cambia lo que cuenta una incidencia de la línea entera (va en sets).
