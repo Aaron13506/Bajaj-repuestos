@@ -258,13 +258,17 @@ export async function separarSinStock(envioId: number, incidenciaId: number): Pr
         i, inc.cantidad, p => { const id = ids[piezas.indexOf(p as BundlePiece)]; return id != null ? precioDe.get(id) ?? null : null },
       )
       if (!plan.ok) throw new ErrorDeNegocio(plan.error)
+      // Pasar a 1 set cambia lo que cuenta una incidencia de la línea entera (va en sets).
+      if (plan.sets !== it.quantity && await tx.incidencia.count({ where: { itemId, estado: 'abierta', pieza: null } }) > 0) {
+        throw new ErrorDeNegocio('El conjunto tiene un problema abierto de la línea entera: resolvelo primero en el pedido.')
+      }
       const productId = ids[i]!
       if (await tx.pedidoItem.count({ where: { pedidoId, productId } }) > 0) {
         throw new ErrorDeNegocio(`El pedido ya tiene «${pieza}» como pieza suelta: no se puede separar en otra línea.`)
       }
       const r = await tx.pedidoItem.updateMany({
         where: { id: itemId, envioId, shippingStatus: it.shippingStatus },
-        data: { bundleItems: plan.quedan as unknown as Prisma.InputJsonValue, salePrice: plan.precioQueda, costRealUsd: plan.costoQueda },
+        data: { quantity: plan.sets, bundleItems: plan.quedan as unknown as Prisma.InputJsonValue, salePrice: plan.precioQueda, costRealUsd: plan.costoQueda },
       })
       if (r.count === 0) throw new ErrorDeNegocio('Esa línea cambió mientras tanto. Recargá la página.')
       // shortcut: la línea nueva no copia el historial de etapas (PedidoItemEtapa); si se necesita, copiarlo acá.

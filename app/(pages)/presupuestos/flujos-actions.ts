@@ -719,13 +719,21 @@ export async function resolverIncidencia(incidenciaId: number, formData: FormDat
           { quantity: it.quantity, costRealUsd: linea!.costRealUsd, piezas }, inc.pieza, inc.cantidad, devueltoProveedor ?? 0,
         )
         if (!plan.ok) throw new ErrorDeNegocio(plan.error)
+        // Pasar a 1 set cambia lo que cuenta una incidencia de la línea entera (va en sets).
+        const unSet = plan.sets !== it.quantity
+        if (unSet && await tx.incidencia.count({ where: { itemId: it.id, estado: 'abierta', pieza: null } }) > 0) {
+          throw new ErrorDeNegocio('El conjunto tiene un problema abierto de la línea entera: resolvelo primero.')
+        }
         await tx.incidencia.update({ where: { id: inc.id }, data: { ...cierre, perdidaUsd: plan.perdidaUsd } })
         if (plan.quitaLinea) {
           await tx.pedidoItem.delete({ where: { id: it.id } })
         } else {
           await tx.pedidoItem.update({
             where: { id: it.id },
-            data: { bundleItems: plan.piezasNuevas as unknown as Prisma.InputJsonValue, costRealUsd: plan.costRealNuevo },
+            data: {
+              bundleItems: plan.piezasNuevas as unknown as Prisma.InputJsonValue, costRealUsd: plan.costRealNuevo,
+              ...(unSet ? { quantity: plan.sets, salePrice: Math.round(Number(it.salePrice) * it.quantity * 100) / 100 } : {}),
+            },
           })
         }
         detalle.push(

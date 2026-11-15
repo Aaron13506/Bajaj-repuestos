@@ -210,6 +210,21 @@ export function planNoVino(
 }
 
 /**
+ * Una línea de N sets como 1 set con cada pieza ×N: mismo total vendido y mismas unidades. Es lo que
+ * deja sacar de un conjunto unidades que no se reparten parejo entre sus sets (2 sets, faltan 3).
+ * El precio sale sin redondear: lo redondea quien lo guarda.
+ */
+export function enUnSet<P extends { quantity: number }, L extends { quantity: number; piezas: P[]; salePrice?: number }>(linea: L): L {
+  const n = linea.quantity
+  return {
+    ...linea,
+    quantity: 1,
+    piezas: linea.piezas.map(x => ({ ...x, quantity: x.quantity * n })),
+    ...(linea.salePrice != null ? { salePrice: linea.salePrice * n } : {}),
+  }
+}
+
+/**
  * Reembolsar `unidades` de UN SKU de un conjunto que el proveedor no mandó: el SKU baja en el
  * snapshot (o sale, si no queda ninguno), y con él lo que cuenta la caja y lo que suma al stock.
  * El snapshot guarda unidades POR SET, así que las que salen tienen que repartirse parejo entre los
@@ -223,30 +238,26 @@ export function planReembolsoPieza(
   unidades: number,
   devueltoUsd: number,
 ):
-  | { ok: true; piezasNuevas: typeof linea.piezas; quitaLinea: boolean; costRealNuevo: number | null; perdidaUsd: number }
+  | { ok: true; sets: number; piezasNuevas: typeof linea.piezas; quitaLinea: boolean; costRealNuevo: number | null; perdidaUsd: number }
   | { ok: false; error: string } {
   const i = linea.piezas.findIndex(p => etiquetaPieza(p) === pieza)
   if (i < 0) return { ok: false, error: `«${pieza}» ya no está en este conjunto.` }
   const p = linea.piezas[i]
   const total = p.quantity * linea.quantity
   if (unidades > total) return { ok: false, error: `El conjunto lleva ${total} unidad(es) de «${pieza}».` }
-  if ((total - unidades) % linea.quantity !== 0) {
-    return {
-      ok: false,
-      error: `Las ${linea.quantity} unidades del conjunto llevan ${p.quantity} de «${pieza}» cada una: ${unidades} no se reparten parejo entre ellas. ` +
-        `Reembolsá un múltiplo de ${linea.quantity} (o resolvelo como «Llegó» y ajustá a mano).`,
-    }
-  }
+  // No se reparte parejo entre los sets: la línea pasa a 1 set con todo multiplicado (ver enUnSet).
+  if ((total - unidades) % linea.quantity !== 0) return planReembolsoPieza(enUnSet(linea), pieza, unidades, devueltoUsd)
   const porSet = (total - unidades) / linea.quantity
   const piezasNuevas = porSet > 0
     ? linea.piezas.map((x, k) => (k === i ? { ...x, quantity: porSet } : x))
     : linea.piezas.filter((_, k) => k !== i)
   const costo = linea.costRealUsd
   if (piezasNuevas.length === 0) {
-    return { ok: true, piezasNuevas, quitaLinea: true, costRealNuevo: null, perdidaUsd: costo != null ? perdidaTrasDevolucion(costo, devueltoUsd) : 0 }
+    return { ok: true, sets: linea.quantity, piezasNuevas, quitaLinea: true, costRealNuevo: null, perdidaUsd: costo != null ? perdidaTrasDevolucion(costo, devueltoUsd) : 0 }
   }
   return {
     ok: true,
+    sets: linea.quantity,
     piezasNuevas,
     quitaLinea: false,
     costRealNuevo: costo != null ? centavos(Math.max(0, costo - devueltoUsd)) : null,

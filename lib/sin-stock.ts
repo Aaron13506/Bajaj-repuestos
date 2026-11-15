@@ -1,6 +1,7 @@
 // "No tienen stock" por SKU (pestaña Comprar de la caja). El proveedor avisa por código, y un mismo
 // código puede estar en varios pedidos: hay que decidir quién se queda esperando. Puro, sin DB.
 import { statusIndex } from './shipping-status'
+import { enUnSet } from './incidencias'
 
 /**
  * Una línea que el proveedor no mandó (entera) espera DENTRO de su caja, pero no está en el depósito:
@@ -69,16 +70,19 @@ export function planSeparar(
   unidades: number,
   precio: (p: { nameEs: string; bajajCode: string | null }) => number | null,
 ):
-  | { ok: true; quedan: typeof linea.piezas; cantidad: number; precioNuevo: number; precioQueda: number; costoNuevo: number | null; costoQueda: number | null }
+  | { ok: true; sets: number; quedan: typeof linea.piezas; cantidad: number; precioNuevo: number; precioQueda: number; costoNuevo: number | null; costoQueda: number | null }
   | { ok: false; error: string } {
   const p = linea.piezas[i]
   const enLinea = p.quantity * linea.quantity
   const entera = unidades === enLinea
   if (entera && linea.piezas.length < 2) return { ok: false, error: 'El conjunto es solo esa pieza: ya espera como línea entera.' }
-  // Por set: lo que sale de cada uno tiene que ser entero (2 sets y faltan 3 no se reparte).
+  if (unidades < 1 || unidades > enLinea) return { ok: false, error: `El conjunto lleva ${enLinea} «${p.nameEs}»: no pueden faltar ${unidades}.` }
+  // 2 sets y faltan 3: no se reparte parejo, así que la línea pasa a 1 set con todo multiplicado
+  // (mismo total, mismas unidades) y ahí sí.
   const porSet = unidades / linea.quantity
-  if (unidades < 1 || unidades > enLinea || !Number.isInteger(porSet)) {
-    return { ok: false, error: `Faltan ${unidades} de ${enLinea} «${p.nameEs}» repartidas en ${linea.quantity} sets: no se pueden separar parejo.` }
+  if (!Number.isInteger(porSet)) {
+    const uno = enUnSet(linea)
+    return planSeparar({ ...uno, salePrice: Math.round(uno.salePrice * 100) / 100 }, i, unidades, precio)
   }
   let total = 0
   for (const x of linea.piezas) {
@@ -94,6 +98,7 @@ export function planSeparar(
   const costoNuevo = linea.costRealUsd != null ? cent((linea.costRealUsd * ratio * porSet) / p.quantity) : null
   return {
     ok: true,
+    sets: linea.quantity,
     quedan: entera
       ? linea.piezas.filter((_, k) => k !== i)
       : linea.piezas.map((x, k) => (k === i ? { ...x, quantity: x.quantity - porSet } : x)),
