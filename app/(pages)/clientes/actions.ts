@@ -69,35 +69,25 @@ export async function agregarEspera(productId: number, formData: FormData): Prom
   return anotarEspera(nombre, productId, nota)
 }
 
-// Desde /esperas: la pieza se escribe (código o nombre, o la opción «CÓDIGO · Nombre» de la lista).
-export async function agregarEsperaLibre(formData: FormData): Promise<ActionResult> {
+// Desde /esperas/new: un cliente y las piezas que espera, elegidas en el buscador del catálogo.
+export async function agregarEsperas(formData: FormData): Promise<ActionResult> {
   const nombre = (formData.get('nombre') as string)?.trim()
   if (!nombre) return fallo('Escribí el nombre del cliente.')
-  const texto = (formData.get('pieza') as string)?.trim()
-  if (!texto) return fallo('Escribí la pieza (código o nombre).')
-  const pieza = await piezaDeTexto(texto)
-  if (typeof pieza === 'string') return fallo(pieza)
-  return anotarEspera(nombre, pieza, (formData.get('nota') as string)?.trim() || null)
-}
+  let ids: unknown
+  try { ids = JSON.parse(String(formData.get('productIds') ?? '[]')) } catch { ids = null }
+  if (!Array.isArray(ids) || ids.length === 0 || !ids.every(Number.isInteger)) return fallo('Agregá al menos una pieza.')
+  const unicos = [...new Set(ids as number[])]
+  if (await db.product.count({ where: { id: { in: unicos } } }) !== unicos.length) return fallo('Alguna pieza ya no está en el catálogo. Recargá la página.')
+  const nota = (formData.get('nota') as string)?.trim() || null
 
-// Código exacto (cualquiera de los dos SKU), nombre exacto, o una sola coincidencia parcial.
-// Devuelve el id o el mensaje de por qué no.
-async function piezaDeTexto(texto: string): Promise<number | string> {
-  const codigo = texto.split(' · ')[0].trim()
-  const igual = { equals: codigo, mode: 'insensitive' as const }
-  const porCodigo = await db.product.findMany({ where: { OR: [{ bajajCode: igual }, { altSku: igual }] }, select: { id: true }, take: 2 })
-  if (porCodigo.length === 1) return porCodigo[0].id
-  const porNombre = await db.product.findMany({ where: { nameEs: { equals: texto, mode: 'insensitive' } }, select: { id: true }, take: 2 })
-  if (porNombre.length === 1) return porNombre[0].id
-  const contiene = { contains: texto, mode: 'insensitive' as const }
-  const parecidas = await db.product.findMany({
-    where: { OR: [{ nameEs: contiene }, { nameEn: contiene }, { bajajCode: contiene }, { altSku: contiene }] },
-    select: { id: true, nameEs: true, bajajCode: true },
-    take: 6,
-  })
-  if (parecidas.length === 1) return parecidas[0].id
-  if (parecidas.length === 0) return `No encontré «${texto}» en Productos: cargala primero.`
-  return `Hay varias con «${texto}»: ${parecidas.slice(0, 5).map(p => p.bajajCode ?? p.nameEs).join(', ')}${parecidas.length > 5 ? '…' : ''}. Elegí una de la lista.`
+  const { cliente } = await findOrCreateCliente(nombre)
+  await db.$transaction(unicos.map(productId => db.espera.upsert({
+    where: { clienteId_productId: { clienteId: cliente.id, productId } },
+    create: { clienteId: cliente.id, productId, nota },
+    update: { nota },
+  })))
+  revalidarEsperas()
+  redirect('/esperas')
 }
 
 async function anotarEspera(nombre: string, productId: number, nota: string | null): Promise<ActionResult> {
