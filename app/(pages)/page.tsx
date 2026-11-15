@@ -271,7 +271,7 @@ function ParaHoy({ d }: { d: Awaited<ReturnType<typeof getDatos>> }) {
   for (const e of d.esperas.slice(0, MAX_FILAS)) {
     filas.push({ key: `e${e.id}`, tipo: 'Avisar', cls: 'bg-green-100 text-green-800', href: `/products/${e.product.id}`, titulo: `${e.cliente.nombre} · ${e.product.nameEs}`, sub: 'Llegó lo que esperaba', der: `hay ${e.product.stock}` })
   }
-  mas(d.esperas.length, 'Avisar', '/clientes', 'clientes por avisar')
+  mas(d.esperas.length, 'Avisar', '/esperas', 'clientes por avisar')
   if (d.vencidos > 0) {
     filas.push({ key: 'vencidos', tipo: 'Vencidos', cls: 'bg-gray-100 text-gray-700', href: '/presupuestos', titulo: pl(d.vencidos, 'presupuesto sin respuesta', 'presupuestos sin respuesta'), sub: 'Renovar o marcar perdido', der: 'Ver →' })
   }
