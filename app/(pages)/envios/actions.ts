@@ -23,7 +23,7 @@ import { registrarEvento, SELECT_LINEA_MOVIBLE } from '@/lib/pedido-derivado'
 import { nombreEnsamble } from '@/lib/linea-pedido'
 import { CATEGORIAS_EGRESO } from '@/lib/movimientos'
 import { listarFaltantes, piezasDeLinea } from '@/lib/stock-piezas'
-import { moverEtapas, type FilaEtapa, type PiezaEtapa } from '@/lib/mover-etapas'
+import { moverEtapas, noVinoVuelveACamino, type FilaEtapa, type PiezaEtapa } from '@/lib/mover-etapas'
 import { resolverDePiezas } from '@/lib/inventario'
 import type { BundlePiece } from '@/lib/bundle'
 import {
@@ -207,7 +207,7 @@ export async function sacarSinStock(envioId: number, itemId: number): Promise<Ac
   const it = await db.pedidoItem.findUnique({
     where: { id: itemId },
     select: {
-      envioId: true, quantity: true, bundleItems: true, pedidoId: true, envio: { select: { supplierId: true } },
+      envioId: true, quantity: true, bundleItems: true, pedidoId: true, shippingStatus: true, envio: { select: { supplierId: true } },
       incidencias: { where: { estado: 'abierta', tipo: 'sin_enviar' }, select: { tipo: true, estado: true, cantidad: true, pieza: true } },
     },
   })
@@ -216,6 +216,7 @@ export async function sacarSinStock(envioId: number, itemId: number): Promise<Ac
   if (!lineaNoViene(it.quantity, sinEnviarDe(it.incidencias), (it.bundleItems as BundlePiece[] | null) ?? [])) {
     return fallo('De esta línea vino una parte: la caja la lleva. Lo que falta se resuelve en el pedido.')
   }
+  await db.$transaction(tx => noVinoVuelveACamino(tx, itemId, it.shippingStatus))
   // Guardado por caja y etapa: si otra pestaña la movió o la avanzó, no se toca.
   const r = await db.pedidoItem.updateMany({
     where: { id: itemId, envioId, shippingStatus: { in: ['pendiente', 'camino_shoppre'] } },
@@ -297,7 +298,7 @@ export async function moverSinStockACaja(envioId: number, itemId: number, formDa
   const it = await db.pedidoItem.findUnique({
     where: { id: itemId },
     select: {
-      envioId: true, quantity: true, bundleItems: true, pedidoId: true,
+      envioId: true, quantity: true, bundleItems: true, pedidoId: true, shippingStatus: true,
       incidencias: { where: { estado: 'abierta', tipo: 'sin_enviar' }, select: { tipo: true, estado: true, cantidad: true, pieza: true } },
     },
   })
@@ -305,6 +306,7 @@ export async function moverSinStockACaja(envioId: number, itemId: number, formDa
   if (!lineaNoViene(it.quantity, sinEnviarDe(it.incidencias), (it.bundleItems as BundlePiece[] | null) ?? [])) {
     return fallo('De esta línea vino una parte: la caja la lleva. Lo que falta se resuelve en el pedido.')
   }
+  await db.$transaction(tx => noVinoVuelveACamino(tx, itemId, it.shippingStatus))
   return moverACaja(envioId, formData, { id: itemId }, it.pedidoId, true)
 }
 

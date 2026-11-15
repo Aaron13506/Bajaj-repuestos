@@ -7,6 +7,7 @@
 // pedido, con el mismo orden de siempre: pedido primero, sus movimientos después.
 import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
+import { noVinoVuelveACamino } from '@/lib/mover-etapas'
 import { revalidatePath } from 'next/cache'
 import { revalidateClientes } from '@/lib/clientes'
 import { ok, fallo, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
@@ -22,7 +23,7 @@ import { motivoDevolucionInvalida, motivoNoCancelable, resumenCancelacion } from
 import { crearReposicion, pasarAStockPropio, registrarEvento, SELECT_LINEA_MOVIBLE } from '@/lib/pedido-derivado'
 import {
   RECLAMO_HORAS_DEFAULT, admitePieza, RESOLUCION_LABELS, TIPO_LABELS, bloqueaCompra, bloqueaEntrega, dentroDePlazo, esResolucion, esTipoIncidencia, etiquetaPieza,
-  motivoResolucionInvalida, origenPara, perdidaSugerida, perdidaTrasDevolucion, planNoVino, planReembolso, planReembolsoPieza, sinEnviarDe, tiposPara, tiposParaPropio,
+  lineaNoViene, motivoResolucionInvalida, origenPara, perdidaSugerida, perdidaTrasDevolucion, planNoVino, planReembolso, planReembolsoPieza, sinEnviarDe, tiposPara, tiposParaPropio,
   type TipoIncidencia,
 } from '@/lib/incidencias'
 import { nombreEnsamble } from '@/lib/linea-pedido'
@@ -598,6 +599,8 @@ async function anotarNoVino(
       data: { pedidoId, itemId, descripcion, pieza: inc.pieza, tipo: 'sin_enviar', origen: 'operacion', cantidad: inc.cantidad, nota },
     })
   }
+  const todas = [...it.incidencias, ...plan.incidencias.map(i => ({ tipo: 'sin_enviar', estado: 'abierta', ...i }))]
+  if (lineaNoViene(it.quantity, sinEnviarDe(todas), piezas)) await noVinoVuelveACamino(tx, itemId, it.shippingStatus)
   await registrarEvento(
     tx, pedidoId, 'incidencia',
     `Problema: ${TIPO_LABELS.sin_enviar} · ` +

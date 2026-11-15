@@ -1,6 +1,8 @@
 import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { ErrorDeNegocio } from '@/lib/action-result'
+import { statusIndex } from '@/lib/shipping-status'
+import { avanzaSinEstar } from '@/lib/sin-stock'
 
 // El SQL que mueve líneas de etapa (saveItemChanges en envios/actions.ts): fuera de la acción para
 // que `scripts/check-etapas-sql.ts` lo pruebe contra la base local sin el runtime de Next.
@@ -85,4 +87,13 @@ export async function moverEtapas(envioId: number, filas: FilaEtapa[], piezas: P
       )
     }
   }, { maxWait: 10_000, timeout: 20_000 })
+}
+
+// Una línea que el proveedor no mandó entera nunca estuvo en el depósito: si figura más adelante
+// (se avanzó la caja antes de anotar el aviso), vuelve a «camino al depósito», que es donde está
+// de verdad, y desde ahí se puede sacar o pasar a otra caja. Guardado por la etapa leída.
+export async function noVinoVuelveACamino(tx: Prisma.TransactionClient, itemId: number, desde: string): Promise<void> {
+  if (!avanzaSinEstar(desde) || statusIndex(desde) >= statusIndex('en_venezuela')) return
+  const r = await tx.pedidoItem.updateMany({ where: { id: itemId, shippingStatus: desde }, data: { shippingStatus: 'camino_shoppre', shippingStatusAt: new Date() } })
+  if (r.count) await tx.pedidoItemEtapa.create({ data: { itemId, desde, hacia: 'camino_shoppre' } })
 }
