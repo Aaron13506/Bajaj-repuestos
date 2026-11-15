@@ -111,7 +111,9 @@ function SinStockItem({ f, proveedor, salio, resolver, sacar, mover, separar, de
         {f.pieza && <>Del conjunto {f.nombre}. </>}
         {proveedor} avisó el {f.desde} que no tiene stock.{' '}
         {!f.lineaEntera
-          ? 'Si no llega a tiempo, separala del conjunto: el resto sale con la caja y ella espera sola (para la próxima caja u otra).'
+          ? salio
+            ? <><strong>Esta caja salió sin ella:</strong> separala del conjunto y ahí podés pasarla a otra caja, dejarla para la próxima o reembolsarla.</>
+            : 'Si no llega a tiempo, separala del conjunto: el resto sale con la caja y ella espera sola (para la próxima caja u otra).'
           : salio
             ? <><strong>Esta caja salió sin ella:</strong> decidí si pasa a otra caja, queda para la próxima o se reembolsa.</>
             : 'Se queda en esta caja esperando. La caja no sale del depósito hasta que decidas qué pasa con ella.'}

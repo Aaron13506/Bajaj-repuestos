@@ -57,8 +57,9 @@ export function repartirSinStock(lineas: LineaConSku[], n: number): Map<string, 
 
 /**
  * «Separarla del conjunto»: el SKU que el proveedor no mandó sale del conjunto a una línea propia,
- * así puede esperar o cambiar de caja sola mientras el resto viaja. Solo si falta ENTERO (todas sus
- * unidades). La plata se parte por lo que vale el SKU dentro del conjunto a precio de catálogo, al
+ * así puede esperar o cambiar de caja sola mientras el resto viaja. Si vino una parte (4 pedidas, 1
+ * mandada), salen solo las que faltan y el conjunto se queda con las que vinieron; tienen que
+ * repartirse parejo entre los sets de la línea. La plata se parte por lo que vale el SKU dentro del conjunto a precio de catálogo, al
  * centavo: lo vendido y lo pagado del pedido suman lo mismo que antes. `precio` = precio de
  * catálogo de una unidad, o null si la pieza no está en el catálogo.
  */
@@ -71,9 +72,13 @@ export function planSeparar(
   | { ok: true; quedan: typeof linea.piezas; cantidad: number; precioNuevo: number; precioQueda: number; costoNuevo: number | null; costoQueda: number | null }
   | { ok: false; error: string } {
   const p = linea.piezas[i]
-  if (linea.piezas.length < 2) return { ok: false, error: 'El conjunto es solo esa pieza: ya espera como línea entera.' }
-  if (unidades !== p.quantity * linea.quantity) {
-    return { ok: false, error: `Falta parte de «${p.nameEs}» (${unidades} de ${p.quantity * linea.quantity}): solo se separa si no vino ninguna.` }
+  const enLinea = p.quantity * linea.quantity
+  const entera = unidades === enLinea
+  if (entera && linea.piezas.length < 2) return { ok: false, error: 'El conjunto es solo esa pieza: ya espera como línea entera.' }
+  // Por set: lo que sale de cada uno tiene que ser entero (2 sets y faltan 3 no se reparte).
+  const porSet = unidades / linea.quantity
+  if (unidades < 1 || unidades > enLinea || !Number.isInteger(porSet)) {
+    return { ok: false, error: `Faltan ${unidades} de ${enLinea} «${p.nameEs}» repartidas en ${linea.quantity} sets: no se pueden separar parejo.` }
   }
   let total = 0
   for (const x of linea.piezas) {
@@ -82,17 +87,19 @@ export function planSeparar(
     total += v * x.quantity
   }
   if (total <= 0) return { ok: false, error: 'Las piezas del conjunto no tienen precio en el catálogo.' }
-  const ratio = (precio(p)! * p.quantity) / total
   const cent = (n: number) => Math.round(n * 100) / 100
-  // Por unidad de la línea nueva: el set lleva p.quantity, así lo que sale de cada set es exacto.
+  // Por unidad de la línea nueva: cada set suelta porSet unidades, así lo que sale de cada set es exacto.
+  const ratio = (precio(p)! * p.quantity) / total
   const precioNuevo = cent((linea.salePrice * ratio) / p.quantity)
-  const costoNuevo = linea.costRealUsd != null ? cent(linea.costRealUsd * ratio) : null
+  const costoNuevo = linea.costRealUsd != null ? cent((linea.costRealUsd * ratio * porSet) / p.quantity) : null
   return {
     ok: true,
-    quedan: linea.piezas.filter((_, k) => k !== i),
+    quedan: entera
+      ? linea.piezas.filter((_, k) => k !== i)
+      : linea.piezas.map((x, k) => (k === i ? { ...x, quantity: x.quantity - porSet } : x)),
     cantidad: unidades,
     precioNuevo,
-    precioQueda: cent(linea.salePrice - precioNuevo * p.quantity),
+    precioQueda: cent(linea.salePrice - precioNuevo * porSet),
     costoNuevo,
     costoQueda: costoNuevo != null ? cent(linea.costRealUsd! - costoNuevo) : null,
   }

@@ -1500,7 +1500,14 @@ console.log('\nSIN STOCK POR SKU (quién se queda esperando)')
   check('separar: la junta sale con su parte del precio', sep.precioNuevo, 5.56)
   check('separar: lo vendido del pedido no cambia', sep.precioQueda * 2 + sep.precioNuevo * sep.cantidad, 66.66)
   check('separar: lo pagado no cambia', sep.costoQueda! + sep.costoNuevo!, 40.01)
-  check('separar: solo si no vino ninguna', planSeparar({ quantity: 2, salePrice: 33.33, costRealUsd: null, piezas: [cad, jun] }, 1, 2, precioCat).ok ? 1 : 0, 0)
+  check('separar: lo que no se reparte parejo entre sets, no', planSeparar({ quantity: 2, salePrice: 33.33, costRealUsd: null, piezas: [cad, jun] }, 1, 3, precioCat).ok ? 1 : 0, 0)
+  // Faltan 3 de 4 juntas en 1 set ($30: cadena $20 + 4 juntas $2.50): salen 3, queda 1 en el conjunto.
+  const par = planSeparar({ quantity: 1, salePrice: 30, costRealUsd: 24.01, piezas: [cad, { ...jun, quantity: 4 }] }, 1, 3, x => (x.bajajCode === 'A1' ? 20 : 2.5))
+  if (!par.ok) throw new Error(par.error)
+  check('separar parcial: el conjunto se queda con la que vino', par.quedan[1].quantity, 1)
+  check('separar parcial: salen las que faltan', par.cantidad, 3)
+  check('separar parcial: lo vendido no cambia', par.precioQueda + par.precioNuevo * par.cantidad, 30)
+  check('separar parcial: lo pagado no cambia', par.costoQueda! + par.costoNuevo!, 24.01)
   check('separar: sin catálogo no adivina', planSeparar({ quantity: 1, salePrice: 10, costRealUsd: null, piezas: [cad, { ...jun, bajajCode: 'X' }] }, 1, 2, precioCat).ok ? 1 : 0, 0)
 }
 
