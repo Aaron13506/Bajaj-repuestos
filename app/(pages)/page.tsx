@@ -41,7 +41,7 @@ const msDe = (fecha: string | null | undefined) => (fecha ? Date.parse(fecha) ||
 
 async function getDatos() {
   // Todo independiente: una sola tanda, la latencia se paga una vez.
-  const [cfgRows, pedidos, cajas, abiertos, cuentas, inventario, novedades, sinSeguir, consulta, stock] = await Promise.all([
+  const [cfgRows, pedidos, cajas, abiertos, cuentas, inventario, novedades, sinSeguir, consulta, stock, esperas] = await Promise.all([
     db.config.findMany(),
     db.pedido.findMany({
       where: { status: VENTA_STATUS, tipo: { not: 'propio' } },
@@ -73,6 +73,12 @@ async function getDatos() {
     }),
     db.envioTracking.aggregate({ _max: { consultadoEn: true } }),
     db.product.aggregate({ where: { stock: { gt: 0 } }, _count: { _all: true }, _sum: { stock: true } }),
+    // Lista de espera de piezas que ya están aquí: a quién avisarle, el que preguntó primero arriba.
+    db.espera.findMany({
+      where: { product: { stock: { gt: 0 } } },
+      select: { id: true, cliente: { select: { nombre: true } }, product: { select: { id: true, nameEs: true, stock: true } } },
+      orderBy: { createdAt: 'asc' },
+    }),
   ])
   const cfg = toConfigMap(cfgRows)
 
@@ -100,7 +106,7 @@ async function getDatos() {
   const deuda = cuentas.pendientes.reduce((s, e) => s + Math.max(0, e.pendiente), 0)
 
   return {
-    entregadoSinPagar, paradas, porVencer, vencidos, deuda, cuentas, inventario, sinSeguir,
+    entregadoSinPagar, paradas, porVencer, vencidos, deuda, cuentas, inventario, sinSeguir, esperas,
     novedades: novedades.sort((a, b) => msDe(b.ultimo.fecha) - msDe(a.ultimo.fecha)),
     consultadoEn: consulta._max.consultadoEn,
     stock: { piezas: stock._count._all, unidades: stock._sum.stock ?? 0 },
@@ -262,6 +268,10 @@ function ParaHoy({ d }: { d: Awaited<ReturnType<typeof getDatos>> }) {
     filas.push({ key: `p${c.id}`, tipo: 'Parada', cls: 'bg-amber-100 text-amber-900', href: `/envios/${c.id}`, titulo: c.nombre, sub, der: pl(c.dias, 'día', 'días') })
   }
   mas(d.paradas.length, 'Parada', '/envios', 'cajas paradas')
+  for (const e of d.esperas.slice(0, MAX_FILAS)) {
+    filas.push({ key: `e${e.id}`, tipo: 'Avisar', cls: 'bg-green-100 text-green-800', href: `/products/${e.product.id}`, titulo: `${e.cliente.nombre} · ${e.product.nameEs}`, sub: 'Llegó lo que esperaba', der: `hay ${e.product.stock}` })
+  }
+  mas(d.esperas.length, 'Avisar', '/clientes', 'clientes por avisar')
   if (d.vencidos > 0) {
     filas.push({ key: 'vencidos', tipo: 'Vencidos', cls: 'bg-gray-100 text-gray-700', href: '/presupuestos', titulo: pl(d.vencidos, 'presupuesto sin respuesta', 'presupuestos sin respuesta'), sub: 'Renovar o marcar perdido', der: 'Ver →' })
   }
@@ -270,7 +280,7 @@ function ParaHoy({ d }: { d: Awaited<ReturnType<typeof getDatos>> }) {
     <section aria-labelledby="hoy-h" className="bg-white rounded-xl border border-gray-200 overflow-hidden">
       <div className="px-4 sm:px-5 py-3 border-b border-gray-100">
         <h2 id="hoy-h" className="text-base font-semibold text-gray-900">Para hacer hoy</h2>
-        <p className="text-xs text-gray-500">Cobros, presupuestos que vencen en {DIAS_AVISO_VENCE} días, cajas {DIAS_CAJA_PARADA}+ días quietas y compras</p>
+        <p className="text-xs text-gray-500">Cobros, presupuestos que vencen en {DIAS_AVISO_VENCE} días, cajas {DIAS_CAJA_PARADA}+ días quietas, clientes por avisar y compras</p>
       </div>
       {filas.length === 0 ? (
         <p className="px-4 sm:px-5 py-4 text-sm text-gray-500 text-pretty">

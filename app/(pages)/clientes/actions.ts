@@ -2,6 +2,7 @@
 
 import { db } from '@/lib/db'
 import { redirect } from 'next/navigation'
+import { revalidatePath } from 'next/cache'
 import { findOrCreateCliente, isUniqueViolation, revalidateClientes } from '@/lib/clientes'
 import { fallo, ok, type ActionResult } from '@/lib/action-result'
 import { telefonoIntl } from '@/lib/utils'
@@ -49,4 +50,35 @@ export async function deleteCliente(id: number) {
   await db.cliente.delete({ where: { id } })
   revalidateClientes()
   redirect('/clientes')
+}
+
+// ─── Lista de espera ─────────────────────────────────────────────────────────
+function revalidarEsperas() {
+  revalidateClientes()
+  revalidatePath('/products/[id]', 'page')
+  revalidatePath('/')
+}
+
+// Anota que el cliente espera esta pieza. Si no existe se crea (como en el armador); si ya la
+// esperaba, solo se actualiza la nota y conserva su lugar en la fila.
+export async function agregarEspera(productId: number, formData: FormData): Promise<ActionResult> {
+  const nombre = (formData.get('nombre') as string)?.trim()
+  if (!nombre) return fallo('Escribí el nombre del cliente.')
+  const nota = (formData.get('nota') as string)?.trim() || null
+
+  const { cliente } = await findOrCreateCliente(nombre)
+  await db.espera.upsert({
+    where: { clienteId_productId: { clienteId: cliente.id, productId } },
+    create: { clienteId: cliente.id, productId, nota },
+    update: { nota },
+  })
+  revalidarEsperas()
+  return ok()
+}
+
+// Ya se le avisó o ya no la quiere: sale de la lista. deleteMany para que un doble clic no falle.
+export async function quitarEspera(id: number): Promise<ActionResult> {
+  await db.espera.deleteMany({ where: { id } })
+  revalidarEsperas()
+  return ok()
 }

@@ -6,6 +6,7 @@ import { notFound, redirect } from 'next/navigation'
 import DeleteButton from '@/components/DeleteButton'
 import AddToAssemblyForm from '@/components/AddToAssemblyForm'
 import AssemblyImage from '@/components/AssemblyImage'
+import ListaEspera from '@/components/ListaEspera'
 import { addToAssembly } from '../../ensambles/component-actions'
 import { deleteProduct } from '../actions'
 import { calcLanded } from '@/lib/calc'
@@ -30,16 +31,18 @@ export default async function ProductDetailPage({
   const proveedorId = parseInt((await searchParams).proveedor ?? '')
   const compararContra = Number.isFinite(proveedorId) ? proveedorId : null
 
-  const [product, configRows] = await Promise.all([
+  const [product, configRows, clientes] = await Promise.all([
     db.product.findUnique({
       where: { id },
       include: {
         assemblies: {
           include: { ensamble: { select: { id: true, nameEs: true, compatibleModels: true } } },
         },
+        esperas: { include: { cliente: { select: { id: true, nombre: true, telefono: true } } }, orderBy: { createdAt: 'asc' } },
       },
     }),
     db.config.findMany(),
+    db.cliente.findMany({ select: { nombre: true }, orderBy: { nombre: 'asc' } }),
   ])
 
   if (!product) {
@@ -361,6 +364,14 @@ export default async function ProductDetailPage({
           action={addToAssembly}
         />
       </div>
+
+      <ListaEspera
+        productId={product.id}
+        pieza={product.bajajCode ? `${product.nameEs} (${product.bajajCode})` : product.nameEs}
+        stock={product.stock}
+        esperas={product.esperas}
+        clientes={clientes.map(c => c.nombre)}
+      />
 
     </div>
   )

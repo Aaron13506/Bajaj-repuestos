@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation'
 import DeleteButton from '@/components/DeleteButton'
 import PendingButton from '@/components/PendingButton'
 import FormConResultado from '@/components/FormConResultado'
-import { updateCliente, deleteCliente } from '../actions'
+import { updateCliente, deleteCliente, quitarEspera } from '../actions'
 import { clienteTotales, pedidoTotal } from '@/lib/clientes'
 import { telefonoIntl } from '@/lib/utils'
 import { CATEGORIA_LABELS, listarMovimientos } from '@/lib/movimientos'
@@ -33,6 +33,10 @@ export default async function ClienteDetailPage({
         pedidos: {
           include: { items: true },
           orderBy: { createdAt: 'desc' },
+        },
+        esperas: {
+          include: { product: { select: { id: true, nameEs: true, bajajCode: true, stock: true } } },
+          orderBy: { createdAt: 'asc' },
         },
       },
     }),
@@ -144,6 +148,38 @@ export default async function ClienteDetailPage({
           </p>
         </div>
       </div>
+
+      {/* Lista de espera: se anota desde la ficha de la pieza. */}
+      {cliente.esperas.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-6">
+          <div className="px-6 py-3 border-b border-gray-100 bg-gray-50">
+            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+              Esperando piezas ({cliente.esperas.length})
+            </h2>
+          </div>
+          <ul className="divide-y divide-gray-50">
+            {cliente.esperas.map(e => (
+              <li key={e.id} className="px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-sm">
+                <span className="min-w-0">
+                  <Link href={`/products/${e.product.id}`} className="font-medium text-gray-900 hover:text-blue-600 break-words">
+                    {e.product.nameEs}
+                  </Link>
+                  {e.product.bajajCode && <span className="ml-2 text-xs text-gray-500">{e.product.bajajCode}</span>}
+                  {e.product.stock > 0 && <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Hay {e.product.stock}</span>}
+                  {e.nota && <span className="block text-xs text-gray-600 break-words">{e.nota}</span>}
+                </span>
+                <DeleteButton
+                  action={quitarEspera.bind(null, e.id)}
+                  confirmMessage={`¿Quitar "${e.product.nameEs}" de lo que espera ${cliente.nombre}?`}
+                  label="Quitar"
+                  pendingLabel="Quitando..."
+                  ariaLabel={`Quitar ${e.product.nameEs} de la lista de espera`}
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Pedidos */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">

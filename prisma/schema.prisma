@@ -84,6 +84,7 @@ model Product {
   scrapedMatches ScrapedPart[]      @relation("MatchedScraped")
   supplierPrices SupplierPrice[]
   envioLineas    EnvioLinea[]
+  esperas        Espera[]
 
   @@index([bajajCode])
 }
@@ -147,6 +148,22 @@ model Cliente {
   notas     String?
   createdAt DateTime @default(now())
   pedidos   Pedido[]
+  esperas   Espera[]
+}
+
+// Lista de espera: un cliente preguntó por una pieza pero no pidió (espera que llegue o quería info).
+// Cuando la pieza tiene stock, Inicio la muestra para avisarle; se borra al avisar o si ya no la quiere.
+model Espera {
+  id        Int      @id @default(autoincrement())
+  clienteId Int
+  cliente   Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  productId Int
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  nota      String?
+  createdAt DateTime @default(now())
+
+  @@unique([clienteId, productId])
+  @@index([productId])
 }
 
 model Config {
