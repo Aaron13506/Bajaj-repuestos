@@ -201,7 +201,7 @@ function Renglon({ t, onEditar, onQuitar }: { t: NumeroGuardado; onEditar: () =>
               </li>
             ))}
           </ol>
-          <p className="mt-2 text-xs text-gray-500">Fecha y hora del courier, como las reporta {t.courierCode === ONEWAY_CODE ? 'One Way Cargo' : 'Track123'}.</p>
+          <p className="mt-2 text-xs text-gray-500">{t.courierCode === ONEWAY_CODE ? 'Fecha y hora como las reporta One Way Cargo.' : 'Fecha y hora de Venezuela.'}</p>
         </details>
       )}
     </>

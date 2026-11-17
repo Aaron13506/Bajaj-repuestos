@@ -60,7 +60,7 @@ import { avanzaSinEstar, motivoNoDespacha, planSeparar, repartirSinStock, tokens
 import { leerTrackingsTramo, MAX_TRACKINGS_POR_TRAMO } from '../lib/tracking'
 import { esCodigoOneway, estadoOneway, fechaOneway, leerDetalle, leerLista } from '../lib/oneway'
 import { cajasQueSeFacturan, leerCajasEtapa, medidasDeCajas, resumenCajas, type CampoCaja } from '../lib/cajas-envio'
-import { buscarCouriers, claveEvento, claveNumero, courierDeFila, cuerpoRegistro, datosDeTracking, ENV_API_KEY, esEstadoFinal, estadoDeT123, novedadDeTracking, fechaCourier, listaDeCouriers, mensajeErrorGeneral, numeroParaTrack123, resolverCourier, errorDeFila } from '../lib/track123'
+import { buscarCouriers, claveEvento, claveNumero, courierDeFila, cuerpoRegistro, datosDeTracking, ENV_API_KEY, esEstadoFinal, fechaEvento, estadoDeT123, novedadDeTracking, fechaCourier, listaDeCouriers, mensajeErrorGeneral, numeroParaTrack123, resolverCourier, errorDeFila } from '../lib/track123'
 
 const cfg: ConfigMap = {
   inr_usd_rate: '94.95',
@@ -1764,7 +1764,9 @@ console.log('\nTRACK123')
   })
   check('eventos: sin repetidos ni vacíos', d.eventos.length, 2)
   check('eventos: courier y última milla juntos, más nuevo primero', si(d.eventos[0].detalle === 'Arrived at hub' && d.eventos[1].detalle === 'Picked up'), 1)
-  check('último evento: hora del courier con su zona', si(d.ultimoEvento === 'Arrived at hub' && d.ultimoEventoEn === '2026-10-03T11:00:00+05:30'), 1)
+  check('último evento: en hora de Venezuela (UTC−4)', si(d.ultimoEvento === 'Arrived at hub' && d.ultimoEventoEn === '2026-10-03T01:30:00-04:00'), 1)
+  check('hora: el UTC cruza la medianoche hacia atrás', si(fechaEvento({ eventTimeZeroUTC: '2026-11-16T22:34:50Z', eventTime: '2026-11-17 06:34:50', timezone: '+08:00' }) === '2026-11-16T18:34:50-04:00'), 1)
+  check('hora: sin UTC, la que mandó con su zona', si(fechaEvento({ eventTime: '2026-11-17 06:34:50', timezone: '+08:00' }) === '2026-11-17T06:34:50+08:00'), 1)
   check('estado del evento: del sub-estado', si(d.eventos[1].estado === 'info_received'), 1)
   check('estado: transitStatus traducido, id y sub-estado', si(d.estado === 'in_transit' && d.trackerId === 'abc' && d.subestado === 'IN_TRANSIT_01'), 1)
   check('EXPIRED (Track123 dejó de seguirlo): detenido', si(datosDeTracking({ transitStatus: 'EXPIRED' }).estado === 'detenido'), 1)

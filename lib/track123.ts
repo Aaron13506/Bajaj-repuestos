@@ -246,8 +246,17 @@ const corto = (s: string | null | undefined) => {
   return t ? t.slice(0, MAX_TEXTO) : null
 }
 
-/** "2022-06-01 19:50:20" + "+08:00" → "2022-06-01T19:50:20+08:00": la hora del courier, con su zona. */
-function fechaEvento(e: RawEvent): string | null {
+// Venezuela es UTC−4 todo el año (sin horario de verano).
+const VE_OFFSET_MS = -4 * 3600 * 1000
+
+/**
+ * La hora del evento en hora de Venezuela: "2022-06-01T11:50:20Z" → "2022-06-01T07:50:20-04:00".
+ * Track123 no da la hora local del courier (un evento de Delhi llega en +08:00), así que se
+ * parte de eventTimeZeroUTC. Sin ella, la que mandó con su zona, tal cual.
+ */
+export function fechaEvento(e: RawEvent): string | null {
+  const ms = Date.parse((e.eventTimeZeroUTC ?? '').trim())
+  if (!Number.isNaN(ms)) return `${new Date(ms + VE_OFFSET_MS).toISOString().slice(0, 19)}-04:00`
   const t = corto(e.eventTime)
   if (!t) return null
   const zona = (e.timezone ?? '').trim()
@@ -322,7 +331,7 @@ export function horaConsulta(d: Date): string {
   return d.toLocaleString('es-VE', { timeZone: 'America/Caracas', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
-/** "2023-11-04T14:31:00-04:00" → "2023-11-04 14:31". La hora es la del courier, sin convertir. */
+/** "2023-11-04T14:31:00-04:00" → "2023-11-04 14:31". La hora como se guardó, sin convertir. */
 export function fechaCourier(s: string | null | undefined): string {
   if (!s) return ''
   const m = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/)
