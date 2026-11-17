@@ -1,6 +1,6 @@
 // Los números de tracking de una caja, por tramo. Sirven para encontrar la caja cuando el
-// cliente pregunta dónde está su pieza. Los que tienen courier de Ship24 se siguen solos
-// (lib/ship24.ts); los demás quedan anotados.
+// cliente pregunta dónde está su pieza. Los que tienen courier de Track123 se siguen solos
+// (lib/track123.ts); los demás quedan anotados.
 //
 // Son una LISTA por tramo porque así llegan: el proveedor despacha en dos o tres paquetes y
 // da un número local por cada uno, y el reenvío a USA o el courier a Venezuela pueden partir

@@ -30,7 +30,7 @@ import FleteRealCard, { type FilaFlete } from '@/components/FleteRealCard'
 import NumerosTramo, { type NumeroGuardado } from '@/components/NumerosTramo'
 import CajasEnvio from '@/components/CajasEnvio'
 import { CAJA_SELECT, cajaFisica, cajasQueSeFacturan, medidasDeCajas } from '@/lib/cajas-envio'
-import { apiKeyShip24, ENV_API_KEY, eventosGuardados, horaConsulta } from '@/lib/ship24'
+import { apiKeyTrack123, ENV_API_KEY, eventosGuardados, horaConsulta } from '@/lib/track123'
 import { credencialesOneway } from '@/lib/oneway'
 import { listaCouriers } from '@/lib/sync-trackings'
 import { esTramoTracking } from '@/lib/tracking'
@@ -275,12 +275,12 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
       select: { id: true, fecha: true, monto: true, metodoPago: true, categoria: true },
       orderBy: [{ fecha: 'asc' }, { id: 'asc' }],
     }),
-    // Los couriers de Ship24, para elegir el de cada tracking (lib/ship24.ts).
+    // Los couriers de Track123, para elegir el de cada tracking (lib/track123.ts).
     listaCouriers(),
   ])
 
   if (!envio) notFound()
-  const trackingActivo = apiKeyShip24() != null
+  const trackingActivo = apiKeyTrack123() != null
   const onewayActivo = credencialesOneway() != null
   const guiasSalida = envio.trackings.filter(t => t.tramo === (envio.modo === 'express' && envio.reenvio !== 'por_kilo' ? 'venezuela' : 'usa'))
   // Los números de la caja para NumerosTramo: cada form manda todos (la acción reemplaza todo).
@@ -1643,7 +1643,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                           titulo="Miami → Caracas: courier interno"
                           sub={onewayActivo
                             ? 'El código de One Way Cargo (MT-…, CON-…, SB-…, CA-…) se sigue solo cada hora: anotalo sin elegir courier.'
-                            : 'Casi nunca se sigue solo: si Ship24 no conoce el courier, la guía queda anotada y el estado lo sabés por el courier.'}
+                            : 'Casi nunca se sigue solo: si Track123 no conoce el courier, la guía queda anotada y el estado lo sabés por el courier.'}
                           todos={numeros}
                           couriers={couriers}
                           guardar={guardarTrackings.bind(null, envio.id)}
@@ -1660,7 +1660,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                   )}
                   {trackingActivo && couriers.length === 0 && (
                     <p className="text-xs text-amber-800">
-                      Todavía no se bajó la lista de couriers de Ship24. Tocá «Actualizar trackings» y después elegí el courier de cada número.
+                      Todavía no se bajó la lista de couriers de Track123. Tocá «Actualizar trackings» y después elegí el courier de cada número.
                     </p>
                   )}
                 </TrayectoCaja>

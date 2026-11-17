@@ -1,10 +1,10 @@
 import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
-import { eventosGuardados, novedadDeTracking, type Checkpoint } from '@/lib/ship24'
+import { eventosGuardados, novedadDeTracking, type Checkpoint } from '@/lib/track123'
 
 // Novedades del inicio: los trackings cuyo último evento todavía no se vio. La sincronización
 // guarda el primer evento en ultimoEventoEn/ultimoEvento, así que la clave sale de esas columnas.
-// Es claveEvento (lib/ship24.ts) escrita en SQL: cambiar las dos juntas.
+// Es claveEvento (lib/track123.ts) escrita en SQL: cambiar las dos juntas.
 const CLAVE_ULTIMO_EVENTO = Prisma.sql`coalesce(t."ultimoEventoEn", '') || '|' || t."ultimoEvento"`
 
 export type NovedadTracking = {

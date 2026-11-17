@@ -3,14 +3,14 @@
 // código de almacén (MT-…, CON-…, SB-…, CA-…), anotado en el tramo `venezuela`: el tracking de
 // USA no sirve para cruzar porque el número cambia entre el courier internacional y el local.
 //
-// Igual que Ship24, es una COPIA de lo que dice el courier: no mueve etapas, stock ni plata.
+// Igual que Track123, es una COPIA de lo que dice el courier: no mueve etapas, stock ni plata.
 // Las filas se guardan con courierCode = ONEWAY_CODE (la UI las trata como seguidas) y la
-// sincronización de Ship24 las deja afuera. La parte de la base está en lib/sync-trackings.ts.
+// sincronización de Track123 las deja afuera. La parte de la base está en lib/sync-trackings.ts.
 //
 // Si One Way Cargo cambia el HTML, la lectura devuelve vacío y la fila queda con error (no se
 // pisa lo guardado): avisa en la caja en vez de fallar callado.
 
-import type { Checkpoint } from './ship24'
+import type { Checkpoint } from './track123'
 
 export const ONEWAY_CODE = 'onewaycargo'
 export const ONEWAY_NOMBRE = 'One Way Cargo'
@@ -61,7 +61,7 @@ export function fechaOneway(s: string): string {
 
 const sinTildes = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
-/** El estado (en los términos de Ship24, para reusar la UI) según el último paso. */
+/** El estado (el vocabulario de lib/track123.ts, para reusar la UI) según el último paso. */
 export function estadoOneway(ultimo: string | null): string {
   const t = sinTildes(ultimo ?? '')
   if (!t) return 'pending'
@@ -76,7 +76,7 @@ const dentro = (tag: string) => `<${tag}[^>]*>((?:(?!<\\/?${tag}[\\s>])[\\s\\S])
 const RE_PASO = new RegExp(`${dentro('h3')}\\s*${dentro('p')}\\s*${dentro('p')}`, 'g')
 
 export type DetalleOneway = {
-  /** Del más nuevo al más viejo, como los de Ship24. `lugar` lleva la descripción del paso. */
+  /** Del más nuevo al más viejo, como los de Track123. `lugar` lleva la descripción del paso. */
   eventos: Checkpoint[]
   estado: string
   /** El paso actual, tal cual. */

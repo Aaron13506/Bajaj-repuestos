@@ -1,15 +1,15 @@
 'use client'
 
 import { useId, useMemo, useState } from 'react'
-import { buscarCouriers, type Courier } from '@/lib/ship24'
+import { buscarCouriers, type Courier } from '@/lib/track123'
 
 export type CourierInicial = { code: string | null; nombre: string | null }
 
-// El courier de un renglón de tracking: un buscador sobre la lista de Ship24, no un texto
+// El courier de un renglón de tracking: un buscador sobre la lista de Track123, no un texto
 // libre. Lo elegido viaja como code (`courier_<tramo>`), así que no hay tipeo que falle. Para
-// lo que Ship24 no rastrea (Zoom, Tealca, una referencia de Shoppre) está «anotar sin
+// lo que Track123 no rastrea (Zoom, Tealca, una referencia de Shoppre) está «anotar sin
 // seguimiento», que hay que elegir a propósito. Texto escrito sin elegir nada lo rechaza la
-// acción (courierDeFila). Sin lista (Ship24 apagado) es un texto libre como antes.
+// acción (courierDeFila). Sin lista (Track123 apagado) es un texto libre como antes.
 //
 // Manda tres campos paralelos a `numero_<tramo>`: courier_, libre_ y transportista_.
 export default function ElegirCourier({
@@ -57,7 +57,6 @@ export default function ElegirCourier({
         {campos}
         <span className="truncate" title={`${elegido.nombre} · ${elegido.code}`}>
           📡 {elegido.nombre}
-          {elegido.pais && <span className="ml-1 text-xs text-gray-400">{elegido.pais}</span>}
         </span>
         <button
           type="button" onClick={() => { setCode(null); setAbierto(true) }}
@@ -82,7 +81,7 @@ export default function ElegirCourier({
         {hayLista && (
           <button
             type="button" onClick={() => { setLibre(false); setAbierto(true) }}
-            title="Sin seguimiento automático. Tocá para buscarlo en la lista de Ship24."
+            title="Sin seguimiento automático. Tocá para buscarlo en la lista de Track123."
             className="text-[10px] whitespace-nowrap px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200"
           >
             sin seguimiento ↺
@@ -122,7 +121,7 @@ export default function ElegirCourier({
                 className={`w-full text-left px-3 py-1.5 flex items-center gap-2 ${i === activo ? 'bg-blue-50' : ''}`}
               >
                 <span className="truncate">{c.nombre}</span>
-                <span className="ml-auto text-[10px] text-gray-400 font-mono shrink-0">{c.code}{c.pais ? ` · ${c.pais}` : ''}</span>
+                <span className="ml-auto text-[10px] text-gray-400 font-mono shrink-0">{c.code}</span>
               </button>
             </li>
           ))}

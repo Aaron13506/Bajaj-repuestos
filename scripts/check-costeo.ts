@@ -60,7 +60,7 @@ import { avanzaSinEstar, motivoNoDespacha, planSeparar, repartirSinStock, tokens
 import { leerTrackingsTramo, MAX_TRACKINGS_POR_TRAMO } from '../lib/tracking'
 import { esCodigoOneway, estadoOneway, fechaOneway, leerDetalle, leerLista } from '../lib/oneway'
 import { cajasQueSeFacturan, leerCajasEtapa, medidasDeCajas, resumenCajas, type CampoCaja } from '../lib/cajas-envio'
-import { buscarCouriers, claveEvento, courierDeFila, cuerpoTracker, datosDeTracking, esEstadoFinal, novedadDeTracking, fechaCourier, listaDeCouriers, numeroParaShip24, resolverCourier, errorDeFila } from '../lib/ship24'
+import { buscarCouriers, claveEvento, claveNumero, courierDeFila, cuerpoRegistro, datosDeTracking, ENV_API_KEY, esEstadoFinal, estadoDeT123, novedadDeTracking, fechaCourier, listaDeCouriers, mensajeErrorGeneral, numeroParaTrack123, resolverCourier, errorDeFila } from '../lib/track123'
 
 const cfg: ConfigMap = {
   inr_usd_rate: '94.95',
@@ -1712,15 +1712,15 @@ console.log('\nTRACKINGS DE LA CAJA')
   check('justo el tope: pasa', n(leerTrackingsTramo('usa', once.slice(1), once.slice(1).map(() => ''))), MAX_TRACKINGS_POR_TRAMO)
 }
 
-console.log('\nSHIP24')
+console.log('\nTRACK123')
 {
   const si = (b: boolean) => (b ? 1 : 0)
   const lista = [
-    { code: 'delhivery', nombre: 'Delhivery', pais: 'IN' },
-    { code: 'dhl', nombre: 'DHL Express', pais: null },
-    { code: 'dhlecommerce', nombre: 'DHL eCommerce', pais: null },
-    { code: 'dhl-global', nombre: 'DHL', pais: null },
-    { code: 'dhl-paket', nombre: 'DHL', pais: 'DE' },
+    { code: 'delhivery', nombre: 'Delhivery' },
+    { code: 'dhl', nombre: 'DHL Express' },
+    { code: 'dhlecommerce', nombre: 'DHL eCommerce' },
+    { code: 'dhl-global', nombre: 'DHL' },
+    { code: 'dhl-paket', nombre: 'DHL' },
   ]
   check('courier: el code pelado', si(resolverCourier(' DHL-PAKET ', lista)?.code === 'dhl-paket'), 1)
   check('courier: nombre exacto de uno solo', si(resolverCourier('dhl express', lista)?.code === 'dhl'), 1)
@@ -1736,7 +1736,7 @@ console.log('\nSHIP24')
   check('texto exacto de un courier: se acepta', si(code(courierDeFila({ codigo: '', libre: false, texto: 'delhivery' }, lista)) === 'delhivery'), 1)
   const libre = courierDeFila({ codigo: '', libre: true, texto: 'Zoom' }, lista)
   check('«anotar sin seguimiento»: texto sin courier', si(!('error' in libre) && libre.courierCode === null && libre.transportista === 'Zoom'), 1)
-  check('sin lista (Ship24 apagado): texto libre', si(code(courierDeFila({ codigo: '', libre: false, texto: 'Delhivry' }, [])) === null), 1)
+  check('sin lista (Track123 apagado): texto libre', si(code(courierDeFila({ codigo: '', libre: false, texto: 'Delhivry' }, [])) === null), 1)
   check('sin courier ni texto: solo el número', si(code(courierDeFila({ codigo: '', libre: false, texto: '  ' }, lista)) === null), 1)
 
   const b = (q: string) => buscarCouriers(q, lista).map(c => c.code).join(',')
@@ -1745,24 +1745,31 @@ console.log('\nSHIP24')
   check('buscar: también por code', si(b('paket') === 'dhl-paket'), 1)
   check('buscar: vacío no lista nada', si(b('  ') === ''), 1)
 
+  const ev123 = (utc: string | null, eventTime: string | null, eventDetail: string, address: string | null, transitSubStatus: string) =>
+    ({ eventTimeZeroUTC: utc, eventTime, timezone: '+05:30', eventDetail, address, transitSubStatus })
   const d = datosDeTracking({
-    tracker: { trackerId: 'abc', trackingNumber: 'A1', isTracked: true },
-    shipment: { statusMilestone: 'In_Transit', statusCode: 'transit_handover' },
-    events: [
-      { occurrenceDatetime: '2026-10-03T11:00:00+05:30', status: 'Arrived at hub', location: 'Mumbai', statusMilestone: 'in_transit' },
-      { occurrenceDatetime: '2026-10-03T11:00:00+05:30', status: 'Arrived at hub', location: 'Mumbai', statusMilestone: 'in_transit' },
-      { occurrenceDatetime: '2026-10-02T09:00:00+05:30', status: 'Picked up', location: 'Delhi', statusMilestone: 'in_transit' },
-      { occurrenceDatetime: null, status: '  ', location: null },
-    ],
+    id: 'abc',
+    trackNo: 'A1',
+    transitStatus: 'IN_TRANSIT',
+    transitSubStatus: 'IN_TRANSIT_01',
+    localLogisticsInfo: {
+      trackingDetails: [
+        ev123('2026-10-02T03:30:00Z', '2026-10-02 09:00:00', 'Picked up', 'Delhi', 'INFO_RECEIVED_01'),
+        ev123('2026-10-02T03:30:00Z', '2026-10-02 09:00:00', 'Picked up', 'Delhi', 'INFO_RECEIVED_01'),
+        ev123(null, null, '  ', null, 'IN_TRANSIT_01'),
+      ],
+    },
+    // La última milla trae el evento más nuevo: se mezcla y se ordena por la hora UTC.
+    lastMileInfo: { openApiWayBillInfo: { trackingDetails: [ev123('2026-10-03T05:30:00Z', '2026-10-03 11:00:00', 'Arrived at hub', 'Mumbai', 'IN_TRANSIT_02')] } },
   })
   check('eventos: sin repetidos ni vacíos', d.eventos.length, 2)
-  check('eventos: el orden de Ship24 (más nuevo primero)', si(d.eventos[0].detalle === 'Arrived at hub'), 1)
-  check('último evento: el primero de la lista', si(d.ultimoEvento === 'Arrived at hub' && d.ultimoEventoEn === '2026-10-03T11:00:00+05:30'), 1)
-  check('estado: statusMilestone en minúsculas, trackerId y statusCode', si(d.estado === 'in_transit' && d.trackerId === 'abc' && d.subestado === 'transit_handover'), 1)
-  const parado = datosDeTracking({ tracker: { trackerId: 'x', isTracked: false }, shipment: { statusMilestone: 'in_transit' }, events: [] })
-  check('Ship24 dejó de seguirlo sin entregar: detenido', si(parado.estado === 'detenido'), 1)
-  const entregado = datosDeTracking({ tracker: { trackerId: 'x', isTracked: false }, shipment: { statusMilestone: 'delivered' } })
-  check('entregado (isTracked false) sigue siendo entregado', si(entregado.estado === 'delivered'), 1)
+  check('eventos: courier y última milla juntos, más nuevo primero', si(d.eventos[0].detalle === 'Arrived at hub' && d.eventos[1].detalle === 'Picked up'), 1)
+  check('último evento: hora del courier con su zona', si(d.ultimoEvento === 'Arrived at hub' && d.ultimoEventoEn === '2026-10-03T11:00:00+05:30'), 1)
+  check('estado del evento: del sub-estado', si(d.eventos[1].estado === 'info_received'), 1)
+  check('estado: transitStatus traducido, id y sub-estado', si(d.estado === 'in_transit' && d.trackerId === 'abc' && d.subestado === 'IN_TRANSIT_01'), 1)
+  check('EXPIRED (Track123 dejó de seguirlo): detenido', si(datosDeTracking({ transitStatus: 'EXPIRED' }).estado === 'detenido'), 1)
+  check('WAITING_DELIVERY: en reparto o para retirar', si(estadoDeT123('WAITING_DELIVERY') === 'out_for_delivery'), 1)
+  check('estado desconocido: null, no se inventa', si(datosDeTracking({ transitStatus: 'NUEVO_RARO' }).estado === null), 1)
   // Novedades del inicio: por identidad del evento, no por hora.
   const ev = (fecha: string | null, detalle: string, estado: string) => ({ fecha, detalle, lugar: null, estado })
   const evs = [ev('2026-11-07T08:05', 'Out for delivery', 'out_for_delivery'), ev('2026-11-05T22:15', 'In transit', 'in_transit'), ev(null, 'Label created', 'info_received')]
@@ -1775,25 +1782,27 @@ console.log('\nSHIP24')
   check('fecha del courier sin convertir', si(fechaCourier('2023-11-04T14:31:00-04:00') === '2023-11-04 14:31'), 1)
   check('entregado y detenido no se consultan más', si(esEstadoFinal('delivered') && esEstadoFinal('detenido')), 1)
   check('un problema (exception) se sigue consultando', si(esEstadoFinal('exception')), 0)
-  check('courier equivocado es error de la fila', si(errorDeFila('validation_error') != null), 1)
-  check('sin cupo no es error de la fila (corta la corrida)', si(errorDeFila('quota_limit_reached') == null), 1)
+  check('rechazo de la fila: lleva code y motivo', si(errorDeFila({ code: 'A0400', msg: 'Invalid number' }) === 'Track123 no lo acepta (A0400): Invalid number'), 1)
+  check('clave inválida corta la corrida con su motivo', si(mensajeErrorGeneral(200, 'A0230', 'Token expired').includes(ENV_API_KEY)), 1)
+  check('límite de velocidad: se reintenta después', si(mensajeErrorGeneral(200, 'A0706', '').includes('despacio')), 1)
 
-  check('número: sin espacios', si(numeroParaShip24(' 1234 5678 ') === '12345678'), 1)
-  check('número: muy corto se rechaza', si(typeof numeroParaShip24('A1') !== 'string'), 1)
-  check('número: caracteres raros se rechazan', si(typeof numeroParaShip24('SHP#64898') !== 'string'), 1)
-  const c1 = cuerpoTracker({ envioId: 7, tramo: 'venezuela', numero: 'MIA-12345', courierCode: 'zoom' })
-  const c2 = cuerpoTracker({ envioId: 7, tramo: 'venezuela', numero: 'MIA-12345', courierCode: 'zoom' })
-  check('cuerpo: el mismo para la misma fila (idempotente, no crea otro tracker)', si(JSON.stringify(c1) === JSON.stringify(c2)), 1)
-  check('cuerpo: tramo Venezuela va a VE', si(!('error' in c1) && c1.destinationCountryCode === 'VE' && c1.courierCode[0] === 'zoom'), 1)
-  const cl = cuerpoTracker({ envioId: 7, tramo: 'local', numero: '1234567890', courierCode: 'delhivery' })
-  check('cuerpo: el local no inventa país', si(!('error' in cl) && !('destinationCountryCode' in cl)), 1)
+  check('número: sin espacios', si(numeroParaTrack123(' 1234 5678 ') === '12345678'), 1)
+  check('número: muy corto se rechaza', si(typeof numeroParaTrack123('A1') !== 'string'), 1)
+  check('número: caracteres raros se rechazan', si(typeof numeroParaTrack123('SHP#64898') !== 'string'), 1)
+  const c1 = cuerpoRegistro({ envioId: 7, tramo: 'venezuela', numero: 'MIA 12345', courierCode: 'zoom' })
+  check('cuerpo: tramo Venezuela va a VE, número sin espacios', si(!('error' in c1) && c1.country === 'VE' && c1.courierCode === 'zoom' && c1.trackNo === 'MIA12345'), 1)
+  check('cuerpo: la caja va en remark, no en orderNo (Track123 rechaza un orderNo repetido)', si(!('error' in c1) && !('orderNo' in c1) && c1.remark === 'Caja #7 · venezuela'), 1)
+  const cl = cuerpoRegistro({ envioId: 7, tramo: 'local', numero: '1234567890', courierCode: 'delhivery' })
+  check('cuerpo: el local no inventa país', si(!('error' in cl) && !('country' in cl)), 1)
+  check('cuerpo: número inválido no se registra', si('error' in cuerpoRegistro({ envioId: 7, tramo: 'usa', numero: 'A1', courierCode: 'ups' })), 1)
+  check('respuesta y pedido se cruzan sin importar mayúsculas', si(claveNumero(' lv209031969cn ') === claveNumero('LV209031969CN')), 1)
   const lc = listaDeCouriers([
-    { courierCode: 'Delhivery', courierName: 'Delhivery', countryCode: 'in', isDeprecated: false },
-    { courierCode: 'viejo', courierName: 'Viejo', countryCode: null, isDeprecated: true },
-    { courierCode: 'delhivery', courierName: 'Delhivery 2' },
-    { courierCode: '', courierName: 'Sin code' },
+    { courierCode: 'Delhivery', courierNameEN: 'Delhivery' },
+    { courierCode: 'delhivery', courierNameEN: 'Delhivery 2' },
+    { courierCode: '', courierNameEN: 'Sin code' },
+    { courierCode: 'sin-nombre', courierNameEN: ' ' },
   ])
-  check('couriers: sin deprecados, repetidos ni vacíos; code y país normalizados', si(lc.length === 1 && lc[0].code === 'delhivery' && lc[0].pais === 'IN'), 1)
+  check('couriers: sin repetidos ni vacíos; code en minúsculas', si(lc.length === 1 && lc[0].code === 'delhivery' && lc[0].nombre === 'Delhivery'), 1)
 
   // One Way Cargo: el HTML real de la cuenta, recortado.
   check('OWC: código MT del tramo Venezuela', si(esCodigoOneway('venezuela', ' mt-112893 ')), 1)

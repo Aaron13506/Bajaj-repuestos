@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { TRAMOS_TRACKING, type TramoTracking } from '@/lib/tracking'
-import { metaEstado } from '@/lib/ship24'
+import { metaEstado } from '@/lib/track123'
 
 type TrackingResumen = { tramo: string; courierCode: string | null; estado: string | null; errorSeguimiento: string | null }
 
@@ -20,7 +20,7 @@ export default function TrayectoCaja({ trackings, express, paneles, children }: 
   trackings: TrackingResumen[]
   express: boolean
   paneles: Partial<Record<TramoTracking, ReactNode>>
-  /** Avisos de Ship24 (apagado, sin lista de couriers). */
+  /** Avisos de Track123 (apagado, sin lista de couriers). */
   children?: ReactNode
 }) {
   const tramos = TRAMOS_TRACKING.filter(t => !(express && t === 'usa')).map(tramo => {
@@ -78,7 +78,7 @@ export default function TrayectoCaja({ trackings, express, paneles, children }: 
         <div className="mb-3">
           <h2 id="trayecto-titulo" className="text-base font-semibold text-gray-900">Trayecto</h2>
           <p className="text-sm text-gray-600">
-            Elegí un tramo para ver sus números. Con courier de Ship24 se siguen solos cada hora; sin él quedan anotados.
+            Elegí un tramo para ver sus números. Con courier de Track123 se siguen solos cada hora; sin él quedan anotados.
           </p>
         </div>
         <div role="tablist" aria-label="Tramos del trayecto" className="grid gap-3 grid-cols-1 sm:grid-cols-[repeat(auto-fit,minmax(200px,1fr))]">

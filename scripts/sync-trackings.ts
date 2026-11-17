@@ -1,21 +1,21 @@
 // Lo corre cada hora el timer del servidor, bajaj-tracking.timer (pnpm tracking:sync): pone al
-// día con Ship24 los trackings de las cajas que tienen courier y todavía no llegaron (y una vez
+// día con Track123 los trackings de las cajas que tienen courier y todavía no llegaron (y una vez
 // por semana la lista de couriers para elegir), y con One Way Cargo los códigos MT-/CON-… del
 // tramo Venezuela. Ver lib/sync-trackings.ts y lib/oneway.ts.
 //
 //   pnpm tracking:sync                  la corrida normal
 //   pnpm tracking:sync --couriers       además fuerza bajar la lista de couriers
 //
-// Sin SHIP24_API_KEY (o sin ONEWAY_EMAIL/ONEWAY_PASSWORD) esa parte no hace nada y sale bien:
+// Sin TRACK123_API_KEY (o sin ONEWAY_EMAIL/ONEWAY_PASSWORD) esa parte no hace nada y sale bien:
 // el seguimiento está apagado, no roto.
-import { apiKeyShip24, ENV_API_KEY } from '@/lib/ship24'
+import { apiKeyTrack123, ENV_API_KEY } from '@/lib/track123'
 import { refrescarCouriers, sincronizarOneway, sincronizarTrackings } from '@/lib/sync-trackings'
 import { db } from '@/lib/db'
 
-async function ship24() {
-  const apiKey = apiKeyShip24()
+async function track123() {
+  const apiKey = apiKeyTrack123()
   if (!apiKey) {
-    console.log(`${ENV_API_KEY} no está definida: Ship24 apagado.`)
+    console.log(`${ENV_API_KEY} no está definida: Track123 apagado.`)
     return
   }
   try {
@@ -45,7 +45,7 @@ async function oneway() {
 }
 
 async function main() {
-  await ship24()
+  await track123()
   await oneway()
 }
 

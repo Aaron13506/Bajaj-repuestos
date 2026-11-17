@@ -406,8 +406,8 @@ model EnvioCaja {
 // proveedor despacha en dos o tres paquetes y da un número local por cada uno. El orden es el
 // de carga (id). Ver lib/tracking.ts.
 //
-// Con courierCode el número se sigue solo en Ship24 (lib/ship24.ts, sincronizado cada hora
-// por pnpm tracking:sync); sin él queda solo anotado. Lo que trae Ship24 es una copia de lo que dice el courier: no mueve etapas ni toca plata.
+// Con courierCode el número se sigue solo en Track123 (lib/track123.ts, sincronizado cada hora
+// por pnpm tracking:sync); sin él queda solo anotado. Lo que trae Track123 es una copia de lo que dice el courier: no mueve etapas ni toca plata.
 model EnvioTracking {
   id            Int     @id @default(autoincrement())
   envioId       Int
@@ -416,25 +416,25 @@ model EnvioTracking {
   numero        String
   // El nombre del courier, como se muestra (o lo que se escribió, si no está en la lista).
   transportista String?
-  // courierCode de Ship24. null = solo anotado, nadie lo consulta.
+  // courierCode de Track123 ('onewaycargo' = One Way Cargo). null = solo anotado, nadie lo consulta.
   courierCode   String?
-  // trackerId de Ship24, una vez creado (crear un tracker gasta un envío del cupo).
+  // Lleno = ya registrado en Track123 (registrar gasta uno del cupo): su id, o el número mandado.
   trackerId     String?
-  // statusMilestone (o 'detenido') y statusCode de Ship24. null = todavía no se consultó.
+  // El estado (vocabulario de lib/track123.ts) y el transitSubStatus de Track123. null = todavía no se consultó.
   estado        String?
   subestado     String?
   ultimoEvento  String?
-  // occurrenceDatetime del último evento tal cual llega: es la hora local del courier y a veces sin zona,
+  // La hora del último evento como la reporta el courier (hora local + su zona, a veces sin zona),
   // así que se guarda como texto en vez de inventarle una.
   ultimoEventoEn String?
   // Los checkpoints, del más nuevo al más viejo: [{ fecha, detalle, lugar, estado }].
   eventos       Json?
   consultadoEn  DateTime?
-  // Por qué Ship24 no lo acepta (courier equivocado, número inválido…). Mientras esté,
+  // Por qué Track123 no lo acepta (courier equivocado, número inválido…). Mientras esté,
   // la sincronización horaria no lo reintenta; "Actualizar ahora" en la caja sí.
   errorSeguimiento String?
   // El último evento que el dueño ya vio en el inicio («Ya lo vi»), como `fecha|detalle`
-  // (claveEvento en lib/ship24.ts). Distinto del último evento guardado = novedad. Null = nunca visto.
+  // (claveEvento en lib/track123.ts). Distinto del último evento guardado = novedad. Null = nunca visto.
   eventoVisto   String?
 
   envio Envio @relation(fields: [envioId], references: [id], onDelete: Cascade)
@@ -443,13 +443,11 @@ model EnvioTracking {
   @@index([numero])
 }
 
-// La lista de couriers que Ship24 sabe seguir (GET /couriers, sin los deprecados), para elegir
-// el de cada tracking. La refresca pnpm tracking:sync una vez por semana. Ver lib/ship24.ts.
+// La lista de couriers que Track123 sabe seguir (GET /courier/list), para elegir el de cada
+// tracking. La refresca pnpm tracking:sync una vez por semana. Ver lib/track123.ts.
 model TrackingCourier {
   code          String   @id
   nombre        String
-  // countryCode: dónde opera (IN, US, VE…). Vacío en los globales.
-  pais          String?
   actualizadoEn DateTime @default(now())
 }
 

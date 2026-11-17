@@ -6,7 +6,7 @@ import PendingButton from '@/components/PendingButton'
 import ElegirCourier from '@/components/ElegirCourier'
 import type { ActionResult } from '@/lib/action-result'
 import { MAX_TRACKINGS_POR_TRAMO, TRAMO_TRACKING_META, type TramoTracking } from '@/lib/tracking'
-import { fechaCourier, metaEstado, type Checkpoint, type Courier } from '@/lib/ship24'
+import { fechaCourier, metaEstado, type Checkpoint, type Courier } from '@/lib/track123'
 import { esCodigoOneway, ONEWAY_CODE, ONEWAY_NOMBRE } from '@/lib/oneway'
 
 export type NumeroGuardado = {
@@ -25,7 +25,7 @@ export type NumeroGuardado = {
   errorSeguimiento: string | null
 }
 
-// Los números de UN tramo de la caja: la lista con lo que dice Ship24 de cada uno, y
+// Los números de UN tramo de la caja: la lista con lo que dice Track123 de cada uno, y
 // «Añadir número», «Editar» y «Quitar» en el mismo renglón, sin ventana encima.
 //
 // `guardarTrackings` reemplaza TODOS los tramos con lo que manda el form, así que cada form
@@ -40,7 +40,7 @@ export default function NumerosTramo({ tramo, titulo, sub, todos, couriers, guar
   todos: NumeroGuardado[]
   couriers: Courier[]
   guardar: (formData: FormData) => Promise<ActionResult>
-  /** Junto a «Añadir número»: «Actualizar trackings» de Ship24/One Way. */
+  /** Junto a «Añadir número»: «Actualizar trackings» de Track123/One Way. */
   acciones?: ReactNode
 }) {
   const [editando, setEditando] = useState<number | 'nuevo' | null>(null)
@@ -51,6 +51,12 @@ export default function NumerosTramo({ tramo, titulo, sub, todos, couriers, guar
   const idTitulo = `numeros-${tramo}-titulo`
 
   function cerrar() { setEditando(null); setQuitando(null) }
+  // Guardar sin cambios no cambia la lista (la key que remonta la sección): se cierra aquí.
+  async function guardarYCerrar(formData: FormData) {
+    const r = await guardar(formData)
+    if (r.ok) cerrar()
+    return r
+  }
 
   return (
     <section aria-labelledby={idTitulo} className="bg-white rounded-xl shadow-sm border border-gray-100 mb-4">
@@ -84,11 +90,11 @@ export default function NumerosTramo({ tramo, titulo, sub, todos, couriers, guar
               <li key={t.id} className="rounded-lg bg-gray-50 px-4 py-3">
                 {editando === t.id ? (
                   <Edicion
-                    tramo={tramo} todos={todos} reemplaza={t.id} couriers={couriers} guardar={guardar}
+                    tramo={tramo} todos={todos} reemplaza={t.id} couriers={couriers} guardar={guardarYCerrar}
                     inicial={t} placeholder={meta.ejemplo} transportista={meta.transportista} onCancelar={cerrar}
                   />
                 ) : quitando === t.id ? (
-                  <FormConResultado action={guardar} className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <FormConResultado action={guardarYCerrar} className="flex flex-wrap items-center gap-x-3 gap-y-2">
                     <Ocultos filas={todos.filter(o => o.id !== t.id)} />
                     <p className="text-sm text-gray-800 min-w-0 basis-full sm:basis-auto sm:flex-1">
                       ¿Quitar <span className="font-mono font-semibold break-all">{t.numero}</span>? Se borra de la caja con su seguimiento.
@@ -118,7 +124,7 @@ export default function NumerosTramo({ tramo, titulo, sub, todos, couriers, guar
             {editando === 'nuevo' && (
               <li className="rounded-lg border border-blue-200 bg-blue-50/40 px-4 py-3">
                 <Edicion
-                  tramo={tramo} todos={todos} reemplaza={null} couriers={couriers} guardar={guardar}
+                  tramo={tramo} todos={todos} reemplaza={null} couriers={couriers} guardar={guardarYCerrar}
                   inicial={null} placeholder={meta.ejemplo} transportista={meta.transportista} onCancelar={cerrar}
                 />
               </li>
@@ -195,7 +201,7 @@ function Renglon({ t, onEditar, onQuitar }: { t: NumeroGuardado; onEditar: () =>
               </li>
             ))}
           </ol>
-          <p className="mt-2 text-xs text-gray-500">Fecha y hora del courier, como las reporta {t.courierCode === ONEWAY_CODE ? 'One Way Cargo' : 'Ship24'}.</p>
+          <p className="mt-2 text-xs text-gray-500">Fecha y hora del courier, como las reporta {t.courierCode === ONEWAY_CODE ? 'One Way Cargo' : 'Track123'}.</p>
         </details>
       )}
     </>
@@ -269,8 +275,8 @@ function Edicion({ tramo, todos, reemplaza, inicial, couriers, guardar, placehol
         {oneway
           ? 'Código de One Way Cargo: se sigue solo cada hora con la cuenta.'
           : couriers.length > 0
-          ? 'Elegido de la lista de Ship24, se sigue solo cada hora. Si no está (Zoom, Tealca), anotalo sin seguimiento.'
-          : 'Ship24 está apagado: el courier queda anotado tal cual.'}
+          ? 'Elegido de la lista de Track123, se sigue solo cada hora. Si no está (Zoom, Tealca), anotalo sin seguimiento.'
+          : 'Track123 está apagado: el courier queda anotado tal cual.'}
       </p>
     </FormConResultado>
   )

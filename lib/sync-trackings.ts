@@ -1,6 +1,6 @@
-// La parte de Ship24 que toca la base: refrescar la lista de couriers y poner al día los
+// La parte de Track123 que toca la base: refrescar la lista de couriers y poner al día los
 // trackings de las cajas. La corre cada hora pnpm tracking:sync (bajaj-tracking.timer) y, para
-// una caja, el botón "Actualizar ahora". Ver lib/ship24.ts.
+// una caja, el botón "Actualizar ahora". Ver lib/track123.ts.
 //
 // Las escrituras van guardadas por lo que se leyó (id + número + courier): si el dueño editó
 // los trackings de la caja mientras corría, la fila ya no es la misma y la respuesta vieja no
@@ -9,15 +9,16 @@
 import type { Prisma } from '@prisma/client'
 import { db } from './db'
 import {
-  apiConsultar, apiCouriers, apiKeyShip24, apiRegistrar, COURIERS_VIGENCIA_DIAS, cuerpoTracker, datosDeTracking,
-  ErrorShip24, ESTADOS_FINALES, S24_PAUSA_MS, type Courier, type TrackingS24,
-} from './ship24'
+  apiConsultar, apiCouriers, apiKeyTrack123, apiRegistrar, claveNumero, COURIERS_VIGENCIA_DIAS, cuerpoRegistro,
+  datosDeTracking, ErrorTrack123, ESTADOS_FINALES, T123_LOTE, T123_PAUSA_MS, type Courier, type CuerpoRegistro,
+  type TrackingT123,
+} from './track123'
 import { credencialesOneway, detalleOneway, entrarOneway, ErrorOneway, ONEWAY_CODE, pedidosOneway } from './oneway'
 
 const esperar = (ms: number) => new Promise(r => setTimeout(r, ms))
 
 export async function listaCouriers(): Promise<Courier[]> {
-  return db.trackingCourier.findMany({ select: { code: true, nombre: true, pais: true }, orderBy: { nombre: 'asc' } })
+  return db.trackingCourier.findMany({ select: { code: true, nombre: true }, orderBy: { nombre: 'asc' } })
 }
 
 /** Baja la lista de couriers si no hay o si tiene más de una semana. Devuelve cuántos hay. */
@@ -27,7 +28,7 @@ export async function refrescarCouriers(apiKey: string, { forzar = false } = {})
   const limite = Date.now() - COURIERS_VIGENCIA_DIAS * 24 * 3600 * 1000
   if (!forzar && total > 0 && viejo && viejo.actualizadoEn.getTime() > limite) return { total, refrescada: false }
   const lista = await apiCouriers(apiKey)
-  // Una lista vacía es una respuesta rota, no "Ship24 ya no sigue a nadie".
+  // Una lista vacía es una respuesta rota, no "Track123 ya no sigue a nadie".
   if (lista.length === 0) return { total, refrescada: false }
   await db.$transaction([
     db.trackingCourier.deleteMany({}),
@@ -41,7 +42,7 @@ export type ResumenSync = {
   registrados: number
   actualizados: number
   conError: number
-  /** Lo que cortó la corrida (clave, cupo, red). Lo hecho antes queda guardado. */
+  /** Lo que cortó la corrida (clave, límite, red). Lo hecho antes queda guardado. */
   error?: string
 }
 
@@ -49,7 +50,7 @@ type Fila = { id: number; envioId: number; tramo: string; numero: string; courie
 
 const dondeFila = (f: Fila) => ({ id: f.id, numero: f.numero, courierCode: f.courierCode })
 
-async function guardar(f: Fila, t: TrackingS24) {
+async function guardar(f: Fila, t: TrackingT123) {
   const d = datosDeTracking(t)
   const r = await db.envioTracking.updateMany({
     where: dondeFila(f),
@@ -75,9 +76,13 @@ async function marcarError(f: Fila, error: string) {
  * Pone al día los trackings con courier que todavía no llegaron (ni dejaron de seguirse). Con
  * `envioId` solo los de esa caja, y además reintenta los que habían dado error (el dueño lo
  * pidió).
+ *
+ * Por lotes de 100: primero consulta (no gasta cupo); lo que Track123 no tiene y nunca se
+ * registró (`trackerId` vacío) se registra (gasta cupo) y se vuelve a consultar. Uno registrado
+ * que Track123 ya no devuelve queda con error; "Actualizar ahora" lo registra de nuevo.
  */
 export async function sincronizarTrackings({ envioId }: { envioId?: number } = {}): Promise<ResumenSync> {
-  const apiKey = apiKeyShip24()
+  const apiKey = apiKeyTrack123()
   const resumen: ResumenSync = { registrados: 0, actualizados: 0, conError: 0 }
   if (!apiKey) return { ...resumen, apagado: true }
 
@@ -97,32 +102,70 @@ export async function sincronizarTrackings({ envioId }: { envioId?: number } = {
     })
     const couriers = new Set((await listaCouriers()).map(c => c.code))
 
+    const validas: { f: Fila; cuerpo: CuerpoRegistro }[] = []
     for (const f of filas) {
-      let r: { tracking: TrackingS24 } | { error: string }
-      if (f.trackerId) {
-        r = await apiConsultar(apiKey, f.trackerId)
-      } else {
-        // Un code que no está en la lista (quedó de antes, o Ship24 lo dio de baja) crearía un
-        // tracker que Ship24 sigue "a ciegas": mejor que el dueño lo elija de nuevo.
-        const cuerpo = couriers.size > 0 && !couriers.has(f.courierCode!)
-          ? { error: `El courier «${f.courierCode}» no está en la lista de Ship24: elegilo de nuevo en la caja.` }
-          : cuerpoTracker({ envioId: f.envioId, tramo: f.tramo, numero: f.numero, courierCode: f.courierCode! })
-        r = 'error' in cuerpo ? cuerpo : await apiRegistrar(apiKey, cuerpo)
-        if ('tracking' in r) resumen.registrados++
-      }
-      if ('tracking' in r) {
-        resumen.actualizados += await guardar(f, r.tracking)
-      } else {
+      // Un code que no está en la lista (quedó de antes, o Track123 lo dio de baja) se
+      // registraría "a ciegas": mejor que el dueño lo elija de nuevo.
+      const cuerpo = couriers.size > 0 && !couriers.has(f.courierCode!)
+        ? { error: `El courier «${f.courierCode}» no está en la lista de Track123: elegilo de nuevo en la caja.` }
+        : cuerpoRegistro({ envioId: f.envioId, tramo: f.tramo, numero: f.numero, courierCode: f.courierCode! })
+      if ('error' in cuerpo) {
         resumen.conError++
-        await marcarError(f, r.error)
+        await marcarError(f, cuerpo.error)
+      } else {
+        validas.push({ f, cuerpo })
       }
-      await esperar(S24_PAUSA_MS)
+    }
+
+    const consultar = async (lote: typeof validas) => {
+      const r = await apiConsultar(apiKey, lote.map(v => ({ trackNo: v.cuerpo.trackNo, courierCode: v.cuerpo.courierCode })))
+      await esperar(T123_PAUSA_MS)
+      return r
+    }
+
+    for (let i = 0; i < validas.length; i += T123_LOTE) {
+      const lote = validas.slice(i, i + T123_LOTE)
+      const tiene = await consultar(lote)
+      const registrar: typeof validas = []
+      for (const v of lote) {
+        const t = tiene.get(claveNumero(v.cuerpo.trackNo))
+        if (t) resumen.actualizados += await guardar(v.f, t)
+        else if (!v.f.trackerId || envioId != null) registrar.push(v)
+        else {
+          resumen.conError++
+          await marcarError(v.f, 'Track123 ya no devuelve este número. «Actualizar ahora» lo registra de nuevo.')
+        }
+      }
+      if (registrar.length === 0) continue
+
+      const rechazados = await apiRegistrar(apiKey, registrar.map(v => v.cuerpo))
+      await esperar(T123_PAUSA_MS)
+      const aceptados: typeof validas = []
+      for (const v of registrar) {
+        const motivo = rechazados.get(claveNumero(v.cuerpo.trackNo))
+        if (motivo) {
+          resumen.conError++
+          await marcarError(v.f, motivo)
+          continue
+        }
+        resumen.registrados++
+        // Registrado: aunque la consulta tarde en devolverlo, la corrida horaria no lo registra otra vez.
+        const f = { ...v.f, trackerId: v.cuerpo.trackNo }
+        await db.envioTracking.updateMany({ where: dondeFila(f), data: { trackerId: f.trackerId, consultadoEn: new Date() } })
+        aceptados.push({ ...v, f })
+      }
+      if (aceptados.length === 0) continue
+      const nuevos = await consultar(aceptados)
+      for (const v of aceptados) {
+        const t = nuevos.get(claveNumero(v.cuerpo.trackNo))
+        if (t) resumen.actualizados += await guardar(v.f, t)
+      }
     }
     return resumen
   } catch (e) {
-    if (e instanceof ErrorShip24) return { ...resumen, error: e.message }
+    if (e instanceof ErrorTrack123) return { ...resumen, error: e.message }
     if (e instanceof Error && (e.name === 'TimeoutError' || e.name === 'TypeError')) {
-      return { ...resumen, error: `No se pudo hablar con Ship24: ${e.message}` }
+      return { ...resumen, error: `No se pudo hablar con Track123: ${e.message}` }
     }
     throw e
   }

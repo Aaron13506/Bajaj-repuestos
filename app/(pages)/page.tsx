@@ -9,7 +9,7 @@ import { DIAS_CAJA_PARADA, diasSinMoverse } from '@/lib/etapas'
 import { VENTA_STATUS } from '@/lib/clientes'
 import { MODOS_CON_PEDIDOS } from '@/lib/modo'
 import { trackingsConNovedad, type NovedadTracking } from '@/lib/novedades'
-import { horaConsulta, metaEstado } from '@/lib/ship24'
+import { horaConsulta, metaEstado } from '@/lib/track123'
 import VenderDelDeposito from '@/components/VenderDelDeposito'
 import YaLoVi from '@/components/YaLoVi'
 
