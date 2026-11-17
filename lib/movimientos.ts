@@ -484,8 +484,8 @@ export interface EnvioPendiente {
   debido: number
   pagado: number
   pendiente: number
-  // Items sin costRealUsd cargado (aéreo) o piezas sin precio (marítimo): `debido` es un
-  // piso, no el total real.
+  // Ítems de pedido sin compra anotada (aéreo: van por su estimado) o piezas sin precio
+  // (marítimo: un piso). En los dos, `debido` todavía no es el número final.
   itemsSinCosto: number
 }
 
@@ -504,9 +504,9 @@ export interface CuentasPorPagar {
 //
 // DEBIDO — lo que esa caja le debe al proveedor, por carril:
 //   aéreo:    costRealUsd de los ítems (lo que se pagó de verdad, PedidoItem) + el total
-//             que facturó por el tramo a USA + las comisiones del giro. Se usa el real y no
-//             calcEnvio: ese pipeline da el costo estimado al comprar, no lo que salió de
-//             la cuenta.
+//             que facturó por el tramo a USA + las comisiones del giro. Un ítem de pedido
+//             confirmado sin compra anotada entra por su estimado (el mismo del picker de
+//             compra): todavía no se pagó, y es justo lo que más se debe.
 //   marítimo: la mercancía + el FOB, que es lo que el proveedor cobra por liberar la carga
 //             (`giroUsd` en costoEmbarque), + las comisiones. El flete por m³ NO entra: lo
 //             cobra la naviera. El marítimo no tiene costRealUsd por línea (EnvioLinea es
@@ -517,15 +517,15 @@ export interface CuentasPorPagar {
 // PAGADO — solo los egresos de CATEGORIAS_PAGO_PROVEEDOR, menos lo que el proveedor devolvió
 // (CATEGORIAS_REEMBOLSO_PROVEEDOR). Los fletes se le pagan a otro.
 //
-// Los envíos sin proveedor (99rpm, supplierId null) no giran plata por esta vía y quedan
-// afuera.
+// Las cajas de 99rpm (supplierId null) entran igual: su compra se paga con `pago_proveedor`
+// ligado a la caja (registrarCompra), y hasta entonces es plata comprometida.
 export async function cuentasPorPagar(): Promise<CuentasPorPagar> {
-  const [envios, cfgRows] = await Promise.all([
+  const [envios, cfgRows, sinCompra] = await Promise.all([
     db.envio.findMany({
       // No 'borrador': esa caja todavía se está armando, no es una compra en firme. Una caja
       // 'entregado' (marítima, ya recibida) SIGUE debiendo lo mismo — que ya esté en el
       // depósito no significa que ya se le pagó al proveedor.
-      where: { estado: { not: 'borrador' }, supplierId: { not: null } },
+      where: { estado: { not: 'borrador' } },
       select: {
         id: true,
         nombre: true,
@@ -562,9 +562,12 @@ export async function cuentasPorPagar(): Promise<CuentasPorPagar> {
       },
     }),
     db.config.findMany(),
+    itemsConEstimado({ costRealUsd: null, pedido: { status: 'pedido' }, envio: { estado: { not: 'borrador' }, modo: { not: 'maritimo_cbm' } } }),
   ])
 
   const cfg = toConfigMap(cfgRows)
+  const estimadoSinCompra = new Map<number, number>()
+  for (const i of sinCompra) estimadoSinCompra.set(i.envioId!, (estimadoSinCompra.get(i.envioId!) ?? 0) + i.estimadoUsd)
 
   // Precios de proveedor solo de lo que viaja por mar: es lo único que los necesita, y
   // acotarlos a (proveedor, pieza) evita traer la lista entera de cada uno.
@@ -572,7 +575,7 @@ export async function cuentasPorPagar(): Promise<CuentasPorPagar> {
   const precios = maritimas.length > 0
     ? await db.supplierPrice.findMany({
         where: {
-          supplierId: { in: [...new Set(maritimas.map(e => e.supplierId!))] },
+          supplierId: { in: [...new Set(maritimas.flatMap(e => e.supplierId ?? []))] },
           productId: { in: [...new Set(maritimas.flatMap(e => e.lineas.map(l => l.productId)))] },
         },
         select: { supplierId: true, productId: true, priceUsd: true, isLanded: true },
@@ -604,9 +607,8 @@ export async function cuentasPorPagar(): Promise<CuentasPorPagar> {
         : 0
       itemsSinCosto = resumen.piezas.filter(p => p.sinPrecio).length
     } else {
-      const itemsConCosto = e.items.filter(i => i.costRealUsd != null)
-      mercancia = itemsConCosto.reduce((s, i) => s + num(i.costRealUsd), 0)
-      itemsSinCosto = e.items.length - itemsConCosto.length
+      mercancia = e.items.reduce((s, i) => s + num(i.costRealUsd), 0) + (estimadoSinCompra.get(e.id) ?? 0)
+      itemsSinCosto = sinCompra.filter(i => i.envioId === e.id).length
     }
 
     const debido = mercancia + num(e.tramoUsd) + num(e.comisionSalienteUsd) + num(e.comisionEntranteUsd)
@@ -615,7 +617,7 @@ export async function cuentasPorPagar(): Promise<CuentasPorPagar> {
     return {
       envioId: e.id,
       nombre: e.nombre,
-      supplierName: e.supplier?.name ?? '—',
+      supplierName: e.supplier?.name ?? '99rpm',
       debido,
       pagado,
       pendiente: debido - pagado,

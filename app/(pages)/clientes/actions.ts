@@ -3,7 +3,7 @@
 import { db } from '@/lib/db'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
-import { findOrCreateCliente, isUniqueViolation, revalidateClientes } from '@/lib/clientes'
+import { findClienteByNombre, findOrCreateCliente, isUniqueViolation, revalidateClientes } from '@/lib/clientes'
 import { fallo, ok, type ActionResult } from '@/lib/action-result'
 import { telefonoIntl } from '@/lib/utils'
 
@@ -63,16 +63,38 @@ function revalidarEsperas() {
 // Anota que el cliente espera esta pieza. Si no existe se crea (como en el armador); si ya la
 // esperaba, solo se actualiza la nota y conserva su lugar en la fila.
 export async function agregarEspera(productId: number, formData: FormData): Promise<ActionResult> {
-  const nombre = (formData.get('nombre') as string)?.trim()
-  if (!nombre) return fallo('Escribí el nombre del cliente.')
+  const c = await clienteDeEspera(formData)
+  if (typeof c === 'string') return fallo(c)
   const nota = (formData.get('nota') as string)?.trim() || null
-  return anotarEspera(nombre, productId, nota)
+  await db.espera.upsert({
+    where: { clienteId_productId: { clienteId: c.id, productId } },
+    create: { clienteId: c.id, productId, nota },
+    update: { nota },
+  })
+  revalidarEsperas()
+  return ok()
+}
+
+// La espera existe para avisarle: sin un teléfono completo no hay a quién escribirle. El escrito
+// reemplaza al guardado; vacío solo vale si el cliente ya tiene uno. Se valida ANTES de crear al
+// cliente, para no dejar uno nuevo sin teléfono cuando la espera se rechaza.
+async function clienteDeEspera(formData: FormData): Promise<{ id: number } | string> {
+  const nombre = (formData.get('nombre') as string)?.trim()
+  if (!nombre) return 'Escribí el nombre del cliente.'
+  const telefono = (formData.get('telefono') as string)?.trim() || null
+  if (telefono && !telefonoIntl(telefono)) return 'El teléfono no está completo: escribilo con el código, ej. 0414-1234567.'
+  if (!telefono) {
+    const existente = await findClienteByNombre(nombre)
+    if (!telefonoIntl(existente?.telefono)) return `Escribí el teléfono de ${existente?.nombre ?? nombre}: sin él no se le puede avisar.`
+    return existente!
+  }
+  const { cliente, created } = await findOrCreateCliente(nombre, telefono)
+  if (!created) await db.cliente.update({ where: { id: cliente.id }, data: { telefono } })
+  return cliente
 }
 
 // Desde /esperas/new: un cliente y las piezas que espera, elegidas en el buscador del catálogo.
 export async function agregarEsperas(formData: FormData): Promise<ActionResult> {
-  const nombre = (formData.get('nombre') as string)?.trim()
-  if (!nombre) return fallo('Escribí el nombre del cliente.')
   let ids: unknown
   try { ids = JSON.parse(String(formData.get('productIds') ?? '[]')) } catch { ids = null }
   if (!Array.isArray(ids) || ids.length === 0 || !ids.every(Number.isInteger)) return fallo('Agregá al menos una pieza.')
@@ -80,7 +102,8 @@ export async function agregarEsperas(formData: FormData): Promise<ActionResult> 
   if (await db.product.count({ where: { id: { in: unicos } } }) !== unicos.length) return fallo('Alguna pieza ya no está en el catálogo. Recargá la página.')
   const nota = (formData.get('nota') as string)?.trim() || null
 
-  const { cliente } = await findOrCreateCliente(nombre)
+  const cliente = await clienteDeEspera(formData)
+  if (typeof cliente === 'string') return fallo(cliente)
   await db.$transaction(unicos.map(productId => db.espera.upsert({
     where: { clienteId_productId: { clienteId: cliente.id, productId } },
     create: { clienteId: cliente.id, productId, nota },
@@ -88,17 +111,6 @@ export async function agregarEsperas(formData: FormData): Promise<ActionResult> 
   })))
   revalidarEsperas()
   redirect('/esperas')
-}
-
-async function anotarEspera(nombre: string, productId: number, nota: string | null): Promise<ActionResult> {
-  const { cliente } = await findOrCreateCliente(nombre)
-  await db.espera.upsert({
-    where: { clienteId_productId: { clienteId: cliente.id, productId } },
-    create: { clienteId: cliente.id, productId, nota },
-    update: { nota },
-  })
-  revalidarEsperas()
-  return ok()
 }
 
 // Ya se le avisó o ya no la quiere: sale de la lista. deleteMany para que un doble clic no falle.

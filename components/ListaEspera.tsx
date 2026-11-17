@@ -75,6 +75,17 @@ export default function ListaEspera({ productId, pieza, stock, esperas, clientes
             {clientes.map(n => <option key={n} value={n} />)}
           </datalist>
         </label>
+        <label className="block min-w-40 flex-1">
+          <span className="block text-xs font-medium text-gray-500 mb-1">Teléfono <span className="text-red-700" aria-hidden="true">*</span><span className="sr-only">(obligatorio)</span></span>
+          <input
+            name="telefono"
+            type="tel"
+            inputMode="tel"
+            autoComplete="off"
+            placeholder="vacío si ya lo tiene"
+            className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+        </label>
         <label className="block min-w-40 flex-[2]">
           <span className="block text-xs font-medium text-gray-500 mb-1">Nota (opcional)</span>
           <input

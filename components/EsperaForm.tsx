@@ -342,6 +342,10 @@ export default function EsperaForm({ action, clientes, ensambles }: Props) {
                 {clientes.map(n => <option key={n} value={n} />)}
               </datalist>
             </label>
+            <label className={etiqueta}>
+              <span>Teléfono <span className="text-red-700" aria-hidden="true">*</span><span className="sr-only">(obligatorio)</span></span>
+              <input name="telefono" type="tel" inputMode="tel" autoComplete="off" placeholder="0414-1234567 (vacío si ya lo tiene anotado)" className={campo} />
+            </label>
           </div>
 
           <div className="p-4 sm:p-5">
