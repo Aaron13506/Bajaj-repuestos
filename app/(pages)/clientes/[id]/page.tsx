@@ -100,10 +100,11 @@ export default async function ClienteDetailPage({
               />
             </label>
             <label className="block">
-              <span className="block text-xs font-medium text-gray-500 mb-1">Teléfono</span>
+              <span className="block text-xs font-medium text-gray-500 mb-1">Teléfono <span className="text-red-700" aria-hidden="true">*</span><span className="sr-only">(obligatorio)</span></span>
               <input
                 type="tel"
                 name="telefono"
+                required
                 defaultValue={cliente.telefono ?? ''}
                 className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />

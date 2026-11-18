@@ -517,8 +517,8 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                   <input type="text" name="nuevoClienteNombre" required autoComplete="off" className={campo} />
                 </label>
                 <label className={etiqueta}>
-                  Teléfono (opcional)
-                  <input type="tel" name="nuevoClienteTelefono" autoComplete="off" className={campo} />
+                  <span>Teléfono <span className="text-red-700" aria-hidden="true">*</span><span className="sr-only">(obligatorio)</span></span>
+                  <input type="tel" name="nuevoClienteTelefono" required placeholder="0414-1234567" autoComplete="off" className={campo} />
                 </label>
               </div>
             )}

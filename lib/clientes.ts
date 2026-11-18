@@ -2,6 +2,8 @@ import { Prisma } from '@prisma/client'
 import { isUniqueViolation } from '@/lib/prisma-errors'
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
+import { ErrorDeNegocio } from '@/lib/action-result'
+import { telefonoIntl } from '@/lib/utils'
 
 // Solo un pedido CONFIRMADO cuenta como venta. Un presupuesto sin aprobar todavía
 // puede caerse, así que no debe inflar el total vendido ni el saldo del cliente.
@@ -21,15 +23,38 @@ export function findClienteByNombre(nombre: string) {
 
 // Devuelve el cliente y si hubo que crearlo (el llamador avisa cuando ya existía en
 // vez de crear un duplicado silencioso).
+// Ningún cliente sin teléfono completo: es por donde se le cobra y se le avisa (WhatsApp).
+// Null = está bien. Lo usan todos los caminos que crean, editan o eligen un cliente.
+export function motivoSinTelefono(nombre: string, telefono: string | null | undefined): string | null {
+  if (!telefono?.trim()) return `Falta el teléfono de ${nombre}: ningún cliente puede quedar sin teléfono.`
+  if (!telefonoIntl(telefono)) return `El teléfono de ${nombre} no está completo: escribilo con el código, ej. 0414-1234567.`
+  return null
+}
+
+// Un cliente ya guardado (elegido de la lista) sin teléfono no se usa hasta cargárselo en su ficha.
+export function exigirTelefono<C extends { nombre: string; telefono: string | null }>(cliente: C): C {
+  const motivo = motivoSinTelefono(cliente.nombre, cliente.telefono)
+  if (motivo) throw new ErrorDeNegocio(`${motivo} Cargalo en su ficha de Clientes.`)
+  return cliente
+}
+
+// El teléfono escrito reemplaza al guardado; vacío solo vale si el que ya existe tiene uno.
+// Lanza ErrorDeNegocio (el llamador lo envuelve con conErrorDeNegocio) ANTES de crear nada.
 export async function findOrCreateCliente(
   nombre: string,
   telefono?: string | null,
 ): Promise<{ cliente: { id: number; nombre: string }; created: boolean }> {
+  const tel = telefono?.trim() || null
   const existing = await findClienteByNombre(nombre)
-  if (existing) return { cliente: existing, created: false }
+  const motivo = motivoSinTelefono(existing?.nombre ?? nombre, tel ?? existing?.telefono)
+  if (motivo) throw new ErrorDeNegocio(motivo)
+  if (existing) {
+    if (tel && tel !== existing.telefono) await db.cliente.update({ where: { id: existing.id }, data: { telefono: tel } })
+    return { cliente: existing, created: false }
+  }
 
   try {
-    const cliente = await db.cliente.create({ data: { nombre, telefono: telefono || null } })
+    const cliente = await db.cliente.create({ data: { nombre, telefono: tel } })
     return { cliente, created: true }
   } catch (e) {
     // Otro submit lo creó entre el find y el create: nos quedamos con el que ganó.

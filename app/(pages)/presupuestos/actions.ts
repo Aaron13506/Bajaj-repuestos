@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { type BundlePiece } from '@/lib/bundle'
 import { claveLinea, nombreEnsamble, type RefLinea } from '@/lib/linea-pedido'
-import { findOrCreateCliente, revalidateClientes } from '@/lib/clientes'
+import { exigirTelefono, findOrCreateCliente, revalidateClientes } from '@/lib/clientes'
 import { isDelivered } from '@/lib/shipping-status'
 import { listarFaltantes, piezasDeLinea, type LineaStock } from '@/lib/stock-piezas'
 import { resolverDePiezas } from '@/lib/inventario'
@@ -139,7 +139,8 @@ async function resolveCliente(formData: FormData) {
   }
   const id = parseInt(clienteIdRaw)
   if (isNaN(id)) return null
-  return db.cliente.findUnique({ where: { id } })
+  const cliente = await db.cliente.findUnique({ where: { id } })
+  return cliente && exigirTelefono(cliente)
 }
 
 // Devuelve `ActionResult` (y no `void`): en el éxito hace `redirect`, así que lo único que

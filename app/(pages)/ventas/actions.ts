@@ -3,7 +3,7 @@
 import { db } from '@/lib/db'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { findOrCreateCliente, revalidateClientes } from '@/lib/clientes'
+import { exigirTelefono, findOrCreateCliente, revalidateClientes } from '@/lib/clientes'
 import { ErrorDeNegocio, conErrorDeNegocio, type ActionResult } from '@/lib/action-result'
 import { escalonBcvVigente } from '@/lib/calc'
 import { toConfigMap } from '@/lib/config'
@@ -122,7 +122,8 @@ async function resolverCliente(formData: FormData) {
     return (await findOrCreateCliente(nombre, telefono)).cliente
   }
   const id = parseInt(raw)
-  return Number.isNaN(id) ? null : db.cliente.findUnique({ where: { id } })
+  const cliente = Number.isNaN(id) ? null : await db.cliente.findUnique({ where: { id } })
+  return cliente && exigirTelefono(cliente)
 }
 
 // Un cobro del formulario (`sufijo` '' o '2'). Vacío = todavía no pagó; un número ilegible o

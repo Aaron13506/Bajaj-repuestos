@@ -1733,8 +1733,8 @@ export default function PresupuestoBuilder({
                     value={nuevoTelefono}
                     onChange={e => setNuevoTelefono(e.target.value)}
                     type="tel"
-                    aria-label="Teléfono del cliente nuevo (opcional)"
-                    placeholder="Teléfono del cliente nuevo (opcional)"
+                    aria-label="Teléfono del cliente nuevo (obligatorio)"
+                    placeholder="Teléfono del cliente nuevo *"
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                 )}
