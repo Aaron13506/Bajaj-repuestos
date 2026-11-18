@@ -19,6 +19,7 @@
 import { calcEnvio, calcLanded, calcPrecioBcv, cobrableConBanda, type ConfigMap, type EnvioItemInput, type ProveedorEnvio } from '../lib/calc'
 import { telefonoIntl } from '../lib/utils'
 import { mensajeEstado, VERSIONES_VENEZUELA } from '../lib/mensajes-cliente'
+import { avisoDeCambio } from '../lib/aviso-tracking'
 import {
   compararCompra, MONTOS_VACIOS,
   type MontosProveedor, type PiezaCompra, type ProveedorOpcion,
@@ -2042,6 +2043,20 @@ console.log('\nREENVÍO POR KILO POR PIEZA (catálogo y presupuestos)')
   check('cambiar reenvío: con una línea en una caja, no', si(motivoReenvioFijo({ via: 'normal', status: 'pedido', enCaja: true }) != null), 1)
   check('cambiar reenvío: express, no', si(motivoReenvioFijo({ via: 'express', status: 'pedido', enCaja: false }) != null), 1)
   check('cambiar reenvío: cancelado, no', si(motivoReenvioFijo({ via: 'normal', status: 'cancelado', enCaja: false }) != null), 1)
+}
+
+// Aviso al teléfono (ntfy): solo cuando el último evento cambió.
+{
+  const si = (b: boolean) => (b ? 1 : 0)
+  const c = { envioId: 12, caja: null, tramo: 'usa', numero: 'SHP-1', antes: 'Picked up', evento: 'Departed DEL', estado: 'in_transit' }
+  check('aviso: evento nuevo avisa', si(avisoDeCambio(c) != null), 1)
+  check('aviso: mismo evento no avisa', si(avisoDeCambio({ ...c, evento: 'Picked up' }) == null), 1)
+  check('aviso: sin evento no avisa', si(avisoDeCambio({ ...c, evento: null }) == null), 1)
+  check('aviso: primer evento (antes vacío) avisa', si(avisoDeCambio({ ...c, antes: null }) != null), 1)
+  check('aviso: sin nombre se titula Caja #id', si(avisoDeCambio(c)!.title.includes('Caja #12 · USA')), 1)
+  check('aviso: un problema sube la prioridad', avisoDeCambio({ ...c, estado: 'exception' })!.priority, 4)
+  check('aviso: con APP_URL lleva link a la caja', si(avisoDeCambio(c, 'https://x.ts.net')!.click === 'https://x.ts.net/envios/12'), 1)
+  check('aviso: sin APP_URL no lleva link', si(!('click' in avisoDeCambio(c)!)), 1)
 }
 
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)

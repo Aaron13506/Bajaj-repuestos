@@ -13,6 +13,7 @@ import {
   datosDeTracking, ErrorTrack123, ESTADOS_FINALES, T123_LOTE, T123_PAUSA_MS, type Courier, type CuerpoRegistro,
   type TrackingT123,
 } from './track123'
+import { avisarCambio } from './aviso-tracking'
 import { credencialesOneway, detalleOneway, entrarOneway, ErrorOneway, ONEWAY_CODE, pedidosOneway } from './oneway'
 
 const esperar = (ms: number) => new Promise(r => setTimeout(r, ms))
@@ -46,7 +47,10 @@ export type ResumenSync = {
   error?: string
 }
 
-type Fila = { id: number; envioId: number; tramo: string; numero: string; courierCode: string | null; trackerId: string | null }
+type Fila = {
+  id: number; envioId: number; tramo: string; numero: string; courierCode: string | null; trackerId: string | null
+  ultimoEvento: string | null; envio: { nombre: string | null }
+}
 
 const dondeFila = (f: Fila) => ({ id: f.id, numero: f.numero, courierCode: f.courierCode })
 
@@ -65,8 +69,13 @@ async function guardar(f: Fila, t: TrackingT123) {
       errorSeguimiento: null,
     },
   })
+  if (r.count > 0) await avisar(f, d.ultimoEvento, d.estado)
   return r.count
 }
+
+const avisar = (f: Fila, evento: string | null, estado: string | null) => avisarCambio({
+  envioId: f.envioId, caja: f.envio.nombre, tramo: f.tramo, numero: f.numero, antes: f.ultimoEvento, evento, estado,
+})
 
 async function marcarError(f: Fila, error: string) {
   await db.envioTracking.updateMany({ where: dondeFila(f), data: { errorSeguimiento: error, consultadoEn: new Date() } })
@@ -97,7 +106,7 @@ export async function sincronizarTrackings({ envioId }: { envioId?: number } = {
         OR: [{ estado: null }, { estado: { notIn: [...ESTADOS_FINALES] } }],
         ...(envioId != null ? { envioId } : {}),
       },
-      select: { id: true, envioId: true, tramo: true, numero: true, courierCode: true, trackerId: true },
+      select: { id: true, envioId: true, tramo: true, numero: true, courierCode: true, trackerId: true, ultimoEvento: true, envio: { select: { nombre: true } } },
       orderBy: { id: 'asc' },
     })
     const couriers = new Set((await listaCouriers()).map(c => c.code))
@@ -191,7 +200,7 @@ export async function sincronizarOneway({ envioId }: { envioId?: number } = {}):
       OR: [{ estado: null }, { estado: { notIn: [...ESTADOS_FINALES] } }],
       ...(envioId != null ? { envioId } : {}),
     },
-    select: { id: true, envioId: true, tramo: true, numero: true, courierCode: true, trackerId: true },
+    select: { id: true, envioId: true, tramo: true, numero: true, courierCode: true, trackerId: true, ultimoEvento: true, envio: { select: { nombre: true } } },
     orderBy: { id: 'asc' },
   })
   if (filas.length === 0) return resumen
@@ -223,6 +232,7 @@ export async function sincronizarOneway({ envioId }: { envioId?: number } = {}):
         },
       })
       resumen.actualizados += r.count
+      if (r.count > 0) await avisar(f, d.eventos[0].detalle, d.estado)
       await esperar(1000)
     }
     return resumen
