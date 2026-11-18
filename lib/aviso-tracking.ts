@@ -27,7 +27,8 @@ export function avisoDeCambio(c: CambioTracking, appUrl?: string) {
   return {
     title: `${meta?.icon ?? '📦'} ${c.caja?.trim() || `Caja #${c.envioId}`} · ${tramo}`,
     message: `${meta ? `${meta.label} — ` : ''}${c.evento}\n${c.numero}`,
-    priority: c.estado && PROBLEMA.has(c.estado) ? 4 : 3,
+    // ntfy.sh solo manda a Firebase como "high" desde 4; con 3 Android lo difiere o lo pierde en reposo.
+    priority: c.estado && PROBLEMA.has(c.estado) ? 5 : 4,
     ...(link ? { click: link, actions: [{ action: 'view', label: 'Ver caja', url: link }] } : {}),
   }
 }
