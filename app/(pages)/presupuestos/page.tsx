@@ -18,7 +18,7 @@ import { modeloLabel, toModelIds } from '@/lib/modelo'
 import { motivoNoEntregable } from '@/lib/saldo-entrega'
 import { mensajeEstado } from '@/lib/mensajes-cliente'
 import { METODOS_PAGO_INGRESO } from '@/lib/pagos'
-import { telefonoIntl } from '@/lib/utils'
+import { enlaceWhatsApp, telefonoIntl } from '@/lib/utils'
 import { ESTADOS_LISTA, PRIORIDAD_LISTA, entregable, estadoLista, etapaVisible, type EstadoLista } from '@/lib/pedido-lista'
 
 export const metadata = { title: 'Presupuestos' }
@@ -271,7 +271,7 @@ export default async function PresupuestosPage({
               <>
                 {/* Sin teléfono, wa.me deja elegir el contacto en WhatsApp. */}
                 <a
-                  href={`https://wa.me/${tel ?? ''}?text=${encodeURIComponent(aviso ?? '')}`}
+                  href={enlaceWhatsApp(tel, aviso ?? '')}
                   target="_blank"
                   rel="noopener noreferrer"
                   className={BOTON.whatsapp}

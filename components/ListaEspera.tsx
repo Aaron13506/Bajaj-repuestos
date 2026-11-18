@@ -3,7 +3,7 @@ import DeleteButton from '@/components/DeleteButton'
 import PendingButton from '@/components/PendingButton'
 import FormConResultado from '@/components/FormConResultado'
 import { agregarEspera, quitarEspera } from '@/app/(pages)/clientes/actions'
-import { telefonoIntl } from '@/lib/utils'
+import { enlaceWhatsApp, telefonoIntl } from '@/lib/utils'
 
 // Lista de espera de una pieza en su ficha: quién preguntó, en orden de llegada (al primero se le
 // avisa primero), y el formulario para anotar a alguien más.
@@ -42,7 +42,7 @@ export default function ListaEspera({ productId, pieza, stock, esperas, clientes
                 </span>
                 {/* Sin teléfono, wa.me deja elegir el contacto en WhatsApp. */}
                 <a
-                  href={`https://wa.me/${tel ?? ''}?text=${encodeURIComponent(avisoEspera(e.cliente.nombre, pieza))}`}
+                  href={enlaceWhatsApp(tel, avisoEspera(e.cliente.nombre, pieza))}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-green-700 hover:underline"

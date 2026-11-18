@@ -3,7 +3,7 @@ import { db } from '@/lib/db'
 import DeleteButton from '@/components/DeleteButton'
 import { avisoEspera } from '@/components/ListaEspera'
 import { quitarEspera } from '../clientes/actions'
-import { telefonoIntl } from '@/lib/utils'
+import { enlaceWhatsApp, telefonoIntl } from '@/lib/utils'
 
 export const metadata = { title: 'Lista de espera' }
 
@@ -195,7 +195,7 @@ function Acciones({ f }: { f: { id: number; pieza: string; llego: boolean; clien
     <div className="flex items-center justify-end gap-2 whitespace-nowrap">
       {/* Sin teléfono, wa.me deja elegir el contacto en WhatsApp. */}
       <a
-        href={`https://wa.me/${tel ?? ''}?text=${encodeURIComponent(avisoEspera(f.cliente.nombre, f.pieza))}`}
+        href={enlaceWhatsApp(tel, avisoEspera(f.cliente.nombre, f.pieza))}
         target="_blank"
         rel="noopener noreferrer"
         className={`inline-flex items-center min-h-8 px-3 rounded-lg text-xs font-medium ${

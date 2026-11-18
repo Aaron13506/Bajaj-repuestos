@@ -29,7 +29,7 @@ import { escalonBcvVigente, type ConfigMap } from '@/lib/calc'
 import { aDolarBcv, resumenCobro } from '@/lib/cobro-bcv'
 import { getTerminos } from '@/lib/terminos'
 import { METODOS_PAGO_EGRESO, METODOS_PAGO_INGRESO } from '@/lib/pagos'
-import { compararNombre, telefonoIntl, toFileName } from '@/lib/utils'
+import { compararNombre, enlaceWhatsApp, telefonoIntl, toFileName } from '@/lib/utils'
 import type { PresupuestoPdfData } from '@/lib/pdf/presupuesto-pdf'
 import { isDelivered, stageSummary, statusIndex } from '@/lib/shipping-status'
 import { etapaVisible } from '@/lib/pedido-lista'
@@ -46,7 +46,7 @@ import { devolucionSugerida, motivoNoCancelable, resumenCancelacion } from '@/li
 import { estadoLinea } from '@/lib/pedido-edicion'
 import { etiquetaPieza, tiposPara, tiposParaPropio, TIPO_LABELS } from '@/lib/incidencias'
 import { motivoNoEntregable, saldoReal } from '@/lib/saldo-entrega'
-import { mensajeEstado } from '@/lib/mensajes-cliente'
+import { mensajeEstado, VERSIONES_VENEZUELA, type MensajeInput } from '@/lib/mensajes-cliente'
 import { motivoExpressNoAprobable, plazoExpress } from '@/lib/express'
 import { expressDelPedido } from '@/lib/express-pedido'
 
@@ -253,15 +253,18 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
   const tasaDevolucion = num(cfg, 'bsd_usd_rate', 0)
   // Pedido de cliente en curso: el WhatsApp lleva escrito cómo va, y al llegar, lo que falta pagar.
   const tel = telefonoIntl(presupuesto.cliente?.telefono)
-  const avisoEstado = isConfirmadoCliente && compra
+  const aviso = (version?: MensajeInput['version']) => isConfirmadoCliente && compra
     ? mensajeEstado({
         nombre: presupuesto.clientName,
         pedidoId: id,
         etapa: compra.lead.value,
+        version,
         porComprar: compra.pendientes,
         porPagar: { usd: cobro.saldoBcv, bcv: modoBcv, bs: modoBcv && tasaBcv > 0 ? cobro.saldoBcv * tasaBcv : null, divisas: cobro.saldoReal },
       })
     : null
+  const avisoEstado = aviso()
+  const waTexto = (texto: string) => enlaceWhatsApp(tel, texto)
   // Lo que falta entregar, con por qué no se puede todavía (las mismas reglas que confirmarEntrega).
   const porEntregar: LineaEntrega[] = isConfirmadoCliente
     ? items.filter(it => !isDelivered(it.shippingStatus)).map(it => ({
@@ -518,9 +521,17 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {!isPropio && (avisoEstado ? (
-            // Sin teléfono, wa.me deja elegir el contacto en WhatsApp.
-            <a href={`https://wa.me/${tel ?? ''}?text=${encodeURIComponent(avisoEstado)}`} target="_blank" rel="noopener noreferrer" className={BOTON.whatsapp}>
+          {/* Sin teléfono, wa.me deja elegir el contacto en WhatsApp. */}
+          {!isPropio && (avisoEstado && compra?.lead.value === 'camino_venezuela' ? (
+            <MenuMas etiqueta="Avisar por WhatsApp: elegir en qué va" texto="Avisar por WhatsApp" clase={BOTON.whatsapp}>
+              {VERSIONES_VENEZUELA.map(v => (
+                <a key={v.value} href={waTexto(aviso(v.value)!)} target="_blank" rel="noopener noreferrer" className={ITEM_MENU}>
+                  {v.label}
+                </a>
+              ))}
+            </MenuMas>
+          ) : avisoEstado ? (
+            <a href={waTexto(avisoEstado)} target="_blank" rel="noopener noreferrer" className={BOTON.whatsapp}>
               {compra?.lead.value === 'en_venezuela' ? 'Avisar que llegó' : 'Avisar por WhatsApp'}
             </a>
           ) : tel && (

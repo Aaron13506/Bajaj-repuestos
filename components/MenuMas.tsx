@@ -5,7 +5,9 @@ import { useEffect, useRef } from 'react'
 // El menú "Más" de un pedido: un <details> nativo (teclado y estado expandido gratis) que además
 // se cierra al tocar afuera o con Escape. Sus opciones pueden abrir un modal: mientras haya uno
 // abierto adentro, Escape es del modal y el menú no se cierra (cerrarlo ocultaría el modal).
-export default function MenuMas({ children, etiqueta = 'Más acciones' }: { children: React.ReactNode; etiqueta?: string }) {
+export default function MenuMas({ children, etiqueta = 'Más acciones', texto = 'Más', clase }: {
+  children: React.ReactNode; etiqueta?: string; texto?: React.ReactNode; clase?: string
+}) {
   const ref = useRef<HTMLDetailsElement>(null)
 
   useEffect(() => {
@@ -31,9 +33,9 @@ export default function MenuMas({ children, etiqueta = 'Más acciones' }: { chil
     <details ref={ref} className="relative">
       <summary
         aria-label={etiqueta}
-        className="list-none [&::-webkit-details-marker]:hidden inline-flex items-center justify-center gap-1.5 min-h-9 px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 cursor-pointer"
+        className={`list-none [&::-webkit-details-marker]:hidden cursor-pointer ${clase ?? 'inline-flex items-center justify-center gap-1.5 min-h-9 px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-300 bg-white text-gray-700 hover:bg-gray-50'}`}
       >
-        Más <span aria-hidden="true">▾</span>
+        {texto} <span aria-hidden="true">▾</span>
       </summary>
       <div className="absolute right-0 z-20 mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-gray-200 bg-white p-1 shadow-lg">
         {children}

@@ -70,3 +70,9 @@ export function telefonoIntl(tel: string | null | undefined): string | null {
   }
   return d.length >= 11 ? d : null
 }
+
+// Chat de WhatsApp con el texto ya escrito. Directo a api.whatsapp.com y no wa.me: la
+// redirección de wa.me rompe los emojis (llegan como �). Sin teléfono, WhatsApp deja elegir el contacto.
+export function enlaceWhatsApp(tel: string | null, texto: string): string {
+  return `https://api.whatsapp.com/send?${tel ? `phone=${tel}&` : ''}text=${encodeURIComponent(texto)}`
+}

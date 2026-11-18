@@ -18,7 +18,7 @@
 
 import { calcEnvio, calcLanded, calcPrecioBcv, cobrableConBanda, type ConfigMap, type EnvioItemInput, type ProveedorEnvio } from '../lib/calc'
 import { telefonoIntl } from '../lib/utils'
-import { mensajeEstado } from '../lib/mensajes-cliente'
+import { mensajeEstado, VERSIONES_VENEZUELA } from '../lib/mensajes-cliente'
 import {
   compararCompra, MONTOS_VACIOS,
   type MontosProveedor, type PiezaCompra, type ProveedorOpcion,
@@ -1537,9 +1537,20 @@ console.log('\nMENSAJE AL CLIENTE')
   const llego = mensajeEstado({ ...base, etapa: 'en_venezuela', porPagar: { usd: 120, bcv: true, bs: 24000, divisas: 100 } })
   check('llegó: dice el monto BCV, los Bs y las divisas', si(llego.includes('$120.00') && llego.includes('Bs 24.000,00') && llego.includes('$100.00')), 1)
   check('nunca dice "saldo"', si(/saldo/i.test(llego)), 0)
-  check('llegó y pagado: no pide plata', si(mensajeEstado({ ...base, etapa: 'en_venezuela' }).includes('pagado en su totalidad')), 1)
+  check('llegó y pagado: no pide plata', si(mensajeEstado({ ...base, etapa: 'en_venezuela' }).includes('pagado completo')), 1)
+  check('saluda con el nombre de pila', si(mensajeEstado({ ...base, nombre: '  samuel Alvarado ', etapa: 'en_usa' }).startsWith('Hola, Samuel!')), 1)
   check('en camino no habla de plata', si(mensajeEstado({ ...base, etapa: 'camino_usa', porPagar: { usd: 50, bcv: false, bs: null, divisas: 50 } }).includes('$')), 0)
   check('avisa lo que falta comprar', si(mensajeEstado({ ...base, etapa: 'en_venezuela', porComprar: 2 }).includes('Quedan 2 piezas')), 1)
+  const etapas = ['pendiente', 'camino_shoppre', 'en_shoppre', 'camino_usa', 'en_usa', 'camino_venezuela', 'en_venezuela', 'entregado'] as const
+  check('nunca nombra USA (no revela la ruta)', etapas.filter(e => /estados unidos|usa|miami/i.test(mensajeEstado({ ...base, etapa: e }))).length, 0)
+  const todos = [
+    ...etapas.map(e => mensajeEstado({ ...base, etapa: e, porComprar: 1, porPagar: { usd: 10, bcv: true, bs: 2000, divisas: 9 } })),
+    ...VERSIONES_VENEZUELA.map(v => mensajeEstado({ ...base, etapa: 'camino_venezuela', version: v.value })),
+  ]
+  check('sin signos de apertura (¡ ¿)', todos.filter(t => /[¡¿]/.test(t)).length, 0)
+  check('camino a Venezuela: elige la versión', si(mensajeEstado({ ...base, etapa: 'camino_venezuela', version: 'aduana' }).includes('pasa por aduana')), 1)
+  check('camino a Venezuela sin versión: en tránsito', si(mensajeEstado({ ...base, etapa: 'camino_venezuela' }).includes('en camino a Venezuela')), 1)
+  check('la versión no cambia otra etapa', si(mensajeEstado({ ...base, etapa: 'en_usa', version: 'aduana' }).includes('aduana')), 0)
 }
 
 // ── Envío express: Shoppre directo a Venezuela, con tope de landed por paquete ──

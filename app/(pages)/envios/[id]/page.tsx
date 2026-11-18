@@ -40,7 +40,10 @@ import TrayectoCaja from '@/components/TrayectoCaja'
 import SeccionCaja from '@/components/SeccionCaja'
 import { piezasAContar } from '@/lib/conteo'
 import { etiquetaPieza, lineaNoViene, perdidaSugerida, sinEnviarDe, textoSinEnviar, tiposPara } from '@/lib/incidencias'
-import { statusIndex } from '@/lib/shipping-status'
+import { stageSummary, statusIndex } from '@/lib/shipping-status'
+import AvisarClientes, { type AvisoCliente } from '@/components/AvisarClientes'
+import { resumenCobro } from '@/lib/cobro-bcv'
+import { telefonoIntl } from '@/lib/utils'
 import { seEntregaDesdeElPedido } from '@/lib/saldo-entrega'
 import { TRAMOS_FLETE, CATEGORIAS_FLETE, estadoFlete } from '@/lib/flete-real'
 import { itemsSinCostoRealDeEnvio, CATEGORIAS_PAGO_PROVEEDOR, CATEGORIAS_REEMBOLSO_PROVEEDOR } from '@/lib/movimientos'
@@ -216,8 +219,11 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
         tipo: true,
         status: true,
         depositUsd: true,
-        items: { select: { salePrice: true, quantity: true, envioId: true } },
+        brechaEscalonPct: true,
+        cliente: { select: { telefono: true } },
+        items: { select: { salePrice: true, quantity: true, envioId: true, shippingStatus: true } },
       },
+      orderBy: { id: 'asc' },
     }),
     // El despiece de los ensambles que todavía hay que comprarle a 99rpm: cuántas unidades
     // entran por cada tilde. Es el dato que el snapshot del presupuesto NO tiene —ahí la
@@ -610,6 +616,24 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     })),
     pedidosCaja,
   )
+
+  // Los mismos mensajes y montos que el botón del detalle del pedido: etapa del pedido entero
+  // (no solo de lo que viaja acá) y saldo a dólar BCV con el escalón congelado al confirmar.
+  const tasaBcv = num(cfg, 'bcv_usd_rate', 0)
+  const avisos: AvisoCliente[] = pedidosCaja.flatMap(p => {
+    const compra = stageSummary(p.items)
+    if (p.tipo !== 'cliente' || p.status !== 'pedido' || !compra || compra.allDelivered) return []
+    const escalon = p.brechaEscalonPct != null ? Number(p.brechaEscalonPct) : null
+    const cobro = resumenCobro(p.items.map(it => ({ salePrice: Number(it.salePrice), quantity: it.quantity })), Number(p.depositUsd ?? 0), escalon)
+    const bcv = escalon != null
+    return [{
+      tel: telefonoIntl(p.cliente?.telefono),
+      input: {
+        nombre: p.clientName, pedidoId: p.id, etapa: compra.lead.value, porComprar: compra.pendientes,
+        porPagar: { usd: cobro.saldoBcv, bcv, bs: bcv && tasaBcv > 0 ? cobro.saldoBcv * tasaBcv : null, divisas: cobro.saldoReal },
+      },
+    }]
+  })
 
   // Piezas sin peso o sin medidas, por línea de pedido: el aviso vive en la tabla de ítems,
   // junto a quien la pidió, que es donde se puede ir a cargarlas.
@@ -1180,6 +1204,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                   </div>
                 ) : (
                   <>
+          {avisos.length > 0 && !esBorrador && <AvisarClientes avisos={avisos} />}
           <EnvioItemsTable
             envioId={envio.id}
             items={itemRows}
