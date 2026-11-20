@@ -69,7 +69,7 @@ export async function anotarEnRecepcion(recepcionId: number, raw: string, origen
   return conResultado(() => anotarCodigo(recepcionId, raw, origenDe(origen)))
 }
 
-export async function corregirFila(lineaId: number, total: number): Promise<{ ok: true; r: { contado: number } } | { ok: false; error: string; codigo?: string }> {
+export async function corregirFila(lineaId: number, total: number): Promise<{ ok: true; r: Awaited<ReturnType<typeof corregirConteo>> } | { ok: false; error: string; codigo?: string }> {
   return conResultado(() => corregirConteo(lineaId, total))
 }
 

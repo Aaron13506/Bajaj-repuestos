@@ -272,15 +272,18 @@ async function recepcionDeLinea(tx: Tx, lineaId: number) {
 }
 
 // "Eran 20, no 2": una lectura manual con la diferencia. 0 = la busqué y no está (o "descartar").
-export async function corregirConteo(lineaId: number, nuevoTotal: number): Promise<{ contado: number }> {
+export async function corregirConteo(lineaId: number, nuevoTotal: number): Promise<{ contado: number; para: Awaited<ReturnType<typeof paraQuien>> }> {
   if (!Number.isInteger(nuevoTotal) || nuevoTotal < 0) throw new ErrorDeNegocio('La cantidad tiene que ser un entero, 0 o más.')
   return db.$transaction(async tx => {
     const { recepcionId } = await recepcionDeLinea(tx, lineaId)
     await bloquearRecepcion(tx, recepcionId)
     const { contado } = (await recepcionDeLinea(tx, lineaId))
-    if (contado === nuevoTotal) return { contado }
+    if (contado === nuevoTotal) return { contado, para: [] }
     const s = await sumar(tx, recepcionId, lineaId, null, nuevoTotal - (contado ?? 0), 'manual')
-    return { contado: s.contado }
+    // Al sumar con + también dice para qué cliente es lo agregado.
+    const f = await tx.recepcionLinea.findUniqueOrThrow({ where: { id: lineaId }, select: { codigo: true, nombre: true, esperado: true } })
+    const para = s.contado > (contado ?? 0) && f.esperado > 0 ? await paraQuien(tx, recepcionId, claveDe(f.codigo, f.nombre), contado ?? 0, s.contado) : []
+    return { contado: s.contado, para }
   }, TX_OPTS)
 }
 

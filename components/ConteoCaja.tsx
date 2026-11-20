@@ -24,6 +24,12 @@ type Aviso =
   | { tono: 'varias'; filas: { lineaId: number; codigo: string | null; nombre: string }[] }
 
 
+// "Para Juan (#12) ×1 · stock ×2": solo si algo de lo sumado es de un cliente.
+type Para = NonNullable<Extract<ResultadoLectura, { tipo: 'sumo' }>['para']>
+const textoPara = (para: Para = []) => para.some(d => d.cliente != null)
+  ? 'Para ' + para.map(d => `${d.cliente ?? 'stock'}${d.pedidoId != null ? ` (#${d.pedidoId})` : ''}${para.length > 1 || d.unidades > 1 ? ` ×${d.unidades}` : ''}`).join(' · ')
+  : undefined
+
 // El conteo de una recepción abierta (docs/plan-inventario/03-recepcion.md y 07-casos-telefono.md).
 // El mismo en la laptop (pestaña Llegada de la caja) y en el teléfono (/escanear/recepcion/[id]):
 // cada lectura va al servidor (lib/recepcion-db) y la pantalla pinta lo que contestó, así nunca
@@ -112,17 +118,19 @@ export default function ConteoCaja({ vista, volver, telefono = false, estimadas,
       texto: `+${res.cantidad}${bolsa ? ' bolsa' : ''} ${res.codigo ?? ''} · ${limpiarNombre(res.nombre)} → ${res.esperado === 0 ? `${res.contado} (no esperada)` : marca(res.contado, res.esperado)}` +
         (!ciego && sobran > 0 ? ` · sobran ${sobran}` : '') + (res.leidoComo ? ` · leído como ${res.leidoComo}` : '') +
         (!res.enCatalogo || !aStock ? '' : res.ubicacion ? ` · va a ${res.ubicacion}` : ' · sin ubicación: escaneá el estante'),
-      para: deCliente
-        ? 'Para ' + para.map(d => `${d.cliente ?? 'stock'}${d.pedidoId != null ? ` (#${d.pedidoId})` : ''}${para.length > 1 || d.unidades > 1 ? ` ×${d.unidades}` : ''}`).join(' · ')
-        : undefined,
+      para: textoPara(para),
       lecturaId: res.lecturaId,
       bolsa: bolsa ? { lineaId: res.lineaId, cantidad: res.cantidad, contado: res.contado } : undefined,
     })
-    // Una pregunta abierta con el formulario a medio llenar no la pisa la lectura siguiente.
-    const codigo = res.codigo
-    const preguntar = codigo != null && estimadas?.[codigo] != null && !noMedir.has(codigo)
-    setAMedir(a => (a?.midiendo ? a : preguntar ? { codigo, cantidad: res.cantidad, midiendo: false } : null))
+    ofrecerMedir(res.codigo, res.cantidad)
     return tono
+  }
+
+  // La pregunta de medir, al escanear o al sumar con +. Una pregunta abierta con el formulario a
+  // medio llenar no la pisa la lectura siguiente.
+  function ofrecerMedir(codigo: string | null, cantidad: number) {
+    const preguntar = codigo != null && estimadas?.[codigo] != null && !noMedir.has(codigo)
+    setAMedir(a => (a?.midiendo ? a : preguntar ? { codigo, cantidad, midiendo: false } : null))
   }
 
   // Cada acción espera al servidor: la pantalla solo suma lo que quedó guardado.
@@ -167,7 +175,8 @@ export default function ConteoCaja({ vista, volver, telefono = false, estimadas,
     if (!Number.isInteger(total) || total < 0 || total === f.contado) return
     void simple(() => corregirFila(f.id, total), res => {
       fijar(f.id, res.contado)
-      setAviso({ tono: 'ok', texto: `${f.codigo ?? limpiarNombre(f.nombre)} → ${f.esperado > 0 ? marca(res.contado, f.esperado) : res.contado}` })
+      setAviso({ tono: 'ok', texto: `${f.codigo ?? limpiarNombre(f.nombre)} → ${f.esperado > 0 ? marca(res.contado, f.esperado) : res.contado}`, para: textoPara(res.para) })
+      if (res.contado > (f.contado ?? 0)) ofrecerMedir(f.codigo, res.contado - (f.contado ?? 0))
     })
   }
 
