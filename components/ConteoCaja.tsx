@@ -23,8 +23,6 @@ type Aviso =
   | { tono: Senal; texto: string; para?: string; lecturaId?: number; bolsa?: { lineaId: number; cantidad: number; contado: number }; ofrecer?: { raw: string; origen: OrigenLectura; crear: string | null } }
   | { tono: 'varias'; filas: { lineaId: number; codigo: string | null; nombre: string }[] }
 
-// Una etiqueta de caja o bolsa (SKU-cantidad-MRP) la mandó un lector; lo tecleado a mano no la trae.
-const origenTecleado = (raw: string): OrigenLectura => (/^[A-Z0-9]+[^A-Z0-9]+\d+[^A-Z0-9]/i.test(raw.trim()) ? 'lector' : 'manual')
 
 // El conteo de una recepción abierta (docs/plan-inventario/03-recepcion.md y 07-casos-telefono.md).
 // El mismo en la laptop (pestaña Llegada de la caja) y en el teléfono (/escanear/recepcion/[id]):
@@ -274,7 +272,7 @@ export default function ConteoCaja({ vista, volver, telefono = false, estimadas,
   const panel = (
     <div className="space-y-3">
       {avisoVista}
-      <form role="search" className="flex flex-wrap gap-2" onSubmit={e => { e.preventDefault(); if (texto.trim()) void leer(texto, origenTecleado(texto)) }}>
+      <form role="search" className="flex flex-wrap gap-2" onSubmit={e => e.preventDefault()}>
         <input
           type="search"
           value={texto}
@@ -282,11 +280,11 @@ export default function ConteoCaja({ vista, volver, telefono = false, estimadas,
           autoFocus={!telefono}
           enterKeyHint="go"
           autoComplete="off"
-          aria-label="Código, parte del código o nombre"
-          placeholder="Escaneá o tecleá el código (o parte) + Enter"
+          aria-label="Buscar por código o nombre"
+          placeholder="Buscar por código o nombre"
           className={`min-w-0 flex-1 rounded-lg border border-gray-300 px-3 font-mono ${telefono ? 'min-h-11 text-base' : 'min-h-9 text-sm'}`}
         />
-        <button type="submit" className={`${boton} rounded-lg bg-blue-600 font-semibold text-white`}>Sumar</button>
+        {/* Solo busca: se suma escaneando con la cámara o con + en la fila. */}
         {!camara && <button type="button" onClick={() => setCamara(true)} className={`${boton} rounded-lg bg-gray-900 font-semibold text-white`}>Cámara</button>}
         <button type="button" onClick={() => setSinId({ nota: '', cantidad: '1' })} className={`${boton} rounded-lg border border-gray-300 text-gray-700`}>Sin identificar</button>
       </form>
@@ -311,7 +309,7 @@ export default function ConteoCaja({ vista, volver, telefono = false, estimadas,
       <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200 bg-white">
         {visibles.map(f => <FilaConteo key={f.id} f={f} ciego={ciego} telefono={telefono} corregir={corregir} crearHref={crearHref}
           identificar={(raw) => void simple(() => identificarFila(f.id, raw), undefined, true)} />)}
-        {visibles.length === 0 && <li className="px-3 py-4 text-sm text-gray-600">Ninguna fila coincide con «{texto}». Enter la suma como lectura.</li>}
+        {visibles.length === 0 && <li className="px-3 py-4 text-sm text-gray-600">Ninguna fila coincide con «{texto}».</li>}
       </ul>
 
       {/* Cierre: lo que no coincide y, en cada faltante, qué se hace con el resto. */}
