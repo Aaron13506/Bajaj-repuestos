@@ -359,13 +359,29 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
               onChange={recalcFromCost}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
           </label>
-          <label className="block">
-            <span className="block text-sm font-medium text-gray-700 mb-1">Stock</span>
-            <input type="hidden" name="stockCargado" value={d.stock ?? 0} />
-            <input name="stock" type="number" min="0" defaultValue={d.stock ?? 0}
+          {/* Pieza nueva: el stock con que nace. Editando: un ajuste + / − con su motivo, que queda
+              en el kardex (lib/stock.ts); nunca el absoluto. */}
+          {d.stock == null ? (
+            <label className="block">
+              <span className="block text-sm font-medium text-gray-700 mb-1">Stock inicial</span>
+              <input name="stock" type="number" min="0" step="1" defaultValue={0}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+            </label>
+          ) : (
+            <label className="block">
+              <span className="block text-sm font-medium text-gray-700 mb-1">Ajustar stock (hay {d.stock})</span>
+              <input name="stockAjuste" type="number" step="1" placeholder="+3 o −2"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+            </label>
+          )}
+        </div>
+        {d.stock != null && (
+          <label className="block mt-3">
+            <span className="block text-sm font-medium text-gray-700 mb-1">Motivo del ajuste</span>
+            <input name="stockNota" type="text" placeholder="Obligatorio si ajustás: rota, conteo, regalo…"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
           </label>
-        </div>
+        )}
         <label className="flex items-center gap-2 mt-3 cursor-pointer">
           <input type="checkbox" name="medido" value="true" defaultChecked={d.medidoAt != null}
             className="w-4 h-4 rounded border-gray-300 accent-green-600" />

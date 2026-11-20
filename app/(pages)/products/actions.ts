@@ -1,5 +1,6 @@
 'use server'
 
+import { enlazarPiezaNueva } from '@/lib/recepcion-db'
 import { db } from '@/lib/db'
 import { compatibleModelsFrom } from '@/lib/modelo'
 import { reprice } from '@/lib/reprice'
@@ -14,6 +15,7 @@ import { ErrorDeNegocio, fallo, ok, type ActionResult } from '@/lib/action-resul
 import { copiarImagenAlBucket } from '@/lib/imagen-producto'
 import { motivoProductoEnUso } from '@/lib/producto-en-uso'
 import { cambioFisico, medidoAtDesde } from '@/lib/medido'
+import { moverStock, StockInsuficiente } from '@/lib/stock'
 
 // Costo, precio y margen autoritativos: salen de `reprice` (lib/reprice.ts), la misma regla que
 // la carga de medidas y la actualización de precios — no del JS del navegador, que pudo costear
@@ -90,17 +92,19 @@ function parseProductForm(formData: FormData, modelosActuales: string | null = n
   }
 }
 
-// Cuánto cambió el stock EN ESTE FORMULARIO: lo tipeado menos lo que el formulario mostraba
-// al abrirse (`stockCargado`). El stock se mueve solo (recibir un embarque suma, vender
-// resta), así que guardar el número absoluto pisaba cualquier movimiento ocurrido mientras
-// el formulario estaba abierto. Aplicar la diferencia respeta lo que pasó entre medio. Sin
-// `stockCargado` (una pestaña vieja) o con el campo ilegible no se toca el stock: ante la
-// duda, no inventar un número.
-function deltaDeStock(formData: FormData): number {
-  const nuevo = parseInt(String(formData.get('stock') ?? ''))
-  const cargado = parseInt(String(formData.get('stockCargado') ?? ''))
-  if (!Number.isFinite(nuevo) || !Number.isFinite(cargado)) return 0
-  return nuevo - cargado
+// El ajuste de stock del formulario: cuánto sumar o restar, no el absoluto. El stock se mueve
+// solo (recibir un embarque suma, vender resta), así que guardar el número absoluto pisaba
+// cualquier movimiento ocurrido mientras el formulario estaba abierto; aplicar la diferencia
+// respeta lo que pasó entre medio. Vacío = no se toca; ilegible se rechaza. Va al kardex como
+// `ajuste`, con su nota obligatoria.
+function deltaDeStock(formData: FormData): { delta: number; nota: string | null } | { error: string } {
+  const raw = String(formData.get('stockAjuste') ?? '').trim()
+  if (!raw) return { delta: 0, nota: null }
+  const delta = Number(raw)
+  if (!Number.isInteger(delta)) return { error: 'El ajuste de stock tiene que ser un número entero (con − para restar).' }
+  const nota = String(formData.get('stockNota') ?? '').trim() || null
+  if (delta !== 0 && !nota) return { error: 'Escribí por qué se ajusta el stock.' }
+  return { delta, nota }
 }
 
 // La foto se guarda desde NUESTRO bucket: una URL ajena se copia antes de escribir (ver
@@ -117,6 +121,15 @@ async function fotoParaGuardar(nueva: string | null, actual: string | null): Pro
 }
 
 export async function createProduct(formData: FormData): Promise<ActionResult> {
+  return crearProducto(formData, '/products')
+}
+
+// "Crear pieza" desde una recepción: al guardar vuelve al conteo (solo rutas internas).
+export async function createProductYVolver(volver: string, formData: FormData): Promise<ActionResult> {
+  return crearProducto(formData, volver.startsWith('/') && !volver.startsWith('//') ? volver : '/products')
+}
+
+async function crearProducto(formData: FormData, volver: string): Promise<ActionResult> {
   const parsed   = parseProductForm(formData)
   if (!parsed.nameEs) return fallo('El nombre en español es obligatorio.')
   const medidas = motivoMedidas(parsed, null)
@@ -130,7 +143,15 @@ export async function createProduct(formData: FormData): Promise<ActionResult> {
   const data = await conPrecioDelServidor(parsed)
 
   const medidoAt = medidoAtDesde(formData.get('medido') === 'true', null, true)
-  const product = await db.product.create({ data: { ...data, medidoAt } })
+  const { stock, ...sinStock } = data
+  if (stock < 0) return fallo('El stock inicial no puede ser negativo.')
+  const product = await db.$transaction(async tx => {
+    const p = await tx.product.create({ data: { ...sinStock, medidoAt } })
+    if (stock > 0) await moverStock(tx, [{ productId: p.id, cantidad: stock, motivo: 'alta' }])
+    return p
+  })
+  // Una recepción abierta que la anotó por su código ("no está en el catálogo") queda enlazada.
+  await enlazarPiezaNueva(product.id, product.bajajCode)
 
   if (ensambleId) {
     const eid = parseInt(ensambleId)
@@ -143,7 +164,7 @@ export async function createProduct(formData: FormData): Promise<ActionResult> {
 
   revalidatePath('/products')
   revalidatePath('/groups')
-  redirect('/products')
+  redirect(volver)
 }
 
 export async function updateProduct(id: number, formData: FormData): Promise<ActionResult> {
@@ -157,19 +178,24 @@ export async function updateProduct(id: number, formData: FormData): Promise<Act
   if (!parsed.nameEs) return fallo('El nombre en español es obligatorio.')
   const medidas = motivoMedidas(parsed, actual)
   if (medidas) return fallo(medidas)
-  const delta = deltaDeStock(formData)
-  if (actual.stock + delta < 0) {
-    return fallo(`El stock actual es ${actual.stock}: no se puede restar ${-delta}. Cambió desde que abriste el formulario.`)
-  }
+  const ajuste = deltaDeStock(formData)
+  if ('error' in ajuste) return fallo(ajuste.error)
+  const { delta } = ajuste
+  if (actual.stock + delta < 0) return fallo(`El stock actual es ${actual.stock}: no se puede restar ${-delta}.`)
   const foto = await fotoParaGuardar(parsed.imageUrl, actual.imageUrl)
   if ('error' in foto) return fallo(foto.error)
   parsed.imageUrl = foto.url
   const data = await conPrecioDelServidor(parsed)
   const medidoAt = medidoAtDesde(formData.get('medido') === 'true', actual.medidoAt, cambioFisico(data, actual))
-  await db.product.update({
-    where: { id },
-    data: { ...data, medidoAt, ...(delta !== 0 ? { stock: { increment: delta } } : {}) },
-  })
+  try {
+    await db.$transaction(async tx => {
+      await tx.product.update({ where: { id }, data: { ...data, medidoAt } })
+      if (delta !== 0) await moverStock(tx, [{ productId: id, cantidad: delta, motivo: 'ajuste', nota: ajuste.nota }])
+    })
+  } catch (e) {
+    if (e instanceof StockInsuficiente) return fallo(`No alcanza el stock para restar ${-delta}: cambió mientras editabas.`)
+    throw e
+  }
   revalidatePath('/products')
   revalidatePath('/envios')
   revalidatePath('/groups')
@@ -214,12 +240,23 @@ export async function quickUpdateProduct(
   })
   if (!actual) return fallo('Esa pieza ya no existe. Recargá la página.')
 
-  // El stock no se pisa con el absoluto del modal: se aplica la diferencia (ver deltaDeStock).
-  const deltaStock = deltaDeStock(formData)
-  if (actual.stock + deltaStock < 0) {
-    return fallo(`El stock actual es ${actual.stock}: no se puede restar ${-deltaStock}. Cambió desde que abriste la edición.`)
+  // El stock no se pisa con un absoluto: se aplica el ajuste (ver deltaDeStock).
+  const ajuste = deltaDeStock(formData)
+  if ('error' in ajuste) return fallo(ajuste.error)
+  if (actual.stock + ajuste.delta < 0) return fallo(`El stock actual es ${actual.stock}: no se puede restar ${-ajuste.delta}.`)
+  // Devuelve el fallo a mostrar, o null si guardó.
+  const guardar = async (data: Prisma.ProductUpdateInput) => {
+    try {
+      await db.$transaction(async tx => {
+        await tx.product.update({ where: { id }, data })
+        if (ajuste.delta !== 0) await moverStock(tx, [{ productId: id, cantidad: ajuste.delta, motivo: 'ajuste', nota: ajuste.nota }])
+      })
+      return null
+    } catch (e) {
+      if (e instanceof StockInsuficiente) return fallo(`No alcanza el stock para restar ${-ajuste.delta}: cambió mientras editabas.`)
+      throw e
+    }
   }
-  const ajusteStock = deltaStock !== 0 ? { stock: { increment: deltaStock } } : {}
 
   const campos = {
     nameEs:           str('nameEs'),
@@ -249,7 +286,7 @@ export async function quickUpdateProduct(
       await db.supplierPrice.deleteMany({ where: { productId: id, supplierId: activeSupplierId } })
     }
 
-    const data: Prisma.ProductUpdateInput = { ...campos, medidoAt, ...ajusteStock }
+    const data: Prisma.ProductUpdateInput = { ...campos, medidoAt }
     if (cambioMedidas) {
       const cfg = await getConfig()
       const rp = reprice(
@@ -263,12 +300,12 @@ export async function quickUpdateProduct(
       )
       Object.assign(data, rp.data)
     }
-    await db.product.update({ where: { id }, data })
+    const fallido = await guardar(data)
+    if (fallido) return fallido
   } else {
     const data = await conPrecioDelServidor({
       ...campos,
       medidoAt,
-      ...ajusteStock,
       priceInr:      intOrNull('priceInr'),
       margin:        str('margin') ? parseFloat(str('margin')) / 100 : null,
       // Vacío no es $0: se queda el precio que tenía (y si hay costo, lo recalcula reprice).
@@ -276,7 +313,8 @@ export async function quickUpdateProduct(
       priceLocked:   formData.get('priceLocked') === 'true',
       landedCostUsd: null as number | null,
     })
-    await db.product.update({ where: { id }, data })
+    const fallido = await guardar(data)
+    if (fallido) return fallido
   }
 
   revalidatePath('/products')
@@ -328,12 +366,12 @@ export async function medirPieza(id: number, formData: FormData): Promise<Action
 export async function deleteProduct(id: number, volver = false): Promise<ActionResult> {
   const p = await db.product.findUnique({
     where: { id },
-    select: { _count: { select: { pedidoItems: true, envioLineas: true, assemblies: true } } },
+    select: { _count: { select: { pedidoItems: true, envioLineas: true, assemblies: true, movimientosStock: true } } },
   })
   // Ya la había borrado otra request: el estado que se quería es el que hay.
   if (p) {
-    const { pedidoItems, envioLineas, assemblies } = p._count
-    const motivo = motivoProductoEnUso({ pedidoItems, envioLineas, ensambles: assemblies })
+    const { pedidoItems, envioLineas, assemblies, movimientosStock } = p._count
+    const motivo = motivoProductoEnUso({ pedidoItems, envioLineas, ensambles: assemblies, movimientosStock })
     if (motivo) return fallo(`No se puede borrar. ${motivo}`)
     try {
       await db.product.delete({ where: { id } })

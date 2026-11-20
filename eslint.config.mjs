@@ -18,6 +18,9 @@ const config = [
   },
   ...next,
   {
+    // Los mismos archivos donde next registra el plugin react-hooks: sin esto, un .cjs
+    // quedaba con la regla y sin el plugin, y ESLint aborta.
+    files: next[0].files,
     rules: {
       // ── Por qué esta regla queda en warn y no en error ────────────────────
       // `react-hooks/set-state-in-effect` marca los diez buscadores con debounce del

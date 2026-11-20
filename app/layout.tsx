@@ -13,6 +13,8 @@ export const dynamic = 'force-dynamic'
 export const metadata: Metadata = {
   title: { template: '%s · Motokira', default: 'Motokira' },
   description: 'Sistema de gestión de repuestos Motokira',
+  // iOS toma el ícono de "Agregar a inicio" de acá, no del manifiesto.
+  icons: { apple: '/icons/apple-touch-icon.png' },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

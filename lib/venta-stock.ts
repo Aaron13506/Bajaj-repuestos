@@ -111,3 +111,9 @@ export function motivoNoServible(
   if (pieza.costoUnitUsd == null || !(pieza.costoUnitUsd > 0)) return 'La pieza no tiene costo cargado: sin costo no se sabría cuánto se ganó.'
   return null
 }
+
+// Cuánto suma al carrito de Vender (/escanear/venta) una lectura de `cantidad` unidades: lo que
+// dice la etiqueta, sin pasar de lo que hay en el depósito menos lo que ya está en el carrito.
+export function cuantoSumar(cantidad: number, stock: number, enCarrito: number): number {
+  return Math.max(0, Math.min(cantidad, stock - enCarrito))
+}

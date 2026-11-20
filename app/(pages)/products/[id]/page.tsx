@@ -13,6 +13,7 @@ import { calcLanded } from '@/lib/calc'
 import { tarifaKgReferencia, verPorKiloEnCatalogo } from '@/lib/reenvio'
 import { getSupplierPriceMap } from '@/lib/suppliers'
 import { toConfigMap } from '@/lib/config'
+import { MOTIVO_STOCK_LABEL, type MotivoStock } from '@/lib/stock'
 
 export const metadata = { title: 'Producto' }
 
@@ -39,6 +40,14 @@ export default async function ProductDetailPage({
           include: { ensamble: { select: { id: true, nameEs: true, compatibleModels: true } } },
         },
         esperas: { include: { cliente: { select: { id: true, nombre: true, telefono: true } } }, orderBy: { createdAt: 'asc' } },
+        // El kardex entero, del más viejo al más nuevo: el saldo acumulado se suma en ese orden.
+        movimientosStock: {
+          orderBy: { id: 'asc' },
+          select: {
+            id: true, createdAt: true, motivo: true, cantidad: true, nota: true, envioId: true, pedidoId: true,
+            pedido: { select: { tipo: true } },
+          },
+        },
       },
     }),
     db.config.findMany(),
@@ -373,6 +382,66 @@ export default async function ProductDetailPage({
         clientes={clientes.map(c => c.nombre)}
       />
 
+      <MovimientosStock movs={product.movimientosStock} />
+
+    </div>
+  )
+}
+
+type MovStockFila = {
+  id: number; createdAt: Date; motivo: string; cantidad: number; nota: string | null
+  envioId: number | null; pedidoId: number | null; pedido: { tipo: string } | null
+}
+
+// El kardex de la pieza (lib/stock.ts), el más nuevo arriba, con el saldo después de cada uno.
+function MovimientosStock({ movs }: { movs: MovStockFila[] }) {
+  const filas: (MovStockFila & { saldo: number })[] = []
+  for (const m of movs) filas.unshift({ ...m, saldo: (filas[0]?.saldo ?? 0) + m.cantidad })
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+      <h2 className="font-semibold text-gray-900 mb-3">Movimientos de stock</h2>
+      {filas.length === 0 ? (
+        <p className="text-sm text-gray-500">Sin movimientos: nunca tuvo stock.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-gray-500 uppercase tracking-wide">
+                <th scope="col" className="py-2 pr-4 font-medium">Fecha</th>
+                <th scope="col" className="py-2 pr-4 font-medium">Motivo</th>
+                <th scope="col" className="py-2 pr-4 font-medium text-right">Cantidad</th>
+                <th scope="col" className="py-2 pr-4 font-medium text-right">Saldo</th>
+                <th scope="col" className="py-2 font-medium">Detalle</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filas.map(m => (
+                <tr key={m.id}>
+                  <td className="py-2 pr-4 whitespace-nowrap text-gray-600">
+                    {m.createdAt.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'America/Caracas' })}
+                  </td>
+                  <td className="py-2 pr-4 whitespace-nowrap text-gray-900">{MOTIVO_STOCK_LABEL[m.motivo as MotivoStock] ?? m.motivo}</td>
+                  <td className={`py-2 pr-4 text-right font-mono tabular-nums ${m.cantidad > 0 ? 'text-green-700' : 'text-red-700'}`}>
+                    {m.cantidad > 0 ? `+${m.cantidad}` : `−${-m.cantidad}`}
+                  </td>
+                  <td className="py-2 pr-4 text-right font-mono tabular-nums text-gray-900">{m.saldo}</td>
+                  <td className="py-2 text-gray-600">
+                    <span className="flex flex-wrap gap-x-3">
+                      {m.envioId != null && <Link href={`/envios/${m.envioId}`} className="text-blue-600 hover:underline">Caja #{m.envioId}</Link>}
+                      {m.pedidoId != null && (
+                        <Link href={`/${m.pedido?.tipo === 'venta' ? 'ventas' : 'presupuestos'}/${m.pedidoId}`} className="text-blue-600 hover:underline">
+                          {m.pedido?.tipo === 'venta' ? 'Venta' : 'Pedido'} #{m.pedidoId}
+                        </Link>
+                      )}
+                      {m.nota && <span>{m.nota}</span>}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

@@ -129,6 +129,41 @@ async function main() {
     for (const p of negativos) console.log(`    ${String(p.stock).padStart(5)}  ${p.bajajCode ?? '—'}  ${p.nameEs}`)
   }
 
+  // ── 3b. Stock vs kardex ───────────────────────────────────────────────────
+  // Product.stock es la caché de SUM(MovimientoStock.cantidad) por pieza (lib/stock.ts).
+  console.log('\nSTOCK vs KARDEX')
+  const sumas = await db.movimientoStock.groupBy({ by: ['productId'], _sum: { cantidad: true } })
+  const libro = new Map(sumas.map(s => [s.productId, s._sum.cantidad ?? 0]))
+  const conStock = await db.product.findMany({
+    where: { OR: [{ stock: { not: 0 } }, { id: { in: [...libro.keys()] } }] },
+    select: { id: true, bajajCode: true, nameEs: true, stock: true },
+  })
+  const desfasadas = conStock.filter(p => p.stock !== (libro.get(p.id) ?? 0))
+  if (desfasadas.length === 0) {
+    console.log(`  ✓ ${conStock.length} pieza(s) con stock o movimientos, todas cuadran con el kardex`)
+  } else {
+    problemas += desfasadas.length
+    console.log(`  ✗ ${desfasadas.length} pieza(s) cuyo stock no es la suma del kardex:`)
+    for (const p of desfasadas.slice(0, 20)) {
+      console.log(`    stock ${String(p.stock).padStart(5)}  kardex ${String(libro.get(p.id) ?? 0).padStart(5)}  ${p.bajajCode ?? '—'}  ${p.nameEs}`)
+    }
+  }
+
+  // ── 3b. Conteo de recepciones vs sus lecturas ────────────────────────────
+  // RecepcionLinea.contado es la caché de SUM(RecepcionLectura.cantidad) no anuladas (vacío si no hay).
+  console.log('\nCONTEO DE RECEPCIONES vs LECTURAS')
+  const conteos = await db.$queryRaw<{ id: number; recepcionId: number; codigo: string | null; contado: number | null; suma: number | null }[]>`
+    SELECT l."id", l."recepcionId", l."codigo", l."contado", s.suma
+    FROM "RecepcionLinea" l
+    LEFT JOIN (SELECT "lineaId", SUM("cantidad")::int AS suma FROM "RecepcionLectura" WHERE "anuladaAt" IS NULL GROUP BY 1) s ON s."lineaId" = l."id"
+    WHERE l."contado" IS DISTINCT FROM s.suma`
+  if (conteos.length === 0) {
+    console.log('  ✓ cada fila contada es la suma de sus lecturas')
+  } else {
+    problemas += conteos.length
+    for (const c of conteos.slice(0, 20)) console.log(`  ✗ recepción #${c.recepcionId} ${c.codigo ?? 'sin identificar'}: contado ${c.contado ?? '—'}, lecturas ${c.suma ?? '—'}`)
+  }
+
   // ── 4. Pagos al proveedor que no son de pago ──────────────────────────────
   // Un flete anotado contra una caja con proveedor no cuenta como pagado al proveedor (ver
   // CATEGORIAS_PAGO_PROVEEDOR). Informativo: es lo que cambió de cifra en "Cuentas por pagar".

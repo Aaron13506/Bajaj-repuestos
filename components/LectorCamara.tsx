@@ -14,13 +14,14 @@ const GATILLO_MS = 1500
 
 // Cámara del teléfono a pantalla completa leyendo QR (cajas de Bajaj) y Code 128 (bolsas del
 // proveedor). Cada lectura nueva llama a `onLectura`, que devuelve cómo le fue para el destello
-// del borde. `children` se muestra abajo (el aviso de la última lectura, con sus botones).
+// del borde (puede ser una promesa: Consultar espera al servidor para saber si la encontró).
+// `children` se muestra abajo (el aviso de la última lectura, con sus botones).
 export default function LectorCamara({
   onLectura,
   onCerrar,
   children,
 }: {
-  onLectura: (raw: string) => Senal
+  onLectura: (raw: string) => Senal | Promise<Senal>
   onCerrar: () => void
   children?: ReactNode
 }) {
@@ -43,8 +44,10 @@ export default function LectorCamara({
     let raf = 0
     let apagarFlash = 0
     const vistos = new Map<string, number>() // raw → última vez que se vio
-    const emitir = (raw: string) => {
-      const r = cb.current(raw)
+    const emitir = async (raw: string) => {
+      let r: Senal
+      try { r = await cb.current(raw) } catch { r = 'error' }
+      if (!vivo) return
       setFlash(r)
       clearTimeout(apagarFlash)
       apagarFlash = window.setTimeout(() => setFlash(null), 250)
@@ -74,13 +77,13 @@ export default function LectorCamara({
             const raws = [...new Set((await det.detect(v)).map(c => c.rawValue).filter(Boolean))]
             const g = gatillo.current
             if (g.activo) {
-              if (raws.length > 0) { g.activo = false; emitir(raws[0]) }
-              else if (ahora > g.hasta) { g.activo = false; emitir('') }
+              if (raws.length > 0) { g.activo = false; void emitir(raws[0]) }
+              else if (ahora > g.hasta) { g.activo = false; void emitir('') }
             }
             for (const raw of raws) {
               const antes = vistos.get(raw)
               vistos.set(raw, ahora)
-              if (!g.activo && !modoGatilloRef.current && (antes == null || ahora - antes > REARME_MS)) emitir(raw)
+              if (!g.activo && !modoGatilloRef.current && (antes == null || ahora - antes > REARME_MS)) void emitir(raw)
             }
           } catch {}
           if (vivo) raf = requestAnimationFrame(tick)
@@ -100,6 +103,24 @@ export default function LectorCamara({
       cancelAnimationFrame(raf)
       clearTimeout(apagarFlash)
       stream?.getTracks().forEach(t => t.stop()) // si no, la cámara queda encendida
+    }
+  }, [])
+
+  // Pantalla encendida mientras la cámara está abierta. El navegador suelta el bloqueo al
+  // ocultarse la pestaña, así que se vuelve a pedir al volver.
+  useEffect(() => {
+    let vivo = true
+    let lock: WakeLockSentinel | null = null
+    const pedir = () => {
+      if (document.visibilityState !== 'visible' || !navigator.wakeLock) return
+      navigator.wakeLock.request('screen').then(l => { if (vivo) lock = l; else void l.release() }, () => {})
+    }
+    pedir()
+    document.addEventListener('visibilitychange', pedir)
+    return () => {
+      vivo = false
+      document.removeEventListener('visibilitychange', pedir)
+      void lock?.release().catch(() => {})
     }
   }, [])
 
@@ -150,7 +171,7 @@ export default function LectorCamara({
           </button>
         )}
       </div>
-      {children && <div className="bg-white p-3">{children}</div>}
+      {children && <div className="max-h-[55dvh] overflow-y-auto bg-white p-3">{children}</div>}
     </div>,
     document.body,
   )

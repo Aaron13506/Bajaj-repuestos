@@ -1,5 +1,6 @@
 'use server'
 
+import { moverStock } from '@/lib/stock'
 import { db } from '@/lib/db'
 import { toModelIds, fullModel, parseModels } from '@/lib/modelo'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
@@ -237,7 +238,13 @@ export async function importProducts(
     medidasRechazadas: string | null,
   ): Promise<number | null> {
     try {
-      const p = await db.product.create({ data })
+      // El stock con que nace entra al kardex como alta (lib/stock.ts), en la misma transacción.
+      const { stock, ...sinStock } = data
+      const p = await db.$transaction(async tx => {
+        const creado = await tx.product.create({ data: sinStock })
+        if (stock !== 0) await moverStock(tx, [{ productId: creado.id, cantidad: stock, motivo: 'alta' }])
+        return creado
+      })
       created++
       motosActuales.set(p.id, data.compatibleModels)
       if (medidasRechazadas) {

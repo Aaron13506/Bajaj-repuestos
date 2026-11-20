@@ -69,8 +69,8 @@ export function modoDeEnvio(stored: string | null | undefined): ModoApp {
 // Las dos rutas nacen en 'borrador': la caja se está pensando y no es una compra. Pasa a
 // 'confirmado' cuando se decide comprarla (cerrarEmbarque / confirmarCajaAerea), y solo
 // desde ahí lo que lleva cuenta como inventario en camino. 'entregado' es exclusivo del
-// marítimo: la caja ya está en mano y su contenido ya se sumó a stock (ver recibirEmbarque
-// en envios/linea-actions.ts). El aéreo no lo usa: llega línea por línea (shippingStatus).
+// marítimo: la caja ya está en mano y lo contado ya se sumó a stock (lo pone el cierre de su
+// recepción, lib/recepcion-db.ts). El aéreo no lo usa: llega línea por línea (shippingStatus).
 export type EstadoEnvio = 'borrador' | 'confirmado' | 'entregado'
 
 export function esBorrador(estado: string | null | undefined): boolean {

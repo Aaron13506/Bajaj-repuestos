@@ -6,6 +6,7 @@
 // por `pnpm check:costeo`); acá solo se aplican, dentro de UNA transacción y bajo el cerrojo del
 // pedido, con el mismo orden de siempre: pedido primero, sus movimientos después.
 import { Prisma } from '@prisma/client'
+import { moverStock, StockInsuficiente } from '@/lib/stock'
 import { db } from '@/lib/db'
 import { noVinoVuelveACamino } from '@/lib/mover-etapas'
 import { revalidatePath } from 'next/cache'
@@ -267,9 +268,12 @@ export async function servirDesdeStock(itemId: number): Promise<ActionResult> {
     if (bloqueaCompra(l.incidencias)) throw new ErrorDeNegocio('La línea tiene un "no disponible" abierto: resolvelo primero.')
 
     const costo = costoDeLinea(costoUnit!, l.quantity)
-    const sacado = await tx.$executeRaw`
-      UPDATE "Product" SET "stock" = "stock" - ${l.quantity} WHERE "id" = ${l.productId} AND "stock" >= ${l.quantity}`
-    if (sacado === 0) throw new ErrorDeNegocio('Ya no alcanza el stock del depósito (otra venta se lo llevó). Recargá la página.')
+    try {
+      await moverStock(tx, [{ productId: l.productId!, cantidad: -l.quantity, motivo: 'servido_pedido', costoUnitUsd: costoUnit, pedidoId, pedidoItemId: itemId }])
+    } catch (e) {
+      if (e instanceof StockInsuficiente) throw new ErrorDeNegocio('Ya no alcanza el stock del depósito (otra venta se lo llevó). Recargá la página.')
+      throw e
+    }
     const hecho = await tx.pedidoItem.updateMany({
       where: { id: itemId, desdeStock: false, envioId: null, costRealUsd: null, shippingStatus: 'pendiente' },
       data: {
@@ -304,7 +308,9 @@ export async function devolverAlDeposito(itemId: number): Promise<ActionResult> 
       data: { desdeStock: false, costRealUsd: null, shippingStatus: 'pendiente', shippingStatusAt: new Date(), compradoAt: null },
     })
     if (hecho.count === 0) throw new ErrorDeNegocio('La línea cambió mientras tanto. Recargá la página.')
-    await tx.$executeRaw`UPDATE "Product" SET "stock" = "stock" + ${l.quantity} WHERE "id" = ${l.productId}`
+    if (l.productId != null) {
+      await moverStock(tx, [{ productId: l.productId, cantidad: l.quantity, motivo: 'devuelto_deposito', pedidoId, pedidoItemId: itemId }])
+    }
     await tx.pedidoItemEtapa.create({ data: { itemId, desde: l.shippingStatus, hacia: 'pendiente' } })
     await registrarEvento(tx, pedidoId, 'desde_stock', `${l.quantity} × ${l.product?.nameEs ?? 'pieza'} devuelta al depósito`)
   }, TX))

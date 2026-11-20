@@ -5,7 +5,9 @@ import { db } from '@/lib/db'
 import type { Prisma } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { isDelivered, isPending, isValidStatus, normalizeToRoute, routeFor } from '@/lib/shipping-status'
+import { isDelivered, isPending, isValidStatus, normalizeToRoute, routeFor, statusIndex } from '@/lib/shipping-status'
+import { transicionManualPermitida } from '@/lib/recepcion'
+import { motivoRecepcionAbierta } from '@/lib/recepcion-db'
 import { bloqueaCompra, bloqueaEntrega, etiquetaPieza, lineaNoViene, sinEnviarDe } from '@/lib/incidencias'
 import { reportarNoVinoVarios, resolverIncidencia } from '@/app/(pages)/presupuestos/flujos-actions'
 import { seEntregaDesdeElPedido } from '@/lib/saldo-entrega'
@@ -381,6 +383,8 @@ export async function assignItems(envioId: number, itemIds: number[]): Promise<A
 // tirarlo, porque en producción un throw llega sin texto.
 async function asignarAEnvio(envioId: number, itemIds: number[]): Promise<ActionResult> {
   if (itemIds.length === 0) return ok()
+  const contando = await motivoRecepcionAbierta(envioId)
+  if (contando) return fallo(contando)
 
   const [envio, items] = await Promise.all([
     db.envio.findUnique({
@@ -463,6 +467,8 @@ async function asignarAEnvio(envioId: number, itemIds: number[]): Promise<Action
 // la pieza fuera del inventario en camino y lista para entrar a otra caja con otro proveedor.
 // Devuelve cuántas quedaron adentro para que la pantalla lo diga.
 export async function removePedido(envioId: number, pedidoId: number): Promise<ActionResult> {
+  const contando = await motivoRecepcionAbierta(envioId)
+  if (contando) return fallo(contando)
   // En borrador no se pagó ni se movió nada en esta caja (registrarCompra y las etapas lo rechazan):
   // lo que tenga pagado se pagó afuera (p. ej. una pieza que esperaba stock), y vuelve a quedar suelto.
   const caja = await db.envio.findUnique({ where: { id: envioId }, select: { estado: true } })
@@ -505,6 +511,8 @@ async function moverACaja(
   const nueva = destinoRaw === 'nueva'
   let destinoId = parseInt(destinoRaw)
   if (!nueva && !Number.isInteger(destinoId)) return fallo('Elegí a qué caja pasarlo.')
+  const contando = await motivoRecepcionAbierta(envioId) ?? (nueva ? null : await motivoRecepcionAbierta(destinoId))
+  if (contando) return fallo(contando)
 
   return conErrorDeNegocio(async () => {
     await db.$transaction(async tx => {
@@ -1014,7 +1022,7 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]): P
     db.pedidoItem.findMany({
       where: { envioId, id: { in: cambios.map(c => c.id) } },
       select: {
-        id: true, shippingStatus: true, origen: true, inbound: true, isLanded: true,
+        id: true, shippingStatus: true, origen: true, inbound: true, isLanded: true, desdeStock: true,
         productId: true, quantity: true, bundleItems: true,
         pedido: { select: { id: true, tipo: true, status: true, clientName: true } },
         incidencias: { select: { tipo: true, estado: true } },
@@ -1057,6 +1065,12 @@ export async function saveItemChanges(envioId: number, cambios: CambioItem[]): P
     const ruta = routeFor(inboundDe(it.origen, it.inbound), it.isLanded, it.envio?.modo, it.envio?.reenvio)
     const status = normalizeToRoute(destino, ruta)
     if (status === it.shippingStatus) continue
+    // Llegar se registra contando (el cierre de la recepción) y volver de ahí es su reversa.
+    if (!transicionManualPermitida(it.shippingStatus, status, { isLanded: it.isLanded, desdeStock: it.desdeStock, esCliente: seEntregaDesdeElPedido(it.pedido.tipo) })) {
+      return fallo(statusIndex(status) >= statusIndex('en_venezuela')
+        ? 'Que llegó a Venezuela se registra contando la caja: pestaña Llegada, "Contar y recibir".'
+        : 'Lo que ya se recibió no vuelve atrás a mano: revertí la recepción desde la pestaña Llegada.')
+    }
     // No está en el depósito: avanza recién cuando se marca que llegó. "Avanzar todo" la saltea.
     if (noViene.has(it.id) && avanzaSinEstar(status)) { frenadas++; continue }
 
@@ -1139,6 +1153,7 @@ export async function deleteEnvio(id: number): Promise<ActionResult> {
       _count: {
         select: {
           movimientos: true,
+          recepciones: true,
           items: { where: { OR: [{ costRealUsd: { not: null } }, { shippingStatus: { not: 'pendiente' } }] } },
         },
       },
@@ -1146,10 +1161,12 @@ export async function deleteEnvio(id: number): Promise<ActionResult> {
   })
   // Ya no existe (otra pestaña, un reintento): lo que se quería ya está logrado.
   if (!envio) redirect('/envios')
-  // Una caja 'entregado' ya sumó su contenido a Product.stock: borrarla sin deshacer esa
-  // recepción (ver deshacerRecepcion) dejaría el stock arriba sin ningún registro que lo
+  // Una caja 'entregado' ya sumó su contenido a Product.stock: borrarla sin revertir esa
+  // recepción (ver revertirRecepcion) dejaría el stock arriba sin ningún registro que lo
   // explique. El botón ya se esconde en esa vista; esto es el mismo corte del lado server.
-  if (envio.estado === 'entregado') return fallo('La caja ya se recibió: deshacé la recepción antes de borrarla.')
+  if (envio.estado === 'entregado') return fallo('La caja ya se recibió: revertí la recepción antes de borrarla.')
+  // Una recepción (aunque esté revertida) es historial de la caja y del stock: no se borra.
+  if (envio._count.recepciones > 0) return fallo('La caja ya tiene recepciones (conteos de llegada): no se puede borrar.')
   // Con pagos registrados, borrarla dejaría esos movimientos sin caja (onDelete: SetNull) y
   // la deuda con el proveedor saldría de "cuentas por pagar" sin que nadie la haya saldado.
   if (envio._count.movimientos > 0) {

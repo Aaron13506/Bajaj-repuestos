@@ -11,3 +11,10 @@ export function isUniqueViolation(e: unknown): boolean {
 export function isForeignKeyViolation(e: unknown): boolean {
   return e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2003'
 }
+
+// La base se negó a dejar una pieza con stock negativo (CHECK Product_stock_no_negativo, código
+// Postgres 23514). Con `$executeRaw` llega como P2010 con el nombre de la restricción en el
+// mensaje; lib/stock.ts lo traduce a "No alcanza el stock de X".
+export function esStockNegativo(e: unknown): boolean {
+  return /Product_stock_no_negativo/.test(e instanceof Error ? e.message : String(e))
+}

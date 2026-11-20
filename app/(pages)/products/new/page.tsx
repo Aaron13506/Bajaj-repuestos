@@ -2,13 +2,16 @@ import { db } from '@/lib/db'
 import Link from 'next/link'
 import ProductForm from '@/components/ProductForm'
 import type { ConfigMap } from '@/lib/calc'
-import { createProduct } from '../actions'
+import { createProduct, createProductYVolver } from '../actions'
 import { nombreEnsamble } from '@/lib/linea-pedido'
 import { toConfigMap, margenPorDefecto } from '@/lib/config'
 
 export const metadata = { title: 'Nuevo producto' }
 
-export default async function NewProductPage() {
+// `?sku=` llega desde Consultar o una recepción: un código escaneado que no está en el catálogo.
+// `?volver=` (desde la recepción): al guardar vuelve al conteo.
+export default async function NewProductPage({ searchParams }: { searchParams: Promise<{ sku?: string; volver?: string }> }) {
+  const { sku, volver } = await searchParams
   const [groups, configRows] = await Promise.all([
     db.ensamble.findMany({
       orderBy: [{ nameEs: 'asc' }, { compatibleModels: 'asc' }],
@@ -28,10 +31,10 @@ export default async function NewProductPage() {
         <h1 className="text-2xl font-bold text-gray-900">Nuevo producto</h1>
       </div>
       <ProductForm
-        action={createProduct}
+        action={volver ? createProductYVolver.bind(null, volver) : createProduct}
         groups={groups.map(g => ({ id: g.id, nameEs: nombreEnsamble(g), compatibleModels: g.compatibleModels }))}
         cfg={cfg}
-        defaultValues={{ margin: defaultMargin }}
+        defaultValues={{ margin: defaultMargin, bajajCode: sku?.trim() || null }}
         submitLabel="Guardar Producto"
       />
     </div>

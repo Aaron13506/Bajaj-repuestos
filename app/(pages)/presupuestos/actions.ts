@@ -1,5 +1,6 @@
 'use server'
 
+import { sentenciaMoverStock } from '@/lib/stock'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
@@ -417,9 +418,8 @@ async function editarPresupuesto(id: number, formData: FormData) {
         )
       }
     }
-    for (const [productId, delta] of ajusteStock) {
-      ops.push(db.product.update({ where: { id: productId }, data: { stock: { increment: delta } } }))
-    }
+    // Al kardex (lib/stock.ts) en el mismo lote; la restricción de stock no negativo es la red.
+    ops.push(sentenciaMoverStock([...ajusteStock].map(([productId, cantidad]) => ({ productId, cantidad, motivo: 'edicion_pedido' as const, pedidoId: id }))))
   }
 
   const nuevos = items.filter(i => !antes.has(claveLinea(i)))

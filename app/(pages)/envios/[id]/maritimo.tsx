@@ -11,8 +11,7 @@ import SelectorProveedorEmbarque from '@/components/SelectorProveedorEmbarque'
 import CopiarEmbarqueJson from '@/components/CopiarEmbarqueJson'
 import CompraPorEnsambleLista from '@/components/CompraPorEnsambleLista'
 import ChipDescontinuada from '@/components/ChipDescontinuada'
-import ConteoCaja, { BotonConteo } from '@/components/ConteoCaja'
-import { piezasAContar } from '@/lib/conteo'
+import RecepcionesCaja from './recepciones'
 import { armarCompraPropia } from '@/lib/compra-99rpm'
 import { asignarPorCobertura } from '@/lib/asignar-ensamble'
 import { compararProveedores } from '@/lib/comparar-proveedores'
@@ -24,7 +23,7 @@ import { alternosDe } from '@/lib/alt-sku'
 import { sortModels } from '@/lib/catalog'
 import { modelosDistintos, parseModelos } from '@/lib/modelos'
 import { deleteEnvio, saveCostosProveedor } from '../actions'
-import { cerrarEmbarque, reabrirEmbarque, recibirEmbarque, deshacerRecepcion } from '../linea-actions'
+import { cerrarEmbarque, reabrirEmbarque } from '../linea-actions'
 import { toConfigMap } from '@/lib/config'
 import { posicionesParaArmador, type PosicionesStock } from '@/lib/inventario'
 
@@ -346,7 +345,11 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {!esBorrador && !esEntregado && lineas.length > 0 && <BotonConteo />}
+          {!esBorrador && !esEntregado && lineas.length > 0 && (
+            <a href="#llegada-titulo" className="inline-flex items-center min-h-9 px-4 py-1.5 text-sm border border-gray-300 rounded-lg bg-white hover:bg-gray-50 font-medium text-gray-700">
+              Contar y recibir
+            </a>
+          )}
           {esBorrador ? (
             <FormConResultado action={cerrarEmbarque.bind(null, envio.id)}>
               <PendingButton
@@ -357,18 +360,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
                 Cerrar embarque
               </PendingButton>
             </FormConResultado>
-          ) : esEntregado ? (
-            <FormConResultado action={deshacerRecepcion.bind(null, envio.id)}>
-              <PendingButton
-                title="Resta de stock lo que se sumó al marcar recibido y vuelve la caja a 'Cerrado'"
-                confirmMessage="¿Deshacer la recepción? Se resta del stock todo lo que se sumó al marcarla recibida."
-                pendingLabel="Deshaciendo…"
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Deshacer recepción
-              </PendingButton>
-            </FormConResultado>
-          ) : (
+          ) : esEntregado ? null : (
             <>
               <FormConResultado action={reabrirEmbarque.bind(null, envio.id)}>
                 <PendingButton
@@ -382,7 +374,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
             </>
           )}
           {/* Una caja 'entregado' ya sumó su contenido a stock: borrarla dejaría ese stock
-              sin ningún registro que lo explique. Hay que deshacer la recepción primero. */}
+              sin ningún registro que lo explique. Hay que revertir la recepción primero. */}
           {!esEntregado && (
             <DeleteButton
               action={deleteEnvio.bind(null, envio.id)}
@@ -392,21 +384,8 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
         </div>
       </div>
 
-      {/* "Marcar recibido" vive al final del conteo: primero se verifica, después se suma a stock. */}
-      {!esBorrador && !esEntregado && lineas.length > 0 && (
-        <ConteoCaja
-          envioId={envio.id}
-          piezas={piezasAContar(envio.lineas.map(l => ({ nombre: l.product.nameEs, codigo: l.product.bajajCode, quantity: l.quantity, piezas: [] })))
-            .map(p => {
-              // Una línea por producto: la clave (código o nombre) lleva de vuelta a su producto.
-              const x = envio.lineas.find(l => (l.product.bajajCode ?? l.product.nameEs) === p.clave)?.product
-              const alt = x && alternos.get(x.id)
-              return { ...p, alternos: alt ? [alt] : [], estimada: x && x.medidoAt == null ? { productId: x.id, weightGrams: x.weightGrams, dimL: x.dimL, dimA: x.dimA, dimH: x.dimH } : null }
-            })}
-          recibir={recibirEmbarque.bind(null, envio.id)}
-          aviso={`Se suman al stock las cantidades del embarque, no las contadas: lo que falte, corregilo en el stock de esa pieza.`}
-        />
-      )}
+      {/* Llegada, conteo y recepciones: lo que entra al stock es lo contado (lib/recepcion-db). */}
+      {!esBorrador && lineas.length > 0 && <RecepcionesCaja envioId={envio.id} />}
 
       {/* Costo del embarque */}
       {lineas.length > 0 && (

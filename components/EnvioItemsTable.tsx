@@ -15,6 +15,7 @@ import {
   stageSummary,
 } from '@/lib/shipping-status'
 import type { Inbound } from '@/lib/inbound'
+import { transicionManualPermitida } from '@/lib/recepcion'
 import { groupBundlePieces, type BundlePiece } from '@/lib/bundle'
 import { limpiarNombre } from '@/lib/utils'
 import type { CambioItem } from '@/app/(pages)/envios/actions'
@@ -200,8 +201,14 @@ export default function EnvioItemsTable({
 
   // Lo de un cliente se entrega desde su pedido: mientras no esté entregado, "Entregado" no se ofrece.
   const entregaEnElPedido = (it: EnvioItemRow) => it.esCliente && !isDelivered(valorDe(it).shippingStatus)
+  // Llegar (en_venezuela, entregado) se registra contando la caja y volver de ahí es revertir la
+  // recepción (transicionManualPermitida): esas etapas no se ofrecen.
+  const permite = (it: EnvioItemRow, hacia: string) =>
+    transicionManualPermitida(valorDe(it).shippingStatus, hacia, { isLanded: it.isLanded, esCliente: it.esCliente })
   const etapasPara = (etapas: ReturnType<typeof routeStages>, filas: EnvioItemRow[]) =>
-    filas.some(entregaEnElPedido) ? etapas.filter(s => !isDelivered(s.value)) : etapas
+    etapas.filter(s =>
+      filas.every(it => s.value === valorDe(it).shippingStatus || permite(it, s.value)) &&
+      !(isDelivered(s.value) && filas.some(entregaEnElPedido)))
 
   const visibles = items.filter(it => !quitados.includes(it.pedidoId))
   // Las etapas de la ruta de la caja (la de sus líneas que sí viajan).
@@ -275,6 +282,7 @@ export default function EnvioItemsTable({
     let sinEtapa = 0
     let sinComprar = 0
     let delPedido = 0
+    let contando = 0
     for (const it of visibles) {
       const actual = valorDe(it).shippingStatus
       const ruta = rutaDe(it)
@@ -282,6 +290,7 @@ export default function EnvioItemsTable({
       if (hacia == null) continue
       if (!routeStages(ruta).some(s => s.value === hacia)) { sinEtapa++; continue }
       if (isDelivered(hacia) && entregaEnElPedido(it)) { delPedido++; continue }
+      if (hacia !== actual && !permite(it, hacia)) { contando++; continue }
       if (actual === 'pendiente' && !incluirNoCompradas && hacia !== 'pendiente') { sinComprar++; continue }
       if (hacia === actual) continue
       pares.push({ it, destino: hacia })
@@ -293,7 +302,9 @@ export default function EnvioItemsTable({
           ? 'Todo lo que se podía mover está sin comprar. Tildá "incluir no compradas" si es a propósito.'
           : delPedido > 0
             ? 'Lo de los clientes se entrega desde cada pedido, con "Confirmar entrega".'
-            : 'No hay líneas para mover a esa etapa.',
+            : contando > 0
+              ? 'Que llegó se registra contando la caja (pestaña Llegada), y lo recibido no vuelve atrás a mano.'
+              : 'No hay líneas para mover a esa etapa.',
       )
       return
     }
@@ -317,6 +328,7 @@ export default function EnvioItemsTable({
     if (sinEtapa > 0) notas.push(`${sinEtapa} ${sinEtapa === 1 ? 'línea no tiene' : 'líneas no tienen'} esa etapa y quedaron como estaban`)
     if (sinComprar > 0) notas.push(`${sinComprar} sin comprar no se movieron`)
     if (delPedido > 0) notas.push(`${delPedido} de clientes se entregan desde su pedido ("Confirmar entrega")`)
+    if (contando > 0) notas.push(`${contando} se reciben contando la caja (pestaña Llegada)`)
     setAviso(notas.length > 0 ? notas.join(' · ') : null)
   }
 

@@ -1,6 +1,6 @@
 // Cuándo un producto ya no se puede borrar.
 //
-// PedidoItem.product, EnvioLinea.product y EnsambleComponente.product son `Restrict`: la base
+// PedidoItem.product, EnvioLinea.product, EnsambleComponente.product y MovimientoStock.product son `Restrict`: la base
 // se niega a borrar una pieza que un pedido, una caja o un ensamble todavía referencia. Sin
 // mirar antes, esa negativa llegaba como un P2003 crudo y, en producción, como una página de
 // error sin explicación. Contar primero permite decir QUÉ la retiene.
@@ -14,6 +14,8 @@ export interface UsoProducto {
   envioLineas: number
   /** Cuántos ensambles la tienen como componente. */
   ensambles: number
+  /** Movimientos en el kardex (MovimientoStock.product es Restrict: el historial no se pierde). */
+  movimientosStock: number
 }
 
 const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`
@@ -23,6 +25,10 @@ export function motivoProductoEnUso(u: UsoProducto): string | null {
   if (u.pedidoItems > 0) partes.push(plural(u.pedidoItems, 'línea de pedido', 'líneas de pedido'))
   if (u.envioLineas > 0) partes.push(plural(u.envioLineas, 'línea de un embarque marítimo', 'líneas de embarques marítimos'))
   if (u.ensambles > 0) partes.push(plural(u.ensambles, 'ensamble que la usa', 'ensambles que la usan'))
+  // El kardex no se borra, así que no hay nada que "sacar": es la razón definitiva y va sola.
+  if (u.movimientosStock > 0) {
+    return `Tiene historial de stock (${plural(u.movimientosStock, 'movimiento', 'movimientos')}): una pieza que tuvo stock no se borra.`
+  }
   if (partes.length === 0) return null
   return `Está en uso: ${partes.join(', ')}. Sacala de ahí primero.`
 }

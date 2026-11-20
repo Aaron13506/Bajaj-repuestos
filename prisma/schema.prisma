@@ -85,6 +85,8 @@ model Product {
   supplierPrices SupplierPrice[]
   envioLineas    EnvioLinea[]
   esperas        Espera[]
+  movimientosStock MovimientoStock[]
+  recepcionLineas RecepcionLinea[]
 
   @@index([bajajCode])
 }
@@ -270,12 +272,11 @@ model Envio {
   // 'borrador'   = todavía se está llenando (solo marítimo: se arma pieza por pieza).
   // 'confirmado' = cerrado, ya viaja. Las cajas anteriores a los borradores nacen acá,
   // que es como estaban: creadas y en curso.
-  // 'entregado'  = SOLO marítimo: la caja ya está en mano. Al marcarla se suma cada
-  // EnvioLinea a Product.stock en la misma acción (ver recibirEmbarque) — un solo dato,
-  // sin transcribirlo a mano en cada producto. El aéreo no usa este valor: ahí "ya está
+  // 'entregado'  = SOLO marítimo: la caja ya está en mano. La pone el cierre de su recepción,
+  // que suma a Product.stock lo contado (lib/recepcion-db.ts). El aéreo no usa este valor: ahí "ya está
   // en mi poder" lo dice PedidoItem.shippingStatus === 'entregado' por línea.
   estado           String       @default("confirmado")
-  // Cuándo se marcó 'entregado' (ver recibirEmbarque). Null mientras no se marcó, incluso
+  // Cuándo se marcó 'entregado' (el cierre de la recepción). Null mientras no se marcó, incluso
   // si el envío está viajando hace meses — vacío no es "ya llegó hace mucho", es "todavía
   // no lo marcaste".
   entregadoAt      DateTime?
@@ -365,6 +366,12 @@ model Envio {
   // Carga PROPIA: mercancía que traigo para stock. Es el carril marítimo.
   lineas           EnvioLinea[]
   movimientos      Movimiento[]
+  movimientosStock MovimientoStock[]
+  // Check-in: la caja está en mis manos. No toca stock ni etapas; habilita el conteo (Recepcion).
+  // Null = todavía no llegó (o no se marcó). Ver lib/recepcion-db.ts.
+  llegadaAt        DateTime?
+  llegadaNota      String?
+  recepciones      Recepcion[]
   supplier         Supplier?    @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   // Caja partida en el depósito (ver lib/mover-caja.ts): la caja raíz de la compra de la que
   // salió parte de esta. Null = es su propia compra (o la raíz). Lo debido y lo pagado al
@@ -526,6 +533,7 @@ model Pedido {
   cliente       Cliente?     @relation(fields: [clienteId], references: [id], onDelete: SetNull)
   items         PedidoItem[]
   movimientos   Movimiento[]
+  movimientosStock MovimientoStock[]
   // ── Fuera del camino feliz (lib/pedido-cancelacion.ts, lib/incidencias.ts) ──────────────
   // status = 'cancelado' ⇔ canceladoAt tiene fecha (CHECK Pedido_cancelado_coherente). Un pedido
   // cancelado conserva lo cobrado que no se devolvió (depositUsd): es plata que se quedó.
@@ -618,6 +626,12 @@ model Incidencia {
   pedido     Pedido      @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
   item       PedidoItem? @relation(fields: [itemId], references: [id], onDelete: SetNull)
   reposicion Pedido?     @relation("IncidenciaReposicion", fields: [reposicionId], references: [id], onDelete: SetNull)
+  // La recepción que la creó al cerrar: revertir esa recepción borra solo las suyas (si siguen abiertas).
+  recepcionId       Int?
+  recepcion         Recepcion? @relation("IncidenciaDeRecepcion", fields: [recepcionId], references: [id], onDelete: SetNull)
+  // La recepción que la cerró como 'llego' (un backorder que llegó): revertirla la reabre.
+  recepcionCierreId Int?
+  recepcionCierre   Recepcion? @relation("IncidenciaCerradaPorRecepcion", fields: [recepcionCierreId], references: [id], onDelete: SetNull)
 
   @@index([pedidoId])
   @@index([itemId])
@@ -682,6 +696,7 @@ model PedidoItem {
   compra   Movimiento? @relation(fields: [compraId], references: [id], onDelete: SetNull)
   etapas      PedidoItemEtapa[]
   incidencias Incidencia[]
+  movimientosStock MovimientoStock[]
 
   @@unique([pedidoId, productId])
   @@unique([pedidoId, ensambleId])
@@ -739,6 +754,114 @@ model Movimiento {
   @@index([envioId])
   @@index([cuenta])
   @@index([grupo])
+}
+
+// Libro de stock: cada unidad que entra o sale del depósito, con por qué y de dónde.
+// Product.stock es la caché de SUM(cantidad) por pieza, y la mantiene SOLO lib/stock.ts, en la
+// misma sentencia que inserta el movimiento. CHECK Product_stock_no_negativo en la base.
+//
+// Un movimiento no se edita ni se borra: un error se corrige con otro movimiento
+// (un ajuste, o la reversa de lo que lo generó).
+model MovimientoStock {
+  id           Int      @id @default(autoincrement())
+  productId    Int
+  // Con signo: + entra al depósito, − sale. Nunca 0 (CHECK).
+  cantidad     Int
+  // Ver MOTIVOS_STOCK en lib/stock.ts. CHECK en la base.
+  motivo       String
+  // Costo por unidad de ESTE movimiento, si se sabe. Vacío = no se sabe, no es cero.
+  costoUnitUsd Decimal? @db.Decimal(10, 2)
+  nota         String?
+  envioId      Int?
+  pedidoId     Int?
+  pedidoItemId Int?
+  recepcionId  Int? // fase 3
+  // Las filas de un mismo hecho (una recepción, una venta de varias piezas) comparten este valor.
+  grupo        String?
+  createdAt    DateTime @default(now())
+
+  product    Product     @relation(fields: [productId], references: [id], onDelete: Restrict)
+  envio      Envio?      @relation(fields: [envioId], references: [id], onDelete: SetNull)
+  pedido     Pedido?     @relation(fields: [pedidoId], references: [id], onDelete: SetNull)
+  pedidoItem PedidoItem? @relation(fields: [pedidoItemId], references: [id], onDelete: SetNull)
+  recepcion  Recepcion?  @relation(fields: [recepcionId], references: [id], onDelete: Restrict)
+
+  @@index([productId, createdAt])
+  @@index([envioId])
+  @@index([pedidoId])
+  @@index([grupo])
+}
+
+// Un conteo de lo que llegó en una caja (docs/plan-inventario/03-recepcion.md). Puede haber más de
+// una por caja (un backorder que llega después), pero solo una abierta a la vez (índice parcial
+// Recepcion_una_abierta en el SQL). Abierta = se sigue contando desde cualquier dispositivo.
+// Cerrada = ya escribió sus movimientos de stock e incidencias y no se edita: se revierte entera.
+model Recepcion {
+  id          Int       @id @default(autoincrement())
+  envioId     Int
+  ciego       Boolean   @default(true)
+  abiertaAt   DateTime  @default(now())
+  cerradaAt   DateTime?
+  // Revertida con contramovimientos (revertirRecepcion). CHECK: solo una cerrada.
+  revertidaAt DateTime?
+  notas       String?
+  // Las líneas de pedido que el cierre movió de etapa: revertir las devuelve, y solo si siguen
+  // donde el cierre las dejó (una ya entregada al cliente no se revierte).
+  itemsMovidos Int[]    @default([])
+
+  envio               Envio              @relation(fields: [envioId], references: [id], onDelete: Restrict)
+  lineas              RecepcionLinea[]
+  lecturas            RecepcionLectura[]
+  incidencias         Incidencia[]       @relation("IncidenciaDeRecepcion")
+  incidenciasCerradas Incidencia[]       @relation("IncidenciaCerradaPorRecepcion")
+  movimientosStock    MovimientoStock[]
+
+  @@index([envioId])
+}
+
+// Una fila de la mesa de conteo: un código físico (los conjuntos abiertos en sus piezas, la misma
+// pieza de varios pedidos sumada en una fila).
+model RecepcionLinea {
+  id          Int      @id @default(autoincrement())
+  recepcionId Int
+  // Null solo en una pieza "sin identificar" (bloquea el cierre hasta asignarla o descartarla).
+  codigo      String?
+  productId   Int?
+  nombre      String
+  // 0 = no se esperaba (llegó de más o equivocada). Se recalcula al cerrar.
+  esperado    Int
+  // Caché de SUM(RecepcionLectura.cantidad) no anuladas. Vacío = sin contar; 0 = la busqué y no está.
+  contado     Int?
+  // Al cerrar, qué se decidió con lo que faltó: 'backorder' (llega después), 'faltante' (no va a
+  // llegar) o 'equivocada' (llegó otra en su lugar). Null si no faltó nada. CHECK en la base.
+  decision    String?
+  nota        String?
+
+  recepcion Recepcion          @relation(fields: [recepcionId], references: [id], onDelete: Cascade)
+  product   Product?           @relation(fields: [productId], references: [id], onDelete: SetNull)
+  lecturas  RecepcionLectura[]
+
+  @@unique([recepcionId, codigo])
+}
+
+// Cada lectura, cruda: el libro del conteo. RecepcionLinea.contado es su caché. Una corrección a
+// mano ("eran 20, no 2") también es una lectura, con la diferencia.
+model RecepcionLectura {
+  id          Int       @id @default(autoincrement())
+  recepcionId Int
+  lineaId     Int
+  // Lo que leyó la cámara o el lector, tal cual. Vacío en las correcciones a mano.
+  raw         String?
+  cantidad    Int       // con signo: una corrección puede restar
+  origen      String    // 'camara' | 'lector' | 'manual'. CHECK en la base.
+  anuladaAt   DateTime? // "deshacer"
+  createdAt   DateTime  @default(now())
+
+  recepcion Recepcion      @relation(fields: [recepcionId], references: [id], onDelete: Cascade)
+  linea     RecepcionLinea @relation(fields: [lineaId], references: [id], onDelete: Cascade)
+
+  @@index([recepcionId, createdAt])
+  @@index([lineaId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -23,13 +23,15 @@ export function avisoDeCambio(c: CambioTracking, appUrl?: string) {
   if (!c.evento || c.evento === c.antes) return null
   const meta = metaEstado(c.estado)
   const tramo = esTramoTracking(c.tramo) ? TRAMO_TRACKING_META[c.tramo].corto : c.tramo
-  const link = appUrl ? `${appUrl}/envios/${c.envioId}` : undefined
+  // Entregada en Venezuela: el aviso lleva a marcar la llegada (nunca la marca solo: el courier no mueve etapas).
+  const llego = c.tramo === 'venezuela' && c.estado === 'delivered'
+  const link = appUrl ? `${appUrl}/envios/${c.envioId}${llego ? '#llegada' : ''}` : undefined
   return {
     title: `${meta?.icon ?? '📦'} ${c.caja?.trim() || `Caja #${c.envioId}`} · ${tramo}`,
     message: `${meta ? `${meta.label} — ` : ''}${c.evento}\n${c.numero}`,
     // ntfy.sh solo manda a Firebase como "high" desde 4; con 3 Android lo difiere o lo pierde en reposo.
     priority: c.estado && PROBLEMA.has(c.estado) ? 5 : 4,
-    ...(link ? { click: link, actions: [{ action: 'view', label: 'Ver caja', url: link }] } : {}),
+    ...(link ? { click: link, actions: [{ action: 'view', label: llego ? 'Marcar llegada' : 'Ver caja', url: link }] } : {}),
   }
 }
 

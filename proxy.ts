@@ -235,6 +235,8 @@ export async function proxy(request: NextRequest) {
   return NextResponse.next()
 }
 
+// El manifiesto de la PWA y sus íconos se piden sin credenciales: con la puerta puesta, la
+// instalación en el teléfono falla en silencio. No dicen nada del negocio.
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|icons/).*)'],
 }

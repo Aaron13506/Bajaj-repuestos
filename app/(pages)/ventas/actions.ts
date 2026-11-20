@@ -16,6 +16,7 @@ import { costoDeLinea, motivoNoVendible, type LineaVenta } from '@/lib/venta-sto
 import { toModelIds, type MotoModelId } from '@/lib/modelo'
 import { whereModel } from '@/lib/catalog'
 import { codigoContiene } from '@/lib/alt-sku'
+import { moverStock, StockInsuficiente } from '@/lib/stock'
 
 // Una pieza del depósito tal como la ve el formulario de venta.
 export interface PiezaEnStock {
@@ -74,12 +75,13 @@ export async function buscarEnStock(term: string, modelo?: string) {
   return rows.map(aPiezaEnStock)
 }
 
-// Una pieza para arrancar la venta ya cargada (el «Vender» del inicio). Null = no existe o ya
-// no tiene stock: la venta abre vacía, igual que sin pieza.
-export async function piezaEnStock(id: number): Promise<PiezaEnStock | null> {
-  if (!Number.isInteger(id) || id <= 0) return null
-  const p = await db.product.findFirst({ where: { id, stock: { gt: 0 } }, select: SELECT_EN_STOCK })
-  return p ? aPiezaEnStock(p) : null
+// Las piezas con que arranca la venta ya cargada (el «Vender» del inicio, el carrito del modo
+// Vender del teléfono). Las que no existen o ya no tienen stock no vienen: la venta abre sin ellas.
+export async function piezasEnStock(ids: number[]): Promise<PiezaEnStock[]> {
+  const validos = ids.filter(id => Number.isInteger(id) && id > 0)
+  if (validos.length === 0) return []
+  const ps = await db.product.findMany({ where: { id: { in: validos }, stock: { gt: 0 } }, select: SELECT_EN_STOCK })
+  return ps.map(aPiezaEnStock)
 }
 
 // Las piezas de un ensamble (todas sus variantes por moto) que están en el depósito, agrupadas
@@ -178,19 +180,6 @@ async function crearVenta(formData: FormData) {
     const motivo = motivoNoVendible(lineas, piezas)
     if (motivo) throw new ErrorDeNegocio(motivo)
 
-    // El stock baja con una escritura condicionada, no leyendo y restando: si dos ventas
-    // compiten por la última unidad, la segunda no encuentra stock y la transacción entera se
-    // deshace — el pedido, el cobro y lo que la primera línea ya había descontado.
-    for (const l of lineas) {
-      const n = await tx.$executeRaw`
-        UPDATE "Product" SET "stock" = "stock" - ${l.quantity}, "updatedAt" = NOW()
-        WHERE "id" = ${l.productId} AND "stock" >= ${l.quantity}`
-      if (n === 0) {
-        const p = piezas.find(x => x.id === l.productId)!
-        throw new ErrorDeNegocio(`${p.bajajCode ?? p.nameEs}: ya no alcanza el stock (otra venta se lo llevó). Recargá la página.`)
-      }
-    }
-
     const creado = await tx.pedido.create({
       data: {
         clientName: cliente.nombre,
@@ -212,7 +201,22 @@ async function crearVenta(formData: FormData) {
           })),
         },
       },
+      include: { items: { select: { id: true, productId: true } } },
     })
+
+    // El stock baja por el kardex (lib/stock.ts): si dos ventas compiten por la última unidad,
+    // la base rechaza el stock negativo de la segunda y la transacción entera se deshace — el
+    // pedido, el cobro y lo que las otras líneas ya habían descontado.
+    const itemDe = new Map(creado.items.map(i => [i.productId, i.id]))
+    try {
+      await moverStock(tx, lineas.map(l => ({
+        productId: l.productId, cantidad: -l.quantity, motivo: 'venta' as const,
+        costoUnitUsd: l.costoUnitUsd, pedidoId: creado.id, pedidoItemId: itemDe.get(l.productId),
+      })))
+    } catch (e) {
+      if (!(e instanceof StockInsuficiente)) throw e
+      throw new ErrorDeNegocio(`${e.piezas.join(', ') || 'Una pieza'}: ya no alcanza el stock (otra venta se lo llevó). Recargá la página.`)
+    }
 
     for (const c of cobros) {
       const r = await cobrarPedido(tx, {
@@ -261,7 +265,7 @@ async function deshacerVenta(id: number) {
 
     const p = await tx.pedido.findUnique({
       where: { id },
-      select: { tipo: true, items: { select: { productId: true, quantity: true } } },
+      select: { tipo: true, items: { select: { id: true, productId: true, quantity: true } } },
     })
     if (!p) return
     if (p.tipo !== 'venta') throw new ErrorDeNegocio('Solo una venta directa se puede anular así.')
@@ -269,11 +273,10 @@ async function deshacerVenta(id: number) {
     const otros = await tx.movimiento.count({ where: { pedidoId: id, tipo: { not: 'ingreso' }, categoria: { not: 'devolucion_cliente' } } })
     if (otros > 0) throw new ErrorDeNegocio('Tiene egresos en el libro: sacalos primero.')
 
-    for (const it of p.items) {
-      if (it.productId != null) {
-        await tx.product.update({ where: { id: it.productId }, data: { stock: { increment: it.quantity } } })
-      }
-    }
+    // Las piezas vuelven por el kardex; la venta se borra y sus movimientos quedan sin pedido.
+    await moverStock(tx, p.items.flatMap(it => it.productId != null
+      ? [{ productId: it.productId, cantidad: it.quantity, motivo: 'anulacion_venta' as const, pedidoId: id, pedidoItemId: it.id }]
+      : []))
     await tx.movimiento.deleteMany({ where: { pedidoId: id } })
     await tx.pedido.delete({ where: { id } })
   })

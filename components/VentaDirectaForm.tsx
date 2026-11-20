@@ -61,8 +61,8 @@ interface Props {
   escalon: number | null
   tasaBcv: number
   tasaDirecta: number
-  /** Pieza con la que arranca el carrito (el «Vender» del inicio). */
-  inicial?: PiezaEnStock | null
+  /** Piezas con las que arranca el carrito (el «Vender» del inicio, el modo Vender del teléfono). */
+  inicial?: { pieza: PiezaEnStock; cantidad: number }[]
 }
 
 type Coincidencias = Map<number, { pieceName: string; pieceCode: string }>
@@ -98,7 +98,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
   const [checked, setChecked] = useState<Record<number, boolean>>({})
   const [cantidades, setCantidades] = useState<Record<number, number>>({})
 
-  const [lineas, setLineas] = useState<Linea[]>(() => (inicial ? [lineaDe(inicial, 1)] : []))
+  const [lineas, setLineas] = useState<Linea[]>(() => (inicial ?? []).map(i => lineaDe(i.pieza, i.cantidad)))
   const [clienteId, setClienteId] = useState('')
   const [metodo1, setMetodo1] = useState<string>(metodos[0])
   const [metodo2, setMetodo2] = useState<string>(metodos[1] ?? metodos[0])

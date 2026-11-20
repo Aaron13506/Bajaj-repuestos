@@ -36,14 +36,16 @@ import { motivoNoEliminable, type PedidoBorrable } from '../lib/pedido-eliminabl
 import { entregable, estadoLista, etapaVisible } from '../lib/pedido-lista'
 import { motivoProveedorEnUso } from '../lib/proveedor-en-uso'
 import { motivoProductoEnUso } from '../lib/producto-en-uso'
+import { motivoMovStockInvalido, MOTIVOS_STOCK, MOTIVO_STOCK_LABEL, SIGNO_MOTIVO } from '../lib/stock'
 import { compatibleModelsFrom } from '../lib/modelo'
 import { realDeCobro, resumenCobro } from '../lib/cobro-bcv'
 import { construirResolver, piezasDeLinea } from '../lib/stock-piezas'
-import { piezasAContar, resolverLectura } from '../lib/conteo'
+import { resolverLectura } from '../lib/conteo'
+import { esperadoDeRecepcion, pendienteDeLinea, planCierre, puedeCerrar, repartirConteo, transicionManualPermitida, type FilaRecepcion, type LineaCaja } from '../lib/recepcion'
 import { leerCodigo } from '../lib/qr-bajaj'
 import { cuentaDeMetodo, datosBs, leerCobroBs } from '../lib/cuentas'
 import { convertir, usdPorBsAlConvertir, usdPorBsEnCuenta } from '../lib/conversion'
-import { costoDeLinea, motivoNoServible, motivoNoVendible, resumenVenta } from '../lib/venta-stock'
+import { costoDeLinea, cuantoSumar, motivoNoServible, motivoNoVendible, resumenVenta } from '../lib/venta-stock'
 import { agruparPorEnsamble, ensamblesDePieza, margenAPrecioDeHoy, SE_PIERDE } from '../lib/inventario-vista'
 import { margenDePedido, mesDe, resultadoPorMes, type LineaMargen, type MargenPedido } from '../lib/margen'
 import { cierreDe, embudo, estadoValidez, escalonDelPresupuesto, motivoNoAprobable, validezDias } from '../lib/validez'
@@ -442,11 +444,13 @@ check('con una caja no', enUso({ envios: 1, pedidoItems: 0, movimientos: 0 }), 1
 check('con líneas de pedido no', enUso({ envios: 0, pedidoItems: 3, movimientos: 0 }), 1)
 check('con pagos en el libro no', enUso({ envios: 0, pedidoItems: 0, movimientos: 1 }), 1)
 
-const prodEnUso = (u: { pedidoItems: number; envioLineas: number; ensambles: number }) => (motivoProductoEnUso(u) != null ? 1 : 0)
-check('un producto sin uso se puede borrar', prodEnUso({ pedidoItems: 0, envioLineas: 0, ensambles: 0 }), 0)
-check('en una línea de pedido no', prodEnUso({ pedidoItems: 2, envioLineas: 0, ensambles: 0 }), 1)
-check('en un embarque marítimo no', prodEnUso({ pedidoItems: 0, envioLineas: 1, ensambles: 0 }), 1)
-check('como componente de un ensamble no', prodEnUso({ pedidoItems: 0, envioLineas: 0, ensambles: 1 }), 1)
+const prodEnUso = (u: { pedidoItems?: number; envioLineas?: number; ensambles?: number; movimientosStock?: number }) =>
+  (motivoProductoEnUso({ pedidoItems: 0, envioLineas: 0, ensambles: 0, movimientosStock: 0, ...u }) != null ? 1 : 0)
+check('un producto sin uso se puede borrar', prodEnUso({}), 0)
+check('en una línea de pedido no', prodEnUso({ pedidoItems: 2 }), 1)
+check('en un embarque marítimo no', prodEnUso({ envioLineas: 1 }), 1)
+check('como componente de un ensamble no', prodEnUso({ ensambles: 1 }), 1)
+check('con historial en el kardex no', prodEnUso({ movimientosStock: 1 }), 1)
 
 // ── Motos compatibles: editar no borra lo que el selector no sabe mostrar ───
 console.log('\nMOTOS COMPATIBLES AL EDITAR')
@@ -1352,32 +1356,133 @@ console.log('\nSERVIR CON LO DEL DEPÓSITO')
   check('con una línea servida el pedido no se cancela', si(motivoNoCancelable({ tipo: 'cliente', status: 'pedido', items: [servida] }) !== null), 1)
 }
 
-console.log('\nCONTEO DE LA CAJA')
+console.log('\nRECEPCIÓN (esperado, reparto, cierre, stepper)')
 // Se cuenta por código, no por línea: un conjunto se abre en sus piezas (× la cantidad de la
-// línea) y la misma pieza en dos pedidos queda en una sola fila.
+// línea) y la misma pieza en dos pedidos queda en una sola fila. El cierre reparte lo contado.
 {
-  const bp = (bajajCode: string | null, nameEs: string, quantity: number) => ({ nameEs, bajajCode, quantity, groupName: 'G' })
-  const c = piezasAContar([
-    { nombre: 'Bujía', codigo: 'B1', quantity: 2, piezas: [] },
-    { nombre: 'Kit', codigo: null, quantity: 3, piezas: [bp('B1', 'Bujía', 1), bp(null, 'Arandela', 2)] },
-  ])
-  const de = (k: string) => c.find(p => p.clave === k)?.esperado ?? -1
-  check('suelta + dentro de un conjunto se suman por código', de('B1'), 5)
-  check('sin código se cuenta por nombre × cantidad del conjunto', de('Arandela'), 6)
-  check('el conjunto en sí no es una fila', c.length, 2)
+  const si = (b: boolean) => (b ? 1 : 0)
+  const nada = { lineaEntera: 0, porPieza: new Map<string, number>() }
+  const bp = (bajajCode: string | null, nameEs: string, quantity: number, productId: number | null = null) =>
+    ({ nameEs, bajajCode, quantity, groupName: 'G', productId })
+  let id = 0
+  const linea = (o: Partial<LineaCaja>): LineaCaja => ({
+    itemId: ++id, pedidoId: id, propio: false, orden: id, shippingStatus: 'camino_venezuela', quantity: 1,
+    nombre: 'Bujía', codigo: 'B1', productId: 1, piezas: [], sinEnviarManual: nada, sinEnviarRecepcion: nada, ...o,
+  })
+  const esperado = (ls: LineaCaja[]) => esperadoDeRecepcion(ls.flatMap(pendienteDeLinea))
+  const de = (fs: { codigo: string; esperado: number }[], k: string) => fs.find(f => f.codigo === k)?.esperado ?? 0
 
-  // Lo que el proveedor no mandó no se espera: 1 bujía suelta y 1 set entero del kit, y en otro
-  // set la arandela sola (2 unidades de esa pieza).
-  const sinEnviar = { lineaEntera: 1, porPieza: new Map([['Arandela', 2]]) }
-  const c2 = piezasAContar([
-    { nombre: 'Bujía', codigo: 'B1', quantity: 2, piezas: [], sinEnviar: { lineaEntera: 1, porPieza: new Map() } },
-    { nombre: 'Kit', codigo: null, quantity: 3, piezas: [bp('B1', 'Bujía', 1), bp(null, 'Arandela', 2)], sinEnviar },
-  ])
-  const fila = (k: string) => c2.find(p => p.clave === k)
-  check('sin enviar: la bujía espera 5 − 1 suelta − 1 del set', fila('B1')?.esperado ?? -1, 3)
-  check('sin enviar: y lo dice aparte', fila('B1')?.sinEnviar ?? -1, 2)
-  check('sin enviar: arandela 6 − 2 del set − 2 sueltas', fila('Arandela')?.esperado ?? -1, 2)
-  check('sin enviar: nunca espera menos de 0', piezasAContar([{ nombre: 'X', codigo: 'X', quantity: 1, piezas: [], sinEnviar: { lineaEntera: 5, porPieza: new Map() } }])[0].esperado, 0)
+  const kit = (o: Partial<LineaCaja> = {}) => linea({ nombre: 'Kit', codigo: null, productId: null, quantity: 3, piezas: [bp('B1', 'Bujía', 1, 1), bp(null, 'Arandela', 2, 2)], ...o })
+  const e1 = esperado([linea({ quantity: 2 }), kit()])
+  check('esperado: suelta + dentro de un conjunto se suman por código', de(e1, 'B1'), 5)
+  check('esperado: sin código se cuenta por nombre × cantidad del conjunto', de(e1, 'Arandela'), 6)
+  check('esperado: el conjunto en sí no es una fila', e1.length, 2)
+
+  // Lo que el proveedor avisó que no mandó no se espera; el backorder que dejó una recepción, sí.
+  const manual = { lineaEntera: 1, porPieza: new Map([['Arandela', 2]]) }
+  const e2 = esperado([linea({ quantity: 2, sinEnviarManual: { lineaEntera: 1, porPieza: new Map() } }), kit({ sinEnviarManual: manual })])
+  check('sin enviar a mano: la bujía espera 5 − 1 suelta − 1 del set', de(e2, 'B1'), 3)
+  check('sin enviar a mano: arandela 6 − 2 del set − 2 sueltas', de(e2, 'Arandela'), 2)
+  check('sin enviar a mano: nunca espera menos de 0', esperado([linea({ sinEnviarManual: { lineaEntera: 5, porPieza: new Map() } })]).length, 0)
+  const back = { lineaEntera: 2, porPieza: new Map<string, number>() }
+  check('backorder de una recepción: se espera aunque no llegó la línea', de(esperado([linea({ quantity: 2, sinEnviarRecepcion: back })]), 'B1'), 2)
+  check('ya llegada: espera solo su backorder', de(esperado([linea({ quantity: 6, shippingStatus: 'en_venezuela', sinEnviarRecepcion: back })]), 'B1'), 2)
+  check('ya llegada sin backorder (caja vieja): no pide conteo', esperado([linea({ quantity: 6, shippingStatus: 'entregado' })]).length, 0)
+  check('backorder de UNA pieza del conjunto ya llegado', de(esperado([kit({ shippingStatus: 'en_venezuela', sinEnviarRecepcion: { lineaEntera: 0, porPieza: new Map([['Arandela', 1]]) } })]), 'Arandela'), 1)
+
+  // Marítimo: lo resuelto antes se resta. Lo contado, y lo faltante salvo que quedó en backorder.
+  const mar = [{ clave: 'M1', codigo: 'M1', nombre: 'Filtro', productId: 9, etiqueta: null, unidades: 10 }]
+  check('marítimo: backorder espera lo que faltó', de(esperadoDeRecepcion(mar, [{ codigo: 'M1', esperado: 10, contado: 7, decision: 'backorder' }]), 'M1'), 3)
+  check('marítimo: faltante definitivo no se espera más', esperadoDeRecepcion(mar, [{ codigo: 'M1', esperado: 10, contado: 7, decision: 'faltante' }]).length, 0)
+  check('marítimo: un sobrante no resta de más', esperadoDeRecepcion(mar, [{ codigo: 'M1', esperado: 10, contado: 12, decision: null }]).length, 0)
+
+  // Reparto: cliente viejo antes que nuevo, propio último.
+  const viejo = linea({ quantity: 2, orden: 1 })
+  const nuevo = linea({ quantity: 2, orden: 5 })
+  const propio = linea({ quantity: 2, orden: 0, propio: true })
+  const r = repartirConteo([propio, nuevo, viejo], new Map([['B1', 3]]))
+  const cubre = (l: LineaCaja) => r.lineas.find(c => c.linea === l)!.piezas[0].cubierto
+  check('reparto: el cliente más viejo completo', cubre(viejo), 2)
+  check('reparto: el más nuevo con lo que queda', cubre(nuevo), 1)
+  check('reparto: el propio absorbe primero el faltante', cubre(propio), 0)
+  check('reparto: sobrante cuando sobra', repartirConteo([viejo], new Map([['B1', 5]])).sobrante.get('B1') ?? 0, 3)
+
+  // Cierre: puedeCerrar.
+  const fila = (o: Partial<FilaRecepcion> = {}): FilaRecepcion => ({ codigo: 'B1', productId: 1, nombre: 'Bujía', esperado: 2, contado: 2, decision: null, ...o })
+  check('puedeCerrar: todo contado y completo', si(puedeCerrar([fila()]) === null), 1)
+  check('puedeCerrar: sin contar frena', si(puedeCerrar([fila({ contado: null })]) !== null), 1)
+  check('puedeCerrar: faltante sin decidir frena', si(puedeCerrar([fila({ contado: 1 })]) !== null), 1)
+  check('puedeCerrar: faltante decidido pasa', si(puedeCerrar([fila({ contado: 1, decision: 'backorder' })]) === null), 1)
+  check('puedeCerrar: sin identificar contada frena', si(puedeCerrar([fila(), fila({ codigo: null, productId: null, esperado: 0, contado: 1 })]) !== null), 1)
+  check('puedeCerrar: fuera del catálogo contada frena', si(puedeCerrar([fila({ productId: null, esperado: 0, contado: 1 })]) !== null), 1)
+  check('puedeCerrar: descartada (contada en 0) no frena', si(puedeCerrar([fila(), fila({ codigo: 'DX1', productId: null, esperado: 0, contado: 0 })]) === null), 1)
+  check('puedeCerrar: recepción vacía no cierra', si(puedeCerrar([]) !== null), 1)
+
+  // planCierre aéreo: cliente con faltante definitivo y otro con backorder; propio con stock.
+  const cli = linea({ codigo: 'F1', nombre: 'Filtro', productId: 7, quantity: 4, orden: 1 })
+  const cli2 = linea({ codigo: 'P1', nombre: 'Pastilla', productId: 8, quantity: 3, orden: 2 })
+  const pro = linea({ codigo: 'F1', nombre: 'Filtro', productId: 7, quantity: 2, propio: true })
+  const plan = planCierre([
+    fila({ codigo: 'F1', productId: 7, esperado: 6, contado: 5, decision: 'faltante' }),
+    fila({ codigo: 'P1', productId: 8, esperado: 3, contado: 1, decision: 'backorder' }),
+    fila({ codigo: 'X9', productId: 99, esperado: 0, contado: 2 }),
+  ], { modo: 'aereo', lineas: [cli, cli2, pro] })
+  const etapa = (l: LineaCaja) => plan.etapas.find(e => e.itemId === l.itemId)?.hacia ?? '—'
+  const inc = (l: LineaCaja) => plan.incidencias.filter(i => i.itemId === l.itemId).map(i => `${i.tipo}:${i.cantidad}`).join()
+  check('cierre: cliente cubierto → en_venezuela', si(etapa(cli) === 'en_venezuela'), 1)
+  check('cierre: el faltante cae en el propio (sin incidencia)', si(inc(cli) === '' && inc(pro) === ''), 1)
+  check('cierre: propio → entregado', si(etapa(pro) === 'entregado'), 1)
+  check('cierre: propio suma al stock solo lo cubierto', plan.stock.filter(m => m.pedidoItemId === pro.itemId && m.motivo === 'recepcion').reduce((s, m) => s + m.cantidad, 0), 1)
+  check('cierre: backorder parcial → sin_enviar por lo que falta', si(inc(cli2) === 'sin_enviar:2'), 1)
+  check('cierre: con algo recibido la línea pasa igual', si(etapa(cli2) === 'en_venezuela'), 1)
+  check('cierre: no esperada entra como sobrante a $0', si(plan.stock.some(m => m.productId === 99 && m.motivo === 'sobrante_recepcion' && m.cantidad === 2 && m.costoUnitUsd === 0)), 1)
+  check('cierre: lo del cliente no suma stock', plan.stock.filter(m => m.pedidoItemId === cli.itemId).length, 0)
+
+  const entera = linea({ codigo: 'Q1', productId: 5, quantity: 2 })
+  const pe = planCierre([fila({ codigo: 'Q1', productId: 5, esperado: 2, contado: 0, decision: 'backorder' })], { modo: 'aereo', lineas: [entera] })
+  check('cierre: todo en backorder no se mueve', pe.etapas.length, 0)
+  check('cierre: y queda una sin_enviar de la línea', si(pe.incidencias.length === 1 && pe.incidencias[0].tipo === 'sin_enviar' && pe.incidencias[0].pieza === null && pe.incidencias[0].cantidad === 2), 1)
+  const pf = planCierre([fila({ codigo: 'Q1', productId: 5, esperado: 2, contado: 0, decision: 'faltante' })], { modo: 'aereo', lineas: [entera] })
+  check('cierre: faltante definitivo del cliente → en_venezuela con faltante', si(pf.etapas[0]?.hacia === 'en_venezuela' && pf.incidencias[0]?.tipo === 'faltante'), 1)
+  const pq = planCierre([fila({ codigo: 'Q1', productId: 5, esperado: 2, contado: 1, decision: 'equivocada' })], { modo: 'aereo', lineas: [entera] })
+  check('cierre: llegó otra en su lugar → equivocada', si(pq.incidencias[0]?.tipo === 'equivocada' && pq.incidencias[0].cantidad === 1), 1)
+
+  // Conjunto: sin nada de él, una incidencia de la línea; con una pieza sola corta, la pieza.
+  const k2 = kit({ quantity: 2 })
+  const pk = planCierre([
+    fila({ codigo: 'B1', productId: 1, esperado: 2, contado: 0, decision: 'backorder' }),
+    fila({ codigo: 'Arandela', productId: 2, esperado: 4, contado: 0, decision: 'backorder' }),
+  ], { modo: 'aereo', lineas: [k2] })
+  check('conjunto sin nada: una sola incidencia de la línea (2 sets)', si(pk.incidencias.length === 1 && pk.incidencias[0].pieza === null && pk.incidencias[0].cantidad === 2), 1)
+  const pk2 = planCierre([
+    fila({ codigo: 'B1', productId: 1, esperado: 2, contado: 2 }),
+    fila({ codigo: 'Arandela', productId: 2, esperado: 4, contado: 3, decision: 'faltante' }),
+  ], { modo: 'aereo', lineas: [k2] })
+  check('conjunto con una pieza corta: la incidencia lleva la pieza', si(pk2.incidencias.length === 1 && pk2.incidencias[0].pieza === 'Arandela' && pk2.incidencias[0].cantidad === 1), 1)
+
+  // El backorder que llega en la segunda recepción cierra la sin_enviar anterior.
+  const llegada = linea({ quantity: 6, shippingStatus: 'en_venezuela', sinEnviarRecepcion: back })
+  const p2 = planCierre([fila({ codigo: 'B1', esperado: 2, contado: 2 })], { modo: 'aereo', lineas: [llegada] })
+  check('segunda recepción: cierra el backorder y no mueve la etapa', si(p2.backordersCerrados.includes(llegada.itemId) && p2.etapas.length === 0 && p2.incidencias.length === 0), 1)
+
+  // Marítimo: stock por lo contado hasta lo esperado al landed, el resto sobrante a $0.
+  const pm = planCierre([fila({ codigo: 'M1', productId: 9, esperado: 10, contado: 12 }), fila({ codigo: 'M2', productId: 10, esperado: 4, contado: 3, decision: 'faltante' })], { modo: 'maritimo', costoUnit: new Map([[9, 2.5], [10, 1]]) })
+  check('marítimo: recepción al landed de la caja', si(pm.stock.some(m => m.productId === 9 && m.motivo === 'recepcion' && m.cantidad === 10 && m.costoUnitUsd === 2.5)), 1)
+  check('marítimo: lo de más como sobrante', si(pm.stock.some(m => m.productId === 9 && m.motivo === 'sobrante_recepcion' && m.cantidad === 2)), 1)
+  check('marítimo: entra exactamente lo contado', pm.stock.reduce((s, m) => s + m.cantidad, 0), 15)
+  check('marítimo: sin incidencias', pm.incidencias.length, 0)
+
+  // Stepper: llegar y volver de la llegada no se hace a mano.
+  const cl = { isLanded: false, esCliente: true }
+  const pr = { isLanded: false, esCliente: false }
+  check('stepper: avanzar en tránsito sí', si(transicionManualPermitida('en_usa', 'camino_venezuela', cl)), 1)
+  check('stepper: a en_venezuela a mano no', si(transicionManualPermitida('camino_venezuela', 'en_venezuela', cl)), 0)
+  check('stepper: saltar a entregado a mano no', si(transicionManualPermitida('en_usa', 'entregado', pr)), 0)
+  check('stepper: volver de en_venezuela no', si(transicionManualPermitida('en_venezuela', 'camino_venezuela', cl)), 0)
+  check('stepper: propio de entregado hacia atrás no', si(transicionManualPermitida('entregado', 'en_venezuela', pr)), 0)
+  check('stepper: cliente de entregado a recibido sí', si(transicionManualPermitida('entregado', 'en_venezuela', cl)), 1)
+  check('stepper: propio de en_venezuela a entregado sí (cajas viejas)', si(transicionManualPermitida('en_venezuela', 'entregado', pr)), 1)
+  check('stepper: landed no tiene candado', si(transicionManualPermitida('pendiente', 'en_venezuela', { isLanded: true, esCliente: true })), 1)
 }
 
 console.log('\nLECTOR  (etiqueta de Bajaj o bolsa del proveedor → código y cantidad)')
@@ -1397,7 +1502,7 @@ console.log('\nLECTOR  (etiqueta de Bajaj o bolsa del proveedor → código y ca
   lee('DH181135-12_90', 'DH181135', 12)
 
   const pz = (codigo: string | null, nombre: string, alternos: string[] = []) =>
-    ({ clave: codigo ?? nombre, nombre, codigo, esperado: 1, sinEnviar: 0, alternos })
+    ({ clave: codigo ?? nombre, nombre, codigo, alternos })
   const caja = [
     pz('DH181135', 'Pastilla freno del.'),
     pz('JR233035', 'Calco rueda der.', ['JR233069']),
@@ -2096,7 +2201,31 @@ console.log('\nREENVÍO POR KILO POR PIEZA (catálogo y presupuestos)')
   check('aviso: un problema va al máximo', avisoDeCambio({ ...c, estado: 'exception' })!.priority, 5)
   check('aviso: con APP_URL lleva link a la caja', si(avisoDeCambio(c, 'https://x.ts.net')!.click === 'https://x.ts.net/envios/12'), 1)
   check('aviso: sin APP_URL no lleva link', si(!('click' in avisoDeCambio(c)!)), 1)
+  check('aviso: entregada en Venezuela lleva a marcar la llegada', si(avisoDeCambio({ ...c, tramo: 'venezuela', estado: 'delivered' }, 'https://x.ts.net')!.click === 'https://x.ts.net/envios/12#llegada'), 1)
 }
+
+// Kardex: cada motivo exige su signo y un ajuste exige nota (lib/stock.ts).
+console.log('\nKARDEX (motivos de stock)')
+{
+  const invalido = (m: Parameters<typeof motivoMovStockInvalido>[0]) => (motivoMovStockInvalido(m) != null ? 1 : 0)
+  check('kardex: una venta que resta vale', invalido({ productId: 1, cantidad: -2, motivo: 'venta' }), 0)
+  check('kardex: una venta positiva se rechaza', invalido({ productId: 1, cantidad: 2, motivo: 'venta' }), 1)
+  check('kardex: una recepción negativa se rechaza', invalido({ productId: 1, cantidad: -1, motivo: 'recepcion' }), 1)
+  check('kardex: cantidad 0 se rechaza', invalido({ productId: 1, cantidad: 0, motivo: 'conteo' }), 1)
+  check('kardex: cantidad no entera se rechaza', invalido({ productId: 1, cantidad: 1.5, motivo: 'alta' }), 1)
+  check('kardex: ajuste sin nota se rechaza', invalido({ productId: 1, cantidad: -1, motivo: 'ajuste' }), 1)
+  check('kardex: ajuste con nota en blanco se rechaza', invalido({ productId: 1, cantidad: 3, motivo: 'ajuste', nota: '  ' }), 1)
+  check('kardex: ajuste con nota vale en los dos sentidos', invalido({ productId: 1, cantidad: -1, motivo: 'ajuste', nota: 'rota' }) + invalido({ productId: 1, cantidad: 1, motivo: 'ajuste', nota: 'apareció' }), 0)
+  check('kardex: todo motivo tiene signo y etiqueta', MOTIVOS_STOCK.every(m => m in SIGNO_MOTIVO && m in MOTIVO_STOCK_LABEL) ? 1 : 0, 1)
+}
+
+// Vender desde el teléfono: una lectura suma lo de la etiqueta sin pasar del stock.
+console.log('\nVENDER DESDE EL TELÉFONO')
+check('vender: una caja suma 1', cuantoSumar(1, 5, 0), 1)
+check('vender: una bolsa de 2 suma 2', cuantoSumar(2, 5, 0), 2)
+check('vender: no pasa del stock', cuantoSumar(3, 5, 4), 1)
+check('vender: con todo en el carrito no suma', cuantoSumar(1, 5, 5), 0)
+check('vender: sin stock no suma', cuantoSumar(1, 0, 0), 0)
 
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)
 process.exit(fallos === 0 ? 0 : 1)

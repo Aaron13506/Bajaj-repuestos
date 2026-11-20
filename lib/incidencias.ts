@@ -127,8 +127,10 @@ export function bloqueaCompra(l: IncidenciaAbierta[]): boolean {
 // ── Lo que el proveedor no mandó ─────────────────────────────────────────────────────────────
 // El proveedor vende el pedido pero alguna pieza la despacha después (backorder). Se anota desde
 // la compra como "sin_enviar" y, mientras esté abierta, la caja no la espera: el conteo no la pide
-// y "Marcar recibido" no pasa a Recibido una línea que no vino entera. Cuando llega se cierra como
-// "llego"; si nunca llega, como reembolso o reposición, igual que un faltante.
+// y el cierre de la recepción no pasa a Recibido una línea que no vino entera. Cuando llega se cierra
+// como "llego"; si nunca llega, como reembolso o reposición, igual que un faltante. La que deja el
+// cierre de una recepción (backorder, Incidencia.recepcionId) sí se espera en la siguiente, que la
+// cierra como "llego" al contarla (lib/recepcion.ts).
 
 export interface SinEnviar {
   /** Unidades de la línea (sets, si es un conjunto) que no vinieron enteras. */

@@ -34,12 +34,10 @@ import { apiKeyTrack123, ENV_API_KEY, eventosGuardados, horaConsulta } from '@/l
 import { credencialesOneway } from '@/lib/oneway'
 import { listaCouriers } from '@/lib/sync-trackings'
 import { esTramoTracking } from '@/lib/tracking'
-import ConteoCaja, { BotonConteo } from '@/components/ConteoCaja'
+import RecepcionesCaja from './recepciones'
 import PestanasCaja from '@/components/PestanasCaja'
 import TrayectoCaja from '@/components/TrayectoCaja'
 import SeccionCaja from '@/components/SeccionCaja'
-import { piezasAContar } from '@/lib/conteo'
-import { equivalenciasDe } from '@/lib/alt-sku'
 import { etiquetaPieza, lineaNoViene, perdidaSugerida, sinEnviarDe, textoSinEnviar, tiposPara } from '@/lib/incidencias'
 import { stageSummary, statusIndex } from '@/lib/shipping-status'
 import AvisarClientes, { type AvisoCliente } from '@/components/AvisarClientes'
@@ -737,47 +735,13 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     })
     .filter(p => p.disponibles > 0)
 
-  // Lo comprado que viaja en la caja, esté en la etapa que esté: la caja se cuenta cuando se
-  // abre, aunque ya la hayas marcado en Venezuela (o entregado). Recibir pasa a "en Venezuela"
-  // solo lo que todavía no llegó a esa etapa.
-  // Lo que el proveedor no mandó (incidencias "sin_enviar" abiertas) no se espera en la mesa, y una
-  // línea que no vino entera tampoco pasa a Recibido: se recibe a mano cuando llegue.
+  // Lo comprado que todavía no llegó a Venezuela: decide con qué pestaña abre la ficha. El conteo en
+  // sí (qué se espera, qué llegó) es de la recepción (lib/recepcion-db, pestaña Llegada).
+  // Lo que el proveedor no mandó entero (sin_enviar abierta) no cuenta como por recibir.
   const enCaja = envio.items.filter(it => !it.isLanded && it.shippingStatus !== 'pendiente')
-  const sinEnviarPorItem = new Map(enCaja.map(it => [it.id, sinEnviarDe(it.incidencias)]))
   const noViene = (it: (typeof enCaja)[number]) =>
-    lineaNoViene(it.quantity, sinEnviarPorItem.get(it.id)!, (it.bundleItems as BundlePiece[] | null) ?? [])
+    lineaNoViene(it.quantity, sinEnviarDe(it.incidencias), (it.bundleItems as BundlePiece[] | null) ?? [])
   const porRecibir = enCaja.filter(it => statusIndex(it.shippingStatus) < statusIndex('en_venezuela') && !noViene(it))
-  const noVinieron = enCaja.filter(it => statusIndex(it.shippingStatus) < statusIndex('en_venezuela') && noViene(it))
-  const aContar = piezasAContar(enCaja.map(it => ({
-    nombre: cabeceraDeLinea(it).nameEs,
-    codigo: cabeceraDeLinea(it).bajajCode,
-    quantity: it.quantity,
-    piezas: (it.bundleItems as BundlePiece[] | null) ?? [],
-    sinEnviar: sinEnviarPorItem.get(it.id),
-  })))
-  // Las de peso estimado se ofrecen pesar al contarlas. Un conjunto solo guarda códigos, así
-  // que se resuelve por código, y un código que comparten dos productos no se ofrece.
-  // Solo corre con una caja en camino a Venezuela: el resto del tiempo no cruza la red.
-  const codigosAContar = aContar.flatMap(p => (p.codigo ? [p.codigo] : []))
-  // Los alternos de cada código (doble SKU), para que la etiqueta con el otro número caiga en su fila.
-  if (codigosAContar.length > 0) {
-    const [prods, equivalentes] = await Promise.all([
-      db.product.findMany({
-        where: { bajajCode: { in: codigosAContar } },
-        select: { id: true, bajajCode: true, medidoAt: true, weightGrams: true, dimL: true, dimA: true, dimH: true },
-      }),
-      equivalenciasDe(codigosAContar),
-    ])
-    for (const p of aContar) {
-      const propio = p.codigo?.trim().toUpperCase()
-      p.alternos = propio ? (equivalentes.get(propio) ?? []).filter(c => c !== propio) : []
-      const mismos = prods.filter(x => x.bajajCode === p.codigo)
-      const x = mismos.length === 1 ? mismos[0] : null
-      p.estimada = x && x.medidoAt == null
-        ? { productId: x.id, weightGrams: x.weightGrams, dimL: x.dimL, dimA: x.dimA, dimH: x.dimH }
-        : null
-    }
-  }
 
   // Lo confirmado (status='pedido') es lo que hay que comprar sí o sí; los
   // presupuestos sin aprobar todavía pueden caerse, así que se separan y nunca
@@ -1072,7 +1036,11 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                 {proximoPaso.accion}
               </a>
             ) : null}
-            {!esBorrador && aContar.length > 0 && enCaminoAVenezuela && <BotonConteo />}
+            {!esBorrador && enCaminoAVenezuela && (
+              <a href="#llegada" className="inline-flex items-center min-h-9 px-4 py-1.5 text-sm border border-gray-300 rounded-lg bg-white hover:bg-gray-50 font-medium text-gray-700">
+                Contar y recibir
+              </a>
+            )}
             <details className="relative">
               <summary className="list-none cursor-pointer px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white hover:bg-gray-50 font-medium text-gray-700 [&::-webkit-details-marker]:hidden">
                 Más <span aria-hidden="true">▾</span>
@@ -1702,37 +1670,8 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
           {
             id: 'llegada',
             label: 'Llegada',
-            badge: !esBorrador && aContar.length > 0 && enCaminoAVenezuela ? String(aContar.length) : null,
-            anclas: ['conteo'],
-            contenido: (
-              <>
-                {esBorrador || aContar.length === 0 ? (
-                  <p className="rounded-xl border border-dashed border-gray-300 bg-white px-4 py-8 text-center text-sm text-gray-600 mb-4">
-                    {esBorrador ? 'En borrador no hay nada que contar.' : 'Todavía no hay nada comprado que contar.'}
-                  </p>
-                ) : (
-                  <SeccionCaja
-                    id="llegada-titulo"
-                    titulo={porRecibir.length === 0 ? 'La caja ya está recibida' : enCaminoAVenezuela ? 'Contar lo que llegó y recibir' : 'Todavía no llegó a Venezuela'}
-                    sub={porRecibir.length === 0 ? 'Ya se contó y se recibió: no se vuelve a contar.' : <>
-                      {aContar.length} {aContar.length === 1 ? 'código' : 'códigos'} a contar, los conjuntos abiertos en sus piezas.
-                      {' '}{enCaminoAVenezuela
-                        ?'Escaneás la etiqueta o tecleás el código: suma lo que trae el empaque; lo que falte se reporta como faltante en su pedido.'
-                        : 'El conteo se hace cuando la caja va camino a Venezuela o llegó; podés abrirlo antes si hace falta.'}
-                    </>}
-                    acciones={porRecibir.length > 0 ? <BotonConteo /> : null}
-                  />
-                )}
-          {!esBorrador && porRecibir.length > 0 && (
-            <ConteoCaja
-              envioId={envio.id}
-              piezas={aContar}
-              recibir={saveItemChanges.bind(null, envio.id, porRecibir.map(it => ({ id: it.id, shippingStatus: 'en_venezuela' })))}
-              aviso={`${porRecibir.length > 0 ? `Pasa ${porRecibir.length} ${porRecibir.length === 1 ? 'línea' : 'líneas'} a "Recibido". ` : ''}${noVinieron.length > 0 ? `${noVinieron.length} ${noVinieron.length === 1 ? 'línea queda' : 'líneas quedan'} sin recibir porque el proveedor no la${noVinieron.length === 1 ? '' : 's'} mandó. ` : ''}Lo que falte, reportalo como incidencia "faltante" en su pedido.`}
-            />
-          )}
-              </>
-            ),
+            badge: !esBorrador && enCaminoAVenezuela ? String(porRecibir.length) : null,
+            contenido: <RecepcionesCaja envioId={envio.id} />,
           },
           {
             id: 'plata',

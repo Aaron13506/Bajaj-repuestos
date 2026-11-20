@@ -245,7 +245,7 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, onError, packQty, a
       // si quedó tildado.
       medidoAt:         fd.get('medido') === 'true' ? (d.medidoAt ?? new Date().toISOString()) : null,
       descontinuada:    d.descontinuada,
-      stock:            fdInt('stock') ?? 0,
+      stock:            d.stock + (fdInt('stockAjuste') ?? 0),
     })
     if (onOptimistic) onClose()
 
@@ -432,11 +432,14 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, onError, packQty, a
                   defaultValue={d.dimH ?? ''} onChange={recalcFromCost} className={input} />
               </label>
               <label className="block">
-                <span className={label}>Stock</span>
-                <input type="hidden" name="stockCargado" value={d.stock} />
-                <input name="stock" type="number" min="0" defaultValue={d.stock} className={input} />
+                <span className={label}>Ajustar stock (hay {d.stock})</span>
+                <input name="stockAjuste" type="number" step="1" placeholder="+3 o −2" className={input} />
               </label>
             </div>
+            <label className="block">
+              <span className={label}>Motivo del ajuste</span>
+              <input name="stockNota" type="text" placeholder="Obligatorio si ajustás" className={input} />
+            </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
