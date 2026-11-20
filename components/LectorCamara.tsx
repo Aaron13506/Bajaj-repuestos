@@ -142,7 +142,8 @@ export default function LectorCamara({
 
   return createPortal(
     <div role="dialog" aria-modal="true" aria-label="Escanear con la cámara" className={`fixed inset-0 z-50 flex flex-col bg-black border-8 ${borde}`}>
-      <div className="relative flex-1 min-h-0">
+      {/* overflow-hidden: la sombra del recuadro (9999px) no debe oscurecer el panel de abajo */}
+      <div className="relative flex-1 min-h-0 overflow-hidden">
         <video ref={video} muted playsInline className="absolute inset-0 h-full w-full object-cover" />
         <div aria-hidden="true" className="absolute left-1/2 top-1/2 h-56 w-72 max-w-[80%] -translate-x-1/2 -translate-y-1/2 rounded-xl border-2 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
         {error && <p role="alert" className="absolute inset-x-4 top-1/3 rounded-lg bg-red-700 px-4 py-3 text-center text-white">{error}</p>}

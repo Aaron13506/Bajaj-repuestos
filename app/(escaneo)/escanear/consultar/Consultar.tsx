@@ -18,9 +18,10 @@ type Resultado = Consulta | { tipo: 'error'; mensaje: string }
 type Ubicada = { ficha: Ficha; texto: string } // la ficha con su ubicación nueva y el aviso
 
 // Modo Consultar: la cámara abre sola; cada lectura (o lo tecleado) trae la ficha corta de la
-// pieza. Pitido agudo = la encontró; grave = no está o hay varias (hay que mirar).
+// pieza y la cámara se cierra para leerla. Pitido agudo = la encontró; grave = no está o hay
+// varias (hay que mirar). Para ubicarla, la ficha abre la cámara solo para el estante.
 export default function Consultar() {
-  const [camara, setCamara] = useState(true)
+  const [camara, setCamara] = useState<'pieza' | 'estante' | null>('pieza')
   const [texto, setTexto] = useState('')
   const [res, setRes] = useState<Resultado | null>(null)
   const [cargando, setCargando] = useState(false)
@@ -57,18 +58,25 @@ export default function Consultar() {
   }
 
   function leer(raw: string): Senal | Promise<Senal> {
+    const esEstante = leerEtiqueta(raw).tipo === 'ubicacion'
+    const cerrarSiOk = (t: Senal) => { if (t === 'ok') setCamara(null); return t }
+    if (camara === 'estante') {
+      if (esEstante && res?.tipo === 'ficha') return ubicar(res.ficha, raw).then(cerrarSiOk)
+      senal('error') // no es un estante: el borde rojo y el pitido grave avisan, la ficha queda
+      return 'error'
+    }
     if (!raw.trim()) { // modo gatillo sin etiqueta en cuadro
       senal('error')
       setRes({ tipo: 'error', mensaje: 'No se leyó ninguna etiqueta.' })
       return 'error'
     }
-    if (leerEtiqueta(raw).tipo === 'ubicacion') {
-      if (res?.tipo === 'ficha') return ubicar(res.ficha, raw)
+    if (esEstante) {
+      if (res?.tipo === 'ficha') return ubicar(res.ficha, raw) // lector USB: pieza y después estante
       senal('error')
       setRes({ tipo: 'error', mensaje: 'Es un estante: escaneá primero la pieza y después el estante.' })
       return 'error'
     }
-    return consultar(() => consultarCodigo(raw, false))
+    return consultar(() => consultarCodigo(raw, false)).then(cerrarSiOk)
   }
 
   const panel = (
@@ -97,7 +105,7 @@ export default function Consultar() {
       </form>
       <div role="status" aria-live="polite">
         {ubicada && <p className="mb-2 rounded-lg bg-green-50 px-3 py-2 text-lg font-semibold text-green-900">{ubicada}</p>}
-        {cargando ? <p className="text-sm text-gray-500">Buscando…</p> : res && <Vista res={res} elegir={id => void consultar(() => consultarPieza(id))} ubicar={ubicar} />}
+        {cargando ? <p className="text-sm text-gray-500">Buscando…</p> : res && <Vista res={res} elegir={id => void consultar(() => consultarPieza(id))} ubicar={ubicar} escanearEstante={() => setCamara('estante')} />}
       </div>
     </div>
   )
@@ -109,18 +117,24 @@ export default function Consultar() {
           ← Modos
         </Link>
         <h1 className="text-lg font-bold text-gray-900">Consultar</h1>
-        <button type="button" onClick={() => setCamara(true)} className="min-h-11 rounded-lg bg-gray-900 px-4 text-sm font-semibold text-white">
+        <button type="button" onClick={() => setCamara('pieza')} className="min-h-11 rounded-lg bg-gray-900 px-4 text-sm font-semibold text-white">
           Cámara
         </button>
       </div>
-      {camara ? (
-        <LectorCamara onLectura={leer} onCerrar={() => setCamara(false)}>{panel}</LectorCamara>
+      {camara === 'estante' && res?.tipo === 'ficha' ? (
+        <LectorCamara onLectura={leer} onCerrar={() => setCamara(null)}>
+          <p className="text-base font-semibold text-gray-900">
+            Escaneá la etiqueta del estante para <span className="font-mono">{res.ficha.bajajCode ?? res.ficha.nameEs}</span>
+          </p>
+        </LectorCamara>
+      ) : camara ? (
+        <LectorCamara onLectura={leer} onCerrar={() => setCamara(null)}>{panel}</LectorCamara>
       ) : panel}
     </div>
   )
 }
 
-function Vista({ res, elegir, ubicar }: { res: Resultado; elegir: (id: number) => void; ubicar: (f: Ficha, raw: string) => void }) {
+function Vista({ res, elegir, ubicar, escanearEstante }: { res: Resultado; elegir: (id: number) => void; ubicar: (f: Ficha, raw: string) => void; escanearEstante: () => void }) {
   if (res.tipo === 'error') {
     return <p className="rounded-lg bg-red-50 px-3 py-2 font-medium text-red-800">{res.mensaje}</p>
   }
@@ -153,12 +167,12 @@ function Vista({ res, elegir, ubicar }: { res: Resultado; elegir: (id: number) =
       </div>
     )
   }
-  return <FichaCorta key={res.ficha.id} f={res.ficha} leidoComo={res.leidoComo} ubicar={ubicar} />
+  return <FichaCorta key={res.ficha.id} f={res.ficha} leidoComo={res.leidoComo} ubicar={ubicar} escanearEstante={escanearEstante} />
 }
 
 const cm = (n: number | null) => (n == null ? '—' : String(n))
 
-function FichaCorta({ f, leidoComo, ubicar }: { f: Ficha; leidoComo: string | null; ubicar: (f: Ficha, raw: string) => void }) {
+function FichaCorta({ f, leidoComo, ubicar, escanearEstante }: { f: Ficha; leidoComo: string | null; ubicar: (f: Ficha, raw: string) => void; escanearEstante: () => void }) {
   const [asignando, setAsignando] = useState(false)
   return (
     <div className="space-y-3 rounded-lg border border-gray-200 bg-white p-3">
@@ -190,10 +204,10 @@ function FichaCorta({ f, leidoComo, ubicar }: { f: Ficha; leidoComo: string | nu
               <button className="min-h-11 rounded-lg bg-blue-600 px-4 font-semibold text-white">Guardar</button>
             </form>
           ) : (
-            <p className="mt-1 text-sm text-gray-600">
-              Escaneá la etiqueta del estante para ubicarla, o{' '}
-              <button type="button" onClick={() => setAsignando(true)} className="inline-flex min-h-11 items-center font-semibold text-blue-700 underline">asignar ubicación</button>
-            </p>
+            <div className="mt-1 flex flex-wrap gap-2">
+              <button type="button" onClick={escanearEstante} className="min-h-11 rounded-lg bg-gray-900 px-4 text-sm font-semibold text-white">Escanear estante</button>
+              <button type="button" onClick={() => setAsignando(true)} className="min-h-11 rounded-lg border border-gray-300 px-4 text-sm font-semibold text-gray-900">Escribir ubicación</button>
+            </div>
           )}
           </dd>
         </div>
