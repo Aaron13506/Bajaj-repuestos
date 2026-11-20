@@ -552,6 +552,7 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                           <p className="text-sm font-medium text-gray-900 break-words">{l.pieza.nameEs}</p>
                           <p className="text-xs text-gray-500">
                             <span className="font-mono">{l.pieza.bajajCode ?? 'sin código'}</span> · hay {l.pieza.stock}
+                            {l.pieza.ubicacion && <> · en <span className="font-mono font-semibold text-gray-800">{l.pieza.ubicacion}</span></>}
                             {cant > l.pieza.stock && <span className="text-red-700 font-semibold"> · no alcanza el stock</span>}
                           </p>
                         </div>

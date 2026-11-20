@@ -143,6 +143,8 @@ export async function posicionesParaArmador(): Promise<PosicionesStock> {
 export interface FilaInventario extends PosicionPieza {
   nameEs: string
   bajajCode: string | null
+  /** Estante del depósito. null = sin asignar. */
+  ubicacion: string | null
   compatibleModels: string | null
   /** Precio de venta de hoy (Product.price). null = sin precio cargado. */
   precioUsd: number | null
@@ -248,7 +250,7 @@ export async function resumenInventario(): Promise<ResumenInventario> {
     ? await db.product.findMany({
         where: { id: { in: ids } },
         select: {
-          id: true, nameEs: true, bajajCode: true, compatibleModels: true, landedCostUsd: true, price: true,
+          id: true, nameEs: true, bajajCode: true, ubicacion: true, compatibleModels: true, landedCostUsd: true, price: true,
           assemblies: {
             select: {
               groupName: true,
@@ -288,6 +290,7 @@ export async function resumenInventario(): Promise<ResumenInventario> {
       ...pos,
       nameEs: pr.nameEs,
       bajajCode: pr.bajajCode,
+      ubicacion: pr.ubicacion,
       compatibleModels: pr.compatibleModels,
       precioUsd: precio > 0 ? precio : null,
       ensambles: ensamblesDePieza(pr.assemblies.map(a => ({

@@ -92,6 +92,15 @@ export default function ConteoCaja({ vista, volver, telefono = false, estimadas,
       setAviso({ tono: 'error', texto: `${res.codigo} no está en el catálogo`, ofrecer: { raw, origen, crear: res.codigo } })
       return 'error'
     }
+    // Etiqueta de estante: no suma; ubica la última pieza leída si no tenía lugar.
+    if (res.tipo === 'estante') {
+      if (res.asignada) { setAviso({ tono: 'ok', texto: `${res.codigo ?? limpiarNombre(res.nombre ?? '')} → ${res.ubicacion}` }); return 'ok' }
+      const pieza = res.codigo ?? limpiarNombre(res.nombre ?? '')
+      setAviso({ tono: 'error', texto: res.codigo == null && res.nombre == null ? `Estante ${res.ubicacion}: escaneá primero una pieza.`
+        : res.tenia ? `${pieza} ya está en ${res.tenia}: no se movió.`
+          : `${pieza} no está en el catálogo: no se puede ubicar.` })
+      return 'error'
+    }
     fijar(res.lineaId, res.contado)
     const bolsa = res.cantidad > 1
     const sobran = res.esperado > 0 ? res.contado - res.esperado : 0
@@ -99,7 +108,8 @@ export default function ConteoCaja({ vista, volver, telefono = false, estimadas,
     setAviso({
       tono,
       texto: `+${res.cantidad}${bolsa ? ' bolsa' : ''} ${res.codigo ?? ''} · ${limpiarNombre(res.nombre)} → ${res.esperado === 0 ? `${res.contado} (no esperada)` : marca(res.contado, res.esperado)}` +
-        (!ciego && sobran > 0 ? ` · sobran ${sobran}` : '') + (res.leidoComo ? ` · leído como ${res.leidoComo}` : ''),
+        (!ciego && sobran > 0 ? ` · sobran ${sobran}` : '') + (res.leidoComo ? ` · leído como ${res.leidoComo}` : '') +
+        (!res.enCatalogo ? '' : res.ubicacion ? ` · va a ${res.ubicacion}` : ' · sin ubicación: escaneá el estante'),
       lecturaId: res.lecturaId,
       bolsa: bolsa ? { lineaId: res.lineaId, cantidad: res.cantidad, contado: res.contado } : undefined,
     })

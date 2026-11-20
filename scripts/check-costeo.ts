@@ -43,7 +43,8 @@ import { realDeCobro, resumenCobro } from '../lib/cobro-bcv'
 import { construirResolver, piezasDeLinea } from '../lib/stock-piezas'
 import { resolverLectura } from '../lib/conteo'
 import { esperadoDeRecepcion, pendienteDeLinea, planCierre, puedeCerrar, repartirConteo, transicionManualPermitida, type FilaRecepcion, type LineaCaja } from '../lib/recepcion'
-import { leerCodigo } from '../lib/qr-bajaj'
+import { leerEtiqueta, normUbicacion, type Lectura } from '../lib/qr-bajaj'
+import { difConteo, motivoNoCierraConteo, pideNota, planCierreConteo, sugerirConteo } from '../lib/conteo-inventario'
 import { cuentaDeMetodo, datosBs, leerCobroBs } from '../lib/cuentas'
 import { convertir, usdPorBsAlConvertir, usdPorBsEnCuenta } from '../lib/conversion'
 import { costoDeLinea, cuantoSumar, motivoNoServible, motivoNoVendible, resumenVenta } from '../lib/venta-stock'
@@ -1489,9 +1490,18 @@ console.log('\nRECEPCIÓN (esperado, reparto, cierre, stepper)')
 console.log('\nLECTOR  (etiqueta de Bajaj o bolsa del proveedor → código y cantidad)')
 {
   const si = (b: boolean) => (b ? 1 : 0)
+  // Una etiqueta de pieza como Lectura (para resolverLectura); un estante no lo es.
+  const leerCodigo = (raw: string): Lectura => {
+    const e = leerEtiqueta(raw)
+    return e.tipo === 'pieza' ? e : { codigo: '', cantidad: 0, raw }
+  }
   const lee = (raw: string, codigo: string, cantidad: number) => {
-    const l = leerCodigo(raw)
-    check(`lector: ${raw} → ${codigo} × ${cantidad}`, si(l.codigo === codigo && l.cantidad === cantidad), 1)
+    const l = leerEtiqueta(raw)
+    check(`lector: ${raw} → ${codigo} × ${cantidad}`, si(l.tipo === 'pieza' && l.codigo === codigo && l.cantidad === cantidad), 1)
+  }
+  const estante = (raw: string, codigo: string) => {
+    const l = leerEtiqueta(raw)
+    check(`lector: ${raw} → estante ${codigo}`, si(l.tipo === 'ubicacion' && l.codigo === codigo), 1)
   }
   lee('DH181135-1_842', 'DH181135', 1)
   lee('JW401011-1_174', 'JW401011', 1)
@@ -1501,6 +1511,14 @@ console.log('\nLECTOR  (etiqueta de Bajaj o bolsa del proveedor → código y ca
   lee('DH18 1135', 'DH181135', 1) // tecleado con espacio: sin tercer tramo no hay cantidad
   lee('DH181135-0_842', 'DH181135', 1) // una etiqueta con 0 no resta
   lee('DH181135-12_90', 'DH181135', 12)
+  estante('UBI:A-3', 'A-3')
+  estante('ubi:a 3', 'A-3')
+  estante("UBIÑA'3", 'A-3') // el mismo lector con el teclado en español
+  estante('UBI:B-12-2', 'B-12-2')
+  lee('UBI12345-1_10', 'UBI12345', 1) // un SKU que empieza con UBI sigue siendo pieza
+  lee('UBI:', 'UBI', 1) // estante vacío no es estante
+  check('ubicación: separadores a guion, sin bordes', si(normUbicacion(' a//3- ') === 'A-3'), 1)
+  check('ubicación: vacía = sin ubicación', si(normUbicacion(' - ') === null), 1)
 
   const pz = (codigo: string | null, nombre: string, alternos: string[] = []) =>
     ({ clave: codigo ?? nombre, nombre, codigo, alternos })
@@ -1521,6 +1539,37 @@ console.log('\nLECTOR  (etiqueta de Bajaj o bolsa del proveedor → código y ca
   check('resolver: parcial ambiguo', si(fila('JR2330') === 'varias:2'), 1)
   check('resolver: inexistente', si(fila('DX123456-1_10') === 'ninguna'), 1)
   check('resolver: escaneado no busca parcial', si(fila('1135', false) === 'ninguna'), 1)
+}
+
+console.log('\nCONTEO CÍCLICO  (ajuste contra el stock al cerrar, notas, qué contar)')
+{
+  const si = (b: boolean) => (b ? 1 : 0)
+  const f = (contado: number | null, stockAhora: number, sistema = stockAhora, movidaDurante = false) => ({ productId: 1, sistema, contado, stockAhora, movidaDurante })
+  check('conteo: sin contar no ajusta', si(difConteo(f(null, 5)) === null), 1)
+  check('conteo: 0 contado con 5 en sistema ajusta −5', difConteo(f(0, 5)) ?? 99, -5)
+  // Abrió con 5, se vendió 1 en el medio (stock 4) y se contaron 4: no hay diferencia.
+  const venta = f(4, 4, 5, true)
+  check('conteo: venta en el medio no es diferencia', difConteo(venta) ?? 99, 0)
+  const plan = planCierreConteo([venta, { ...f(7, 5), productId: 2 }, { ...f(null, 3), productId: 3 }])
+  check('conteo: ajusta solo lo distinto (+2 a la 2)', si(plan.ajustes.map(a => `${a.productId}:${a.cantidad}`).join() === '2:2'), 1)
+  check('conteo: contadas = las que tienen número', si(plan.contadas.join() === '1,2'), 1)
+  check('conteo: avisa la que se movió durante', si(plan.movidas.join() === '1'), 1)
+  check('conteo: diferencia de 1 no pide nota', si(pideNota(f(4, 5))), 0)
+  check('conteo: diferencia de 3 pide nota', si(pideNota(f(2, 5))), 1)
+  check('conteo: no estaba nada pide nota', si(pideNota(f(0, 1))), 1)
+  check('conteo: sin nota no cierra si la pide', si(motivoNoCierraConteo([f(0, 4)], '') != null), 1)
+  check('conteo: con nota cierra', si(motivoNoCierraConteo([f(0, 4)], 'se rompieron') == null), 1)
+  check('conteo: nada contado no cierra', si(motivoNoCierraConteo([f(null, 4)], 'x') != null), 1)
+  const hoy = new Date('2026-11-20T12:00:00Z')
+  const hace = (d: number) => new Date(hoy.getTime() - d * 86_400_000)
+  const sug = (stock: number, contadoAt: Date | null, movimientos = 0, ajustes = 0) => sugerirConteo({ stock, contadoAt, movimientos, ajustes }, hoy)
+  check('sugerir: con stock y nunca contada', si(sug(2, null)?.motivo === 'nunca contada'), 1)
+  check('sugerir: contada hace 10 días y quieta no', si(sug(2, hace(10)) == null), 1)
+  check('sugerir: contada hace 61 días sí', si(sug(2, hace(61))?.motivo === 'contada hace 61 días'), 1)
+  check('sugerir: sin stock y quieta no', si(sug(0, null) == null), 1)
+  check('sugerir: sin stock pero vendida hace poco sí', si(sug(0, hace(5), 1) != null), 1)
+  check('sugerir: ajuste a mano pesa más que nunca contada', si(sug(1, hace(5), 1, 1)!.peso > sug(9, null)!.peso), 1)
+  check('sugerir: movida pesa más que vencida', si(sug(1, hace(5), 1)!.peso > sug(1, hace(90))!.peso), 1)
 }
 
 console.log('\nREENVÍO POR KILO  (₹/kg cotizado por caja + reempaque de la caja, sin seguro)')

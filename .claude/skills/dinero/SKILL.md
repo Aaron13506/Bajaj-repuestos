@@ -42,6 +42,8 @@ Real dollars, recognised on **delivery**. A line's cost is the landed its box gi
 
 Own merchandise only. *Aquí* = `Product.stock` at current replacement cost (`landedCostUsd`, explicit decision — no lot costing). *En camino* = lines in **confirmed** boxes not yet arrived, at each line's landed as its box costs it (`costo-envios.ts`). Own orders outside a box and anything in a `borrador` box appear nowhere. `posicionesParaArmador()` feeds the builders' informative `StockBadge`.
 
+**Shelves and cycle counts** (`lib/conteo-inventario.ts` pure · `lib/conteo-inventario-db.ts`, docs/plan-inventario/05): `Product.ubicacion` is one text per piece (`normUbicacion`: "a 3" = "A-3"; null = unassigned), `contadoAt` the last count. Shelf labels are QR `UBI:A-3` (`leerEtiqueta` tells them from a piece; PDF in `/inventario/etiquetas`). A `ConteoInventario` (one open per shelf) is counted blind on the phone (`/escanear/inventario/[id]`); a piece found on the shelf joins the count and takes that shelf if it had none ("Estaba en B-1, ¿la muevo?" otherwise). Closing adjusts **against the stock at closing** (rows locked), only with `moverStock` motive `conteo` (group `conteo-<id>`), never re-closable; uncounted rows are untouched; a big gap (≥ 3 or nothing found) needs a note. Putaway: in a recepción, a `UBI:` read places the last piece read if it had no shelf. Suggested list in `/inventario/conteo`: manual adjustments, movements since the last count, never/60+ days counted (a sale refused for stock isn't recorded, so it isn't a criterion).
+
 ## Caja apertura
 
 `caja_apertura_desde` / `caja_apertura_usd` in Config anchor the displayed balance (`saldoInicial + real flow since`); the ledger keeps only real movements.

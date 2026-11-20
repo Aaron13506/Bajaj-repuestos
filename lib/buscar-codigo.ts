@@ -1,5 +1,5 @@
 import { db } from '@/lib/db'
-import { leerCodigo } from '@/lib/qr-bajaj'
+import { leerEtiqueta } from '@/lib/qr-bajaj'
 import { codigoContiene, equivalenciasDe } from '@/lib/alt-sku'
 
 // Una lectura del teléfono (o lo tecleado) contra TODO el catálogo: primero el código exacto o
@@ -7,7 +7,10 @@ import { codigoContiene, equivalenciasDe } from '@/lib/alt-sku'
 // del nombre. Lo usan los modos Consultar y Vender de /escanear. Devuelve hasta `limite + 1`
 // piezas: la de más dice que hay más.
 export async function buscarPorCodigo(raw: string, parcial: boolean, limite: number) {
-  const { codigo, cantidad } = leerCodigo(raw)
+  const e = leerEtiqueta(raw)
+  // Un estante no es una pieza: quien lo espera (Consultar, la recepción) lo mira antes.
+  if (e.tipo === 'ubicacion') return { codigo: `UBI:${e.codigo}`, cantidad: 1, exacto: false, piezas: [] }
+  const { codigo, cantidad } = e
   if (!codigo) return { codigo: raw.trim(), cantidad, exacto: false, piezas: [] }
 
   const eq = (await equivalenciasDe([codigo])).get(codigo) ?? [codigo]

@@ -14,10 +14,30 @@ export interface Lectura {
   raw: string
 }
 
-export function leerCodigo(raw: string): Lectura {
+// Lo que trae una etiqueta: una pieza (caja o bolsa, arriba) o un estante del depósito ("UBI:A-3",
+// docs/plan-inventario/05-ubicaciones-conteo.md). El prefijo UBI más un separador cualquiera es lo
+// que distingue un estante: el mismo lector con el teclado en español manda "UBIÑA'3", y un SKU
+// que empezara con UBI sigue con un dígito o letra, no con un separador.
+export type Etiqueta = { tipo: 'ubicacion'; codigo: string; raw: string } | ({ tipo: 'pieza' } & Lectura)
+
+export function leerEtiqueta(raw: string): Etiqueta {
   const s = raw.trim().toUpperCase()
+  const u = s.match(/^UBI[^A-Z0-9](.*)$/)
+  if (u) {
+    const codigo = normUbicacion(u[1])
+    if (codigo) return { tipo: 'ubicacion', codigo, raw }
+  }
   const m = s.match(/^([A-Z0-9]+)[^A-Z0-9]+(\d+)[^A-Z0-9].*$/)
-  if (!m) return { codigo: s.replace(/[^A-Z0-9]/g, ''), cantidad: 1, raw }
+  if (!m) return { tipo: 'pieza', codigo: s.replace(/[^A-Z0-9]/g, ''), cantidad: 1, raw }
   const n = Number(m[2])
-  return { codigo: m[1], cantidad: Number.isInteger(n) && n > 0 ? n : 1, raw }
+  return { tipo: 'pieza', codigo: m[1], cantidad: Number.isInteger(n) && n > 0 ? n : 1, raw }
 }
+
+// Un estante como se guarda en Product.ubicacion: mayúsculas, cada tramo de separadores es un
+// guion ("a 3", "A'3" y "A-3" son el mismo). Vacío = sin ubicación.
+export function normUbicacion(s: string): string | null {
+  const n = s.normalize('NFD').toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  return n || null
+}
+
+export const UBICACION_MAX = 20

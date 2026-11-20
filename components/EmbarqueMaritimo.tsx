@@ -41,6 +41,8 @@ export interface LineaEmbarque {
   bajajCode: string | null
   /** El otro código del par, para las piezas que Bajaj publica con dos números. */
   altCode: string | null
+  /** Estante del depósito (solo se muestra con la caja ya cerrada). */
+  ubicacion?: string | null
   /** Cantidad mínima del proveedor de esta caja. null = no la declara o no hay proveedor. */
   moq: number | null
   compatibleModels: string | null

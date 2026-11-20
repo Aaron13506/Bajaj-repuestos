@@ -655,6 +655,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     clientName: it.pedido.clientName,
     nombre: cabeceraDeLinea(it).nameEs,
     bajajCode: cabeceraDeLinea(it).bajajCode,
+    ubicacion: it.product?.ubicacion ?? null,
     quantity: it.quantity,
     piezas: (it.bundleItems as BundlePiece[] | null) ?? [],
     landed: landedByItem.get(it.id) ?? 0,

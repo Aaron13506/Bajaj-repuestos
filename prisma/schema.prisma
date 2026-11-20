@@ -77,6 +77,11 @@ model Product {
   // que trae). Null = medida a mano antes de que existiera esto: se re-mide. CHECK en la base.
   medidaBase       String?
   stock            Int       @default(0)
+  // Dónde está en el depósito ("A-3": estante A, nivel o caja 3), normalizado por lib/qr-bajaj.ts (normUbicacion).
+  // Null = sin asignar. Un solo depósito: alcanza un texto por pieza (docs/plan-inventario/05).
+  ubicacion        String?
+  // Último conteo cíclico que la contó. Null = nunca se contó.
+  contadoAt        DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
@@ -91,8 +96,10 @@ model Product {
   esperas        Espera[]
   movimientosStock MovimientoStock[]
   recepcionLineas RecepcionLinea[]
+  conteoLineas   ConteoInventarioLinea[]
 
   @@index([bajajCode])
+  @@index([ubicacion])
 }
 
 // Un ENSAMBLE es la página de 99rpm que AGRUPA piezas (un despiece), no un producto: no se
@@ -980,4 +987,33 @@ model ScrapedPart {
   @@index([sku])
   @@index([groupId])
   @@index([matchedProductId])
+}
+
+// Un conteo físico de una parte del depósito: un estante o una lista de piezas (conteo cíclico,
+// docs/plan-inventario/05-ubicaciones-conteo.md; lib/conteo-inventario-db.ts). Abierto = se sigue
+// contando. Cerrado = ya escribió sus movimientos 'conteo' en el kardex y no se edita. Un solo
+// conteo abierto por estante (índice parcial ConteoInventario_uno_abierto en el SQL).
+model ConteoInventario {
+  id        Int       @id @default(autoincrement())
+  ubicacion String? // null = por lista de piezas, no por estante
+  abiertoAt DateTime  @default(now())
+  cerradoAt DateTime?
+  notas     String?
+  lineas    ConteoInventarioLinea[]
+}
+
+model ConteoInventarioLinea {
+  id        Int  @id @default(autoincrement())
+  conteoId  Int
+  productId Int
+  // Product.stock al abrir el conteo (o al sumarse la fila): solo para mostrar. El ajuste se
+  // calcula contra el stock al cerrar.
+  sistema   Int
+  // Vacío = sin contar; 0 = la busqué y no está. CHECK >= 0.
+  contado   Int?
+
+  conteo  ConteoInventario @relation(fields: [conteoId], references: [id], onDelete: Cascade)
+  product Product          @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([conteoId, productId])
 }

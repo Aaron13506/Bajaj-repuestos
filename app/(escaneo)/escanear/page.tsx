@@ -2,8 +2,7 @@ import Link from 'next/link'
 
 export const metadata = { title: 'Escanear' }
 
-// Elegir modo. Inventario se suma con las fases que los habilitan
-// (docs/plan-inventario/06-telefono.md).
+// Elegir modo (docs/plan-inventario/06-telefono.md).
 export default function EscanearPage() {
   return (
     <div className="mx-auto flex max-w-md flex-col gap-4 p-4">
@@ -29,6 +28,15 @@ export default function EscanearPage() {
         <span className="block text-lg font-semibold text-gray-900">Consultar</span>
         <span className="mt-1 block text-sm text-gray-600">
           Escaneá o escribí un código: stock, precio, medidas y en qué pedidos y cajas está.
+        </span>
+      </Link>
+      <Link
+        href="/escanear/inventario"
+        className="block rounded-xl border border-gray-200 bg-white p-5 shadow-sm active:bg-gray-100"
+      >
+        <span className="block text-lg font-semibold text-gray-900">Inventario</span>
+        <span className="mt-1 block text-sm text-gray-600">
+          Contá un estante: primero su etiqueta, después cada pieza. Las diferencias ajustan el stock.
         </span>
       </Link>
       <Link

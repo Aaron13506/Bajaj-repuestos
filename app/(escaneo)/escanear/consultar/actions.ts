@@ -16,6 +16,8 @@ export interface Ficha {
   altSku: string | null
   descontinuada: boolean
   stock: number
+  ubicacion: string | null
+  contadoAt: Date | null
   precioUsd: number
   medidoAt: Date | null
   medidaBase: string | null
@@ -57,7 +59,7 @@ async function fichaDe(id: number): Promise<Ficha | null> {
     db.product.findUnique({
       where: { id },
       select: {
-        id: true, nameEs: true, bajajCode: true, altSku: true, discontinuedAt: true, stock: true, price: true,
+        id: true, nameEs: true, bajajCode: true, altSku: true, discontinuedAt: true, stock: true, price: true, ubicacion: true, contadoAt: true,
         medidoAt: true, medidaBase: true, weightGrams: true, dimL: true, dimA: true, dimH: true,
       },
     }),

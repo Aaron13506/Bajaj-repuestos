@@ -52,7 +52,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
               select: {
                 id: true, nameEs: true, nameEn: true, bajajCode: true, compatibleModels: true,
                 weightGrams: true, dimL: true, dimA: true, dimH: true, priceInr: true,
-                discontinuedAt: true, medidoAt: true,
+                discontinuedAt: true, medidoAt: true, ubicacion: true,
               },
             },
           },
@@ -136,6 +136,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
       nameEs: l.product.nameEs,
       bajajCode: l.product.bajajCode,
       altCode: alternos.get(l.productId) ?? null,
+      ubicacion: l.product.ubicacion,
       // Múltiplo de compra del proveedor de ESTA caja. null = no lo declara, o todavía no
       // hay proveedor elegido.
       moq: priceMap.get(l.productId)?.moq ?? null,
@@ -654,6 +655,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
                           / {l.altCode}
                         </span>
                       )}
+                      {l.ubicacion && <span className="ml-2 font-mono text-xs font-semibold text-gray-700" title="Estante del depósito">{l.ubicacion}</span>}
                       {l.moq != null && l.moq > 1 && (
                         <span
                           className={`ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${

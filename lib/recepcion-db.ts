@@ -8,7 +8,8 @@ import { nombreEnsamble } from '@/lib/linea-pedido'
 import { sinEnviarDe } from '@/lib/incidencias'
 import { resolverDePiezas } from '@/lib/inventario'
 import { equivalenciasDe } from '@/lib/alt-sku'
-import { leerCodigo, type OrigenLectura } from '@/lib/qr-bajaj'
+import { leerEtiqueta, type OrigenLectura } from '@/lib/qr-bajaj'
+import { asignarUbicacion } from '@/lib/conteo-inventario-db'
 import { normCodigo, resolverLectura, type PiezaAContar } from '@/lib/conteo'
 import { buscarPorCodigo, leidoComo } from '@/lib/buscar-codigo'
 import { moverStock, StockInsuficiente } from '@/lib/stock'
@@ -153,10 +154,14 @@ export async function cambiarCiego(recepcionId: number, ciego: boolean): Promise
 // ── Contar ───────────────────────────────────────────────────────────────────────────────────
 
 export type ResultadoLectura =
-  | { tipo: 'sumo'; lecturaId: number; lineaId: number; codigo: string | null; nombre: string; cantidad: number; contado: number; esperado: number; leidoComo: string | null }
+  | { tipo: 'sumo'; lecturaId: number; lineaId: number; codigo: string | null; nombre: string; cantidad: number; contado: number; esperado: number; leidoComo: string | null
+    /** A qué estante va (putaway); null = sin ubicación: la próxima etiqueta UBI: se la asigna. */
+    ubicacion: string | null; enCatalogo: boolean }
   | { tipo: 'varias'; filas: { lineaId: number; codigo: string | null; nombre: string }[] }
   | { tipo: 'no_esperada'; codigo: string; nombre: string; cantidad: number }
   | { tipo: 'fuera_catalogo'; codigo: string; cantidad: number }
+  // Una etiqueta de estante: no suma. Se la asigna a la última pieza leída si no tenía ubicación.
+  | { tipo: 'estante'; ubicacion: string; codigo: string | null; nombre: string | null; asignada: boolean; tenia: string | null }
 
 const filaAPieza = (f: { id: number; codigo: string | null; nombre: string }, alternos: Map<string, string[]>): PiezaAContar & { id: number } => {
   const propio = f.codigo ? normCodigo(f.codigo) : null
@@ -173,11 +178,13 @@ async function sumar(tx: Tx, recepcionId: number, lineaId: number, raw: string |
 // de la caja NO suma: vuelve para que la pantalla ofrezca anotarlo (anotarCodigo) o ignorarlo.
 // Con `lineaId` (elegida de "varias"), suma 1 en esa fila.
 export async function registrarLectura(recepcionId: number, raw: string, origen: OrigenLectura, lineaId?: number): Promise<ResultadoLectura> {
-  const lectura = leerCodigo(raw)
+  const etiqueta = leerEtiqueta(raw)
+  if (etiqueta.tipo === 'ubicacion' && lineaId == null) return ubicarUltimaLeida(recepcionId, etiqueta.codigo)
+  const lectura = etiqueta.tipo === 'pieza' ? etiqueta : { codigo: '', cantidad: 1, raw }
   if (!lectura.codigo && lineaId == null) throw new ErrorDeNegocio('No se leyó ninguna etiqueta.')
   return db.$transaction(async tx => {
     await bloquearRecepcion(tx, recepcionId)
-    const filas = await tx.recepcionLinea.findMany({ where: { recepcionId }, select: { id: true, codigo: true, nombre: true, esperado: true } })
+    const filas = await tx.recepcionLinea.findMany({ where: { recepcionId }, select: { id: true, codigo: true, nombre: true, esperado: true, productId: true } })
     let fila = lineaId != null ? filas.find(f => f.id === lineaId) : undefined
     const cantidad = lineaId != null ? 1 : lectura.cantidad
     let como: string | null = null
@@ -197,7 +204,28 @@ export async function registrarLectura(recepcionId: number, raw: string, origen:
       como = fila.codigo && normCodigo(fila.codigo) !== lectura.codigo && r.pieza.alternos.includes(lectura.codigo) ? lectura.codigo : null
     }
     const s = await sumar(tx, recepcionId, fila.id, lineaId != null ? null : raw, cantidad, origen)
-    return { tipo: 'sumo', ...s, lineaId: fila.id, codigo: fila.codigo, nombre: fila.nombre, cantidad, esperado: fila.esperado, leidoComo: como }
+    return { tipo: 'sumo', ...s, lineaId: fila.id, codigo: fila.codigo, nombre: fila.nombre, cantidad, esperado: fila.esperado, leidoComo: como, ubicacion: await ubicacionDe(tx, fila.productId), enCatalogo: fila.productId != null }
+  }, TX_OPTS)
+}
+
+const ubicacionDe = async (tx: Tx, productId: number | null) =>
+  productId == null ? null : (await tx.product.findUnique({ where: { id: productId }, select: { ubicacion: true } }))?.ubicacion ?? null
+
+// "UBI:A-3" durante la recepción (putaway): la última pieza leída en esta recepción queda en ese
+// estante si no tenía ubicación. Si ya tenía una, no la pisa (moverla es desde Consultar o un conteo).
+async function ubicarUltimaLeida(recepcionId: number, ubicacion: string): Promise<ResultadoLectura> {
+  return db.$transaction(async tx => {
+    await bloquearRecepcion(tx, recepcionId)
+    const ultima = await tx.recepcionLectura.findFirst({
+      where: { recepcionId, anuladaAt: null },
+      orderBy: { id: 'desc' },
+      select: { linea: { select: { productId: true, codigo: true, nombre: true } } },
+    })
+    if (!ultima) return { tipo: 'estante', ubicacion, codigo: null, nombre: null, asignada: false, tenia: null }
+    // La última fue algo fuera del catálogo: no hay pieza a la que ponerle lugar.
+    if (ultima.linea.productId == null) return { tipo: 'estante', ubicacion, codigo: ultima.linea.codigo, nombre: ultima.linea.nombre, asignada: false, tenia: null }
+    const u = await asignarUbicacion(tx, ultima.linea.productId!, ubicacion, true)
+    return { tipo: 'estante', ubicacion: u.ubicacion ?? ubicacion, codigo: u.codigo, nombre: u.nombre, asignada: u.asignada, tenia: u.asignada ? null : u.anterior }
   }, TX_OPTS)
 }
 
@@ -205,7 +233,8 @@ export async function registrarLectura(recepcionId: number, raw: string, origen:
 // catálogo queda enlazado (al cerrar es sobrante, o el lugar de una equivocada); si no, queda con el
 // código y sin pieza, y frena el cierre hasta crear la pieza o descartarla.
 export async function anotarCodigo(recepcionId: number, raw: string, origen: OrigenLectura): Promise<ResultadoLectura> {
-  const lectura = leerCodigo(raw)
+  const lectura = leerEtiqueta(raw)
+  if (lectura.tipo === 'ubicacion') throw new ErrorDeNegocio('Eso es una etiqueta de estante, no una pieza.')
   if (!lectura.codigo) throw new ErrorDeNegocio('No se leyó ningún código.')
   const cat = await buscarPorCodigo(raw, false, 1)
   const p = cat.piezas.length === 1 ? cat.piezas[0] : null
@@ -219,7 +248,7 @@ export async function anotarCodigo(recepcionId: number, raw: string, origen: Ori
       select: { id: true, codigo: true, nombre: true, esperado: true },
     })
     const s = await sumar(tx, recepcionId, fila.id, raw, lectura.cantidad, origen)
-    return { tipo: 'sumo', ...s, lineaId: fila.id, codigo: fila.codigo, nombre: fila.nombre, cantidad: lectura.cantidad, esperado: fila.esperado, leidoComo: p ? leidoComo(cat, p.bajajCode) : null }
+    return { tipo: 'sumo', ...s, lineaId: fila.id, codigo: fila.codigo, nombre: fila.nombre, cantidad: lectura.cantidad, esperado: fila.esperado, leidoComo: p ? leidoComo(cat, p.bajajCode) : null, ubicacion: await ubicacionDe(tx, p?.id ?? null), enCatalogo: p != null }
   }, TX_OPTS)
 }
 

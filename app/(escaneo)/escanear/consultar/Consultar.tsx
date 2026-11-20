@@ -7,12 +7,15 @@ import IndicadorMedido from '@/components/IndicadorMedido'
 import ChipDescontinuada from '@/components/ChipDescontinuada'
 import { senal, type Senal } from '@/components/senal'
 import { shippingStatusMeta } from '@/lib/shipping-status'
+import { leerEtiqueta } from '@/lib/qr-bajaj'
 import { consultarCodigo, consultarPieza, type Consulta, type Ficha } from './actions'
+import { ubicarPieza } from '../inventario/actions'
 
 // Abre de entrada, y su portal necesita `document`: no se renderiza en el servidor.
 const LectorCamara = dynamic(() => import('@/components/LectorCamara'), { ssr: false })
 
 type Resultado = Consulta | { tipo: 'error'; mensaje: string }
+type Ubicada = { ficha: Ficha; texto: string } // la ficha con su ubicación nueva y el aviso
 
 // Modo Consultar: la cámara abre sola; cada lectura (o lo tecleado) trae la ficha corta de la
 // pieza. Pitido agudo = la encontró; grave = no está o hay varias (hay que mirar).
@@ -22,6 +25,7 @@ export default function Consultar() {
   const [res, setRes] = useState<Resultado | null>(null)
   const [cargando, setCargando] = useState(false)
   const ultima = useRef(0) // solo pinta la respuesta de la última consulta, aunque lleguen desordenadas
+  const [ubicada, setUbicada] = useState<string | null>(null)
 
   async function consultar(pedir: () => Promise<Consulta>): Promise<Senal> {
     const n = ++ultima.current
@@ -30,14 +34,38 @@ export default function Consultar() {
     try { r = await pedir() } catch { r = { tipo: 'error', mensaje: 'No se pudo consultar. Revisá la señal y reintentá.' } }
     const tono: Senal = r.tipo === 'ficha' ? 'ok' : 'error'
     senal(tono)
-    if (n === ultima.current) { setRes(r); setCargando(false) }
+    if (n === ultima.current) { setRes(r); setUbicada(null); setCargando(false) }
     return tono
+  }
+
+  // Escaneás la pieza y después el estante (o lo escribís): la pieza queda en ese estante.
+  async function ubicar(f: Ficha, raw: string): Promise<Senal> {
+    let u: Ubicada | null = null
+    let mensaje = 'No se guardó: revisá la señal y reintentá.'
+    try {
+      const r = await ubicarPieza(f.id, raw)
+      if (r.ok) {
+        const antes = r.r.anterior && r.r.anterior !== r.r.ubicacion ? ` (estaba en ${r.r.anterior})` : ''
+        u = { ficha: { ...f, ubicacion: r.r.ubicacion }, texto: r.r.ubicacion ? `${f.bajajCode ?? f.nameEs} → ${r.r.ubicacion}${antes}` : `${f.bajajCode ?? f.nameEs}: sin ubicación` }
+      } else mensaje = r.error
+    } catch {}
+    if (!u) { senal('error'); setUbicada(null); setRes({ tipo: 'error', mensaje }); return 'error' }
+    senal('ok')
+    setRes({ tipo: 'ficha', ficha: u.ficha, leidoComo: null })
+    setUbicada(u.texto)
+    return 'ok'
   }
 
   function leer(raw: string): Senal | Promise<Senal> {
     if (!raw.trim()) { // modo gatillo sin etiqueta en cuadro
       senal('error')
       setRes({ tipo: 'error', mensaje: 'No se leyó ninguna etiqueta.' })
+      return 'error'
+    }
+    if (leerEtiqueta(raw).tipo === 'ubicacion') {
+      if (res?.tipo === 'ficha') return ubicar(res.ficha, raw)
+      senal('error')
+      setRes({ tipo: 'error', mensaje: 'Es un estante: escaneá primero la pieza y después el estante.' })
       return 'error'
     }
     return consultar(() => consultarCodigo(raw, false))
@@ -48,7 +76,12 @@ export default function Consultar() {
       <form
         role="search"
         className="flex gap-2"
-        onSubmit={e => { e.preventDefault(); if (texto.trim()) void consultar(() => consultarCodigo(texto, true)) }}
+        onSubmit={e => {
+          e.preventDefault()
+          if (!texto.trim()) return
+          // Un lector USB escribe acá: la etiqueta de estante sigue el camino de una lectura.
+          if (leerEtiqueta(texto).tipo === 'ubicacion') { void leer(texto); setTexto('') } else void consultar(() => consultarCodigo(texto, true))
+        }}
       >
         <input
           type="search"
@@ -63,7 +96,8 @@ export default function Consultar() {
         <button type="submit" className="min-h-11 rounded-lg bg-blue-600 px-4 font-semibold text-white">Buscar</button>
       </form>
       <div role="status" aria-live="polite">
-        {cargando ? <p className="text-sm text-gray-500">Buscando…</p> : res && <Vista res={res} elegir={id => void consultar(() => consultarPieza(id))} />}
+        {ubicada && <p className="mb-2 rounded-lg bg-green-50 px-3 py-2 text-lg font-semibold text-green-900">{ubicada}</p>}
+        {cargando ? <p className="text-sm text-gray-500">Buscando…</p> : res && <Vista res={res} elegir={id => void consultar(() => consultarPieza(id))} ubicar={ubicar} />}
       </div>
     </div>
   )
@@ -86,7 +120,7 @@ export default function Consultar() {
   )
 }
 
-function Vista({ res, elegir }: { res: Resultado; elegir: (id: number) => void }) {
+function Vista({ res, elegir, ubicar }: { res: Resultado; elegir: (id: number) => void; ubicar: (f: Ficha, raw: string) => void }) {
   if (res.tipo === 'error') {
     return <p className="rounded-lg bg-red-50 px-3 py-2 font-medium text-red-800">{res.mensaje}</p>
   }
@@ -119,12 +153,13 @@ function Vista({ res, elegir }: { res: Resultado; elegir: (id: number) => void }
       </div>
     )
   }
-  return <FichaCorta f={res.ficha} leidoComo={res.leidoComo} />
+  return <FichaCorta key={res.ficha.id} f={res.ficha} leidoComo={res.leidoComo} ubicar={ubicar} />
 }
 
 const cm = (n: number | null) => (n == null ? '—' : String(n))
 
-function FichaCorta({ f, leidoComo }: { f: Ficha; leidoComo: string | null }) {
+function FichaCorta({ f, leidoComo, ubicar }: { f: Ficha; leidoComo: string | null; ubicar: (f: Ficha, raw: string) => void }) {
+  const [asignando, setAsignando] = useState(false)
   return (
     <div className="space-y-3 rounded-lg border border-gray-200 bg-white p-3">
       <div>
@@ -143,6 +178,24 @@ function FichaCorta({ f, leidoComo }: { f: Ficha; leidoComo: string | null }) {
         <div className="rounded-lg bg-gray-50 p-2">
           <dt className="text-gray-500">Precio de venta</dt>
           <dd className="text-2xl font-bold text-gray-900">${f.precioUsd.toFixed(2)}</dd>
+        </div>
+        <div className="col-span-2 rounded-lg bg-gray-50 p-2">
+          <dt className="text-gray-500">Ubicación</dt>
+          <dd className="text-gray-900">
+            <span className="font-mono text-lg font-bold">{f.ubicacion ?? 'sin asignar'}</span>
+            <span className="text-sm text-gray-600"> · {f.contadoAt ? `contada el ${new Date(f.contadoAt).toLocaleDateString('es-VE', { timeZone: 'America/Caracas' })}` : 'nunca contada'}</span>
+          {asignando ? (
+            <form onSubmit={e => { e.preventDefault(); ubicar(f, String(new FormData(e.currentTarget).get('ubicacion') ?? '')); setAsignando(false) }} className="mt-2 flex gap-2">
+              <input name="ubicacion" defaultValue={f.ubicacion ?? ''} autoFocus autoComplete="off" autoCapitalize="characters" placeholder="A-3 (vacío = sin ubicación)" aria-label="Ubicación" className="min-h-11 min-w-0 flex-1 rounded-lg border border-gray-300 px-3 font-mono text-base" />
+              <button className="min-h-11 rounded-lg bg-blue-600 px-4 font-semibold text-white">Guardar</button>
+            </form>
+          ) : (
+            <p className="mt-1 text-sm text-gray-600">
+              Escaneá la etiqueta del estante para ubicarla, o{' '}
+              <button type="button" onClick={() => setAsignando(true)} className="inline-flex min-h-11 items-center font-semibold text-blue-700 underline">asignar ubicación</button>
+            </p>
+          )}
+          </dd>
         </div>
         <div className="col-span-2 rounded-lg bg-gray-50 p-2">
           <dt className="flex items-center gap-2 text-gray-500">Peso y medidas <IndicadorMedido medidoAt={f.medidoAt} base={f.medidaBase} /></dt>

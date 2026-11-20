@@ -24,6 +24,8 @@ export interface PiezaEnStock {
   nameEs: string
   bajajCode: string | null
   stock: number
+  /** Estante del depósito, para ir a buscarla. null = sin asignar. */
+  ubicacion: string | null
   price: number
   imageUrl: string | null
   models: MotoModelId[]
@@ -33,12 +35,12 @@ export interface PiezaEnStock {
 }
 
 const SELECT_EN_STOCK = {
-  id: true, nameEs: true, bajajCode: true, stock: true, price: true, imageUrl: true,
+  id: true, nameEs: true, bajajCode: true, stock: true, ubicacion: true, price: true, imageUrl: true,
   compatibleModels: true, landedCostUsd: true,
 } as const
 
 function aPiezaEnStock(p: {
-  id: number; nameEs: string; bajajCode: string | null; stock: number; price: { toString(): string }
+  id: number; nameEs: string; bajajCode: string | null; stock: number; ubicacion: string | null; price: { toString(): string }
   imageUrl: string | null; compatibleModels: string | null; landedCostUsd: { toString(): string } | null
 }): PiezaEnStock {
   return {
@@ -46,6 +48,7 @@ function aPiezaEnStock(p: {
     nameEs: p.nameEs,
     bajajCode: p.bajajCode,
     stock: p.stock,
+    ubicacion: p.ubicacion,
     price: parseFloat(p.price.toString()),
     imageUrl: p.imageUrl,
     models: toModelIds(p.compatibleModels),

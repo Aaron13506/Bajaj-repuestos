@@ -194,6 +194,17 @@ export default async function ProductDetailPage({
               {product.stock} uds.
             </span>
           </div>
+          <div>
+            <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Ubicación</p>
+            <p className="font-medium text-gray-900">
+              <span className="font-mono">{product.ubicacion ?? 'sin asignar'}</span>
+              <span className="block text-xs font-normal text-gray-600">
+                {product.contadoAt
+                  ? `Contada el ${product.contadoAt.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'America/Caracas' })}`
+                  : 'Nunca contada'}
+              </span>
+            </p>
+          </div>
           {product.sourceUrl && (
             <div className="sm:col-span-2">
               <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Fuente</p>

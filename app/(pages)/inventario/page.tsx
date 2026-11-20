@@ -128,6 +128,10 @@ export default async function InventarioPage({ searchParams }: Props) {
           Lo tuyo: lo que ya llegó y lo que viaja en una caja <span className="font-medium text-gray-700">confirmada</span>.
           Un pedido propio fuera de una caja, o en una caja en borrador, todavía no es una compra.
         </p>
+        <p className="text-sm mt-1 flex flex-wrap gap-x-4">
+          <Link href="/inventario/conteo" className={LINK}>Conteo cíclico</Link>
+          <Link href="/inventario/etiquetas" className={LINK}>Etiquetas de estante</Link>
+        </p>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-gray-100">
@@ -285,6 +289,12 @@ export default async function InventarioPage({ searchParams }: Props) {
 
 // ── Piezas ─────────────────────────────────────────────────────────────────────
 
+// Dónde buscarla en el depósito (solo si hay algo aquí).
+function Estante({ f }: { f: Fila }) {
+  if (f.aqui <= 0) return null
+  return <><span aria-hidden="true" className="text-gray-400"> · </span><span className={f.ubicacion ? 'font-mono font-semibold text-gray-800' : 'text-gray-500'}>{f.ubicacion ?? 'sin ubicación'}</span></>
+}
+
 function Cantidades({ aqui, camino }: { aqui: number; camino: number }) {
   return (
     <>
@@ -381,6 +391,7 @@ function PorPieza({ filas }: { filas: Fila[] }) {
                           {motosDe(f) || 'sin moto cargada'}
                           <span aria-hidden="true" className="text-gray-400"> · </span>
                           <span className="font-mono text-gray-500">{f.bajajCode ?? 'sin SKU'}</span>
+                          <Estante f={f} />
                         </p>
                       </div>
                     </div>
@@ -418,6 +429,7 @@ function PorPieza({ filas }: { filas: Fila[] }) {
               <DondeVa f={f} />
               <p className="text-xs text-gray-600 break-words">
                 {motosDe(f) || 'sin moto cargada'} · <span className="font-mono text-gray-500">{f.bajajCode ?? 'sin SKU'}</span>
+                <Estante f={f} />
               </p>
               <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
                 <Cantidades aqui={f.aqui} camino={f.caminoAereo + f.caminoMaritimo} />
@@ -527,6 +539,7 @@ function PiezaEnEnsamble({ f, ensamble }: { f: Fila; ensamble: string | null }) 
       <div className="min-w-0 flex-1 basis-56">
         <Link href={`/products/${f.productId}`} className="text-sm font-medium text-gray-900 hover:underline break-words">{f.nameEs}</Link>
         <span className="ms-1 text-xs font-mono text-gray-500">{f.bajajCode ?? 'sin SKU'}</span>
+        <span className="text-xs"><Estante f={f} /></span>
         <span className="block text-xs text-gray-500 break-words">{motosDe(f) || 'sin moto cargada'}{tambien}</span>
         <CajasDe f={f} />
       </div>

@@ -28,6 +28,8 @@ export interface EnvioItemRow {
   clientName: string
   nombre: string
   bajajCode: string | null
+  /** Estante del depósito de la pieza suelta. null = sin asignar o es un conjunto. */
+  ubicacion: string | null
   quantity: number
   piezas: BundlePiece[]
   landed: number
@@ -636,6 +638,9 @@ export default function EnvioItemsTable({
                           {it.quantity > 1 && <span className="text-xs text-gray-500"> ×{it.quantity}</span>}
                           {it.bajajCode && (
                             <span className="ml-2 font-mono text-xs text-gray-600">{it.bajajCode}</span>
+                          )}
+                          {it.ubicacion && (
+                            <span className="ml-2 font-mono text-xs font-semibold text-gray-700" title="Estante del depósito">{it.ubicacion}</span>
                           )}
                           {it.sinEnviar && (
                             <Link

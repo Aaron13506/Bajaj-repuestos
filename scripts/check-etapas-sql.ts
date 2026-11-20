@@ -146,6 +146,10 @@ async function main() {
     const fila = await db.recepcionLinea.findUniqueOrThrow({ where: { id: filas[0].id } })
     check('tres lecturas a la vez suman 3', fila.contado, 3)
     check('y dejan tres lecturas', await db.recepcionLectura.count({ where: { lineaId: fila.id } }), 3)
+    const ubi = await rec.registrarLectura(recId, 'UBI:ZZCHK-7', 'camara')
+    check('UBI: no suma y ubica la última pieza leída', `${ubi.tipo === 'estante' && ubi.asignada} ${(await db.recepcionLinea.findUniqueOrThrow({ where: { id: fila.id } })).contado} ${(await db.product.findUniqueOrThrow({ where: { id: pz.id } })).ubicacion}`, 'true 3 ZZCHK-7')
+    const otra = await rec.registrarLectura(recId, 'UBI:ZZCHK-8', 'camara')
+    check('otro UBI: no pisa la que ya tiene', otra.tipo === 'estante' && !otra.asignada && otra.tenia, 'ZZCHK-7')
 
     let sinDecidir = ''
     try { await rec.cerrarRecepcion(recId, {}) } catch (err) { sinDecidir = err instanceof ErrorDeNegocio ? 'negocio' : 'otro' }
@@ -189,6 +193,43 @@ async function main() {
     check('las líneas vuelven a camino_venezuela', `${await etapaDe(cliente.items[0].id)} ${await etapaDe(propio.items[0].id)}`, 'camino_venezuela camino_venezuela')
     check('sus incidencias se borran', await db.incidencia.count({ where: { recepcionId: recId } }), 0)
     check('abre una recepción nueva con todo lo esperado', (await db.recepcionLinea.findMany({ where: { recepcionId: nueva ?? -1 } })).map(l => l.esperado).join(), '4')
+
+    console.log('\nCONTEO CÍCLICO: LECTURAS A LA VEZ, PIEZA NUEVA EN EL ESTANTE, CERRAR DOS VECES')
+    const cnt = await import('../lib/conteo-inventario-db')
+    const enEstante = await db.product.create({ data: { nameEs: '__check-conteo', bajajCode: 'ZZCHK9002', price: 0, ubicacion: 'ZZCHK-1' } })
+    const suelta = await db.product.create({ data: { nameEs: '__check-conteo-2', bajajCode: 'ZZCHK9003', price: 0 } })
+    const conteosChk: number[] = []
+    limpiar.push(async () => {
+      await db.conteoInventario.deleteMany({ where: { id: { in: conteosChk } } })
+      await db.movimientoStock.deleteMany({ where: { productId: { in: [enEstante.id, suelta.id] } } })
+      await db.product.deleteMany({ where: { id: { in: [enEstante.id, suelta.id] } } })
+    })
+    await moverStock(db, [{ productId: enEstante.id, cantidad: 5, motivo: 'alta' }])
+    const conteoId = await cnt.abrirConteoEstante("UBIÑZZCHK'1")
+    conteosChk.push(conteoId)
+    check('abre el estante con su pieza (sistema 5)', (await db.conteoInventarioLinea.findMany({ where: { conteoId } })).map(l => `${l.productId === enEstante.id}:${l.sistema}`).join(), 'true:5')
+    check('abrir otra vez devuelve el mismo', await cnt.abrirConteoEstante('ZZCHK-1'), conteoId)
+    await Promise.all([1, 2, 3].map(() => cnt.leerEnConteo(conteoId, 'ZZCHK9002-1_10', false)))
+    const agregada = await cnt.leerEnConteo(conteoId, 'ZZCHK9003-1_10', false)
+    check('tres lecturas a la vez suman 3', (await db.conteoInventarioLinea.findFirstOrThrow({ where: { conteoId, productId: enEstante.id } })).contado, 3)
+    check('la que no estaba se agrega', agregada.tipo === 'sumo' && agregada.nueva, true)
+    check('y queda en el estante', (await db.product.findUniqueOrThrow({ where: { id: suelta.id } })).ubicacion, 'ZZCHK-1')
+    // Una venta en el medio: el ajuste es contra el stock al cerrar (4), no contra la foto (5).
+    await moverStock(db, [{ productId: enEstante.id, cantidad: -1, motivo: 'venta' }])
+    const cierresConteo = await Promise.allSettled([1, 2].map(() => cnt.cerrarConteo(conteoId, null)))
+    check('cerrar dos veces: una sola vez', cierresConteo.filter(c => c.status === 'fulfilled').length, 1)
+    const movsConteo = await db.movimientoStock.findMany({ where: { grupo: `conteo-${conteoId}` }, orderBy: { productId: 'asc' } })
+    check('dos movimientos conteo (−1 y +1), no cuatro', movsConteo.map(m => `${m.motivo}${m.cantidad}`).join(), 'conteo-1,conteo1')
+    const tras = await db.product.findMany({ where: { id: { in: [enEstante.id, suelta.id] } }, orderBy: { id: 'asc' }, select: { stock: true, contadoAt: true } })
+    check('el stock queda en lo contado', tras.map(p => p.stock).join(), '3,1')
+    check('contadoAt en las dos', tras.every(p => p.contadoAt != null), true)
+    for (const p of [enEstante, suelta]) {
+      const suma = (await db.movimientoStock.aggregate({ where: { productId: p.id }, _sum: { cantidad: true } }))._sum.cantidad ?? 0
+      check(`stock = suma del kardex (${p.bajajCode})`, suma, (await db.product.findUniqueOrThrow({ where: { id: p.id } })).stock)
+    }
+    let tarde = ''
+    try { await cnt.leerEnConteo(conteoId, 'ZZCHK9002-1_10', false) } catch (err) { tarde = err instanceof ErrorDeNegocio ? 'negocio' : String(err) }
+    check('leer en un conteo cerrado se rechaza legible', tarde, 'negocio')
   } finally {
     for (const f of limpiar) await f()
     await db.movimientoStock.deleteMany({ where: { productId: product.id } })
