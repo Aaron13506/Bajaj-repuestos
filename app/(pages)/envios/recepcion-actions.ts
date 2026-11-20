@@ -7,7 +7,7 @@ import type { OrigenLectura } from '@/lib/qr-bajaj'
 import { buscarPorCodigo } from '@/lib/buscar-codigo'
 import {
   abrirRecepcion, anotarCodigo, anotarSinIdentificar, cambiarCiego, cerrarRecepcion, corregirConteo,
-  deshacerLectura, identificar, registrarLectura, revertirRecepcion, type ResultadoLectura,
+  deshacerLectura, identificar, recibirLoContado, registrarLectura, revertirRecepcion, type ResultadoLectura,
 } from '@/lib/recepcion-db'
 
 // La recepción de una caja (docs/plan-inventario/03-recepcion.md): las mismas acciones para la
@@ -102,6 +102,18 @@ export async function cerrarEnRecepcion(recepcionId: number, envioId: number, de
   const r = await conErrorDeNegocio(() => cerrarRecepcion(recepcionId, decisiones))
   revalidarRecepcion(envioId)
   return r
+}
+
+// Recibe lo contado sin terminar el conteo. `siguiente`: la recepción que sigue abierta (null = nada más por contar).
+export async function recibirLoContadoEnRecepcion(recepcionId: number, envioId: number): Promise<{ ok: true; siguiente: number | null } | { ok: false; error: string; codigo?: string }> {
+  try {
+    const siguiente = await recibirLoContado(recepcionId)
+    revalidarRecepcion(envioId)
+    return { ok: true, siguiente }
+  } catch (e) {
+    if (e instanceof ErrorDeNegocio) return fallo(e.message, e.codigo)
+    throw e
+  }
 }
 
 export async function revertirEnRecepcion(recepcionId: number, envioId: number): Promise<ActionResult> {

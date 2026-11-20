@@ -16,7 +16,7 @@ import { moverStock, StockInsuficiente } from '@/lib/stock'
 import { moverEtapasEn } from '@/lib/mover-etapas'
 import { contextoCosteo, costearMaritimo, ENVIO_COSTEO_INCLUDE } from '@/lib/costo-envios'
 import {
-  claveDe, destinoDeUnidades, esDecision, esperadoDeRecepcion, pendienteDeLinea, planCierre, puedeCerrar,
+  claveDe, destinoDeUnidades, esDecision, esperadoDeRecepcion, pendienteDeLinea, planCierre, planParcial, puedeCerrar, puedeRecibirParcial,
   type FilaEsperada, type LineaCaja,
 } from '@/lib/recepcion'
 
@@ -88,7 +88,7 @@ async function filasEsperadas(tx: Tx, envio: { id: number; modo: string }, salvo
     tx.envioLinea.findMany({ where: { envioId: envio.id }, select: { productId: true, quantity: true, product: { select: { nameEs: true, bajajCode: true } } } }),
     tx.recepcionLinea.findMany({
       where: { recepcion: { envioId: envio.id, cerradaAt: { not: null }, revertidaAt: null, ...(salvo ? { id: { not: salvo } } : {}) } },
-      select: { codigo: true, esperado: true, contado: true, decision: true },
+      select: { codigo: true, esperado: true, contado: true, decision: true, recepcion: { select: { parcial: true } } },
     }),
   ])
   // Recibida antes del registro de recepciones: ya sumó a stock, no espera nada.
@@ -96,7 +96,7 @@ async function filasEsperadas(tx: Tx, envio: { id: number; modo: string }, salvo
   return esperadoDeRecepcion(lineas.map(l => ({
     clave: claveDe(l.product.bajajCode, l.product.nameEs), codigo: l.product.bajajCode, nombre: l.product.nameEs,
     productId: l.productId, etiqueta: null, unidades: l.quantity,
-  })), anteriores)
+  })), anteriores.map(a => ({ ...a, parcial: a.recepcion.parcial })))
 }
 
 /** Lo que la caja todavía espera recibir (fuera de una recepción abierta): vacío = nada que contar. */
@@ -112,9 +112,9 @@ export async function motivoRecepcionAbierta(envioId: number): Promise<string | 
 
 // ── Abrir ────────────────────────────────────────────────────────────────────────────────────
 
-async function abrirEn(tx: Tx, envio: { id: number; modo: string }): Promise<number | null> {
+async function abrirEn(tx: Tx, envio: { id: number; modo: string }, aunqueVacia = false): Promise<number | null> {
   const filas = await filasEsperadas(tx, envio)
-  if (filas.length === 0) return null
+  if (filas.length === 0 && !aunqueVacia) return null
   const r = await tx.recepcion.create({
     data: { envioId: envio.id, lineas: { create: filas.map(f => ({ codigo: f.codigo, productId: f.productId, nombre: f.nombre, esperado: f.esperado })) } },
     select: { id: true },
@@ -359,6 +359,30 @@ async function costoUnitMaritimo(envioId: number): Promise<Map<number, number | 
 // Cierra la recepción: escribe lo que dice planCierre (etapas, stock con moverStock, incidencias) y
 // la deja cerrada. `decisiones` va por id de fila. Primero, en su propia transacción, refresca lo
 // esperado contra lo que la caja lleva hoy y guarda las decisiones (no se pierden si el cierre se niega).
+// Lo esperado de las filas vuelve a ser lo que la caja lleva hoy (una fila que ya no se espera
+// queda en 0, con lo contado intacto). Devuelve las filas actuales para seguir trabajando con ellas.
+async function refrescarEsperado(tx: Tx, recepcionId: number, envio: { id: number; modo: string }) {
+  const frescas = await filasEsperadas(tx, envio, recepcionId)
+  const actuales = await tx.recepcionLinea.findMany({ where: { recepcionId }, select: { id: true, codigo: true, esperado: true, contado: true, decision: true, productId: true } })
+  const porCodigo = new Map(actuales.flatMap(a => (a.codigo != null ? [[a.codigo, a] as const] : [])))
+  for (const f of frescas) {
+    const a = porCodigo.get(f.codigo)
+    if (!a) await tx.recepcionLinea.create({ data: { recepcionId, codigo: f.codigo, productId: f.productId, nombre: f.nombre, esperado: f.esperado } })
+    else if (a.esperado !== f.esperado || (a.productId == null && f.productId != null)) {
+      await tx.recepcionLinea.update({ where: { id: a.id }, data: { esperado: f.esperado, productId: a.productId ?? f.productId } })
+      a.esperado = f.esperado
+    }
+  }
+  const frescasCod = new Set(frescas.map(f => f.codigo))
+  for (const a of actuales) {
+    if (a.codigo != null && !frescasCod.has(a.codigo) && a.esperado > 0) {
+      await tx.recepcionLinea.update({ where: { id: a.id }, data: { esperado: 0 } })
+      a.esperado = 0
+    }
+  }
+  return actuales
+}
+
 export async function cerrarRecepcion(recepcionId: number, decisiones: Record<number, string>): Promise<void> {
   const r0 = await db.recepcion.findUnique({ where: { id: recepcionId }, select: { envio: { select: { id: true, modo: true } } } })
   if (!r0) throw new ErrorDeNegocio('Esa recepción no existe.')
@@ -367,23 +391,7 @@ export async function cerrarRecepcion(recepcionId: number, decisiones: Record<nu
 
   await db.$transaction(async tx => {
     await bloquearRecepcion(tx, recepcionId)
-    const frescas = await filasEsperadas(tx, envio, recepcionId)
-    const actuales = await tx.recepcionLinea.findMany({ where: { recepcionId }, select: { id: true, codigo: true, esperado: true, contado: true, decision: true, productId: true } })
-    const porCodigo = new Map(actuales.flatMap(a => (a.codigo != null ? [[a.codigo, a] as const] : [])))
-    for (const f of frescas) {
-      const a = porCodigo.get(f.codigo)
-      if (!a) await tx.recepcionLinea.create({ data: { recepcionId, codigo: f.codigo, productId: f.productId, nombre: f.nombre, esperado: f.esperado } })
-      else if (a.esperado !== f.esperado || (a.productId == null && f.productId != null)) {
-        await tx.recepcionLinea.update({ where: { id: a.id }, data: { esperado: f.esperado, productId: a.productId ?? f.productId } })
-        a.esperado = f.esperado
-      }
-    }
-    const frescasCod = new Set(frescas.map(f => f.codigo))
-    for (const a of actuales) {
-      if (a.codigo != null && !frescasCod.has(a.codigo) && a.esperado > 0) {
-        await tx.recepcionLinea.update({ where: { id: a.id }, data: { esperado: 0 } })
-        a.esperado = 0
-      }
+    for (const a of await refrescarEsperado(tx, recepcionId, envio)) {
       const pedida = decisiones[a.id]
       const falta = a.contado != null && a.contado < a.esperado
       const decision = !falta ? null : pedida && esDecision(pedida) ? pedida : a.decision
@@ -426,6 +434,81 @@ export async function cerrarRecepcion(recepcionId: number, decisiones: Record<nu
   }, TX_OPTS)
 }
 
+// "Recibir lo contado y seguir contando" (planParcial): recibe lo que ya cubre lo contado, cierra
+// esta recepción como parcial y abre la siguiente con lo que falta, con lo contado que no se usó ya
+// anotado (lecturas 'arrastre', raw = R<id> de esta). Nada de lo no contado se decide: se sigue
+// esperando. Devuelve la recepción nueva (null si ya no queda nada por contar).
+export async function recibirLoContado(recepcionId: number): Promise<number | null> {
+  const r0 = await db.recepcion.findUnique({ where: { id: recepcionId }, select: { envio: { select: { id: true, modo: true } } } })
+  if (!r0) throw new ErrorDeNegocio('Esa recepción no existe.')
+  const envio = r0.envio
+  const maritimo = envio.modo === 'maritimo_cbm'
+
+  await db.$transaction(async tx => {
+    await bloquearRecepcion(tx, recepcionId)
+    await refrescarEsperado(tx, recepcionId, envio)
+  }, TX_OPTS)
+
+  const costoUnit = maritimo ? await costoUnitMaritimo(envio.id) : null
+
+  return db.$transaction(async tx => {
+    await bloquearRecepcion(tx, recepcionId)
+    const { ciego } = await tx.recepcion.findUniqueOrThrow({ where: { id: recepcionId }, select: { ciego: true } })
+    const filas = await tx.recepcionLinea.findMany({ where: { recepcionId }, select: { codigo: true, productId: true, nombre: true, esperado: true, contado: true, decision: true } })
+    const no = puedeRecibirParcial(filas)
+    if (no) throw new ErrorDeNegocio(no)
+    const lineas = maritimo ? [] : await lineasDeCaja(tx, envio.id)
+    const plan = planParcial(filas, maritimo ? { modo: 'maritimo', costoUnit: costoUnit! } : { modo: 'aereo', lineas })
+    if (plan.etapas.length === 0 && plan.stock.length === 0 && plan.backordersCerrados.length === 0) {
+      throw new ErrorDeNegocio('Con lo contado todavía no se completa ninguna línea: cada línea entra entera (todas sus unidades y piezas). Seguí contando.')
+    }
+
+    const cerrada = await tx.recepcion.updateMany({
+      where: { id: recepcionId, cerradaAt: null },
+      data: { cerradaAt: new Date(), parcial: true, itemsMovidos: plan.etapas.map(e => e.itemId) },
+    })
+    if (cerrada.count === 0) throw new ErrorDeNegocio('Esta recepción ya está cerrada.', 'cerrada')
+    // Lo no contado no tiene decisión: no faltó, no se contó.
+    await tx.recepcionLinea.updateMany({ where: { recepcionId, decision: { not: null } }, data: { decision: null } })
+
+    const movidas = await moverEtapasEn(tx, envio.id, plan.etapas.map(e => ({ id: e.itemId, desde: e.desde, hacia: e.hacia, signo: 0 })))
+    if (movidas !== plan.etapas.length) throw new ErrorDeNegocio('Una línea de la caja cambió de etapa mientras se recibía. Recargá y volvé a intentar.')
+    if (plan.backordersCerrados.length > 0) {
+      await tx.incidencia.updateMany({
+        where: { itemId: { in: plan.backordersCerrados }, estado: 'abierta', tipo: 'sin_enviar', recepcionId: { not: null } },
+        data: { estado: 'resuelta', resolucion: 'llego', resueltaAt: new Date(), recepcionCierreId: recepcionId },
+      })
+    }
+    await moverStock(tx, plan.stock.map(m => ({ ...m, envioId: envio.id, recepcionId })), `recepcion-${recepcionId}`)
+    await tx.envio.updateMany({ where: { id: envio.id, llegadaAt: null }, data: { llegadaAt: new Date() } })
+
+    const nueva = await abrirEn(tx, envio, plan.arrastre.size > 0)
+    if (nueva == null) {
+      if (maritimo) await tx.envio.updateMany({ where: { id: envio.id, estado: 'confirmado' }, data: { estado: 'entregado', entregadoAt: new Date() } })
+      return null
+    }
+    await tx.recepcion.update({ where: { id: nueva }, data: { ciego } })
+    await arrastrar(tx, nueva, plan.arrastre, filas, `R${recepcionId}`)
+    return nueva
+  }, TX_OPTS)
+}
+
+// Anota en la recepción `destino` lo contado que viene de otra, como lecturas 'arrastre' con `raw`
+// de marca. Un código que la recepción no espera entra como fila con esperado 0 (igual que Anotar).
+async function arrastrar(tx: Tx, destino: number, cuanto: Map<string, number>, origen: { codigo: string | null; productId: number | null; nombre: string }[], raw: string) {
+  for (const [codigo, n] of cuanto) {
+    const o = origen.find(f => f.codigo === codigo)
+    const fila = await tx.recepcionLinea.upsert({
+      where: { recepcionId_codigo: { recepcionId: destino, codigo } },
+      create: { recepcionId: destino, codigo, productId: o?.productId ?? null, nombre: o?.nombre ?? codigo, esperado: 0 },
+      update: {},
+      select: { id: true },
+    })
+    await tx.recepcionLectura.create({ data: { recepcionId: destino, lineaId: fila.id, raw, cantidad: n, origen: 'arrastre' } })
+    await recalcular(tx, fila.id)
+  }
+}
+
 // ── Revertir ─────────────────────────────────────────────────────────────────────────────────
 
 // Deshace una recepción cerrada con contramovimientos: resta el stock que sumó, borra sus
@@ -434,13 +517,17 @@ export async function cerrarRecepcion(recepcionId: number, decisiones: Record<nu
 // Solo la última recepción de la caja.
 export async function revertirRecepcion(recepcionId: number): Promise<number | null> {
   return db.$transaction(async tx => {
-    const r = (await tx.$queryRaw<{ envioId: number; cerradaAt: Date | null; revertidaAt: Date | null; itemsMovidos: number[] }[]>`
-      SELECT "envioId", "cerradaAt", "revertidaAt", "itemsMovidos" FROM "Recepcion" WHERE "id" = ${recepcionId} FOR UPDATE`)[0]
+    const r = (await tx.$queryRaw<{ envioId: number; cerradaAt: Date | null; revertidaAt: Date | null; parcial: boolean; itemsMovidos: number[] }[]>`
+      SELECT "envioId", "cerradaAt", "revertidaAt", "parcial", "itemsMovidos" FROM "Recepcion" WHERE "id" = ${recepcionId} FOR UPDATE`)[0]
     if (!r) throw new ErrorDeNegocio('Esa recepción no existe.')
     if (!r.cerradaAt) throw new ErrorDeNegocio('La recepción sigue abierta: no hay nada que revertir.')
     if (r.revertidaAt) throw new ErrorDeNegocio('Esta recepción ya se revirtió.')
-    const posterior = await tx.recepcion.findFirst({ where: { envioId: r.envioId, id: { gt: recepcionId } }, select: { id: true } })
-    if (posterior) throw new ErrorDeNegocio(`Hay una recepción posterior (#${posterior.id}) en esta caja: revertí esa primero.`)
+    // Después de un recibo parcial la caja sigue contándose en la recepción que abrió: esa no frena,
+    // recibe de vuelta lo que el recibo había usado. Una posterior cerrada sí: se revierte primero.
+    const posteriores = await tx.recepcion.findMany({ where: { envioId: r.envioId, id: { gt: recepcionId } }, select: { id: true, cerradaAt: true }, orderBy: { id: 'asc' } })
+    const sigue = r.parcial && posteriores.length === 1 && posteriores[0].cerradaAt == null ? posteriores[0].id : null
+    if (posteriores.length > 0 && sigue == null) throw new ErrorDeNegocio(`Hay una recepción posterior (#${posteriores[0].id}) en esta caja: revertí esa primero.`)
+    if (sigue != null) await bloquearRecepcion(tx, sigue)
     const envio = await tx.envio.findUniqueOrThrow({ where: { id: r.envioId }, select: { id: true, modo: true } })
 
     const suyas = await tx.incidencia.findMany({ where: { recepcionId }, select: { id: true, estado: true, descripcion: true } })
@@ -479,7 +566,19 @@ export async function revertirRecepcion(recepcionId: number): Promise<number | n
       const otra = await tx.recepcion.findFirst({ where: { envioId: envio.id, cerradaAt: { not: null }, revertidaAt: null }, select: { id: true } })
       if (!otra) await tx.envio.updateMany({ where: { id: envio.id, estado: 'entregado' }, data: { estado: 'confirmado', entregadoAt: null } })
     }
-    return abrirEn(tx, envio)
+    if (sigue == null) return abrirEn(tx, envio)
+
+    // Lo que el recibo usó (lo contado menos lo que arrastró) vuelve a estar contado en la que sigue.
+    const filasDeEsta = await tx.recepcionLinea.findMany({ where: { recepcionId, codigo: { not: null } }, select: { codigo: true, productId: true, nombre: true, contado: true } })
+    const arrastradas = await tx.recepcionLectura.findMany({ where: { recepcionId: sigue, origen: 'arrastre', raw: `R${recepcionId}` }, select: { cantidad: true, linea: { select: { codigo: true } } } })
+    const vuelve = new Map<string, number>()
+    for (const f of filasDeEsta) {
+      const n = (f.contado ?? 0) - arrastradas.filter(a => a.linea.codigo === f.codigo).reduce((s, a) => s + a.cantidad, 0)
+      if (n > 0) vuelve.set(f.codigo!, n)
+    }
+    await refrescarEsperado(tx, sigue, envio)
+    await arrastrar(tx, sigue, vuelve, filasDeEsta, `R${recepcionId}-reversa`)
+    return sigue
   }, TX_OPTS)
 }
 

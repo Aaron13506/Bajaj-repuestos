@@ -28,7 +28,7 @@ export default async function RecepcionesCaja({ envioId }: { envioId: number }) 
       recepciones: {
         orderBy: { id: 'desc' },
         select: {
-          id: true, abiertaAt: true, cerradaAt: true, revertidaAt: true,
+          id: true, abiertaAt: true, cerradaAt: true, revertidaAt: true, parcial: true,
           lineas: { select: { id: true, codigo: true, nombre: true, esperado: true, contado: true, decision: true, productId: true }, orderBy: { nombre: 'asc' } },
           incidencias: { select: { id: true, pedidoId: true, tipo: true, cantidad: true, descripcion: true, pieza: true, estado: true } },
           movimientosStock: { select: { productId: true, cantidad: true, motivo: true } },
@@ -49,7 +49,8 @@ export default async function RecepcionesCaja({ envioId }: { envioId: number }) 
 
   // Las de peso y medidas estimados (o medidas sin base) se ofrecen medir al contarlas.
   const estimadas = await estimadasDe(vista?.lineas.flatMap(l => (l.codigo ? [l.codigo] : [])) ?? [])
-  const ultima = envio.recepciones[0]
+  // Se revierte la última cerrada, si después no hay otra cerrada (la abierta que dejó un recibo parcial no cuenta).
+  const revertible = cerradas[0] && (cerradas[0] === envio.recepciones[0] || cerradas[0].parcial) ? cerradas[0] : null
 
   // El bulto como lo pesé al llegar, al lado de lo que pesó el transportista (las cajas que se
   // facturan, si están todas pesadas). Solo se muestra: el costeo sigue con las del transportista.
@@ -115,12 +116,14 @@ export default async function RecepcionesCaja({ envioId }: { envioId: number }) 
           <SeccionCaja
             key={r.id}
             id={`recepcion-${r.id}`}
-            titulo={<>Recepción #{r.id}{r.revertidaAt && <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700">revertida</span>}</>}
-            sub={`Cerrada el ${fecha(r.cerradaAt!)}${r.revertidaAt ? ` · revertida el ${fecha(r.revertidaAt)}` : ''} · ${[...porMotivo].map(([m, n]) => `${MOTIVO_STOCK_LABEL[m as MotivoStock] ?? m} ${n > 0 ? '+' : ''}${n}`).join(' · ') || 'sin movimientos de stock'}`}
-            acciones={r === ultima && !r.revertidaAt ? (
+            titulo={<>Recepción #{r.id}{r.parcial && <span className="ml-2 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800">parcial</span>}{r.revertidaAt && <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700">revertida</span>}</>}
+            sub={`${r.parcial ? 'Recibido lo contado el' : 'Cerrada el'} ${fecha(r.cerradaAt!)}${r.revertidaAt ? ` · revertida el ${fecha(r.revertidaAt)}` : ''} · ${[...porMotivo].map(([m, n]) => `${MOTIVO_STOCK_LABEL[m as MotivoStock] ?? m} ${n > 0 ? '+' : ''}${n}`).join(' · ') || 'sin movimientos de stock'}`}
+            acciones={r === revertible && !r.revertidaAt ? (
               <FormConResultado action={revertirEnRecepcion.bind(null, r.id, envioId)}>
                 <PendingButton
-                  confirmMessage={`¿Revertir la recepción #${r.id}? Resta del stock lo que sumó (${sumado} u.), borra sus incidencias abiertas, devuelve las líneas a "camino a Venezuela" y abre un conteo nuevo.`}
+                  confirmMessage={r.parcial
+                    ? `¿Revertir la recepción #${r.id}? Resta del stock lo que sumó (${sumado} u.), devuelve las líneas a "camino a Venezuela" y lo que había contado vuelve al conteo abierto.`
+                    : `¿Revertir la recepción #${r.id}? Resta del stock lo que sumó (${sumado} u.), borra sus incidencias abiertas, devuelve las líneas a "camino a Venezuela" y abre un conteo nuevo.`}
                   pendingLabel="Revirtiendo…"
                   className="min-h-9 rounded-lg border border-gray-300 px-3 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                 >
@@ -144,7 +147,7 @@ export default async function RecepcionesCaja({ envioId }: { envioId: number }) 
                   {r.lineas.map(l => {
                     const dif = (l.contado ?? 0) - l.esperado
                     return (
-                      <tr key={l.id} className={dif !== 0 ? 'bg-red-50/60' : ''}>
+                      <tr key={l.id} className={dif !== 0 && !r.parcial ? 'bg-red-50/60' : ''}>
                         <td className="px-4 py-2 sm:px-6">
                           {l.productId ? <Link href={`/products/${l.productId}`} className="text-gray-900 hover:underline">{limpiarNombre(l.nombre)}</Link> : <span className="text-gray-900">{limpiarNombre(l.nombre)}</span>}
                           <span className="ml-2 font-mono text-xs text-gray-600">{l.codigo ?? 'sin identificar'}</span>
@@ -152,7 +155,7 @@ export default async function RecepcionesCaja({ envioId }: { envioId: number }) 
                         <td className="px-3 py-2 text-right font-mono">{l.esperado}</td>
                         <td className="px-3 py-2 text-right font-mono">{l.contado ?? '—'}</td>
                         <td className={`px-3 py-2 text-right font-mono ${dif < 0 ? 'text-red-700' : dif > 0 ? 'text-amber-800' : 'text-gray-600'}`}>{dif > 0 ? `+${dif}` : dif}</td>
-                        <td className="px-3 py-2 text-gray-700">{l.decision && esDecision(l.decision) ? DECISION_LABEL[l.decision] : dif > 0 ? 'Sobrante a $0' : ''}</td>
+                        <td className="px-3 py-2 text-gray-700">{r.parcial ? (dif !== 0 ? 'Sigue en el conteo abierto' : '') : l.decision && esDecision(l.decision) ? DECISION_LABEL[l.decision] : dif > 0 ? 'Sobrante a $0' : ''}</td>
                       </tr>
                     )
                   })}

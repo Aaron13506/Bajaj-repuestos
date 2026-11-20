@@ -94,11 +94,14 @@ export interface FilaAnterior {
   esperado: number
   contado: number | null
   decision: string | null
+  /** De un recibo parcial (planParcial): resolvió solo lo que entró, el resto se sigue esperando. */
+  parcial?: boolean
 }
 
 // Las filas de la mesa: lo pendiente sumado por código, menos lo que ya resolvieron recepciones
 // anteriores (lo que el marítimo necesita: sus líneas no tienen etapa). Una fila anterior resolvió
-// lo que contó, y todo lo que esperaba salvo que lo faltante haya quedado en backorder.
+// lo que contó, y todo lo que esperaba salvo que lo faltante haya quedado en backorder o que fuera
+// un recibo parcial.
 export function esperadoDeRecepcion(pendientes: PiezaPendiente[], anteriores: FilaAnterior[] = []): FilaEsperada[] {
   const m = new Map<string, FilaEsperada>()
   for (const p of pendientes) {
@@ -109,7 +112,7 @@ export function esperadoDeRecepcion(pendientes: PiezaPendiente[], anteriores: Fi
   for (const a of anteriores) {
     const f = a.codigo != null ? m.get(a.codigo) : undefined
     if (!f) continue
-    f.esperado -= a.decision === 'backorder' ? Math.min(a.contado ?? 0, a.esperado) : a.esperado
+    f.esperado -= a.parcial || a.decision === 'backorder' ? Math.min(a.contado ?? 0, a.esperado) : a.esperado
   }
   return [...m.values()].filter(f => f.esperado > 0).sort((a, b) => a.nombre.localeCompare(b.nombre))
 }
@@ -283,6 +286,71 @@ export function planCierre(
     if (seMueve && !llego(l.shippingStatus)) {
       plan.etapas.push({ itemId: l.itemId, desde: l.shippingStatus, hacia: l.propio ? 'entregado' : 'en_venezuela' })
     }
+  }
+  return plan
+}
+
+// ── Recibir lo contado y seguir contando ─────────────────────────────────────────────────────
+// Un recibo parcial: lo que ya está contado se recibe sin terminar el conteo ni decidir faltantes.
+// Lo que no se contó no es faltante ni backorder: se sigue esperando en la recepción siguiente,
+// que abre sola con lo contado que no se usó (arrastre). La LÍNEA sigue siendo la unidad: entra
+// solo la que quedó cubierta entera (el reparto es el mismo del cierre: primero el cliente más
+// viejo); una a medias espera, y sus unidades contadas pasan al conteo siguiente.
+
+export interface PlanParcial extends PlanCierre {
+  /** Por código: lo contado que este recibo no usó y sigue contado en la recepción siguiente. */
+  arrastre: Map<string, number>
+}
+
+// Por qué no se puede recibir lo contado todavía, o null.
+export function puedeRecibirParcial(filas: FilaRecepcion[]): string | null {
+  if (!filas.some(f => f.productId != null && (f.contado ?? 0) > 0)) return 'Todavía no hay nada contado para recibir.'
+  const sinId = filas.filter(f => f.codigo == null && (f.contado ?? 0) > 0).length
+  if (sinId > 0) return `${sinId === 1 ? 'Hay una pieza sin identificar' : `Hay ${sinId} piezas sin identificar`}: asignala a una pieza o descartala.`
+  const fuera = filas.filter(f => f.codigo != null && f.productId == null && (f.contado ?? 0) > 0)
+  if (fuera.length > 0) return `${fuera.map(f => f.codigo).slice(0, 3).join(', ')} no ${fuera.length === 1 ? 'está' : 'están'} en el catálogo: creá la pieza o descartala.`
+  return null
+}
+
+// Todo lo que el recibo parcial va a escribir. Exige puedeRecibirParcial(filas) === null.
+//   aéreo     las líneas cubiertas enteras: cliente → en_venezuela, propio → entregado con su stock;
+//             un backorder que se completó se cierra. Ni incidencias ni sobrante: lo que sobra se arrastra.
+//   marítimo  stock por lo contado hasta lo esperado, al landed; lo de más se arrastra.
+export function planParcial(
+  filas: FilaRecepcion[],
+  caja: { modo: 'aereo'; lineas: LineaCaja[] } | { modo: 'maritimo'; costoUnit: Map<number, number | null> },
+): PlanParcial {
+  const plan: PlanParcial = { etapas: [], stock: [], incidencias: [], backordersCerrados: [], arrastre: new Map() }
+  const contadas = filas.filter((f): f is FilaRecepcion & { codigo: string } => f.codigo != null && f.contado != null)
+  const usado = new Map<string, number>()
+  const usar = (k: string, n: number) => usado.set(k, (usado.get(k) ?? 0) + n)
+
+  if (caja.modo === 'maritimo') {
+    for (const f of contadas) {
+      const entra = f.productId == null ? 0 : Math.min(f.contado!, f.esperado)
+      if (entra > 0) plan.stock.push({ productId: f.productId!, cantidad: entra, motivo: 'recepcion', costoUnitUsd: caja.costoUnit.get(f.productId!) ?? null })
+      usar(f.codigo, entra)
+    }
+  } else {
+    const porClave = new Map(contadas.map(f => [f.codigo, f] as const))
+    const reparto = repartirConteo(caja.lineas, new Map(contadas.filter(f => f.contado! > 0).map(f => [f.codigo, f.contado!] as const)))
+    for (const { linea: l, piezas } of reparto.lineas) {
+      if (piezas.some(p => p.cubierto < p.unidades)) continue
+      if (l.sinEnviarRecepcion.lineaEntera > 0 || l.sinEnviarRecepcion.porPieza.size > 0) plan.backordersCerrados.push(l.itemId)
+      for (const p of piezas) {
+        usar(p.clave, p.unidades)
+        const productId = porClave.get(p.clave)?.productId ?? p.productId
+        if (l.propio && productId != null) {
+          plan.stock.push({ productId, cantidad: p.unidades, motivo: 'recepcion', costoUnitUsd: null, pedidoId: l.pedidoId, pedidoItemId: l.itemId })
+        }
+      }
+      if (!llego(l.shippingStatus)) plan.etapas.push({ itemId: l.itemId, desde: l.shippingStatus, hacia: l.propio ? 'entregado' : 'en_venezuela' })
+    }
+  }
+  // Un 0 contado ("la busqué y no está") también se arrastra, salvo que la fila se haya usado.
+  for (const f of contadas) {
+    const resto = f.contado! - (usado.get(f.codigo) ?? 0)
+    if (resto > 0 || (f.contado === 0 && !usado.has(f.codigo))) plan.arrastre.set(f.codigo, resto)
   }
   return plan
 }

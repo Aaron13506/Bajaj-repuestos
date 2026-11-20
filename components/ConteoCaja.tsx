@@ -6,11 +6,11 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { limpiarNombre } from '@/lib/utils'
 import { coincideParcial } from '@/lib/conteo'
-import { DECISION_LABEL, puedeCerrar, type Decision } from '@/lib/recepcion'
+import { DECISION_LABEL, puedeCerrar, puedeRecibirParcial, type Decision } from '@/lib/recepcion'
 import type { OrigenLectura } from '@/lib/qr-bajaj'
 import type { Estimada, ResultadoLectura, VistaRecepcion, FilaVista } from '@/lib/recepcion-db'
 import {
-  anotarEnRecepcion, cerrarEnRecepcion, ciegoEnRecepcion, corregirFila, deshacerEnRecepcion, identificarFila,
+  anotarEnRecepcion, cerrarEnRecepcion, ciegoEnRecepcion, recibirLoContadoEnRecepcion, corregirFila, deshacerEnRecepcion, identificarFila,
   leerEnRecepcion, sinIdentificarEnRecepcion,
 } from '@/app/(pages)/envios/recepcion-actions'
 import FormMedir from './FormMedir'
@@ -180,6 +180,8 @@ export default function ConteoCaja({ vista, volver, telefono = false, estimadas,
   const contadas = filas.filter(f => f.contado != null).length
   const conDecision = filas.map(f => ({ ...f, decision: f.contado != null && f.contado < f.esperado ? decisiones[f.id] ?? f.decision : null }))
   const motivo = puedeCerrar(conDecision)
+  // Recibir lo contado: solo cuando falta contar algo (si está todo contado, se cierra normal).
+  const parcialPosible = contadas < filas.length && puedeRecibirParcial(filas) === null
   const diferencias = conDecision.filter(f => f.contado != null && f.contado !== f.esperado)
   const crearHref = (codigo: string) => `/products/new?sku=${encodeURIComponent(codigo)}&volver=${encodeURIComponent(volver)}`
   const medible = aMedir && estimadas?.[aMedir.codigo] ? { ...aMedir, ...estimadas[aMedir.codigo] } : null
@@ -344,6 +346,35 @@ export default function ConteoCaja({ vista, volver, telefono = false, estimadas,
           </button>
           {motivo && <p className="text-sm text-gray-600">{motivo}</p>}
         </div>
+        {parcialPosible && (
+          <div className="space-y-1 border-t border-gray-100 pt-2">
+            <button
+              type="button"
+              disabled={cerrando}
+              onClick={async () => {
+                setCerrando(true)
+                setError(null)
+                try {
+                  const res = await recibirLoContadoEnRecepcion(r.id, r.envioId)
+                  if (!res.ok) setError(res.error)
+                  else if (telefono && res.siguiente != null) router.replace(`/escanear/recepcion/${res.siguiente}`)
+                  router.refresh()
+                } catch {
+                  setError('No se pudo recibir: revisá la señal y reintentá.')
+                }
+                setCerrando(false)
+              }}
+              className={`${boton} rounded-lg border border-emerald-700 font-semibold text-emerald-800 disabled:opacity-40`}
+            >
+              {cerrando ? 'Recibiendo…' : 'Recibir lo contado y seguir contando'}
+            </button>
+            <p className="text-xs text-gray-600">
+              {maritimo
+                ? 'Entra al stock lo contado hasta ahora. Lo que no contaste no es faltante: se sigue esperando y el conteo sigue abierto.'
+                : 'Pasa a Recibido (y lo propio al stock) cada línea que ya está contada entera, así la podés entregar. Lo que no contaste no es faltante: se sigue esperando y el conteo sigue abierto con lo que ya contaste.'}
+            </p>
+          </div>
+        )}
         <p className="text-xs text-gray-600">
           {maritimo
             ? 'Al cerrar entra al stock lo contado, al costo de la caja. Una recepción cerrada no se edita: se revierte entera.'

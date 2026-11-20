@@ -826,6 +826,9 @@ model Recepcion {
   // Las líneas de pedido que el cierre movió de etapa: revertir las devuelve, y solo si siguen
   // donde el cierre las dejó (una ya entregada al cliente no se revierte).
   itemsMovidos Int[]    @default([])
+  // Recibo parcial ("recibir lo contado y seguir contando", recibirLoContado): recibió solo las
+  // líneas cubiertas enteras; lo no contado se sigue esperando en la recepción que abrió después.
+  parcial      Boolean  @default(false)
 
   envio               Envio              @relation(fields: [envioId], references: [id], onDelete: Restrict)
   lineas              RecepcionLinea[]
@@ -871,7 +874,9 @@ model RecepcionLectura {
   // Lo que leyó la cámara o el lector, tal cual. Vacío en las correcciones a mano.
   raw         String?
   cantidad    Int       // con signo: una corrección puede restar
-  origen      String    // 'camara' | 'lector' | 'manual'. CHECK en la base.
+  // 'camara' | 'lector' | 'manual' | 'arrastre' (lo contado que trae un recibo parcial o su reversa;
+  // raw = R<id de la recepción de origen>). CHECK en la base.
+  origen      String
   anuladaAt   DateTime? // "deshacer"
   createdAt   DateTime  @default(now())
 

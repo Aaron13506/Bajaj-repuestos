@@ -42,7 +42,7 @@ import { fisicoPorUnidad, pesoPorPieza } from '../lib/medido'
 import { realDeCobro, resumenCobro } from '../lib/cobro-bcv'
 import { construirResolver, piezasDeLinea } from '../lib/stock-piezas'
 import { resolverLectura } from '../lib/conteo'
-import { destinoDeUnidades, esperadoDeRecepcion, pendienteDeLinea, planCierre, puedeCerrar, repartirConteo, transicionManualPermitida, type FilaRecepcion, type LineaCaja } from '../lib/recepcion'
+import { destinoDeUnidades, esperadoDeRecepcion, pendienteDeLinea, planCierre, planParcial, puedeCerrar, puedeRecibirParcial, repartirConteo, transicionManualPermitida, type FilaRecepcion, type LineaCaja } from '../lib/recepcion'
 import { leerEtiqueta, normUbicacion, type Lectura } from '../lib/qr-bajaj'
 import { difConteo, motivoNoCierraConteo, pideNota, planCierreConteo, sugerirConteo } from '../lib/conteo-inventario'
 import { cuentaDeMetodo, datosBs, leerCobroBs } from '../lib/cuentas'
@@ -1478,6 +1478,36 @@ console.log('\nRECEPCIÓN (esperado, reparto, cierre, stepper)')
   check('marítimo: lo de más como sobrante', si(pm.stock.some(m => m.productId === 9 && m.motivo === 'sobrante_recepcion' && m.cantidad === 2)), 1)
   check('marítimo: entra exactamente lo contado', pm.stock.reduce((s, m) => s + m.cantidad, 0), 15)
   check('marítimo: sin incidencias', pm.incidencias.length, 0)
+
+  // Recibir lo contado y seguir contando: entra solo la línea cubierta entera; lo no contado no se decide.
+  check('parcial: sin nada contado no se recibe', si(puedeRecibirParcial([fila({ contado: null })]) !== null), 1)
+  check('parcial: con filas sin contar sí se puede', si(puedeRecibirParcial([fila(), fila({ codigo: 'Z1', contado: null })]) === null), 1)
+  check('parcial: sin identificar contada frena', si(puedeRecibirParcial([fila(), fila({ codigo: null, productId: null, esperado: 0, contado: 1 })]) !== null), 1)
+  const lViejo = linea({ codigo: 'F1', nombre: 'Filtro', productId: 7, quantity: 2, orden: 1 })
+  const lNuevo = linea({ codigo: 'F1', nombre: 'Filtro', productId: 7, quantity: 3, orden: 2 })
+  const otra = linea({ codigo: 'P1', nombre: 'Pastilla', productId: 8, quantity: 1, orden: 3 })
+  const propia = linea({ codigo: 'P1', nombre: 'Pastilla', productId: 8, quantity: 2, propio: true })
+  const pp = planParcial([
+    fila({ codigo: 'F1', productId: 7, esperado: 5, contado: 4 }),
+    fila({ codigo: 'P1', productId: 8, esperado: 3, contado: 3 }),
+    fila({ codigo: 'G1', productId: 11, esperado: 2, contado: null }),
+  ], { modo: 'aereo', lineas: [lViejo, lNuevo, otra, propia] })
+  const et = (l: LineaCaja) => pp.etapas.find(e => e.itemId === l.itemId)?.hacia ?? '—'
+  check('parcial: el pedido más viejo cubierto entero → en_venezuela', si(et(lViejo) === 'en_venezuela'), 1)
+  check('parcial: la línea a medias no se mueve', si(et(lNuevo) === '—'), 1)
+  check('parcial: lo contado a medias se arrastra', pp.arrastre.get('F1') ?? -1, 2)
+  check('parcial: propio cubierto → entregado con su stock', si(`${et(propia)} ${pp.stock.filter(m => m.pedidoItemId === propia.itemId).reduce((t, m) => t + m.cantidad, 0)}` === 'entregado 2'), 1)
+  check('parcial: lo usado entero no se arrastra', pp.arrastre.has('P1') ? 1 : 0, 0)
+  check('parcial: lo no contado no se arrastra ni se decide', si(`${pp.arrastre.has('G1') ? 1 : 0} ${pp.incidencias.length}` === '0 0'), 1)
+  const pp0 = planParcial([fila({ codigo: 'F1', productId: 7, esperado: 2, contado: 0 }), fila({ codigo: 'P1', productId: 8, esperado: 1, contado: 1 })], { modo: 'aereo', lineas: [lViejo, otra] })
+  check('parcial: un 0 contado se arrastra como 0', pp0.arrastre.get('F1') ?? -1, 0)
+  const ppS = planParcial([fila({ codigo: 'P1', productId: 8, esperado: 1, contado: 3 })], { modo: 'aereo', lineas: [otra] })
+  check('parcial: lo de más no es sobrante todavía, se arrastra', si(`${ppS.arrastre.get('P1')} ${ppS.stock.length}` === '2 0'), 1)
+  const ppB = planParcial([fila({ codigo: 'B1', esperado: 2, contado: 2 })], { modo: 'aereo', lineas: [linea({ quantity: 6, shippingStatus: 'en_venezuela', sinEnviarRecepcion: back })] })
+  check('parcial: un backorder completo se cierra', ppB.backordersCerrados.length, 1)
+  const ppM = planParcial([fila({ codigo: 'M1', productId: 9, esperado: 10, contado: 12 }), fila({ codigo: 'M2', productId: 10, esperado: 4, contado: null })], { modo: 'maritimo', costoUnit: new Map([[9, 2.5]]) })
+  check('parcial marítimo: entra lo contado hasta lo esperado, lo de más se arrastra', si(`${ppM.stock.map(m => `${m.productId}:${m.cantidad}`).join()} ${ppM.arrastre.get('M1')}` === '9:10 2'), 1)
+  check('parcial marítimo: lo esperado siguiente resta solo lo que entró', de(esperadoDeRecepcion([{ clave: 'M1', codigo: 'M1', nombre: 'M', productId: 9, etiqueta: null, unidades: 10 }], [{ codigo: 'M1', esperado: 10, contado: 4, decision: null, parcial: true }]), 'M1'), 6)
 
   // Stepper: llegar y volver de la llegada no se hace a mano.
   const cl = { isLanded: false, esCliente: true }

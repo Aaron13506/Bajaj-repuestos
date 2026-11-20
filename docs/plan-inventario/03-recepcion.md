@@ -168,6 +168,17 @@ En una transacción, ejecutando `planCierre`:
 - Se niega si alguna incidencia con su `recepcionId` ya tiene resolución o movimientos de plata. Si siguen abiertas, las borra.
 - Escribe contramovimientos `reversa_recepcion`, devuelve las líneas a `camino_venezuela` (aéreo) o la caja a `confirmado` (marítimo), marca `revertidaAt` y abre una recepción nueva con el esperado completo.
 
+## Recibir lo contado y seguir contando (recibo parcial)
+
+Agregado después: una caja grande no se cuenta de una sentada, y lo que ya está contado se tiene que poder entregar. `recibirLoContado(recepcionId)` (reglas `puedeRecibirParcial` y `planParcial` en `lib/recepcion.ts`):
+
+- Se ofrece mientras queda algo sin contar (con todo contado se cierra normal). Frenan lo mismo que el cierre salvo lo no contado y los faltantes sin decidir: una pieza sin identificar o fuera del catálogo contada.
+- **Lo no contado no se decide**: no es faltante ni backorder, no deja incidencia. Se sigue esperando.
+- La **línea** sigue siendo la unidad: entra solo la cubierta entera (todas sus unidades y piezas), con el mismo reparto del cierre (primero el cliente más viejo). Cliente → `en_venezuela` (se entrega desde el pedido), propio → `entregado` con su stock, marítimo → stock por lo contado hasta lo esperado. Un backorder que se completó se cierra como `llego`. Si no se completa ninguna línea, se niega y lo dice.
+- La recepción se cierra con `parcial = true` y abre la siguiente sola (mismo `ciego`), con lo contado que no se usó ya anotado como lecturas `arrastre` (`raw = R<id>`): lo de una línea a medias, lo de más (todavía no es sobrante) y los 0 ("la busqué y no está"). En el marítimo, `esperadoDeRecepcion` resta de un parcial solo lo que entró.
+- El teléfono, que tenía el QR de la recepción vieja, salta a la abierta.
+- **Reversa de un parcial**: se permite aunque haya después la recepción abierta que dejó (una cerrada posterior sí frena). Hace los mismos contramovimientos y, en vez de abrir otra, devuelve a la abierta lo que el parcial había usado (lecturas `arrastre`, `raw = R<id>-reversa`) y refresca lo esperado.
+
 ## El stepper (`EnvioItemsTable` y `saveItemChanges`)
 
 Para que nadie salte el conteo, `transicionManualPermitida` (usada por la tabla para esconder la opción y por `saveItemChanges` como candado):

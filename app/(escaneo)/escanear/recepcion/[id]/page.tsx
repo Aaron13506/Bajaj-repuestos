@@ -1,5 +1,6 @@
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
+import { db } from '@/lib/db'
 import { estimadasDe, vistaRecepcion } from '@/lib/recepcion-db'
 import { limpiarNombre } from '@/lib/utils'
 import ConteoCaja from '@/components/ConteoCaja'
@@ -12,6 +13,11 @@ export default async function RecepcionTelefonoPage({ params }: { params: Promis
   const { id } = await params
   const vista = await vistaRecepcion(Number(id))
   if (!vista) notFound()
+  // El QR de la laptop apunta a una recepción; después de "recibir lo contado" el conteo sigue en otra.
+  if (vista.cerradaAt) {
+    const abierta = await db.recepcion.findFirst({ where: { envioId: vista.envioId, cerradaAt: null }, select: { id: true } })
+    if (abierta) redirect(`/escanear/recepcion/${abierta.id}`)
+  }
   const estimadas = vista.cerradaAt ? {} : await estimadasDe(vista.lineas.flatMap(l => (l.codigo ? [l.codigo] : [])))
   const caja = `${vista.envio.nombre ?? `Caja #${vista.envio.id}`} · ${vista.envio.supplier?.name ?? '99rpm'}`
   const contadas = vista.lineas.filter(l => l.contado != null).length
