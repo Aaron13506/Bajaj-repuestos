@@ -9,6 +9,8 @@ const FORMATOS = ['qr_code', 'code_128'] as const
 // La misma etiqueta vuelve a contar cuando dejó de verse este tiempo: el hueco natural al
 // cambiar una caja por la siguiente (diez filtros iguales seguidos). Se ajusta en el depósito.
 const REARME_MS = 300
+// Y nunca antes de este tiempo desde que se contó: un parpadeo de la detección contaba doble.
+const ENFRIAMIENTO_MS = 1500
 // En modo gatillo, cuánto espera una etiqueta después de tocar el botón.
 const GATILLO_MS = 1500
 
@@ -44,6 +46,7 @@ export default function LectorCamara({
     let raf = 0
     let apagarFlash = 0
     const vistos = new Map<string, number>() // raw → última vez que se vio
+    const emitidos = new Map<string, number>() // raw → última vez que se contó
     const emitir = async (raw: string) => {
       let r: Senal
       try { r = await cb.current(raw) } catch { r = 'error' }
@@ -91,7 +94,11 @@ export default function LectorCamara({
             for (const raw of raws) {
               const antes = vistos.get(raw)
               vistos.set(raw, ahora)
-              if (!g.activo && !modoGatilloRef.current && (antes == null || ahora - antes > REARME_MS)) void emitir(raw)
+              const contado = emitidos.get(raw)
+              if (!g.activo && !modoGatilloRef.current && (antes == null || ahora - antes > REARME_MS) && (contado == null || ahora - contado > ENFRIAMIENTO_MS)) {
+                emitidos.set(raw, ahora)
+                void emitir(raw)
+              }
             }
           } catch {}
           if (vivo) raf = requestAnimationFrame(tick)
