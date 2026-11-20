@@ -460,7 +460,8 @@ export default function EnvioItemsTable({
                 className="min-h-9 max-w-full border border-gray-300 rounded-lg px-2 py-1 text-sm bg-white disabled:opacity-50"
               >
                 <option value="">Mover todo a…</option>
-                {etapasCaja.map(s => (
+                {/* Solo las etapas a las que alguna línea puede ir a mano (moverTodo saltea el resto). */}
+                {etapasCaja.filter(s => visibles.some(it => etapasPara([s], [it]).length > 0)).map(s => (
                   <option key={s.value} value={s.value}>{s.icon} {s.label}</option>
                 ))}
               </select>
