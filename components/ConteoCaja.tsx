@@ -20,7 +20,7 @@ import { senal, type Senal } from './senal'
 const LectorCamara = dynamic(() => import('./LectorCamara'), { ssr: false })
 
 type Aviso =
-  | { tono: Senal; texto: string; lecturaId?: number; bolsa?: { lineaId: number; cantidad: number; contado: number }; ofrecer?: { raw: string; origen: OrigenLectura; crear: string | null } }
+  | { tono: Senal; texto: string; para?: string; lecturaId?: number; bolsa?: { lineaId: number; cantidad: number; contado: number }; ofrecer?: { raw: string; origen: OrigenLectura; crear: string | null } }
   | { tono: 'varias'; filas: { lineaId: number; codigo: string | null; nombre: string }[] }
 
 // Una etiqueta de caja o bolsa (SKU-cantidad-MRP) la mandó un lector; lo tecleado a mano no la trae.
@@ -105,11 +105,18 @@ export default function ConteoCaja({ vista, volver, telefono = false, estimadas,
     const bolsa = res.cantidad > 1
     const sobran = res.esperado > 0 ? res.contado - res.esperado : 0
     const tono: Senal = bolsa ? 'bolsa' : 'ok'
+    // Lo de un cliente se aparta para él: solo lo que va a stock lleva estante.
+    const para = res.para ?? []
+    const deCliente = para.some(d => d.cliente != null)
+    const aStock = !deCliente || para.some(d => d.cliente == null)
     setAviso({
       tono,
       texto: `+${res.cantidad}${bolsa ? ' bolsa' : ''} ${res.codigo ?? ''} · ${limpiarNombre(res.nombre)} → ${res.esperado === 0 ? `${res.contado} (no esperada)` : marca(res.contado, res.esperado)}` +
         (!ciego && sobran > 0 ? ` · sobran ${sobran}` : '') + (res.leidoComo ? ` · leído como ${res.leidoComo}` : '') +
-        (!res.enCatalogo ? '' : res.ubicacion ? ` · va a ${res.ubicacion}` : ' · sin ubicación: escaneá el estante'),
+        (!res.enCatalogo || !aStock ? '' : res.ubicacion ? ` · va a ${res.ubicacion}` : ' · sin ubicación: escaneá el estante'),
+      para: deCliente
+        ? 'Para ' + para.map(d => `${d.cliente ?? 'stock'}${d.pedidoId != null ? ` (#${d.pedidoId})` : ''}${para.length > 1 || d.unidades > 1 ? ` ×${d.unidades}` : ''}`).join(' · ')
+        : undefined,
       lecturaId: res.lecturaId,
       bolsa: bolsa ? { lineaId: res.lineaId, cantidad: res.cantidad, contado: res.contado } : undefined,
     })
@@ -193,7 +200,10 @@ export default function ConteoCaja({ vista, volver, telefono = false, estimadas,
         </div>
       ) : (
         <div className={`flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 ${aviso.tono === 'ok' ? 'bg-green-50 text-green-900' : aviso.tono === 'bolsa' ? 'bg-amber-50 text-amber-900' : 'bg-red-50 text-red-800'}`}>
-          <p className={`flex-1 font-semibold ${telefono ? 'text-lg' : 'text-sm'}`}>{aviso.texto}</p>
+          <div className="flex-1">
+            <p className={`font-semibold ${telefono ? 'text-lg' : 'text-sm'}`}>{aviso.texto}</p>
+            {aviso.para && <p className={`mt-1 rounded-md bg-violet-100 px-2 py-1 font-bold text-violet-900 ${telefono ? 'text-xl' : 'text-base'}`}>{aviso.para}</p>}
+          </div>
           {aviso.bolsa && !corrigiendo && (
             <button type="button" onClick={() => setCorrigiendo(true)} className={`${boton} rounded-lg border border-amber-500 font-semibold`}>Corregir</button>
           )}

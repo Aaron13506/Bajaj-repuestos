@@ -16,7 +16,7 @@ import { moverStock, StockInsuficiente } from '@/lib/stock'
 import { moverEtapasEn } from '@/lib/mover-etapas'
 import { contextoCosteo, costearMaritimo, ENVIO_COSTEO_INCLUDE } from '@/lib/costo-envios'
 import {
-  claveDe, esDecision, esperadoDeRecepcion, pendienteDeLinea, planCierre, puedeCerrar,
+  claveDe, destinoDeUnidades, esDecision, esperadoDeRecepcion, pendienteDeLinea, planCierre, puedeCerrar,
   type FilaEsperada, type LineaCaja,
 } from '@/lib/recepcion'
 
@@ -156,7 +156,9 @@ export async function cambiarCiego(recepcionId: number, ciego: boolean): Promise
 export type ResultadoLectura =
   | { tipo: 'sumo'; lecturaId: number; lineaId: number; codigo: string | null; nombre: string; cantidad: number; contado: number; esperado: number; leidoComo: string | null
     /** A qué estante va (putaway); null = sin ubicación: la próxima etiqueta UBI: se la asigna. */
-    ubicacion: string | null; enCatalogo: boolean }
+    ubicacion: string | null; enCatalogo: boolean
+    /** A quién van las unidades leídas (caja aérea): cliente null = stock. Vacío = no se calculó. */
+    para?: { pedidoId: number | null; cliente: string | null; unidades: number }[] }
   | { tipo: 'varias'; filas: { lineaId: number; codigo: string | null; nombre: string }[] }
   | { tipo: 'no_esperada'; codigo: string; nombre: string; cantidad: number }
   | { tipo: 'fuera_catalogo'; codigo: string; cantidad: number }
@@ -204,8 +206,19 @@ export async function registrarLectura(recepcionId: number, raw: string, origen:
       como = fila.codigo && normCodigo(fila.codigo) !== lectura.codigo && r.pieza.alternos.includes(lectura.codigo) ? lectura.codigo : null
     }
     const s = await sumar(tx, recepcionId, fila.id, lineaId != null ? null : raw, cantidad, origen)
-    return { tipo: 'sumo', ...s, lineaId: fila.id, codigo: fila.codigo, nombre: fila.nombre, cantidad, esperado: fila.esperado, leidoComo: como, ubicacion: await ubicacionDe(tx, fila.productId), enCatalogo: fila.productId != null }
+    const para = fila.esperado > 0 ? await paraQuien(tx, recepcionId, claveDe(fila.codigo, fila.nombre), s.contado - cantidad, s.contado) : []
+    return { tipo: 'sumo', ...s, lineaId: fila.id, codigo: fila.codigo, nombre: fila.nombre, cantidad, esperado: fila.esperado, leidoComo: como, ubicacion: await ubicacionDe(tx, fila.productId), enCatalogo: fila.productId != null, para }
   }, TX_OPTS)
+}
+
+// A qué cliente van las unidades recién leídas, para separarlas al contar (solo cajas aéreas).
+async function paraQuien(tx: Tx, recepcionId: number, clave: string, desde: number, hasta: number) {
+  const { envio } = await tx.recepcion.findUniqueOrThrow({ where: { id: recepcionId }, select: { envio: { select: { id: true, modo: true } } } })
+  if (envio.modo === 'maritimo_cbm') return []
+  const destinos = destinoDeUnidades(await lineasDeCaja(tx, envio.id), clave, desde, hasta)
+  const ids = destinos.flatMap(d => (d.pedidoId != null ? [d.pedidoId] : []))
+  const nombres = new Map(ids.length === 0 ? [] : (await tx.pedido.findMany({ where: { id: { in: ids } }, select: { id: true, clientName: true } })).map(p => [p.id, p.clientName]))
+  return destinos.map(d => ({ ...d, cliente: d.pedidoId == null ? null : nombres.get(d.pedidoId) ?? `Pedido #${d.pedidoId}` }))
 }
 
 const ubicacionDe = async (tx: Tx, productId: number | null) =>

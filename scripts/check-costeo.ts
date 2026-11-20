@@ -42,7 +42,7 @@ import { fisicoPorUnidad, pesoPorPieza } from '../lib/medido'
 import { realDeCobro, resumenCobro } from '../lib/cobro-bcv'
 import { construirResolver, piezasDeLinea } from '../lib/stock-piezas'
 import { resolverLectura } from '../lib/conteo'
-import { esperadoDeRecepcion, pendienteDeLinea, planCierre, puedeCerrar, repartirConteo, transicionManualPermitida, type FilaRecepcion, type LineaCaja } from '../lib/recepcion'
+import { destinoDeUnidades, esperadoDeRecepcion, pendienteDeLinea, planCierre, puedeCerrar, repartirConteo, transicionManualPermitida, type FilaRecepcion, type LineaCaja } from '../lib/recepcion'
 import { leerEtiqueta, normUbicacion, type Lectura } from '../lib/qr-bajaj'
 import { difConteo, motivoNoCierraConteo, pideNota, planCierreConteo, sugerirConteo } from '../lib/conteo-inventario'
 import { cuentaDeMetodo, datosBs, leerCobroBs } from '../lib/cuentas'
@@ -1408,6 +1408,11 @@ console.log('\nRECEPCIÓN (esperado, reparto, cierre, stepper)')
   check('reparto: el más nuevo con lo que queda', cubre(nuevo), 1)
   check('reparto: el propio absorbe primero el faltante', cubre(propio), 0)
   check('reparto: sobrante cuando sobra', repartirConteo([viejo], new Map([['B1', 5]])).sobrante.get('B1') ?? 0, 3)
+  // Al escanear: la unidad N va a quien el cierre le daría la N.
+  const va = (desde: number, hasta: number) => destinoDeUnidades([propio, nuevo, viejo], 'B1', desde, hasta).map(d => `${d.pedidoId ?? 'stock'}x${d.unidades}`).join(' ')
+  check('escanear: las 2 primeras son del más viejo', si(va(0, 2) === `${viejo.pedidoId}x2`), 1)
+  check('escanear: una bolsa de 3 se parte entre viejo y nuevo', si(va(1, 4) === `${viejo.pedidoId}x1 ${nuevo.pedidoId}x2`), 1)
+  check('escanear: después de los clientes, lo propio y lo que sobra va a stock', si(va(4, 8) === 'stockx4'), 1)
 
   // Cierre: puedeCerrar.
   const fila = (o: Partial<FilaRecepcion> = {}): FilaRecepcion => ({ codigo: 'B1', productId: 1, nombre: 'Bujía', esperado: 2, contado: 2, decision: null, ...o })

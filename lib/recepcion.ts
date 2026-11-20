@@ -129,10 +129,12 @@ export interface Reparto {
 
 // Qué líneas quedan cubiertas con lo contado. Lo que falta lo absorbe primero el stock propio y
 // después el pedido de cliente más nuevo: el cliente que más espera es el último sin su pieza.
+const ordenReparto = (lineas: LineaCaja[]) =>
+  [...lineas].sort((a, b) => Number(a.propio) - Number(b.propio) || a.orden - b.orden || a.itemId - b.itemId)
+
 export function repartirConteo(lineas: LineaCaja[], contado: Map<string, number>): Reparto {
-  const orden = [...lineas].sort((a, b) => Number(a.propio) - Number(b.propio) || a.orden - b.orden || a.itemId - b.itemId)
   const queda = new Map(contado)
-  const cob = orden.map(linea => ({
+  const cob = ordenReparto(lineas).map(linea => ({
     linea,
     piezas: pendienteDeLinea(linea).map(p => {
       const hay = queda.get(p.clave) ?? 0
@@ -142,6 +144,24 @@ export function repartirConteo(lineas: LineaCaja[], contado: Map<string, number>
     }),
   })).filter(c => c.piezas.length > 0)
   return { lineas: cob, sobrante: new Map([...queda].filter(([, n]) => n > 0)) }
+}
+
+// A quién van las unidades (desde, hasta] de una clave recién leídas, en el mismo orden que el
+// reparto del cierre: así separar al escanear coincide con lo que el cierre le asigna a cada pedido.
+// pedidoId null = stock (lo propio y lo que sobra).
+export function destinoDeUnidades(lineas: LineaCaja[], clave: string, desde: number, hasta: number): { pedidoId: number | null; unidades: number }[] {
+  const out = new Map<number | null, number>()
+  const sumar = (k: number | null, n: number) => { if (n > 0) out.set(k, (out.get(k) ?? 0) + n) }
+  let acum = 0
+  for (const l of ordenReparto(lineas)) {
+    for (const p of pendienteDeLinea(l)) {
+      if (p.clave !== clave) continue
+      sumar(l.propio ? null : l.pedidoId, Math.min(hasta, acum + p.unidades) - Math.max(desde, acum))
+      acum += p.unidades
+    }
+  }
+  sumar(null, hasta - Math.max(desde, acum))
+  return [...out].map(([pedidoId, unidades]) => ({ pedidoId, unidades }))
 }
 
 /** Una fila de la recepción, tal como está en la base. */
