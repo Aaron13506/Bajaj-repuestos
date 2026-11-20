@@ -39,6 +39,7 @@ import PestanasCaja from '@/components/PestanasCaja'
 import TrayectoCaja from '@/components/TrayectoCaja'
 import SeccionCaja from '@/components/SeccionCaja'
 import { piezasAContar } from '@/lib/conteo'
+import { equivalenciasDe } from '@/lib/alt-sku'
 import { etiquetaPieza, lineaNoViene, perdidaSugerida, sinEnviarDe, textoSinEnviar, tiposPara } from '@/lib/incidencias'
 import { stageSummary, statusIndex } from '@/lib/shipping-status'
 import AvisarClientes, { type AvisoCliente } from '@/components/AvisarClientes'
@@ -758,12 +759,18 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   // que se resuelve por código, y un código que comparten dos productos no se ofrece.
   // Solo corre con una caja en camino a Venezuela: el resto del tiempo no cruza la red.
   const codigosAContar = aContar.flatMap(p => (p.codigo ? [p.codigo] : []))
+  // Los alternos de cada código (doble SKU), para que la etiqueta con el otro número caiga en su fila.
   if (codigosAContar.length > 0) {
-    const prods = await db.product.findMany({
-      where: { bajajCode: { in: codigosAContar } },
-      select: { id: true, bajajCode: true, medidoAt: true, weightGrams: true, dimL: true, dimA: true, dimH: true },
-    })
+    const [prods, equivalentes] = await Promise.all([
+      db.product.findMany({
+        where: { bajajCode: { in: codigosAContar } },
+        select: { id: true, bajajCode: true, medidoAt: true, weightGrams: true, dimL: true, dimA: true, dimH: true },
+      }),
+      equivalenciasDe(codigosAContar),
+    ])
     for (const p of aContar) {
+      const propio = p.codigo?.trim().toUpperCase()
+      p.alternos = propio ? (equivalentes.get(propio) ?? []).filter(c => c !== propio) : []
       const mismos = prods.filter(x => x.bajajCode === p.codigo)
       const x = mismos.length === 1 ? mismos[0] : null
       p.estimada = x && x.medidoAt == null
@@ -1710,7 +1717,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                     sub={porRecibir.length === 0 ? 'Ya se contó y se recibió: no se vuelve a contar.' : <>
                       {aContar.length} {aContar.length === 1 ? 'código' : 'códigos'} a contar, los conjuntos abiertos en sus piezas.
                       {' '}{enCaminoAVenezuela
-                        ?'Buscás el código, Enter suma uno; lo que falte se reporta como faltante en su pedido.'
+                        ?'Escaneás la etiqueta o tecleás el código: suma lo que trae el empaque; lo que falte se reporta como faltante en su pedido.'
                         : 'El conteo se hace cuando la caja va camino a Venezuela o llegó; podés abrirlo antes si hace falta.'}
                     </>}
                     acciones={porRecibir.length > 0 ? <BotonConteo /> : null}

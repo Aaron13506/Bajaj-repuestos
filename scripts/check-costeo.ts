@@ -39,7 +39,8 @@ import { motivoProductoEnUso } from '../lib/producto-en-uso'
 import { compatibleModelsFrom } from '../lib/modelo'
 import { realDeCobro, resumenCobro } from '../lib/cobro-bcv'
 import { construirResolver, piezasDeLinea } from '../lib/stock-piezas'
-import { piezasAContar } from '../lib/conteo'
+import { piezasAContar, resolverLectura } from '../lib/conteo'
+import { leerCodigo } from '../lib/qr-bajaj'
 import { cuentaDeMetodo, datosBs, leerCobroBs } from '../lib/cuentas'
 import { convertir, usdPorBsAlConvertir, usdPorBsEnCuenta } from '../lib/conversion'
 import { costoDeLinea, motivoNoServible, motivoNoVendible, resumenVenta } from '../lib/venta-stock'
@@ -1377,6 +1378,43 @@ console.log('\nCONTEO DE LA CAJA')
   check('sin enviar: y lo dice aparte', fila('B1')?.sinEnviar ?? -1, 2)
   check('sin enviar: arandela 6 − 2 del set − 2 sueltas', fila('Arandela')?.esperado ?? -1, 2)
   check('sin enviar: nunca espera menos de 0', piezasAContar([{ nombre: 'X', codigo: 'X', quantity: 1, piezas: [], sinEnviar: { lineaEntera: 5, porPieza: new Map() } }])[0].esperado, 0)
+}
+
+console.log('\nLECTOR  (etiqueta de Bajaj o bolsa del proveedor → código y cantidad)')
+{
+  const si = (b: boolean) => (b ? 1 : 0)
+  const lee = (raw: string, codigo: string, cantidad: number) => {
+    const l = leerCodigo(raw)
+    check(`lector: ${raw} → ${codigo} × ${cantidad}`, si(l.codigo === codigo && l.cantidad === cantidad), 1)
+  }
+  lee('DH181135-1_842', 'DH181135', 1)
+  lee('JW401011-1_174', 'JW401011', 1)
+  lee('XX123456-2@315', 'XX123456', 2)
+  lee("DH181135'1?842", 'DH181135', 1) // lector físico con el teclado del sistema en español
+  lee('dh181135', 'DH181135', 1)
+  lee('DH18 1135', 'DH181135', 1) // tecleado con espacio: sin tercer tramo no hay cantidad
+  lee('DH181135-0_842', 'DH181135', 1) // una etiqueta con 0 no resta
+  lee('DH181135-12_90', 'DH181135', 12)
+
+  const pz = (codigo: string | null, nombre: string, alternos: string[] = []) =>
+    ({ clave: codigo ?? nombre, nombre, codigo, esperado: 1, sinEnviar: 0, alternos })
+  const caja = [
+    pz('DH181135', 'Pastilla freno del.'),
+    pz('JR233035', 'Calco rueda der.', ['JR233069']),
+    pz('JR233036', 'Calco rueda izq.'),
+    pz(null, 'Arandela'),
+  ]
+  const fila = (raw: string, parcial = true) => {
+    const r = resolverLectura(caja, leerCodigo(raw), parcial)
+    return 'pieza' in r ? r.pieza.clave : 'varias' in r ? `varias:${r.varias.length}` : 'ninguna'
+  }
+  check('resolver: código principal', si(fila('DH181135-1_842') === 'DH181135'), 1)
+  check('resolver: alterno cae en su fila', si(fila('JR233069-1_50') === 'JR233035'), 1)
+  check('resolver: parcial único (últimos caracteres)', si(fila('1135') === 'DH181135'), 1)
+  check('resolver: parcial por nombre', si(fila('arandela') === 'Arandela'), 1)
+  check('resolver: parcial ambiguo', si(fila('JR2330') === 'varias:2'), 1)
+  check('resolver: inexistente', si(fila('DX123456-1_10') === 'ninguna'), 1)
+  check('resolver: escaneado no busca parcial', si(fila('1135', false) === 'ninguna'), 1)
 }
 
 console.log('\nREENVÍO POR KILO  (₹/kg cotizado por caja + reempaque de la caja, sin seguro)')

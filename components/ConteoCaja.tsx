@@ -2,19 +2,24 @@
 
 import { useEffect, useState } from 'react'
 import { limpiarNombre } from '@/lib/utils'
-import type { PiezaAContar } from '@/lib/conteo'
 import type { ActionResult } from '@/lib/action-result'
 import { useAccionDirecta } from './useEnviarAccion'
 import FormConResultado from './FormConResultado'
 import PendingButton from './PendingButton'
 import { medirPieza } from '@/app/(pages)/products/actions'
+import { coincideParcial, normCodigo, resolverLectura, type PiezaAContar } from '@/lib/conteo'
+import { leerCodigo, type Lectura, type OrigenLectura } from '@/lib/qr-bajaj'
+import LectorCamara from './LectorCamara'
+import { senal, type Senal } from './senal'
 
-// El código de la etiqueta puede venir con espacios o guiones que el catálogo no tiene.
-const normalizar = (s: string) => s.toLowerCase().replace(/[\s-]/g, '')
+// Lo que se leyó y no es una fila de la caja. Por ahora es solo una nota del borrador, visible
+// al confirmar; la recepción con cierre (fase 3) la resuelve.
+type Nota = { tipo: 'no_esperada'; codigo: string; cantidad: number } | { tipo: 'sin_identificar'; texto: string }
 
 // Paso intermedio entre "llegó la caja" y "recibida": se cuenta pieza por pieza contra lo
 // esperado y recién ahí se recibe. El conteo no se guarda en la base (solo verifica); el
 // borrador vive en este navegador para no perderlo si se recarga a mitad de la caja.
+// Cada lectura (cámara, lector físico o tecleado) suma la cantidad que trae la etiqueta.
 export default function ConteoCaja({
   envioId,
   piezas,
@@ -30,7 +35,13 @@ export default function ConteoCaja({
   const clave = `conteo-caja-${envioId}`
   const [conteo, setConteo] = useState<Record<string, string>>({})
   const [busca, setBusca] = useState('')
-  const [ultimo, setUltimo] = useState<{ texto: string; malo: boolean } | null>(null)
+  const [ultimo, setUltimo] = useState<{ texto: string; malo: boolean; bolsa?: boolean; noEsperada?: Lectura } | null>(null)
+  // Lecturas que sumaron, para "Deshacer último". `antes` = lo que había, para volver a vacío y no a 0.
+  const [historial, setHistorial] = useState<{ clave: string; n: number; antes: string | undefined }[]>([])
+  const [corrigiendo, setCorrigiendo] = useState(false)
+  const [notas, setNotas] = useState<Nota[]>([])
+  const [sinIdentificar, setSinIdentificar] = useState<string | null>(null)
+  const [camara, setCamara] = useState(false)
   // Pieza que se ofrece pesar. Al guardar, la página vuelve sin `estimada` y el form se va solo.
   const [aMedir, setAMedir] = useState<string | null>(null)
   // Contar es opcional: lo abre el botón de arriba a la derecha (un enlace a #conteo, ver BotonConteo).
@@ -53,6 +64,7 @@ export default function ConteoCaja({
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     try { setConteo(JSON.parse(localStorage.getItem(clave) ?? '{}')) } catch {}
+    try { setNotas(JSON.parse(localStorage.getItem(`${clave}-notas`) ?? '[]')) } catch {}
   }, [clave])
 
   function anotar(c: string, v: string) {
@@ -60,30 +72,109 @@ export default function ConteoCaja({
     setConteo(nuevo)
     try { localStorage.setItem(clave, JSON.stringify(nuevo)) } catch {}
   }
+  function guardarNotas(nuevas: Nota[]) {
+    setNotas(nuevas)
+    try { localStorage.setItem(`${clave}-notas`, JSON.stringify(nuevas)) } catch {}
+  }
 
   // Vacío = todavía no la contaste; 0 = la buscaste y no está.
   const llego = (p: PiezaAContar) => {
     const v = conteo[p.clave]
     return v == null || v === '' ? null : Number(v)
   }
-  // Pieza en la mano: se tipea su código (o parte del nombre) y Enter suma 1. Un código exacto
-  // gana aunque haya otros que lo contengan; si no, solo suma cuando queda una sola fila.
-  const q = normalizar(busca)
-  const visibles = q ? piezas.filter(p => normalizar(p.codigo ?? '').includes(q) || normalizar(p.nombre).includes(q)) : piezas
-  function sumarUna() {
-    if (!q) return
-    const exacta = piezas.find(p => p.codigo != null && normalizar(p.codigo) === q)
-    const p = exacta ?? (visibles.length === 1 ? visibles[0] : null)
-    if (!p) {
-      setUltimo({ texto: visibles.length === 0 ? `«${busca}» no viene en esta caja` : `${visibles.length} piezas coinciden: elegí abajo`, malo: true })
-      return
+  // Lo tecleado filtra la lista (código, alterno o nombre); Enter lo cuenta como una lectura.
+  const visibles = busca.trim() ? piezas.filter(p => coincideParcial(p, busca)) : piezas
+  function sumarLectura(l: Lectura, origen: OrigenLectura): Senal {
+    const r = resolverLectura(piezas, l, origen !== 'camara')
+    if (!('pieza' in r)) {
+      setUltimo(!l.codigo
+        ? { texto: 'No se leyó ninguna etiqueta', malo: true }
+        : 'varias' in r
+          ? { texto: `${r.varias.length} piezas coinciden con «${l.raw.trim()}»: elegí abajo`, malo: true }
+          : { texto: `${l.codigo} no viene en esta caja`, malo: true, noEsperada: l })
+      setCorrigiendo(false)
+      senal('error')
+      return 'error'
     }
-    const n = (llego(p) ?? 0) + 1
+    const p = r.pieza
+    const n = (llego(p) ?? 0) + l.cantidad
     anotar(p.clave, String(n))
-    setUltimo({ texto: `+1 ${limpiarNombre(p.nombre)} → ${n}/${p.esperado}`, malo: n > p.esperado })
+    setHistorial(h => [...h, { clave: p.clave, n: l.cantidad, antes: conteo[p.clave] }])
+    const bolsa = l.cantidad > 1
+    const leidoComo = p.codigo && normCodigo(p.codigo) !== l.codigo && p.alternos.some(a => normCodigo(a) === l.codigo) ? ` · leído como ${l.codigo}` : ''
+    const sobran = n - p.esperado
+    setUltimo({
+      texto: `+${l.cantidad}${bolsa ? ' (bolsa)' : ''} ${p.codigo ? `${p.codigo} · ` : ''}${limpiarNombre(p.nombre)} → ${n}/${p.esperado}${sobran > 0 ? ` · sobran ${sobran}` : ''}${leidoComo}`,
+      malo: sobran > 0,
+      bolsa,
+    })
+    setCorrigiendo(false)
     setBusca('')
     setAMedir(p.estimada ? p.clave : null)
+    const tono = bolsa ? 'bolsa' : 'ok'
+    senal(tono)
+    return tono
   }
+  function deshacer() {
+    const u = historial.at(-1)
+    if (!u) return
+    const v = Number(conteo[u.clave] || 0) - u.n
+    anotar(u.clave, v > 0 ? String(v) : u.antes ? '0' : '')
+    setHistorial(h => h.slice(0, -1))
+    setUltimo({ texto: `Deshecho: −${u.n} ${u.clave}`, malo: false })
+    setCorrigiendo(false)
+  }
+  // La etiqueta de la bolsa la escribió el proveedor a mano: si traía otra cantidad, se reemplaza.
+  function corregir(nueva: number) {
+    const u = historial.at(-1)
+    if (!u || !Number.isInteger(nueva) || nueva < 0) return
+    const v = Math.max(0, Number(conteo[u.clave] || 0) - u.n + nueva)
+    anotar(u.clave, String(v))
+    setHistorial(h => [...h.slice(0, -1), { ...u, n: nueva }])
+    setUltimo({ texto: `Corregido: la bolsa traía ${nueva} → ${v}`, malo: false })
+    setCorrigiendo(false)
+  }
+  function anotarNoEsperada(l: Lectura) {
+    const previa = notas.find(x => x.tipo === 'no_esperada' && x.codigo === l.codigo)
+    guardarNotas(previa
+      ? notas.map(x => (x === previa && x.tipo === 'no_esperada' ? { ...x, cantidad: x.cantidad + l.cantidad } : x))
+      : [...notas, { tipo: 'no_esperada', codigo: l.codigo, cantidad: l.cantidad }])
+    setUltimo({ texto: `Anotada como no esperada: ${l.codigo} ×${l.cantidad}`, malo: false })
+  }
+  const avisoUltimo = ultimo && (
+    <div className="flex flex-wrap items-center gap-2">
+      <span role="status" className={`${ultimo.bolsa ? 'text-lg font-bold' : 'text-sm font-semibold'} ${ultimo.malo ? 'text-red-700' : ultimo.bolsa ? 'text-amber-800' : 'text-green-700'}`}>
+        {ultimo.texto}
+      </span>
+      {ultimo.bolsa && !corrigiendo && (
+        <button type="button" onClick={() => setCorrigiendo(true)} className="min-h-9 px-3 text-sm font-semibold rounded-lg border border-amber-500 text-amber-900 hover:bg-amber-50">
+          Corregir
+        </button>
+      )}
+      {corrigiendo && (
+        <form
+          onSubmit={e => { e.preventDefault(); corregir(Number(new FormData(e.currentTarget).get('n'))) }}
+          className="flex items-center gap-1 text-sm"
+        >
+          <label className="flex items-center gap-1 text-gray-700">
+            La bolsa traía
+            <input name="n" type="number" min={0} step={1} required autoFocus inputMode="numeric" defaultValue={historial.at(-1)?.n} className="w-16 min-h-9 border border-gray-300 rounded-md px-2 text-right font-mono" />
+          </label>
+          <button className="min-h-9 px-3 rounded-lg bg-amber-600 text-white font-semibold hover:bg-amber-700">Listo</button>
+        </form>
+      )}
+      {ultimo.noEsperada && (
+        <button type="button" onClick={() => anotarNoEsperada(ultimo.noEsperada!)} className="min-h-9 px-3 text-sm font-semibold rounded-lg border border-red-300 text-red-800 hover:bg-red-50">
+          Anotar como no esperada
+        </button>
+      )}
+      {historial.length > 0 && (
+        <button type="button" onClick={deshacer} className="min-h-9 px-3 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
+          Deshacer último
+        </button>
+      )}
+    </div>
+  )
   const medible = piezas.find(p => p.clave === aMedir && p.estimada)
 
   const contadas = piezas.filter(p => llego(p) != null).length
@@ -96,8 +187,10 @@ export default function ConteoCaja({
     ejecutar(async () => {
       const r = await recibir()
       if (r.ok) {
-        try { localStorage.removeItem(clave) } catch {}
+        try { localStorage.removeItem(clave); localStorage.removeItem(`${clave}-notas`) } catch {}
         setConteo({})
+        setNotas([])
+        setHistorial([])
         setConfirmando(false)
         cerrar()
       }
@@ -139,6 +232,11 @@ export default function ConteoCaja({
             {difs.length > 0 && <>{difs.length === 1 ? 'No coincide' : 'No coinciden'}: {difs.map(p => `${limpiarNombre(p.nombre)} (${llego(p)} de ${p.esperado})`).join(', ')}. </>}
             {aviso}
           </p>
+          {notas.length > 0 && (
+            <p className="text-sm text-gray-700">
+              Anotado aparte, se resuelve a mano: {notas.map(n => (n.tipo === 'no_esperada' ? `${n.codigo} ×${n.cantidad} (no esperada)` : `sin identificar: ${n.texto}`)).join(', ')}.
+            </p>
+          )}
           {error && <p role="alert" className="text-sm font-medium text-red-700">{error}</p>}
           <div className="flex flex-wrap gap-2">
             <button type="button" autoFocus disabled={pending} onClick={marcarRecibido} className="min-h-9 px-4 py-1.5 text-sm bg-emerald-700 text-white rounded-lg hover:bg-emerald-800 disabled:opacity-50 font-medium">
@@ -156,15 +254,59 @@ export default function ConteoCaja({
           autoFocus
           value={busca}
           onChange={e => setBusca(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); sumarUna() } }}
-          placeholder="Código de la pieza en la mano + Enter (suma 1)"
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (busca.trim()) sumarLectura(leerCodigo(busca), 'manual') } }}
+          placeholder="Escaneá o tecleá el código (o parte) + Enter"
           aria-label="Código de la pieza en la mano"
           className="w-full sm:w-96 min-h-9 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono"
         />
+        <button type="button" onClick={() => setCamara(true)} className="min-h-9 px-4 py-1.5 text-sm font-semibold rounded-lg bg-gray-900 text-white hover:bg-gray-800">
+          Cámara
+        </button>
+        <button type="button" onClick={() => setSinIdentificar('')} className="min-h-9 px-3 py-1.5 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
+          Anotar sin identificar
+        </button>
         <span aria-hidden="true" className="h-1.5 flex-1 min-w-24 max-w-64 rounded-full bg-gray-100 overflow-hidden">
           <span className="block h-full rounded-full bg-emerald-600" style={{ width: `${piezas.length ? (contadas / piezas.length) * 100 : 0}%` }} />
         </span>
-        <span role="status" className={`text-sm font-semibold ${ultimo?.malo ? 'text-red-700' : 'text-green-700'}`}>{ultimo?.texto}</span>
+        {!camara && avisoUltimo && <div className="basis-full">{avisoUltimo}</div>}
+        {camara && (
+          <LectorCamara onLectura={raw => sumarLectura(leerCodigo(raw), 'camara')} onCerrar={() => setCamara(false)}>
+            {avisoUltimo ?? <span className="text-sm text-gray-600">Apuntá a la etiqueta de la caja o la bolsa.</span>}
+          </LectorCamara>
+        )}
+        {sinIdentificar != null && (
+          <form
+            onSubmit={e => {
+              e.preventDefault()
+              if (!sinIdentificar.trim()) return
+              guardarNotas([...notas, { tipo: 'sin_identificar', texto: sinIdentificar.trim() }])
+              setSinIdentificar(null)
+            }}
+            className="basis-full flex flex-wrap items-center gap-2 text-sm"
+          >
+            <input
+              value={sinIdentificar}
+              onChange={e => setSinIdentificar(e.target.value)}
+              autoFocus
+              required
+              placeholder="Qué es: bolsa con 6 tornillos, sin etiqueta…"
+              aria-label="Nota de la pieza sin identificar"
+              className="flex-1 min-w-48 min-h-9 border border-gray-300 rounded-lg px-3"
+            />
+            <button className="min-h-9 px-3 rounded-lg bg-gray-900 text-white font-semibold">Anotar</button>
+            <button type="button" onClick={() => setSinIdentificar(null)} className="min-h-9 px-3 rounded-lg text-gray-700 hover:bg-gray-50">Cancelar</button>
+          </form>
+        )}
+        {notas.length > 0 && (
+          <ul aria-label="Anotado aparte" className="basis-full flex flex-wrap gap-2 text-xs">
+            {notas.map((n, i) => (
+              <li key={i} className="flex items-center gap-1 rounded-full bg-orange-50 border border-orange-200 pl-2.5 text-orange-900">
+                {n.tipo === 'no_esperada' ? <><span className="font-mono">{n.codigo}</span> ×{n.cantidad} no esperada</> : <>sin identificar: {n.texto}</>}
+                <button type="button" onClick={() => guardarNotas(notas.filter((_, j) => j !== i))} aria-label="Quitar nota" className="min-h-6 min-w-6 rounded-full hover:bg-orange-100">×</button>
+              </li>
+            ))}
+          </ul>
+        )}
         {medible?.estimada && (
           <FormConResultado
             key={medible.clave}
@@ -203,7 +345,7 @@ export default function ConteoCaja({
           <tr className="border-b border-gray-100 text-xs text-gray-600">
             <th scope="col" className="text-left px-4 sm:px-6 py-2 font-semibold">Pieza</th>
             <th scope="col" className="text-right px-3 py-2 font-semibold w-24">Esperado</th>
-            <th scope="col" className="text-right px-3 py-2 font-semibold w-36">Llegó</th>
+            <th scope="col" className="text-right px-3 py-2 font-semibold w-48">Llegó</th>
             <th scope="col" className="text-left px-3 py-2 font-semibold w-36">Resultado</th>
           </tr>
         </thead>
@@ -246,6 +388,15 @@ export default function ConteoCaja({
                     >
                       ✓
                     </button>
+                    <button
+                      type="button"
+                      disabled={!n}
+                      onClick={() => anotar(p.clave, String((n ?? 0) - 1))}
+                      aria-label={`Una menos de ${p.nombre}`}
+                      className="min-h-8 min-w-8 text-sm rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+                    >
+                      −
+                    </button>
                     <input
                       type="number"
                       min={0}
@@ -256,6 +407,14 @@ export default function ConteoCaja({
                       aria-label={`Cuántas llegaron de ${p.nombre}`}
                       className="w-16 min-h-8 border border-gray-300 rounded-md px-2 py-0.5 text-right font-mono text-sm"
                     />
+                    <button
+                      type="button"
+                      onClick={() => anotar(p.clave, String((n ?? 0) + 1))}
+                      aria-label={`Una más de ${p.nombre}`}
+                      className="min-h-8 min-w-8 text-sm rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
+                    >
+                      +
+                    </button>
                   </div>
                 </td>
                 <td className="px-3 py-2 whitespace-nowrap">

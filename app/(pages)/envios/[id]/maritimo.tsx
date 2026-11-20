@@ -400,7 +400,8 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
             .map(p => {
               // Una línea por producto: la clave (código o nombre) lleva de vuelta a su producto.
               const x = envio.lineas.find(l => (l.product.bajajCode ?? l.product.nameEs) === p.clave)?.product
-              return { ...p, estimada: x && x.medidoAt == null ? { productId: x.id, weightGrams: x.weightGrams, dimL: x.dimL, dimA: x.dimA, dimH: x.dimH } : null }
+              const alt = x && alternos.get(x.id)
+              return { ...p, alternos: alt ? [alt] : [], estimada: x && x.medidoAt == null ? { productId: x.id, weightGrams: x.weightGrams, dimL: x.dimL, dimA: x.dimA, dimH: x.dimH } : null }
             })}
           recibir={recibirEmbarque.bind(null, envio.id)}
           aviso={`Se suman al stock las cantidades del embarque, no las contadas: lo que falte, corregilo en el stock de esa pieza.`}
