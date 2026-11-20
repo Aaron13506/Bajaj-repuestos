@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { db } from '@/lib/db'
 import FormConResultado from '@/components/FormConResultado'
 import PendingButton from '@/components/PendingButton'
+import CamposBulto from '@/components/CamposBulto'
 import { llegoYContar } from './actions'
 
 export const metadata = { title: 'Recibir' }
@@ -53,12 +54,17 @@ export default async function RecibirPage() {
         <h2 id="camino" className="font-semibold text-gray-900">En camino</h2>
         {enCamino.length === 0 && <p className="text-sm text-gray-600">No hay cajas camino a Venezuela sin marcar.</p>}
         {enCamino.map(e => (
-          <div key={e.id} className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-            <span className="flex-1 font-semibold text-gray-900">{nombre(e)}</span>
-            <FormConResultado action={llegoYContar.bind(null, e.id)}>
+          <FormConResultado key={e.id} action={llegoYContar.bind(null, e.id)} className="space-y-2 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center gap-3">
+              <span className="flex-1 font-semibold text-gray-900">{nombre(e)}</span>
               <PendingButton pendingLabel="Abriendo…" className="min-h-11 rounded-lg bg-blue-600 px-4 font-semibold text-white disabled:opacity-50">Llegó: contar</PendingButton>
-            </FormConResultado>
-          </div>
+            </div>
+            {/* Opcional: para comparar contra lo que cobró el transportista. */}
+            <details>
+              <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-blue-700">Pesar el bulto (opcional)</summary>
+              <CamposBulto grande />
+            </details>
+          </FormConResultado>
         ))}
       </section>
     </div>

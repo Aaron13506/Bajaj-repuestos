@@ -192,6 +192,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
           productId: l.productId,
           quantity: l.quantity,
           priceInr: l.product.priceInr,
+          weightGrams: l.product.weightGrams,
           dimL: l.product.dimL,
           dimA: l.product.dimA,
           dimH: l.product.dimH,

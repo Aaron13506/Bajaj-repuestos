@@ -2,14 +2,16 @@ import Link from 'next/link'
 import { db } from '@/lib/db'
 import { limpiarNombre } from '@/lib/utils'
 import { DECISION_LABEL, esDecision } from '@/lib/recepcion'
-import { pendienteDeRecibir, vistaRecepcion } from '@/lib/recepcion-db'
+import { estimadasDe, pendienteDeRecibir, vistaRecepcion } from '@/lib/recepcion-db'
 import { MOTIVO_STOCK_LABEL, type MotivoStock } from '@/lib/stock'
 import { TIPO_LABELS, esTipoIncidencia } from '@/lib/incidencias'
 import SeccionCaja from '@/components/SeccionCaja'
-import ConteoCaja, { type Estimada } from '@/components/ConteoCaja'
+import ConteoCaja from '@/components/ConteoCaja'
 import QrEnlace from '@/components/QrEnlace'
 import FormConResultado from '@/components/FormConResultado'
 import PendingButton from '@/components/PendingButton'
+import CamposBulto from '@/components/CamposBulto'
+import { cajasQueSeFacturan } from '@/lib/cajas-envio'
 import { abrirConteo, marcarLlegada, revertirEnRecepcion } from '../recepcion-actions'
 
 const fecha = (d: Date) => d.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'America/Caracas' })
@@ -21,6 +23,8 @@ export default async function RecepcionesCaja({ envioId }: { envioId: number }) 
     where: { id: envioId },
     select: {
       id: true, modo: true, estado: true, llegadaAt: true, llegadaNota: true,
+      llegadaPesoKg: true, llegadaLargoCm: true, llegadaAnchoCm: true, llegadaAltoCm: true,
+      reempaque: true, cajas: { select: { etapa: true, pesoKg: true } },
       recepciones: {
         orderBy: { id: 'desc' },
         select: {
@@ -43,21 +47,22 @@ export default async function RecepcionesCaja({ envioId }: { envioId: number }) 
     abierta ? [] : pendienteDeRecibir(envio),
   ])
 
-  // Las de peso y medidas estimados se ofrecen medir al contarlas (un código de dos productos, no).
-  const estimadas: Record<string, Estimada> = {}
-  const codigos = vista?.lineas.flatMap(l => (l.codigo ? [l.codigo] : [])) ?? []
-  if (codigos.length > 0) {
-    const prods = await db.product.findMany({
-      where: { bajajCode: { in: codigos } },
-      select: { id: true, bajajCode: true, medidoAt: true, weightGrams: true, dimL: true, dimA: true, dimH: true },
-    })
-    for (const c of codigos) {
-      const mismos = prods.filter(p => p.bajajCode === c)
-      const x = mismos.length === 1 ? mismos[0] : null
-      if (x && x.medidoAt == null) estimadas[c] = { productId: x.id, weightGrams: x.weightGrams, dimL: x.dimL, dimA: x.dimA, dimH: x.dimH }
-    }
-  }
+  // Las de peso y medidas estimados (o medidas sin base) se ofrecen medir al contarlas.
+  const estimadas = await estimadasDe(vista?.lineas.flatMap(l => (l.codigo ? [l.codigo] : [])) ?? [])
   const ultima = envio.recepciones[0]
+
+  // El bulto como lo pesé al llegar, al lado de lo que pesó el transportista (las cajas que se
+  // facturan, si están todas pesadas). Solo se muestra: el costeo sigue con las del transportista.
+  const facturadas = cajasQueSeFacturan(envio.reempaque, envio.cajas).cajas
+  const kgTransportista = facturadas.length > 0 && facturadas.every(c => c.pesoKg != null)
+    ? facturadas.reduce((s, c) => s + Number(c.pesoKg), 0) : null
+  const bulto = envio.llegadaPesoKg != null || envio.llegadaLargoCm != null
+    ? [
+        envio.llegadaPesoKg != null && `pesó ${Number(envio.llegadaPesoKg)} kg`,
+        envio.llegadaLargoCm != null && `${envio.llegadaLargoCm}×${envio.llegadaAnchoCm}×${envio.llegadaAltoCm} cm`,
+        kgTransportista != null && `el transportista: ${+kgTransportista.toFixed(3)} kg`,
+      ].filter(Boolean).join(' · ')
+    : null
 
   return (
     <>
@@ -65,7 +70,7 @@ export default async function RecepcionesCaja({ envioId }: { envioId: number }) 
         id="llegada-titulo"
         titulo={vista ? 'Contar y recibir' : envio.llegadaAt ? 'La caja llegó' : 'Todavía no llegó'}
         sub={<>
-          {envio.llegadaAt ? `Llegó el ${fecha(envio.llegadaAt)}${envio.llegadaNota ? ` · ${envio.llegadaNota}` : ''}.` : 'Marcá la llegada cuando la tengas en la mano: eso abre el conteo.'}
+          {envio.llegadaAt ? `Llegó el ${fecha(envio.llegadaAt)}${envio.llegadaNota ? ` · ${envio.llegadaNota}` : ''}${bulto ? ` · ${bulto}` : ''}.` : 'Marcá la llegada cuando la tengas en la mano: eso abre el conteo. Peso y medidas del bulto, si lo pesás.'}
           {!vista && pendiente.length > 0 && ` ${pendiente.length} ${pendiente.length === 1 ? 'código' : 'códigos'} por recibir.`}
           {!vista && pendiente.length === 0 && envio.recepciones.length === 0 && envio.llegadaAt && ' Recibida antes del registro de recepciones.'}
           {!vista && pendiente.length === 0 && !envio.llegadaAt && ' Todavía no hay nada comprado que contar.'}
@@ -76,6 +81,7 @@ export default async function RecepcionesCaja({ envioId }: { envioId: number }) 
               <>
                 <FormConResultado action={marcarLlegada.bind(null, envioId)} className="flex flex-wrap items-center gap-2">
                   <input name="nota" placeholder="Nota (opcional): llegó golpeada…" aria-label="Nota de la llegada" className="min-h-9 w-56 rounded-lg border border-gray-300 px-3 text-sm" />
+                  <CamposBulto />
                   <PendingButton pendingLabel="Marcando…" className="min-h-9 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">Marcar llegada</PendingButton>
                 </FormConResultado>
                 <FormConResultado action={abrirConteo.bind(null, envioId)}>

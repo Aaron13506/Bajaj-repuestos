@@ -12,6 +12,7 @@ export interface ProductCost {
   compatibleModels?: string | null
   /** Pesada y medida a mano (Product.medidoAt): el cargador con IA no la ofrece. */
   medidoAt?: Date | null
+  // Una pieza (lib/medido.ts); el costeo los lee por fisicoPorUnidad.
   weightGrams: number | null
   dimL: number | null
   dimA: number | null

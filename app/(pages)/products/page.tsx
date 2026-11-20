@@ -53,7 +53,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
   const search = sp.search ?? ''
   const model = sp.model ?? ''
   const onlyLowStock = sp.lowStock === '1'
-  const medido = sp.medido === 'si' || sp.medido === 'no' ? sp.medido : ''
+  const medido = sp.medido === 'si' || sp.medido === 'no' || sp.medido === 'sin_base' ? sp.medido : ''
   // `parseInt('abc')` da NaN y NaN sobrevive a Math.max, así que entraba como
   // `skip: NaN` y Prisma tiraba: un 500 servible desde la barra de direcciones.
   const page = Math.max(1, toInt(sp.page) ?? 1)
@@ -75,7 +75,9 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
       } : {},
       whereModel(model),
       onlyLowStock ? { stock: { lt: 5 } } : {},
-      medido === 'si' ? { medidoAt: { not: null } } : medido === 'no' ? { medidoAt: null } : {},
+      medido === 'si' ? { medidoAt: { not: null } } : medido === 'no' ? { medidoAt: null }
+        // Medidas a mano sin base conocida: las que hay que re-medir en el próximo conteo.
+        : medido === 'sin_base' ? { medidoAt: { not: null }, medidaBase: null } : {},
     ],
   }
 
@@ -219,6 +221,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                     dimL: product.dimL,
                     dimA: product.dimA,
                     dimH: product.dimH,
+                    medidaBase: product.medidaBase,
                     margin: product.margin,
                     price: parseFloat(product.price.toString()),
                     priceLocked: product.priceLocked,

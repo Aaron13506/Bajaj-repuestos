@@ -1,5 +1,6 @@
 'use server'
 
+import { fisicoPorUnidad } from '@/lib/medido'
 import { db } from '@/lib/db'
 import { toModelIds } from '@/lib/modelo'
 import { lookupDeConjuntos, expandCostPieces, type ProductCost, type ProductLookup } from '@/lib/envio-build'
@@ -233,9 +234,10 @@ export async function costearCarrito(
       const bAlt = elegido != null ? bShoppre : bKilo
 
       linea.totalPiezas++
-      linea.weightKg += ((pieza.weightGrams ?? 0) / 1000) * pieza.quantity
-      if (pieza.dimL != null && pieza.dimA != null && pieza.dimH != null) {
-        cm3Total += pieza.dimL * pieza.dimA * pieza.dimH * pieza.quantity
+      const fis = fisicoPorUnidad(pieza)
+      linea.weightKg += ((fis.gramos ?? 0) / 1000) * pieza.quantity
+      if (fis.cm3 != null) {
+        cm3Total += fis.cm3 * pieza.quantity
       } else {
         sinMedidas++
       }
@@ -317,11 +319,12 @@ function costearExpress(
     for (const p of expandCostPieces(product, l.quantity, l.bundleItems ?? null, lookup)) {
       items.push({
         pedidoId: 0, productId: p.productId, name: p.name, weightGrams: p.weightGrams,
-        dimL: p.dimL, dimA: p.dimA, dimH: p.dimH, priceInr: p.priceInr, quantity: p.quantity,
+        dimL: p.dimL, dimA: p.dimA, dimH: p.dimH,  priceInr: p.priceInr, quantity: p.quantity,
         origen: 'india', inbound: 'shoppre', supplierId: null,
       })
-      weightKg += ((p.weightGrams ?? 0) / 1000) * p.quantity
-      if (p.dimL != null && p.dimA != null && p.dimH != null) cm3Total += p.dimL * p.dimA * p.dimH * p.quantity
+      const fis = fisicoPorUnidad(p)
+      weightKg += ((fis.gramos ?? 0) / 1000) * p.quantity
+      if (fis.cm3 != null) cm3Total += fis.cm3 * p.quantity
       else sinMedidas++
     }
     porLinea.push({ l, desde, hasta: items.length })

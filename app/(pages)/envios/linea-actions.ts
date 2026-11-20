@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { getSupplierPriceMap } from '@/lib/suppliers'
 import { alternosDe, buscarPorAlterno, codigoContiene } from '@/lib/alt-sku'
 import { CM3_PER_M3, type ConfigMap } from '@/lib/calc'
+import { fisicoPorUnidad } from '@/lib/medido'
 import { toConfigMap } from '@/lib/config'
 import { fallo, ok, type ActionResult } from '@/lib/action-result'
 import { isForeignKeyViolation } from '@/lib/prisma-errors'
@@ -179,6 +180,7 @@ export async function componentesDeEnsamble(ensambleId: number, envioId: number)
 
   return comps.map(c => {
     const { costoUsd, moq } = costoDe(c.product.id, c.product.priceInr)
+    const fis = fisicoPorUnidad(c.product)
     return {
       id: c.id,
       groupName: c.groupName,
@@ -203,12 +205,10 @@ export async function componentesDeEnsamble(ensambleId: number, envioId: number)
         dimL: c.product.dimL,
         dimA: c.product.dimA,
         dimH: c.product.dimH,
-        sinMedidas: !(c.product.dimL && c.product.dimA && c.product.dimH) || c.product.weightGrams == null,
-        weightKg: c.product.weightGrams != null ? c.product.weightGrams / 1000 : 0,
+        sinMedidas: !fis.cm3 || fis.gramos == null,
+        weightKg: fis.gramos != null ? fis.gramos / 1000 : 0,
         // Volumen de UNA unidad, en m³ — lo que va a sumar al embarque.
-        volumeM3: c.product.dimL && c.product.dimA && c.product.dimH
-          ? (c.product.dimL * c.product.dimA * c.product.dimH) / CM3_PER_M3
-          : 0,
+        volumeM3: fis.cm3 ? fis.cm3 / CM3_PER_M3 : 0,
       },
     }
   })
@@ -315,6 +315,7 @@ export async function buscarProductos(term: string, envioId: number) {
 
   return todos.map(p => {
     const { costoUsd, moq } = costoDe(p.id, p.priceInr)
+    const fis = fisicoPorUnidad(p)
     return {
       id: p.id,
       nameEs: p.nameEs,
@@ -331,10 +332,10 @@ export async function buscarProductos(term: string, envioId: number) {
       imageUrl: p.imageUrl,
       // Peso y volumen de UNA unidad: con esto el armador proyecta el m³ y los kg de la
       // caja sin volver al server en cada pieza que agregás.
-      weightKg: p.weightGrams != null ? p.weightGrams / 1000 : 0,
-      volumeM3: p.dimL && p.dimA && p.dimH ? (p.dimL * p.dimA * p.dimH) / CM3_PER_M3 : 0,
+      weightKg: fis.gramos != null ? fis.gramos / 1000 : 0,
+      volumeM3: fis.cm3 ? fis.cm3 / CM3_PER_M3 : 0,
       // Sin dimensiones no hay volumen, y sin volumen esta pieza no se puede costear por mar.
-      sinMedidas: !(p.dimL && p.dimA && p.dimH) || p.weightGrams == null,
+      sinMedidas: !fis.cm3 || fis.gramos == null,
       // Descontinuada de fábrica: aparece en la búsqueda pero no se puede agregar. Que siga
       // saliendo es deliberado — si la buscás es porque la necesitás, y "no existe" y "ya no
       // se fabrica" mandan a hacer cosas distintas.

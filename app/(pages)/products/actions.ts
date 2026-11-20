@@ -14,7 +14,7 @@ import { toGramos, toNum } from '@/lib/parse'
 import { ErrorDeNegocio, fallo, ok, type ActionResult } from '@/lib/action-result'
 import { copiarImagenAlBucket } from '@/lib/imagen-producto'
 import { motivoProductoEnUso } from '@/lib/producto-en-uso'
-import { cambioFisico, medidoAtDesde } from '@/lib/medido'
+import { cambioFisico, medidoAtDesde, pesoPorPieza, MEDIDA_BASES, type MedidaBase } from '@/lib/medido'
 import { moverStock, StockInsuficiente } from '@/lib/stock'
 
 // Costo, precio y margen autoritativos: salen de `reprice` (lib/reprice.ts), la misma regla que
@@ -55,6 +55,13 @@ function motivoMedidas(m: Medidas, antes: Medidas | null): string | null {
   }
   const errores = chequearMedidas(m).filter(c => c.severidad === 'error')
   return errores.length > 0 ? errores.map(c => c.mensaje).join(' ') : null
+}
+
+// En qué base se midió (lib/medido.ts). Vacío = null (no se sabe); algo desconocido se rechaza.
+function leerBaseMedida(formData: FormData): { medidaBase: MedidaBase | null } | { error: string } {
+  const base = String(formData.get('medidaBase') ?? '').trim()
+  if (base && !MEDIDA_BASES.includes(base as MedidaBase)) return { error: `Base de medida desconocida: «${base}».` }
+  return { medidaBase: (base || null) as MedidaBase | null }
 }
 
 function parseProductForm(formData: FormData, modelosActuales: string | null = null) {
@@ -130,7 +137,9 @@ export async function createProductYVolver(volver: string, formData: FormData): 
 }
 
 async function crearProducto(formData: FormData, volver: string): Promise<ActionResult> {
-  const parsed   = parseProductForm(formData)
+  const baseMedida = leerBaseMedida(formData)
+  if ('error' in baseMedida) return fallo(baseMedida.error)
+  const parsed   = { ...parseProductForm(formData), ...baseMedida }
   if (!parsed.nameEs) return fallo('El nombre en español es obligatorio.')
   const medidas = motivoMedidas(parsed, null)
   if (medidas) return fallo(medidas)
@@ -173,8 +182,11 @@ export async function updateProduct(id: number, formData: FormData): Promise<Act
     select: { compatibleModels: true, stock: true, medidoAt: true, weightGrams: true, dimL: true, dimA: true, dimH: true, imageUrl: true },
   })
   if (!actual) return fallo('Esa pieza ya no existe.')
+  const baseMedida = leerBaseMedida(formData)
+  if ('error' in baseMedida) return fallo(baseMedida.error)
   // El stock no se pisa con el absoluto del formulario: se aplica la diferencia (deltaDeStock).
-  const { stock: _stockAbsoluto, ...parsed } = parseProductForm(formData, actual.compatibleModels)
+  const { stock: _stockAbsoluto, ...sinStock } = parseProductForm(formData, actual.compatibleModels)
+  const parsed = { ...sinStock, ...baseMedida }
   if (!parsed.nameEs) return fallo('El nombre en español es obligatorio.')
   const medidas = motivoMedidas(parsed, actual)
   if (medidas) return fallo(medidas)
@@ -239,6 +251,8 @@ export async function quickUpdateProduct(
     },
   })
   if (!actual) return fallo('Esa pieza ya no existe. Recargá la página.')
+  const baseMedida = leerBaseMedida(formData)
+  if ('error' in baseMedida) return fallo(baseMedida.error)
 
   // El stock no se pisa con un absoluto: se aplica el ajuste (ver deltaDeStock).
   const ajuste = deltaDeStock(formData)
@@ -267,6 +281,7 @@ export async function quickUpdateProduct(
     dimL:             floatOrNull('dimL'),
     dimA:             floatOrNull('dimA'),
     dimH:             floatOrNull('dimH'),
+    ...baseMedida,
   }
   const medidas = motivoMedidas(campos, actual)
   if (medidas) return fallo(medidas)
@@ -323,17 +338,29 @@ export async function quickUpdateProduct(
   return ok()
 }
 
-// Pesada y medida con la pieza en la mano, al contar una caja (ConteoCaja). Es una medición a
-// mano igual que la del formulario: los cuatro números o nada, queda marcada como medida y se
-// recostea con reprice.
+// Pesada y medida con la pieza en la mano, al contar una caja (ConteoCaja) o en el modo Medir del
+// teléfono. Es una medición a mano igual que la del formulario: los cuatro números o nada, queda
+// marcada como medida y se recostea con reprice. Se guarda siempre UNA pieza (lib/medido.ts):
+//  · forma 'caja'  → la caja con la pieza adentro, base 'empaque'.
+//  · forma 'bolsa' → las medidas de una pieza suelta y el peso de la bolsa entera ÷ `piezas`
+//    (lo que trae), base 'pieza'. La densidad se chequea sobre la pieza ya dividida.
 export async function medirPieza(id: number, formData: FormData): Promise<ActionResult> {
+  const forma = formData.get('forma')
+  if (forma !== 'caja' && forma !== 'bolsa') return fallo('Elegí si viene en caja o en bolsa.')
+  const pesado = toGramos(formData.get('weightGrams'))
+  let weightGrams = pesado
+  if (forma === 'bolsa' && pesado != null) {
+    weightGrams = pesoPorPieza(pesado, Number(String(formData.get('piezas') ?? '').trim() || NaN))
+    if (weightGrams == null) return fallo('Escribí cuántas piezas trae la bolsa (un entero mayor que 0).')
+  }
   const m = {
-    weightGrams: toGramos(formData.get('weightGrams')),
+    weightGrams,
     dimL: toNum(formData.get('dimL')),
     dimA: toNum(formData.get('dimA')),
     dimH: toNum(formData.get('dimH')),
   }
   if ([m.weightGrams, m.dimL, m.dimA, m.dimH].some(v => v == null)) return fallo('Cargá el peso y las tres medidas.')
+  const medidaBase: MedidaBase = forma === 'caja' ? 'empaque' : 'pieza'
   const motivo = motivoMedidas(m, null)
   if (motivo) return fallo(motivo)
 
@@ -349,7 +376,7 @@ export async function medirPieza(id: number, formData: FormData): Promise<Action
     cfg,
     margenPorDefecto(cfg),
   )
-  await db.product.update({ where: { id }, data: { ...m, medidoAt: new Date(), ...rp.data } })
+  await db.product.update({ where: { id }, data: { ...m, medidaBase, medidoAt: new Date(), ...rp.data } })
 
   revalidatePath('/products')
   revalidatePath('/envios/[id]', 'page')

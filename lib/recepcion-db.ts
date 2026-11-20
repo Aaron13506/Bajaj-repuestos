@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client'
+import type { BultoLlegada } from '@/lib/cajas-envio'
 import { db } from '@/lib/db'
 import { ErrorDeNegocio } from '@/lib/action-result'
 import { isUniqueViolation } from '@/lib/prisma-errors'
@@ -123,14 +124,14 @@ async function abrirEn(tx: Tx, envio: { id: number; modo: string }): Promise<num
 // Abre la recepción de la caja (o devuelve la que ya está abierta). Con `llegada` además marca el
 // check-in: la caja está en mis manos. Se puede contar sin marcar la llegada ("abrirlo antes").
 // Devuelve null si la caja no espera nada (ya recibida entera).
-export async function abrirRecepcion(envioId: number, opts: { llegada?: boolean; nota?: string | null } = {}): Promise<number | null> {
+export async function abrirRecepcion(envioId: number, opts: { llegada?: boolean; nota?: string | null; bulto?: BultoLlegada } = {}): Promise<number | null> {
   try {
     return await db.$transaction(async tx => {
       const envio = await tx.envio.findUnique({ where: { id: envioId }, select: { id: true, modo: true, estado: true } })
       if (!envio) throw new ErrorDeNegocio('Esa caja no existe.')
       if (envio.estado === 'borrador') throw new ErrorDeNegocio('En borrador no hay nada que recibir: confirmá la caja primero.')
       if (opts.llegada) {
-        await tx.envio.updateMany({ where: { id: envioId, llegadaAt: null }, data: { llegadaAt: new Date(), llegadaNota: opts.nota?.trim() || null } })
+        await tx.envio.updateMany({ where: { id: envioId, llegadaAt: null }, data: { llegadaAt: new Date(), llegadaNota: opts.nota?.trim() || null, ...opts.bulto } })
       }
       const abierta = await tx.recepcion.findFirst({ where: { envioId, cerradaAt: null }, select: { id: true } })
       if (abierta) return abierta.id
@@ -438,6 +439,28 @@ export async function revertirRecepcion(recepcionId: number): Promise<number | n
 }
 
 // ── Lo que muestran las pantallas ────────────────────────────────────────────────────────────
+
+// Una pieza de la caja que el conteo ofrece medir: estimada, o medida sin base conocida (sinBase).
+export interface Estimada { productId: number; weightGrams: number | null; dimL: number | null; dimA: number | null; dimH: number | null; sinBase: boolean }
+
+// Por código: las que se ofrecen medir al contarlas (07-casos-telefono.md). Un código que
+// resuelve a dos productos no se ofrece: no se sabe a cuál se le guardaría.
+export async function estimadasDe(codigos: string[]): Promise<Record<string, Estimada>> {
+  const out: Record<string, Estimada> = {}
+  if (codigos.length === 0) return out
+  const prods = await db.product.findMany({
+    where: { bajajCode: { in: codigos } },
+    select: { id: true, bajajCode: true, medidoAt: true, medidaBase: true, weightGrams: true, dimL: true, dimA: true, dimH: true },
+  })
+  for (const c of codigos) {
+    const mismos = prods.filter(p => p.bajajCode === c)
+    const x = mismos.length === 1 ? mismos[0] : null
+    if (x && (x.medidoAt == null || x.medidaBase == null)) {
+      out[c] = { productId: x.id, weightGrams: x.weightGrams, dimL: x.dimL, dimA: x.dimA, dimH: x.dimH, sinBase: x.medidoAt != null }
+    }
+  }
+  return out
+}
 
 export async function vistaRecepcion(recepcionId: number) {
   const r = await db.recepcion.findUnique({

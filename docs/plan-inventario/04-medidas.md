@@ -23,16 +23,13 @@ La base es la **pieza empacada como llega**: la caja individual de Bajaj o la bo
 ```prisma
 model Product {
   // …
-  // Qué describen weightGrams y dimL/A/H: 'pieza' (desnuda, como las estimaciones) o
-  // 'empaque' (como llega, en su caja o bolsa). Null = medida a mano antes de que
-  // existiera esto: no se sabe en qué base, se re-mide cuando pase por un conteo.
+  // Peso y medidas son siempre de UNA pieza: 'empaque' = en su caja; 'pieza' = suelta,
+  // lo que viene de a varios en bolsa. Null = medida a mano antes de que existiera esto.
   medidaBase      String?
-  // Cuántas unidades había en el empaque que se midió (una bolsa reempacada de 2 → 2).
-  // Los números guardados son los del empaque entero; lib/medido.ts los divide.
-  // Null = 1.
-  medidaUnidades  Int?
 }
 ```
+
+> **Decidido al implementar (2026-11-20).** `medidaUnidades` se descartó. Lo de bolsa (tornillos, grommets) se mide **una pieza suelta**, porque la bolsa es aire. El peso sale de pesar la bolsa entera y dividir por lo que trae, y la división se hace al guardar. Lo de caja trae una unidad y se mide la caja. Así lo guardado es siempre una pieza y el costeo no divide nada. Es también lo que ya estima la IA: en bolsa, la pieza misma; en caja, la caja (`lib/prompts.ts`, paso 4). Por eso las estimadas quedaron en `'empaque'` y no en `'pieza'`. Lo que sigue en este documento sobre `medidaUnidades` quedó superado.
 
 Migración `prisma/manual/AAAA-MM-DD-medida-base.sql`:
 

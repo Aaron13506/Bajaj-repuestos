@@ -145,7 +145,7 @@ function FichaCorta({ f, leidoComo }: { f: Ficha; leidoComo: string | null }) {
           <dd className="text-2xl font-bold text-gray-900">${f.precioUsd.toFixed(2)}</dd>
         </div>
         <div className="col-span-2 rounded-lg bg-gray-50 p-2">
-          <dt className="flex items-center gap-2 text-gray-500">Peso y medidas <IndicadorMedido medidoAt={f.medidoAt} /></dt>
+          <dt className="flex items-center gap-2 text-gray-500">Peso y medidas <IndicadorMedido medidoAt={f.medidoAt} base={f.medidaBase} /></dt>
           <dd className="text-gray-900">
             {f.weightGrams == null ? '—' : `${f.weightGrams} g`} · {cm(f.dimL)} × {cm(f.dimA)} × {cm(f.dimH)} cm
           </dd>
@@ -180,9 +180,14 @@ function FichaCorta({ f, leidoComo }: { f: Ficha; leidoComo: string | null }) {
           </ul>
         </div>
       )}
-      <Link href={`/products/${f.id}`} className="inline-flex min-h-11 items-center font-semibold text-blue-700 underline">
-        Ficha completa
-      </Link>
+      <div className="flex flex-wrap gap-4">
+        <Link href={`/escanear/medir?id=${f.id}`} className="inline-flex min-h-11 items-center font-semibold text-blue-700 underline">
+          Medir
+        </Link>
+        <Link href={`/products/${f.id}`} className="inline-flex min-h-11 items-center font-semibold text-blue-700 underline">
+          Ficha completa
+        </Link>
+      </div>
     </div>
   )
 }

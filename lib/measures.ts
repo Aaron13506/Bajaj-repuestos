@@ -201,6 +201,8 @@ export async function applyMeasures(raw: string): Promise<MeasuresResult> {
         dimL:        f.patch.dimL !== undefined ? f.patch.dimL : p.dimL,
         dimA:        f.patch.dimA !== undefined ? f.patch.dimA : p.dimA,
         dimH:        f.patch.dimH !== undefined ? f.patch.dimH : p.dimH,
+        // La IA estima UNA unidad con su empaque (lib/prompts.ts pide el bulto).
+        medidaBase:  'empaque',
       }
 
       // Chequeo físico ANTES de escribir, sobre el resultado FUSIONADO: una fila que

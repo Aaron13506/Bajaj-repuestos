@@ -64,6 +64,7 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
           priceLocked:      product.priceLocked,
           stock:            product.stock,
           medidoAt:         product.medidoAt?.toISOString() ?? null,
+          medidaBase:       product.medidaBase,
         }}
       />
     </div>

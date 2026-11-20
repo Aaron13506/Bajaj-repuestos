@@ -46,6 +46,31 @@ function numeroCaja(raw: string | undefined): number | null | 'error' {
   return v > 0 ? v : null
 }
 
+export interface BultoLlegada { llegadaPesoKg: number | null; llegadaLargoCm: number | null; llegadaAnchoCm: number | null; llegadaAltoCm: number | null }
+
+/**
+ * El bulto pesado y medido al marcar la llegada (Envio.llegada*), todo opcional: peso solo vale,
+ * las medidas van las tres o ninguna. Ilegible se rechaza. Solo se compara contra el transportista.
+ */
+// Los campos del bulto en los dos formularios de llegada (laptop y teléfono).
+export const camposBulto = (fd: FormData) => ({
+  peso: String(fd.get('bultoPeso') ?? ''), largo: String(fd.get('bultoLargo') ?? ''),
+  ancho: String(fd.get('bultoAncho') ?? ''), alto: String(fd.get('bultoAlto') ?? ''),
+})
+
+export function bultoDeLlegada(raw: { peso?: string; largo?: string; ancho?: string; alto?: string }): { bulto: BultoLlegada } | { error: string } {
+  const nombres = { peso: 'el peso', largo: 'el largo', ancho: 'el ancho', alto: 'el alto' } as const
+  const v = {} as Record<keyof typeof nombres, number | null>
+  for (const k of Object.keys(nombres) as (keyof typeof nombres)[]) {
+    const x = numeroCaja(raw[k])
+    if (x === 'error') return { error: `Bulto: revisá ${nombres[k]}, no es un número válido.` }
+    v[k] = x
+  }
+  const dims = [v.largo, v.ancho, v.alto].filter(d => d != null).length
+  if (dims > 0 && dims < 3) return { error: 'Bulto: cargá las tres medidas (largo, ancho y alto) o ninguna.' }
+  return { bulto: { llegadaPesoKg: v.peso, llegadaLargoCm: v.largo, llegadaAnchoCm: v.ancho, llegadaAltoCm: v.alto } }
+}
+
 /**
  * Las cajas de una etapa tal como llegan del formulario (listas paralelas por campo). Un
  * renglón vacío se descarta; uno con algo escrito se guarda aunque falten datos (una caja

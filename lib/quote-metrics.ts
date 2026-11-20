@@ -11,6 +11,7 @@ import {
   type ReenvioCaja,
 } from './calc'
 import type { Inbound } from './inbound'
+import { fisicoPorUnidad } from './medido'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Métricas de peso y volumen a partir de una lista de SKU.
@@ -62,9 +63,8 @@ export interface QuoteMetrics {
   cfg: ConfigMap
 }
 
-export function volumeOf(p: Pick<ResolvedProduct, 'dimL' | 'dimA' | 'dimH'>, qty = 1): VolumeMetrics {
-  const hasDims = p.dimL != null && p.dimA != null && p.dimH != null
-  const cm3 = hasDims ? p.dimL! * p.dimA! * p.dimH! * qty : 0
+export function volumeOf(p: Pick<ResolvedProduct, 'weightGrams' | 'dimL' | 'dimA' | 'dimH'>, qty = 1): VolumeMetrics {
+  const cm3 = (fisicoPorUnidad(p).cm3 ?? 0) * qty
   return { cm3, ft3: cm3 / CM3_PER_FT3, cbm: cm3 / CM3_PER_M3 }
 }
 
@@ -124,7 +124,7 @@ export async function quoteMetrics(
       productId: p.id,
       name: `${p.bajajCode ?? '—'} · ${p.nameEs}`,
       weightGrams: p.weightGrams,
-      dimL: p.dimL, dimA: p.dimA, dimH: p.dimH,
+      dimL: p.dimL, dimA: p.dimA, dimH: p.dimH, 
       priceInr: p.priceInr,
       quantity: qty,
       origen: line.origen ?? 'india',

@@ -9,6 +9,7 @@ import { quickUpdateProduct } from '@/app/(pages)/products/actions'
 import { ERROR_GENERICO } from '@/components/useEnviarAccion'
 import Modal from '@/components/Modal'
 import { fechaMedido } from '@/lib/medido'
+import CamposBaseMedida from '@/components/CamposBaseMedida'
 
 export interface QuickEditValues {
   id: number
@@ -27,6 +28,8 @@ export interface QuickEditValues {
   dimL: number | null
   dimA: number | null
   dimH: number | null
+  /** Product.medidaBase: 'empaque' | 'pieza' | null (medida sin base conocida). */
+  medidaBase?: string | null
   margin: number | null
   price: number
   priceLocked?: boolean
@@ -236,6 +239,7 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, onError, packQty, a
       dimL:             fdFloat('dimL'),
       dimA:             fdFloat('dimA'),
       dimH:             fdFloat('dimH'),
+      medidaBase:       fdStr('medidaBase') || null,
       // En modo proveedor el formulario no trae margen ni precio de venta (no se editan
       // desde ahí), así que se conservan los de la pieza.
       margin:           isSupplierMode ? d.margin : (fdStr('margin') ? parseFloat(fdStr('margin')) / 100 : null),
@@ -436,6 +440,7 @@ function EditModal({ product: d, cfg, onClose, onOptimistic, onError, packQty, a
                 <input name="stockAjuste" type="number" step="1" placeholder="+3 o −2" className={input} />
               </label>
             </div>
+            <CamposBaseMedida base={d.medidaBase} labelClass={label} inputClass={input} />
             <label className="block">
               <span className={label}>Motivo del ajuste</span>
               <input name="stockNota" type="text" placeholder="Obligatorio si ajustás" className={input} />

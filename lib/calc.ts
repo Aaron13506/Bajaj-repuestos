@@ -3,6 +3,7 @@ import { inboundDe, type Inbound } from './inbound'
 import { costoTablaPorKiloInr, kgFacturadosPorKilo, tablaPorKilo, type Reenvio } from './reenvio'
 import { num, flag, margenPorDefecto, type ConfigMap } from './config'
 import { aDolarBcv } from './cobro-bcv'
+import { fisicoPorUnidad } from './medido'
 
 // El tipo se re-exporta porque medio repo lo importa desde acá y no hay razón para
 // mover veinte imports; la definición vive en lib/config.ts junto a los lectores.
@@ -45,6 +46,7 @@ export interface ProductForCalc {
   // ej. no hay que sumarle Shoppre/seguro/marítimo encima) — landedCostUsd = priceUsd
   // tal cual. No tiene efecto si priceUsd es null (se usa priceInr como siempre).
   priceIsLanded?: boolean
+  // Una pieza (lib/medido.ts); el costeo los lee por fisicoPorUnidad.
   weightGrams: number | null
   dimL: number | null
   dimA: number | null
@@ -202,12 +204,13 @@ export function calcLanded(
 
   const esCbm      = modo === 'maritimo_cbm'
   const esMaritimo = modo === 'maritimo' || esCbm
-  const hasDims = !!(product.dimL && product.dimA && product.dimH)
+  const { gramos, cm3 } = fisicoPorUnidad(product)
+  const hasDims = !!cm3
 
   // Cada modo exige el dato que efectivamente se factura: el aéreo cobra peso, el mar cobra
   // volumen. Sin dimensiones el flete marítimo sería 0 y el landed saldría falsamente barato
   // — peor que no mostrar nada, porque haría ver el mar como una ganga que no es.
-  if (esMaritimo ? !hasDims : !product.weightGrams) return null
+  if (esMaritimo ? !hasDims : !gramos) return null
 
   // Reenvío por kilo (solo aéreo): sin ₹/kg falta el dato que cobra la ruta, igual que sin peso.
   // Nunca se costea con 0. Un 0 explícito sí es un dato.
@@ -226,7 +229,7 @@ export function calcLanded(
   // Una pieza que ocupa el 8.4% de ese embarque paga el 8.4% de (flete + FOB).
   if (esCbm) {
     const p          = cbmParams(cfg)
-    const volumeM3   = (product.dimL! * product.dimA! * product.dimH!) / CM3_PER_M3
+    const volumeM3   = cm3! / CM3_PER_M3
     const maritimeUsd = volumeM3 * cbmCostPerM3(p)
 
     // La tarifa plana ya incluye seguro, origen, destino y aduana: no se suma nada encima.
@@ -255,12 +258,12 @@ export function calcLanded(
     // 1 kg y el reempaque son por CAJA y los pone calcEnvio, como el processing de Shoppre.
     // Peso real sin volumétrico por pieza: el mismo optimismo que la ruta Shoppre (las cajas
     // se arman para ir atadas por peso). La tarifa está en ₹: pasa por inr_usd_rate.
-    shoppreShippingUsd = (product.weightGrams! / 1000) * tarifaKgInr! / inrUsd
+    shoppreShippingUsd = (gramos! / 1000) * tarifaKgInr! / inrUsd
   } else if (!esMaritimo) {
     const isMember    = flag(cfg, 'shoppre_member', true)
     const carrier     = cfg.shoppre_carrier                ?? 'ShipGlobal USA - Duty Free'
     const refWeightKg = num(cfg, 'reference_weight_kg', 15)
-    const fraction    = product.weightGrams! / (refWeightKg * 1000)
+    const fraction    = gramos! / (refWeightKg * 1000)
     // Shoppre cotiza el flete en USD: la tarifa entra tal cual, sin pasar por inr_usd_rate.
     // Por la misma cotización que el envío real: si la caja de referencia se configurara
     // por encima del tope del transportista, son dos cajas y no un escalón saturado.
@@ -279,7 +282,7 @@ export function calcLanded(
   const maritimeMiami = num(cfg, 'miami_caracas_per_ft3', 45)
   const perFt3 = esMaritimo ? num(cfg, 'maritimo_directo_per_ft3', maritimeMiami) : maritimeMiami
   const maritimeUsd = hasDims
-    ? ((product.dimL! * product.dimA! * product.dimH!) / CM3_PER_FT3) * perFt3
+    ? (cm3! / CM3_PER_FT3) * perFt3
     : 0
 
   // Los cargos fijos por ENVÍO no entran al costo landed por pieza: el processing de Shoppre
@@ -301,7 +304,7 @@ export function calcLanded(
     // El volumen se informa siempre que haya dimensiones (sirve para comparar contra el
     // escenario CBM), pero el % de llenado solo tiene sentido cuando el m³ es la unidad
     // que se factura.
-    volumeM3: hasDims ? (product.dimL! * product.dimA! * product.dimH!) / CM3_PER_M3 : null,
+    volumeM3: hasDims ? cm3! / CM3_PER_M3 : null,
     cbmFillPct: null,
   }
 }
@@ -326,6 +329,7 @@ export interface EnvioItemInput {
   // null: pieza de un conjunto que no se pudo resolver contra el catálogo (SKU sin match).
   productId: number | null
   name: string
+  // Una pieza (lib/medido.ts); el costeo los lee por fisicoPorUnidad.
   weightGrams: number | null
   dimL: number | null
   dimA: number | null
@@ -903,8 +907,9 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
     const isLanded = it.isLanded ?? false
     const origen = it.origen ?? 'india'
     const inbound = inboundDe(origen, it.inbound)
-    const hasDims = it.dimL != null && it.dimA != null && it.dimH != null
-    const cm3 = hasDims ? it.dimL! * it.dimA! * it.dimH! : 0
+    const fis = fisicoPorUnidad(it)
+    const hasDims = fis.cm3 != null
+    const cm3 = fis.cm3 ?? 0
     const viaja = !isLanded
     const volumeFt3 = viaja && hasDims ? (cm3 / CM3_PER_FT3) * qty : 0
     return {
@@ -916,7 +921,7 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
       inbound,
       supplierId: it.supplierId ?? null,
       isLanded,
-      realKg: viaja ? ((it.weightGrams ?? 0) / 1000) * qty : 0,
+      realKg: viaja ? ((fis.gramos ?? 0) / 1000) * qty : 0,
       volKg: viaja && hasDims ? (cm3 / divisor) * qty : 0,
       ft3: volumeFt3,
       volumeM3: viaja && hasDims ? (cm3 / CM3_PER_M3) * qty : 0,
@@ -932,7 +937,7 @@ export function calcEnvio(items: EnvioItemInput[], cfg: ConfigMap, opts: EnvioOp
       comisionUsd: 0,
       landedUsd: 0,
       // Un ítem que no viaja no "le falta" peso ni dimensiones: no se le piden.
-      missingWeight: viaja && it.weightGrams == null,
+      missingWeight: viaja && fis.gramos == null,
       missingDims: viaja && !hasDims,
     }
   })

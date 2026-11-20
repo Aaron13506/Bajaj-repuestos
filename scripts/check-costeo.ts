@@ -38,6 +38,7 @@ import { motivoProveedorEnUso } from '../lib/proveedor-en-uso'
 import { motivoProductoEnUso } from '../lib/producto-en-uso'
 import { motivoMovStockInvalido, MOTIVOS_STOCK, MOTIVO_STOCK_LABEL, SIGNO_MOTIVO } from '../lib/stock'
 import { compatibleModelsFrom } from '../lib/modelo'
+import { fisicoPorUnidad, pesoPorPieza } from '../lib/medido'
 import { realDeCobro, resumenCobro } from '../lib/cobro-bcv'
 import { construirResolver, piezasDeLinea } from '../lib/stock-piezas'
 import { resolverLectura } from '../lib/conteo'
@@ -82,17 +83,17 @@ const OEMSHIP = 6
 
 // ── Caja de Garuda: despacha él por India Post, precio por pieza en USD ──────
 const itemsGaruda: EnvioItemInput[] = [
-  { pedidoId: 1, productId: 101, name: 'Garuda A', weightGrams: 1200, dimL: 20, dimA: 15, dimH: 10,
+  { pedidoId: 1, productId: 101, name: 'Garuda A', weightGrams: 1200, dimL: 20, dimA: 15, dimH: 10, 
     priceInr: null, priceUsd: 30, quantity: 2, origen: 'india', inbound: 'cotizado', supplierId: GARUDA },
-  { pedidoId: 1, productId: 102, name: 'Garuda B', weightGrams: 800, dimL: 12, dimA: 10, dimH: 8,
+  { pedidoId: 1, productId: 102, name: 'Garuda B', weightGrams: 800, dimL: 12, dimA: 10, dimH: 8, 
     priceInr: null, priceUsd: 45, quantity: 1, origen: 'india', inbound: 'cotizado', supplierId: GARUDA },
 ]
 
 // ── Caja de Shoppre: 99rpm/Oemship, tabla escalón sobre el peso de la caja ──
 const itemsShoppre: EnvioItemInput[] = [
-  { pedidoId: 2, productId: 201, name: 'Shoppre A', weightGrams: 2000, dimL: 25, dimA: 20, dimH: 15,
+  { pedidoId: 2, productId: 201, name: 'Shoppre A', weightGrams: 2000, dimL: 25, dimA: 20, dimH: 15, 
     priceInr: 4000, quantity: 1, origen: 'india', inbound: 'shoppre', supplierId: OEMSHIP },
-  { pedidoId: 2, productId: 202, name: 'Shoppre B', weightGrams: 3500, dimL: 30, dimA: 22, dimH: 18,
+  { pedidoId: 2, productId: 202, name: 'Shoppre B', weightGrams: 3500, dimL: 30, dimA: 22, dimH: 18, 
     priceInr: 9500, quantity: 1, origen: 'india', inbound: 'shoppre', supplierId: OEMSHIP },
 ]
 
@@ -248,9 +249,9 @@ console.log('\nCOMPARAR LA MISMA LISTA ENTRE PROVEEDORES')
 
 const piezas: PiezaCompra[] = [
   { productId: 101, sku: 'JR161036', nombre: 'Pastilla', qty: 2,
-    weightGrams: 340, dimL: 18, dimA: 6, dimH: 4, priceInr: 900 },
+    weightGrams: 340, dimL: 18, dimA: 6, dimH: 4,  priceInr: 900 },
   { productId: 102, sku: 'JS121064', nombre: 'Retén', qty: 4,
-    weightGrams: 60, dimL: 8, dimA: 8, dimH: 2, priceInr: 250 },
+    weightGrams: 60, dimL: 8, dimA: 8, dimH: 2,  priceInr: 250 },
 ]
 
 const proveedores: ProveedorOpcion[] = [
@@ -366,7 +367,7 @@ for (const kg of [22.1, 24, 30, 44, 46, 67]) {
 
 // Y el envío real tiene que verlo, no solo la función suelta.
 const pesada: EnvioItemInput[] = [
-  { pedidoId: 3, productId: 301, name: 'Pesada', weightGrams: 12000, dimL: 30, dimA: 25, dimH: 20,
+  { pedidoId: 3, productId: 301, name: 'Pesada', weightGrams: 12000, dimL: 30, dimA: 25, dimH: 20, 
     priceInr: 20000, quantity: 2, origen: 'india', inbound: 'shoppre', supplierId: OEMSHIP },
 ]
 const bPesada = calcEnvio(pesada, cfg, { modo: 'aereo', proveedor: provOemship })
@@ -516,7 +517,7 @@ console.log('\nPRECIO FIJO Y PRECIO BCV')
 
   // 2) Un precio fijo manda: no se recompone desde landed y margen.
   const cfgP: ConfigMap = { inr_usd_rate: '95', bcv_usd_rate: '100', bcv_brecha_pct: '9', default_margin_pct: '33' }
-  const base = { priceInr: 260, weightGrams: 120, dimL: 10, dimA: 8, dimH: 6, margin: 0.3163 }
+  const base = { priceInr: 260, weightGrams: 120, dimL: 10, dimA: 8, dimH: 6,  margin: 0.3163 }
   const sinFijo = calcLanded(base, cfgP, 'aereo')!
   const conFijo = calcLanded({ ...base, precioFijo: 4 }, cfgP, 'aereo')!
   check('con precio fijo, priceUsd es exactamente el escrito', conFijo.priceUsd ?? -1, 4)
@@ -753,7 +754,7 @@ console.log('\nVENTA DEL DEPÓSITO')
 console.log('\nREPARTO DEL AÉREO EN UNA CAJA SIN PESAR')
 {
   const pieza = (id: number, gramos: number, l: number, a: number, h: number): EnvioItemInput => ({
-    pedidoId: id, productId: id, name: `P${id}`, weightGrams: gramos, dimL: l, dimA: a, dimH: h,
+    pedidoId: id, productId: id, name: `P${id}`, weightGrams: gramos, dimL: l, dimA: a, dimH: h, 
     priceInr: 1000, quantity: 1, origen: 'india', inbound: 'shoppre', supplierId: null,
   })
   const r3 = (n: number) => Math.round(n * 1000) / 1000
@@ -804,7 +805,7 @@ console.log('\nVARIAS CAJAS Y REEMPAQUE')
 {
   const si = (b: boolean) => (b ? 1 : 0)
   const pieza = (id: number, gramos: number): EnvioItemInput => ({
-    pedidoId: id, productId: id, name: `P${id}`, weightGrams: gramos, dimL: 20, dimA: 20, dimH: 20,
+    pedidoId: id, productId: id, name: `P${id}`, weightGrams: gramos, dimL: 20, dimA: 20, dimH: 20, 
     priceInr: 1000, quantity: 1, origen: 'india', inbound: 'shoppre', supplierId: null,
   })
   const items = [pieza(1, 9000), pieza(2, 9000)]
@@ -1707,7 +1708,7 @@ console.log('\nENVÍO EXPRESS')
   const inr = 94.95
   const si0 = (b: boolean) => (b ? 1 : 0)
   const pieza = (gramos: number, inrPrecio: number, dims: [number, number, number] = [20, 15, 10]): EnvioItemInput => ({
-    pedidoId: 9, productId: 901, name: 'Express A', weightGrams: gramos, dimL: dims[0], dimA: dims[1], dimH: dims[2],
+    pedidoId: 9, productId: 901, name: 'Express A', weightGrams: gramos, dimL: dims[0], dimA: dims[1], dimH: dims[2], 
     priceInr: inrPrecio, quantity: 1, origen: 'india', inbound: 'shoppre', supplierId: null,
   })
 
@@ -2041,7 +2042,7 @@ console.log('\nREENVÍO POR KILO POR PIEZA (catálogo y presupuestos)')
   const si = (b: boolean) => (b ? 1 : 0)
   const TARIFA = 650
   const tasa = parseFloat(cfg.inr_usd_rate)
-  const p = { priceInr: 4000, weightGrams: 1200, dimL: 20, dimA: 15, dimH: 10, margin: 0.3 }
+  const p = { priceInr: 4000, weightGrams: 1200, dimL: 20, dimA: 15, dimH: 10,  margin: 0.3 }
 
   // Con la ruta en Shoppre ningún número de hoy cambia.
   const hoy = calcLanded(p, cfg, 'aereo')
@@ -2071,12 +2072,12 @@ console.log('\nREENVÍO POR KILO POR PIEZA (catálogo y presupuestos)')
     { id: 2, g: 600,  qty: 1, inr: 2500 },
   ]
   const items: EnvioItemInput[] = piezas.map(x => ({
-    pedidoId: 9, productId: x.id, name: `K${x.id}`, weightGrams: x.g, dimL: 10, dimA: 10, dimH: 10,
+    pedidoId: 9, productId: x.id, name: `K${x.id}`, weightGrams: x.g, dimL: 10, dimA: 10, dimH: 10, 
     priceInr: x.inr, quantity: x.qty, origen: 'india', inbound: 'shoppre', supplierId: null,
   }))
   const caja = calcEnvio(items, cfg, { reenvio: { tipo: 'por_kilo', tarifaKgInr: TARIFA, reempaqueInr: 0 } })
   const sumaPiezas = piezas.reduce((s, x) => s + calcLanded(
-    { priceInr: x.inr, weightGrams: x.g, dimL: 10, dimA: 10, dimH: 10, margin: null }, cfg, 'aereo',
+    { priceInr: x.inr, weightGrams: x.g, dimL: 10, dimA: 10, dimH: 10,  margin: null }, cfg, 'aereo',
     { reenvio: { tipo: 'por_kilo', tarifaKgInr: TARIFA } },
   )!.landedCostUsd * x.qty, 0)
   check('empate: la caja va atada por peso (3 kg)', si(caja.binding === 'weight' && caja.reenvio.kgFacturados === 3), 1)
@@ -2121,7 +2122,7 @@ console.log('\nREENVÍO POR KILO POR PIEZA (catálogo y presupuestos)')
     // Caja sin tarifa propia: la tabla por SU peso; con tarifa propia, esa.
     const cfgT = { ...cfg, reenvio_kilo_tarifa_inr: TABLA }
     const its = (g: number): EnvioItemInput[] => [{
-      pedidoId: 9, productId: 1, name: 'K', weightGrams: g, dimL: 10, dimA: 10, dimH: 10,
+      pedidoId: 9, productId: 1, name: 'K', weightGrams: g, dimL: 10, dimA: 10, dimH: 10, 
       priceInr: 1000, quantity: 1, origen: 'india', inbound: 'shoppre', supplierId: null,
     }]
     const inr = parseFloat(cfg.inr_usd_rate)
@@ -2226,6 +2227,25 @@ check('vender: una bolsa de 2 suma 2', cuantoSumar(2, 5, 0), 2)
 check('vender: no pasa del stock', cuantoSumar(3, 5, 4), 1)
 check('vender: con todo en el carrito no suma', cuantoSumar(1, 5, 5), 0)
 check('vender: sin stock no suma', cuantoSumar(1, 0, 0), 0)
+
+// Medidas (lib/medido.ts): lo guardado es siempre UNA pieza. Lo de bolsa se pesa entero y se
+// divide por lo que trae; vacío sigue vacío, nunca cero.
+console.log('\nMEDIDAS DE UNA PIEZA')
+{
+  const si = (b: boolean) => (b ? 1 : 0)
+  const f = fisicoPorUnidad({ weightGrams: 120, dimL: 10, dimA: 8, dimH: 6 })
+  check('fisico: el peso tal cual', f.gramos!, 120)
+  check('fisico: el volumen es L×A×H', f.cm3!, 480)
+  const vacio = fisicoPorUnidad({ weightGrams: null, dimL: 10, dimA: null, dimH: 6 })
+  check('fisico: sin peso sigue vacío', si(vacio.gramos === null), 1)
+  check('fisico: con una arista vacía el volumen sigue vacío', si(vacio.cm3 === null), 1)
+  check('bolsa: 25 g en 10 piezas = 2,5 g', pesoPorPieza(25, 10)!, 2.5)
+  check('bolsa: a la décima de gramo', pesoPorPieza(10, 3)!, 3.3)
+  check('bolsa: de 1 es el peso entero', pesoPorPieza(42, 1)!, 42)
+  check('bolsa: 0 piezas se rechaza', si(pesoPorPieza(25, 0) === null), 1)
+  check('bolsa: cantidad no entera se rechaza', si(pesoPorPieza(25, 2.5) === null), 1)
+  check('bolsa: cantidad ilegible se rechaza', si(pesoPorPieza(25, NaN) === null), 1)
+}
 
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)
 process.exit(fallos === 0 ? 0 : 1)

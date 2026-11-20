@@ -1,6 +1,7 @@
 import { cbmParams, CM3_PER_M3, type ConfigMap } from './calc'
 import { expandCostPieces, type ProductCost, type ProductLookup } from './envio-build'
 import type { BundlePiece } from './bundle'
+import { fisicoPorUnidad } from './medido'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Resumen CBM de un conjunto de líneas (un presupuesto, o todos los presupuestos que
@@ -106,8 +107,9 @@ export function resumirCbm(
   for (const linea of lineas) {
     for (const pieza of expandCostPieces(linea.product, linea.quantity, linea.bundleItems, lookup)) {
       const override = pieza.productId != null ? priceMap.get(pieza.productId) : undefined
-      const hasDims = !!(pieza.dimL && pieza.dimA && pieza.dimH)
-      const volumeM3 = hasDims ? ((pieza.dimL! * pieza.dimA! * pieza.dimH!) / CM3_PER_M3) * pieza.quantity : 0
+      const fis = fisicoPorUnidad(pieza)
+      const hasDims = !!fis.cm3
+      const volumeM3 = hasDims ? (fis.cm3! / CM3_PER_M3) * pieza.quantity : 0
 
       const unitCost = override?.priceUsd ?? (pieza.priceInr != null ? pieza.priceInr / inrUsd : null)
       const costoOrigenUsd = (unitCost ?? 0) * pieza.quantity
@@ -124,9 +126,9 @@ export function resumirCbm(
         name: pieza.name,
         sku: pieza.sku,
         quantity: pieza.quantity,
-        weightGrams: pieza.weightGrams,
+        weightGrams: fis.gramos,
         volumeM3: viaja ? volumeM3 : 0,
-        weightKg: viaja ? ((pieza.weightGrams ?? 0) / 1000) * pieza.quantity : 0,
+        weightKg: viaja ? ((fis.gramos ?? 0) / 1000) * pieza.quantity : 0,
         costoOrigenUsd,
         fleteUsd,
         fobUsd,

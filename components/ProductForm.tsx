@@ -11,6 +11,7 @@ import { useFormStatus } from 'react-dom'
 import { calcLanded, type ConfigMap } from '@/lib/calc'
 import { formatModels, toModelIds } from '@/lib/modelo'
 import { fechaMedido } from '@/lib/medido'
+import CamposBaseMedida from './CamposBaseMedida'
 import type { FichaProductoIA as Ficha } from '@/lib/producto-ia'
 
 // Un ensamble al que se puede asignar la pieza. La moto va junto al nombre porque es lo único
@@ -35,6 +36,7 @@ interface ProductFormValues {
   dimL?: number | null
   dimA?: number | null
   dimH?: number | null
+  medidaBase?: string | null
   priceInr?: number | null
   landedCostUsd?: number | null
   margin?: number | null
@@ -120,6 +122,9 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
         poner('dimL', f.dimL, 'medidas')
         poner('dimA', f.dimA, 'medidas')
         poner('dimH', f.dimH, 'medidas')
+        // La IA estima una unidad con su empaque (lib/prompts.ts).
+        const base = rootRef.current?.querySelector<HTMLSelectElement>('[name="medidaBase"]')
+        if (base) base.value = 'empaque'
       }
     }
     recalcFromCost()
@@ -392,6 +397,11 @@ export default function ProductForm({ action, groups = [], defaultValues: d = {}
               : <span className="text-gray-500"> — sin tildar, peso y medidas son estimados</span>}
           </span>
         </label>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-3">
+          <CamposBaseMedida base={d.medidaBase}
+            labelClass="block text-sm font-medium text-gray-700 mb-1"
+            inputClass="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+        </div>
         <p className="text-xs text-gray-500 mt-1">
           Tildala cuando la pieza pasó por la balanza y la cinta. La carga de medidas con IA no pisa
           una pieza medida.

@@ -2,7 +2,7 @@ import Link from 'next/link'
 
 export const metadata = { title: 'Escanear' }
 
-// Elegir modo. Medir e Inventario se suman con las fases que los habilitan
+// Elegir modo. Inventario se suma con las fases que los habilitan
 // (docs/plan-inventario/06-telefono.md).
 export default function EscanearPage() {
   return (
@@ -38,6 +38,15 @@ export default function EscanearPage() {
         <span className="block text-lg font-semibold text-gray-900">Vender</span>
         <span className="mt-1 block text-sm text-gray-600">
           Escaneá lo que se lleva el cliente y cobralo en la venta del depósito.
+        </span>
+      </Link>
+      <Link
+        href="/escanear/medir"
+        className="block rounded-xl border border-gray-200 bg-white p-5 shadow-sm active:bg-gray-100"
+      >
+        <span className="block text-lg font-semibold text-gray-900">Medir</span>
+        <span className="mt-1 block text-sm text-gray-600">
+          Escaneá una pieza y cargá su peso y medidas como llegó, en su caja o bolsa.
         </span>
       </Link>
     </div>

@@ -8,20 +8,16 @@ import { limpiarNombre } from '@/lib/utils'
 import { coincideParcial } from '@/lib/conteo'
 import { DECISION_LABEL, puedeCerrar, type Decision } from '@/lib/recepcion'
 import type { OrigenLectura } from '@/lib/qr-bajaj'
-import type { ResultadoLectura, VistaRecepcion, FilaVista } from '@/lib/recepcion-db'
+import type { Estimada, ResultadoLectura, VistaRecepcion, FilaVista } from '@/lib/recepcion-db'
 import {
   anotarEnRecepcion, cerrarEnRecepcion, ciegoEnRecepcion, corregirFila, deshacerEnRecepcion, identificarFila,
   leerEnRecepcion, sinIdentificarEnRecepcion,
 } from '@/app/(pages)/envios/recepcion-actions'
-import { medirPieza } from '@/app/(pages)/products/actions'
-import FormConResultado from './FormConResultado'
-import PendingButton from './PendingButton'
+import FormMedir from './FormMedir'
 import { senal, type Senal } from './senal'
 
 // Su portal necesita `document`: no se renderiza en el servidor.
 const LectorCamara = dynamic(() => import('./LectorCamara'), { ssr: false })
-
-export interface Estimada { productId: number; weightGrams: number | null; dimL: number | null; dimA: number | null; dimH: number | null }
 
 type Aviso =
   | { tono: Senal; texto: string; lecturaId?: number; bolsa?: { lineaId: number; cantidad: number; contado: number }; ofrecer?: { raw: string; origen: OrigenLectura; crear: string | null } }
@@ -39,7 +35,7 @@ export default function ConteoCaja({ vista, volver, telefono = false, estimadas,
   /** A dónde vuelve "Crear pieza" después de guardarla. */
   volver: string
   telefono?: boolean
-  /** Laptop: piezas con peso y medidas estimados, por código, para ofrecer pesarlas. */
+  /** Piezas con peso y medidas estimados (o medidas sin base), por código, para ofrecer medirlas. */
   estimadas?: Record<string, Estimada>
   /** La laptop refresca cada 3 s para ver lo que cuenta el teléfono. */
   refrescar?: boolean
@@ -63,8 +59,11 @@ export default function ConteoCaja({ vista, volver, telefono = false, estimadas,
   const [decisiones, setDecisiones] = useState<Record<number, Decision>>({})
   const [error, setError] = useState<string | null>(null)
   const [cerrando, setCerrando] = useState(false)
-  const [aMedir, setAMedir] = useState<string | null>(null)
+  // La pregunta de medir: la primera lectura de un código estimado. "Ahora no" o medirla la apaga
+  // para ese código durante la recepción. Guardar la medida no toca el conteo.
+  const [aMedir, setAMedir] = useState<{ codigo: string; cantidad: number; midiendo: boolean } | null>(null)
   const [noMedir, setNoMedir] = useState<Set<string>>(new Set())
+  const apagarMedir = (codigo: string) => { setNoMedir(s => new Set(s).add(codigo)); setAMedir(null) }
   const enVuelo = useRef(0)
 
   useEffect(() => {
@@ -104,7 +103,10 @@ export default function ConteoCaja({ vista, volver, telefono = false, estimadas,
       lecturaId: res.lecturaId,
       bolsa: bolsa ? { lineaId: res.lineaId, cantidad: res.cantidad, contado: res.contado } : undefined,
     })
-    if (res.codigo && estimadas?.[res.codigo] && !noMedir.has(res.codigo)) setAMedir(res.codigo)
+    // Una pregunta abierta con el formulario a medio llenar no la pisa la lectura siguiente.
+    const codigo = res.codigo
+    const preguntar = codigo != null && estimadas?.[codigo] != null && !noMedir.has(codigo)
+    setAMedir(a => (a?.midiendo ? a : preguntar ? { codigo, cantidad: res.cantidad, midiendo: false } : null))
     return tono
   }
 
@@ -160,7 +162,7 @@ export default function ConteoCaja({ vista, volver, telefono = false, estimadas,
   const motivo = puedeCerrar(conDecision)
   const diferencias = conDecision.filter(f => f.contado != null && f.contado !== f.esperado)
   const crearHref = (codigo: string) => `/products/new?sku=${encodeURIComponent(codigo)}&volver=${encodeURIComponent(volver)}`
-  const medible = aMedir && estimadas?.[aMedir] ? { codigo: aMedir, ...estimadas[aMedir] } : null
+  const medible = aMedir && estimadas?.[aMedir.codigo] ? { ...aMedir, ...estimadas[aMedir.codigo] } : null
   const boton = telefono ? 'min-h-11 px-4 text-base' : 'min-h-9 px-3 text-sm'
 
   const avisoVista = aviso && (
@@ -227,21 +229,24 @@ export default function ConteoCaja({ vista, volver, telefono = false, estimadas,
         </div>
       )}
       {medible && (
-        <FormConResultado
-          key={medible.codigo}
-          action={medirPieza.bind(null, medible.productId)}
-          className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs"
-        >
-          <span className="text-amber-900"><span className="font-semibold">{medible.codigo}</span> tiene peso y medidas estimados. ¿La medís ahora? (con su bolsa o caja)</span>
-          {([['weightGrams', 'g', medible.weightGrams], ['dimL', 'L cm', medible.dimL], ['dimA', 'A cm', medible.dimA], ['dimH', 'H cm', medible.dimH]] as const).map(([name, label, est]) => (
-            <label key={name} className="flex items-center gap-1 text-gray-600">
-              {label}
-              <input name={name} type="number" min={0} step="any" required placeholder={est != null ? String(est) : ''} className="w-16 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-right font-mono" />
-            </label>
-          ))}
-          <PendingButton pendingLabel="Guardando…" className="rounded bg-amber-600 px-2.5 py-1 font-semibold text-white hover:bg-amber-700 disabled:opacity-50">Guardar medida</PendingButton>
-          <button type="button" onClick={() => { setNoMedir(s => new Set(s).add(medible.codigo)); setAMedir(null) }} className="text-gray-600 underline">Ahora no</button>
-        </FormConResultado>
+        <div key={medible.codigo} className={`mt-2 space-y-2 rounded-lg px-3 py-2 ${medible.sinBase ? 'border border-gray-200 bg-white' : 'border border-amber-200 bg-amber-50'}`}>
+          {medible.midiendo ? (
+            <FormMedir pieza={medible} unidades={medible.cantidad} telefono={telefono}
+              alGuardar={() => { apagarMedir(medible.codigo); setAviso({ tono: 'ok', texto: `Medida guardada: ${medible.codigo}` }); router.refresh() }}
+              alCancelar={() => apagarMedir(medible.codigo)} />
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Las medidas sin base solo se ofrecen re-medir, en voz baja: ya hay un número medido. */}
+              <span className={`flex-1 text-sm ${medible.sinBase ? 'text-gray-600' : 'text-amber-900'}`}>
+                <span className="font-semibold">{medible.codigo}</span>{medible.sinBase ? ': medida sin saber si con su caja o suelta.' : ': medidas estimadas. ¿La medís ahora?'}
+              </span>
+              <button type="button" onClick={() => setAMedir({ ...medible, midiendo: true })} className={`${boton} rounded-lg font-semibold ${medible.sinBase ? 'border border-gray-300 text-gray-800' : 'bg-amber-600 text-white'}`}>
+                {medible.sinBase ? 'Re-medir' : 'Medir'}
+              </button>
+              <button type="button" onClick={() => apagarMedir(medible.codigo)} className={`${boton} rounded-lg text-gray-700 underline`}>Ahora no</button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   )

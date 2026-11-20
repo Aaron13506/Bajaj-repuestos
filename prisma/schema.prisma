@@ -72,6 +72,10 @@ model Product {
   // re-pesada se distingue de una que se marcó hace meses. La carga con IA no pisa una
   // pieza medida: una estimación no reemplaza una medición.
   medidoAt         DateTime?
+  // Peso y medidas son de UNA pieza (lib/medido.ts): 'empaque' = en su caja, como llega (lo que
+  // estima la IA); 'pieza' = suelta, lo que viene de a varios en bolsa (el peso es la bolsa ÷ lo
+  // que trae). Null = medida a mano antes de que existiera esto: se re-mide. CHECK en la base.
+  medidaBase       String?
   stock            Int       @default(0)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
@@ -348,9 +352,10 @@ model Envio {
   comisionSalienteUsd Decimal?  @db.Decimal(10, 2)
   comisionEntranteUsd Decimal?  @db.Decimal(10, 2)
   // ── Las cajas como las pesó y midió el transportista ─────────────────────────────
-  // El catálogo guarda la pieza DESNUDA; lo que se factura es el BULTO: cada repuesto con
-  // su caja o bolsa, el cartón exterior y el relleno. Contra el envío real 64898 fue +19%
-  // de peso y +56% de volumen sobre la suma de las piezas. Las cajas (EnvioCaja) reemplazan
+  // El catálogo guarda cada repuesto EMPACADO, como llega en su caja o bolsa (Product.medidaBase);
+  // lo que se factura es el BULTO entero: eso más el cartón exterior y el hueco entre piezas.
+  // Contra el envío real 64898 (cuando el catálogo todavía tenía piezas desnudas) fue +19% de
+  // peso y +56% de volumen sobre la suma de las piezas. Las cajas (EnvioCaja) reemplazan
   // a la suma de las piezas en el costeo; mientras no estén, el costeo es un PISO.
   //
   // Una entrega llega en varios paquetes, y el depósito puede reempacarlos en otras cajas
@@ -371,6 +376,12 @@ model Envio {
   // Null = todavía no llegó (o no se marcó). Ver lib/recepcion-db.ts.
   llegadaAt        DateTime?
   llegadaNota      String?
+  // El bulto pesado y medido al llegar (opcional). Solo para comparar contra lo que cobró el
+  // transportista: no entra al costeo, que sigue con las cajas facturadas (EnvioCaja).
+  llegadaPesoKg    Decimal?     @db.Decimal(8, 3)
+  llegadaLargoCm   Float?
+  llegadaAnchoCm   Float?
+  llegadaAltoCm    Float?
   recepciones      Recepcion[]
   supplier         Supplier?    @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   // Caja partida en el depósito (ver lib/mover-caja.ts): la caja raíz de la compra de la que

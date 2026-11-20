@@ -290,7 +290,7 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
         </td>
         <td className="px-4 py-3 text-right text-gray-500 text-xs">
           <span className="block">{d.weightGrams ?? '—'}</span>
-          <IndicadorMedido medidoAt={d.medidoAt} className="mt-0.5" />
+          <IndicadorMedido medidoAt={d.medidoAt} base={d.medidaBase} className="mt-0.5" />
         </td>
 
         <CostCells d={d} cfg={cfg} porKilo={porKilo} />
@@ -328,6 +328,7 @@ export default function ProductRow({ product, cfg, activeSupplierId }: { product
                 priceLocked: product.priceLocked,
                 descontinuada: product.descontinuada,
                 medidoAt: product.medidoAt,
+                medidaBase: product.medidaBase,
                 stock: product.stock,
               }}
               onOptimistic={v => { setOptimistic(v); if (v) setErrorGuardado(null) }}

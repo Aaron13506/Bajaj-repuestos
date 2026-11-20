@@ -1,5 +1,6 @@
 'use server'
 
+import { bultoDeLlegada, camposBulto } from '@/lib/cajas-envio'
 import { revalidatePath } from 'next/cache'
 import { conErrorDeNegocio, ErrorDeNegocio, fallo, type ActionResult } from '@/lib/action-result'
 import type { OrigenLectura } from '@/lib/qr-bajaj'
@@ -41,10 +42,13 @@ function revalidarRecepcion(envioId: number) {
   revalidatePath('/')
 }
 
-// Check-in: la caja está en mis manos. Abre la recepción (si hay algo que contar).
+// Check-in: la caja está en mis manos. Abre la recepción (si hay algo que contar). El peso y las
+// medidas del bulto son opcionales (lib/cajas-envio.ts bultoDeLlegada).
 export async function marcarLlegada(envioId: number, formData: FormData): Promise<ActionResult> {
   const nota = String(formData.get('nota') ?? '')
-  const r = await conErrorDeNegocio(() => abrirRecepcion(envioId, { llegada: true, nota }))
+  const b = bultoDeLlegada(camposBulto(formData))
+  if ('error' in b) return { ok: false, error: b.error }
+  const r = await conErrorDeNegocio(() => abrirRecepcion(envioId, { llegada: true, nota, bulto: b.bulto }))
   revalidatePath(`/envios/${envioId}`)
   revalidatePath('/envios')
   return r

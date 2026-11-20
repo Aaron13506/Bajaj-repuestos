@@ -143,6 +143,7 @@ export default function CatalogFilters({
           <option value="">Peso: todas</option>
           <option value="si">Pesadas a mano ✓</option>
           <option value="no">Peso estimado</option>
+          <option value="sin_base">Medidas sin base (re-medir)</option>
         </select>
       )}
 

@@ -87,7 +87,7 @@ function buildProductData(it: RawProduct, cfg: ConfigMap, defaultMargin: number)
   const marginPct = toNum(it.margin)
   const margin = marginPct != null ? marginPct / 100 : defaultMargin
 
-  const breakdown = calcLanded({ priceInr, weightGrams, dimL, dimA, dimH, margin }, cfg)
+  const breakdown = calcLanded({ priceInr, weightGrams, dimL, dimA, dimH,  margin }, cfg)
   const landedCostUsd = breakdown ? round2(breakdown.landedCostUsd) : null
 
   // Precio: el explícito gana; si no, el calculado; si tampoco, 0 (se completa luego).
@@ -107,6 +107,8 @@ function buildProductData(it: RawProduct, cfg: ConfigMap, defaultMargin: number)
     dimL,
     dimA,
     dimH,
+    // Lo importado es una estimación de una unidad con su empaque, como la carga con IA.
+    medidaBase:       'empaque',
     margin:           breakdown || marginPct != null ? margin : null,
     landedCostUsd,
     price,

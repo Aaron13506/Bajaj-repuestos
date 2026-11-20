@@ -1,5 +1,6 @@
 import { db } from './db'
 import { cbmParams, CM3_PER_M3, type ConfigMap } from './calc'
+import { fisicoPorUnidad } from './medido'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ¿A quién conviene comprarle ESTE embarque?
@@ -29,6 +30,7 @@ export interface LineaComparable {
   dimL: number | null
   dimA: number | null
   dimH: number | null
+  weightGrams: number | null
 }
 
 export interface OpcionProveedor {
@@ -110,9 +112,8 @@ export async function compararProveedores(
       // El proveedor que cotiza puesto en Venezuela no manda esa pieza en el contenedor:
       // no ocupa volumen, así que puede bajar el flete de todo el embarque.
       const viaja = !(override?.isLanded ?? false)
-      if (viaja && l.dimL && l.dimA && l.dimH) {
-        volumeM3 += ((l.dimL * l.dimA * l.dimH) / CM3_PER_M3) * l.quantity
-      }
+      const cm3 = fisicoPorUnidad(l).cm3
+      if (viaja && cm3) volumeM3 += (cm3 / CM3_PER_M3) * l.quantity
     }
 
     const fobUsd = fobPropio ?? fobDefault

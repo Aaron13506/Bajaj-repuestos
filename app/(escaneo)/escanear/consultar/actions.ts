@@ -18,6 +18,7 @@ export interface Ficha {
   stock: number
   precioUsd: number
   medidoAt: Date | null
+  medidaBase: string | null
   weightGrams: number | null
   dimL: number | null
   dimA: number | null
@@ -57,7 +58,7 @@ async function fichaDe(id: number): Promise<Ficha | null> {
       where: { id },
       select: {
         id: true, nameEs: true, bajajCode: true, altSku: true, discontinuedAt: true, stock: true, price: true,
-        medidoAt: true, weightGrams: true, dimL: true, dimA: true, dimH: true,
+        medidoAt: true, medidaBase: true, weightGrams: true, dimL: true, dimA: true, dimH: true,
       },
     }),
     posicionesStock(),

@@ -34,7 +34,7 @@ export default async function NewProductPage({ searchParams }: { searchParams: P
         action={volver ? createProductYVolver.bind(null, volver) : createProduct}
         groups={groups.map(g => ({ id: g.id, nameEs: nombreEnsamble(g), compatibleModels: g.compatibleModels }))}
         cfg={cfg}
-        defaultValues={{ margin: defaultMargin, bajajCode: sku?.trim() || null }}
+        defaultValues={{ margin: defaultMargin, bajajCode: sku?.trim() || null, medidaBase: 'empaque' }}
         submitLabel="Guardar Producto"
       />
     </div>

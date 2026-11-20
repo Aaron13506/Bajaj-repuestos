@@ -26,10 +26,11 @@ An assembly is the 99rpm exploded view that *groups* parts — **not a product**
 
 ## Weight and dimensions
 
-- The four numbers describe the **shipping bundle** (part + its box/bag), not the bare part — the carrier bills the bundle. No multiplier afterwards.
+- The four numbers describe what ships per piece (see below), not a bare part with a factor on top: no multiplier afterwards.
 - Loaded **together** (by sea the volume is what is billed). Every door checks them with `chequearMedidas` (`lib/measures-check.ts`): impossible density (> 8 or < 0.02 g/cm³) or a zero is refused; the rest only warns (thresholds at the catalog's tail). Manual forms check only when the numbers changed and also demand all four or none. `pnpm measures:audit` runs the same checks over stored data.
 - `MedidasIA` is the one AI loader (assembly page, quote, sea shipment), **one assembly at a time**; `MEASURES_PROMPT` (`lib/prompts.ts`) is the single prompt copy. `applyMeasures` parses via `lib/json-ia.ts`, matches by `id` or `bajajCode`, merges patches before checking, and reprices.
-- `Product.medidoAt` (`lib/medido.ts`) = measured by hand. Set only from the part's edit form (never from a table); re-measuring refreshes it. `applyMeasures` skips measured parts and `MedidasIA` doesn't send them. Shown read-only by `IndicadorMedido`; filter `/products?medido=si|no`. Doesn't change costing.
+- `Product.medidoAt` (`lib/medido.ts`) = measured by hand. Set from the part's edit form, the box count (`ConteoCaja`) or `/escanear/medir` (never from a table); re-measuring refreshes it. `applyMeasures` skips measured parts and `MedidasIA` doesn't send them. Shown read-only by `IndicadorMedido` (≈ estimado / ✓ caja / ✓ suelta / ? base); filter `/products?medido=si|no|sin_base`. Doesn't change costing.
+- The four numbers are always **one piece**: boxed parts in their box (`medidaBase = 'empaque'`), parts that come several to a bag (bolts, grommets) as **one loose piece** (`'pieza'`; the bag is air), the same rule the AI prompt uses. Null base = measured by hand before the base existed → re-measure. Measuring a bag (`FormMedir` → `medirPieza`, `forma=bolsa`): weigh the whole bag, type how many it holds, and `pesoPorPieza` stores the weight of one; a label read with quantity > 1 starts in "bolsa". No per-unit division at costing time; costing still reads through `fisicoPorUnidad` so a future base rule lands in one place.
 
 ## Products with no catalog (accessories)
 

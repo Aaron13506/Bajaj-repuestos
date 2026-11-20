@@ -23,7 +23,7 @@ const padR = (s: string | number, n: number) => String(s).padEnd(n)
 async function main() {
   const [productos, pedidoItems, envioLineas] = await Promise.all([
     db.product.findMany({
-      select: { id: true, nameEs: true, bajajCode: true, weightGrams: true, dimL: true, dimA: true, dimH: true, medidoAt: true },
+      select: { id: true, nameEs: true, bajajCode: true, weightGrams: true, dimL: true, dimA: true, dimH: true, medidoAt: true, medidaBase: true },
     }),
     // Un conjunto no es una pieza (productId null): sus piezas no se miden por esta vía.
     db.pedidoItem.groupBy({ by: ['productId'], where: { productId: { not: null } }, _sum: { quantity: true } }),
@@ -86,6 +86,17 @@ async function main() {
       for (const c of cs) {
         console.log(`        ${grave && c.severidad === 'error' ? '✗' : '⚠'} ${c.mensaje}`)
       }
+    }
+  }
+
+  // Medidas a mano de antes de que se guardara la base (Product.medidaBase): no se sabe si con
+  // su caja o suelta. Se re-miden en el próximo conteo (/products?medido=sin_base).
+  const sinBase = productos.filter(p => p.medidoAt && p.medidaBase == null)
+  console.log(`\n── MEDIDAS SIN BASE (${sinBase.length}) — re-medir en el próximo conteo (caja o suelta)`)
+  if (sinBase.length > 0) {
+    console.log(`  ${padR('uds', 5)}${padR('SKU', 14)}nombre`)
+    for (const p of sinBase.sort((a, b) => (uso.get(b.id) ?? 0) - (uso.get(a.id) ?? 0))) {
+      console.log(`  ${padR(uso.get(p.id) ?? '·', 5)}${padR(p.bajajCode ?? '—', 14)}${p.nameEs.slice(0, 50)}`)
     }
   }
 

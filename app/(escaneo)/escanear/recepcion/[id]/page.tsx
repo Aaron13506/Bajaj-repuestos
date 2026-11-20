@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { vistaRecepcion } from '@/lib/recepcion-db'
+import { estimadasDe, vistaRecepcion } from '@/lib/recepcion-db'
 import { limpiarNombre } from '@/lib/utils'
 import ConteoCaja from '@/components/ConteoCaja'
 
@@ -12,6 +12,7 @@ export default async function RecepcionTelefonoPage({ params }: { params: Promis
   const { id } = await params
   const vista = await vistaRecepcion(Number(id))
   if (!vista) notFound()
+  const estimadas = vista.cerradaAt ? {} : await estimadasDe(vista.lineas.flatMap(l => (l.codigo ? [l.codigo] : [])))
   const caja = `${vista.envio.nombre ?? `Caja #${vista.envio.id}`} · ${vista.envio.supplier?.name ?? '99rpm'}`
   const contadas = vista.lineas.filter(l => l.contado != null).length
 
@@ -38,7 +39,7 @@ export default async function RecepcionTelefonoPage({ params }: { params: Promis
           <Link href={`/envios/${vista.envioId}#llegada`} className="font-semibold text-blue-700 underline">Ver la caja</Link>
         </div>
       ) : (
-        <ConteoCaja vista={vista} volver={`/escanear/recepcion/${vista.id}`} telefono />
+        <ConteoCaja vista={vista} volver={`/escanear/recepcion/${vista.id}`} estimadas={estimadas} telefono />
       )}
     </div>
   )

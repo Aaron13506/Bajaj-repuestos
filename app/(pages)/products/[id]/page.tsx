@@ -173,7 +173,7 @@ export default async function ProductDetailPage({
             <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Peso</p>
             <p className="font-medium text-gray-900">{product.weightGrams != null ? `${product.weightGrams} g` : '—'}</p>
             {/* Cubre peso Y dimensiones: se miden juntos. */}
-            <IndicadorMedido medidoAt={product.medidoAt} className="mt-1" />
+            <IndicadorMedido medidoAt={product.medidoAt} base={product.medidaBase} className="mt-1" />
           </div>
           <div>
             <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Dimensiones (cm)</p>
