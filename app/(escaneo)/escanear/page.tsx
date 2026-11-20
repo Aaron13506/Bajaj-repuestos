@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import BotonInstalar from '@/components/BotonInstalar'
 
 export const metadata = { title: 'Escanear' }
 
@@ -12,6 +13,7 @@ export default function EscanearPage() {
           Ir al panel
         </Link>
       </div>
+      <BotonInstalar />
       <Link
         href="/escanear/recepcion"
         className="block rounded-xl border border-gray-200 bg-white p-5 shadow-sm active:bg-gray-100"
