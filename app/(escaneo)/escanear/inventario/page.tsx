@@ -17,7 +17,7 @@ export default async function InventarioTelefonoPage() {
       <div className="flex items-center justify-between gap-2">
         <Link href="/escanear" className="flex min-h-11 items-center rounded-lg pr-3 text-sm font-semibold text-blue-700">← Modos</Link>
         <h1 className="text-lg font-bold text-gray-900">Inventario</h1>
-        <Link href="/inventario/conteo" className="flex min-h-11 items-center rounded-lg pl-3 text-sm font-semibold text-blue-700">Qué contar</Link>
+        <Link target="_blank" href="/inventario/conteo" className="flex min-h-11 items-center rounded-lg pl-3 text-sm font-semibold text-blue-700">Qué contar</Link>
       </div>
       <ElegirEstante />
       <section aria-labelledby="abiertos" className="space-y-2">

@@ -82,7 +82,7 @@ function Vista({ res, setRes, elegir }: { res: Resultado; setRes: (r: Resultado 
     return (
       <div className="rounded-lg bg-red-50 px-3 py-2 text-red-800">
         <p className="font-medium"><span className="font-mono">{res.codigo}</span> no está en el catálogo.</p>
-        <Link href={`/products/new?sku=${encodeURIComponent(res.codigo)}`} className="mt-2 inline-flex min-h-11 items-center font-semibold text-blue-700 underline">Crear pieza</Link>
+        <Link target="_blank" href={`/products/new?sku=${encodeURIComponent(res.codigo)}`} className="mt-2 inline-flex min-h-11 items-center font-semibold text-blue-700 underline">Crear pieza</Link>
       </div>
     )
   }

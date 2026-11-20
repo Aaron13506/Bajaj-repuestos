@@ -36,7 +36,7 @@ export default async function RecepcionTelefonoPage({ params }: { params: Promis
               )
             })}
           </ul>
-          <Link href={`/envios/${vista.envioId}#llegada`} className="font-semibold text-blue-700 underline">Ver la caja</Link>
+          <Link target="_blank" href={`/envios/${vista.envioId}#llegada`} className="font-semibold text-blue-700 underline">Ver la caja</Link>
         </div>
       ) : (
         <ConteoCaja vista={vista} volver={`/escanear/recepcion/${vista.id}`} estimadas={estimadas} telefono />

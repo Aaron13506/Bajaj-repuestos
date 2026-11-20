@@ -142,7 +142,7 @@ function Vista({ res, elegir, ubicar, escanearEstante }: { res: Resultado; elegi
     return (
       <div className="rounded-lg bg-red-50 px-3 py-2 text-red-800">
         <p className="font-medium"><span className="font-mono">{res.codigo}</span> no está en el catálogo.</p>
-        <Link href={`/products/new?sku=${encodeURIComponent(res.codigo)}`} className="mt-2 inline-flex min-h-11 items-center font-semibold text-blue-700 underline">
+        <Link target="_blank" href={`/products/new?sku=${encodeURIComponent(res.codigo)}`} className="mt-2 inline-flex min-h-11 items-center font-semibold text-blue-700 underline">
           Crear pieza
         </Link>
       </div>
@@ -224,7 +224,7 @@ function FichaCorta({ f, leidoComo, ubicar, escanearEstante }: { f: Ficha; leido
           <ul className="text-sm">
             {f.enCamino.map(c => (
               <li key={c.envioId}>
-                <Link href={`/envios/${c.envioId}`} className="inline-flex min-h-11 items-center text-blue-700 underline">
+                <Link target="_blank" href={`/envios/${c.envioId}`} className="inline-flex min-h-11 items-center text-blue-700 underline">
                   {c.nombre} · {c.unidades} u.
                 </Link>
               </li>
@@ -238,7 +238,7 @@ function FichaCorta({ f, leidoComo, ubicar, escanearEstante }: { f: Ficha; leido
           <ul className="text-sm">
             {f.pedidos.map(p => (
               <li key={p.pedidoId}>
-                <Link href={`/presupuestos/${p.pedidoId}`} className="inline-flex min-h-11 items-center text-blue-700 underline">
+                <Link target="_blank" href={`/presupuestos/${p.pedidoId}`} className="inline-flex min-h-11 items-center text-blue-700 underline">
                   #{p.pedidoId} {p.cliente} · {p.cantidad} u. · {shippingStatusMeta(p.etapa).short}
                   {p.envioId != null && ` · caja #${p.envioId}`}
                 </Link>
@@ -251,7 +251,7 @@ function FichaCorta({ f, leidoComo, ubicar, escanearEstante }: { f: Ficha; leido
         <Link href={`/escanear/medir?id=${f.id}`} className="inline-flex min-h-11 items-center font-semibold text-blue-700 underline">
           Medir
         </Link>
-        <Link href={`/products/${f.id}`} className="inline-flex min-h-11 items-center font-semibold text-blue-700 underline">
+        <Link target="_blank" href={`/products/${f.id}`} className="inline-flex min-h-11 items-center font-semibold text-blue-700 underline">
           Ficha completa
         </Link>
       </div>
