@@ -54,14 +54,22 @@ export default function LectorCamara({
     }
     ;(async () => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+        // Sin resolución pedida, el navegador da 640×480 y se ve pixelado al estirarlo a pantalla completa.
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: false,
+        })
         if (!vivo) return
         const v = video.current!
         v.srcObject = stream
         await v.play()
         track.current = stream.getVideoTracks()[0]
-        const caps = track.current.getCapabilities?.() as { torch?: boolean } | undefined
+        const caps = track.current.getCapabilities?.() as { torch?: boolean; focusMode?: string[] } | undefined
         setLinterna(caps?.torch ? false : null)
+        // Algunos Android arrancan con el foco fijo: se pide autofoco continuo si el track lo ofrece.
+        if (caps?.focusMode?.includes('continuous')) {
+          await track.current.applyConstraints({ advanced: [{ focusMode: 'continuous' } as MediaTrackConstraintSet] }).catch(() => {})
+        }
 
         // El nativo (Chrome Android) si lee los dos formatos; si no, el ponyfill sobre zxing-wasm (Safari).
         // shortcut: el .wasm del ponyfill se baja de jsDelivr; servirlo desde /public si el depósito no tiene salida a internet.

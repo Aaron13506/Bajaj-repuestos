@@ -117,8 +117,8 @@ export default function Consultar() {
           ← Modos
         </Link>
         <h1 className="text-lg font-bold text-gray-900">Consultar</h1>
-        <button type="button" onClick={() => setCamara('pieza')} className="min-h-11 rounded-lg bg-gray-900 px-4 text-sm font-semibold text-white">
-          Cámara
+        <button type="button" onClick={() => { setRes(null); setUbicada(null); setCamara('pieza') }} className="min-h-11 rounded-lg bg-gray-900 px-4 text-sm font-semibold text-white">
+          Escanear
         </button>
       </div>
       {camara === 'estante' && res?.tipo === 'ficha' ? (

@@ -7,7 +7,8 @@ export default function manifest(): MetadataRoute.Manifest {
     name: 'Motokira',
     short_name: 'Motokira',
     start_url: '/escanear',
-    scope: '/',
+    // Fuera de /escanear (ficha completa, cajas, pedidos) abre en una pestaña con ✕ para volver.
+    scope: '/escanear',
     display: 'standalone',
     orientation: 'portrait',
     background_color: '#111827',
