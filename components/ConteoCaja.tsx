@@ -20,7 +20,7 @@ import { senal, type Senal } from './senal'
 const LectorCamara = dynamic(() => import('./LectorCamara'), { ssr: false })
 
 type Aviso =
-  | { tono: Senal; texto: string; para?: string; lecturaId?: number; bolsa?: { lineaId: number; cantidad: number; contado: number }; ofrecer?: { raw: string; origen: OrigenLectura; crear: string | null } }
+  | { tono: Senal; texto: string; para?: string; lecturaId?: number; ofrecer?: { raw: string; origen: OrigenLectura; crear: string | null } }
   | { tono: 'varias'; filas: { lineaId: number; codigo: string | null; nombre: string }[] }
 
 
@@ -58,7 +58,6 @@ export default function ConteoCaja({ vista, volver, telefono = false, estimadas,
   const [aviso, setAviso] = useState<Aviso | null>(null)
   const [texto, setTexto] = useState('')
   const [camara, setCamara] = useState(telefono)
-  const [corrigiendo, setCorrigiendo] = useState(false)
   const [sinId, setSinId] = useState<{ nota: string; cantidad: string } | null>(null)
   const [decisiones, setDecisiones] = useState<Record<number, Decision>>({})
   const [error, setError] = useState<string | null>(null)
@@ -106,24 +105,22 @@ export default function ConteoCaja({ vista, volver, telefono = false, estimadas,
       return 'error'
     }
     fijar(res.lineaId, res.contado)
-    const bolsa = res.cantidad > 1
     const sobran = res.esperado > 0 ? res.contado - res.esperado : 0
-    const tono: Senal = bolsa ? 'bolsa' : 'ok'
     // Lo de un cliente se aparta para él: solo lo que va a stock lleva estante.
     const para = res.para ?? []
     const deCliente = para.some(d => d.cliente != null)
     const aStock = !deCliente || para.some(d => d.cliente == null)
     setAviso({
-      tono,
-      texto: `+${res.cantidad}${bolsa ? ' bolsa' : ''} ${res.codigo ?? ''} · ${limpiarNombre(res.nombre)} → ${res.esperado === 0 ? `${res.contado} (no esperada)` : marca(res.contado, res.esperado)}` +
+      tono: 'ok',
+      texto: `${res.codigo ?? ''} · ${limpiarNombre(res.nombre)}: ${res.esperado === 0 ? `${res.contado} (no esperada)` : marca(res.contado, res.esperado)}` +
+        (res.cantidad > 1 ? ` (bolsa de ${res.cantidad})` : '') +
         (!ciego && sobran > 0 ? ` · sobran ${sobran}` : '') + (res.leidoComo ? ` · leído como ${res.leidoComo}` : '') +
         (!res.enCatalogo || !aStock ? '' : res.ubicacion ? ` · va a ${res.ubicacion}` : ' · sin ubicación: escaneá el estante'),
       para: textoPara(para),
       lecturaId: res.lecturaId,
-      bolsa: bolsa ? { lineaId: res.lineaId, cantidad: res.cantidad, contado: res.contado } : undefined,
     })
     ofrecerMedir(res.codigo, res.cantidad)
-    return tono
+    return 'ok'
   }
 
   // La pregunta de medir, al escanear o al sumar con +. Una pregunta abierta con el formulario a
@@ -136,7 +133,6 @@ export default function ConteoCaja({ vista, volver, telefono = false, estimadas,
   // Cada acción espera al servidor: la pantalla solo suma lo que quedó guardado.
   async function correr(pedir: () => Promise<{ ok: true; r: ResultadoLectura } | { ok: false; error: string; codigo?: string }>, raw: string, origen: OrigenLectura, estructural = false): Promise<Senal> {
     enVuelo.current++
-    setCorrigiendo(false)
     let tono: Senal = 'error'
     try {
       const res = await pedir()
@@ -206,35 +202,11 @@ export default function ConteoCaja({ vista, volver, telefono = false, estimadas,
           </ul>
         </div>
       ) : (
-        <div className={`flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 ${aviso.tono === 'ok' ? 'bg-green-50 text-green-900' : aviso.tono === 'bolsa' ? 'bg-amber-50 text-amber-900' : 'bg-red-50 text-red-800'}`}>
+        <div className={`flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 ${aviso.tono === 'ok' ? 'bg-green-50 text-green-900' : 'bg-red-50 text-red-800'}`}>
           <div className="flex-1">
             <p className={`font-semibold ${telefono ? 'text-lg' : 'text-sm'}`}>{aviso.texto}</p>
             {aviso.para && <p className={`mt-1 rounded-md bg-violet-100 px-2 py-1 font-bold text-violet-900 ${telefono ? 'text-xl' : 'text-base'}`}>{aviso.para}</p>}
           </div>
-          {aviso.bolsa && !corrigiendo && (
-            <button type="button" onClick={() => setCorrigiendo(true)} className={`${boton} rounded-lg border border-amber-500 font-semibold`}>Corregir</button>
-          )}
-          {aviso.bolsa && corrigiendo && (
-            <form
-              onSubmit={e => {
-                e.preventDefault()
-                const n = Number(new FormData(e.currentTarget).get('n'))
-                const b = aviso.bolsa!
-                if (Number.isInteger(n) && n >= 0) void simple(() => corregirFila(b.lineaId, b.contado - b.cantidad + n), res => {
-                  fijar(b.lineaId, res.contado)
-                  setAviso({ tono: 'ok', texto: `Corregido: la bolsa traía ${n} → ${res.contado}` })
-                })
-                setCorrigiendo(false)
-              }}
-              className="flex items-center gap-1"
-            >
-              <label className="flex items-center gap-1 text-sm">
-                La bolsa traía
-                <input name="n" type="number" min={0} step={1} required autoFocus inputMode="numeric" defaultValue={aviso.bolsa.cantidad} className="min-h-9 w-16 rounded-md border border-gray-300 px-2 text-right font-mono" />
-              </label>
-              <button className={`${boton} rounded-lg bg-amber-600 font-semibold text-white`}>Listo</button>
-            </form>
-          )}
           {aviso.ofrecer && (
             <>
               <button type="button" onClick={() => void correr(() => anotarEnRecepcion(r.id, aviso.ofrecer!.raw, aviso.ofrecer!.origen), aviso.ofrecer!.raw, aviso.ofrecer!.origen, true)} className={`${boton} rounded-lg border border-red-300 font-semibold`}>

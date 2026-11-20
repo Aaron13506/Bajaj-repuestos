@@ -47,10 +47,10 @@ export default function Vender() {
       ? actual.map(l => (l.pieza.id === p.id ? { pieza: p, cantidad: ya + sumado } : l))
       : [...actual, { pieza: p, cantidad: sumado }])
     const tope = sumado < r.cantidad
-    const tono: Senal = tope ? 'error' : r.cantidad > 1 ? 'bolsa' : 'ok'
+    const tono: Senal = tope ? 'error' : 'ok'
     setAviso({
       tono,
-      texto: `+${sumado}${r.cantidad > 1 ? ' (bolsa)' : ''} ${codigo(p)} · ${p.nameEs} → ${ya + sumado}` +
+      texto: `${codigo(p)} · ${p.nameEs}: ${ya + sumado}${r.cantidad > 1 ? ` (bolsa de ${sumado})` : ''}` +
         (tope ? ` · solo hay ${p.stock}` : '') + (r.leidoComo ? ` · leído como ${r.leidoComo}` : ''),
       deshacer: { id: p.id, sumado },
     })
@@ -184,7 +184,6 @@ export default function Vender() {
 
 const COLOR: Record<Senal, string> = {
   ok: 'bg-green-50 text-green-900',
-  bolsa: 'bg-amber-50 text-amber-900',
   error: 'bg-red-50 text-red-800',
 }
 

@@ -27,7 +27,7 @@ export default function Medir({ inicial }: { inicial: LecturaMedir | null }) {
     setCargando(true)
     let r: Resultado
     try { r = await pedir() } catch { r = { tipo: 'error', mensaje: 'No se pudo leer. Revisá la señal y reintentá.' } }
-    const tono: Senal = r.tipo === 'pieza' ? (r.cantidad > 1 ? 'bolsa' : 'ok') : 'error'
+    const tono: Senal = r.tipo === 'pieza' ? 'ok' : 'error'
     senal(tono)
     if (n === ultima.current) { setRes(r); setCargando(false) }
     return tono

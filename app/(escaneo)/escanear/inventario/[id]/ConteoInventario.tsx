@@ -74,12 +74,12 @@ export default function ConteoInventario({ vista }: { vista: VistaConteo }) {
     if (r.nueva) router.refresh()
     const bolsa = r.cantidad > 1
     setAviso({
-      tono: bolsa ? 'bolsa' : 'ok',
-      texto: `+${r.cantidad}${bolsa ? ' bolsa' : ''} ${r.codigo ?? ''} · ${limpiarNombre(r.nombre)} → ${r.contado}${r.nueva ? ' (no estaba en la lista)' : ''}`,
+      tono: 'ok',
+      texto: `${r.codigo ?? ''} · ${limpiarNombre(r.nombre)}: ${r.contado}${bolsa ? ` (bolsa de ${r.cantidad})` : ''}${r.nueva ? ' (no estaba en la lista)' : ''}`,
       deshacer: { lineaId: r.lineaId, antes: r.antes, despues: r.contado },
       mover: r.estabaEn ? { productId: r.productId, desde: r.estabaEn } : undefined,
     })
-    return bolsa ? 'bolsa' : 'ok'
+    return 'ok'
   }
 
   async function leer(raw: string, manual: boolean, productId?: number): Promise<Senal> {
@@ -122,7 +122,7 @@ export default function ConteoInventario({ vista }: { vista: VistaConteo }) {
           </ul>
         </div>
       ) : (
-        <div className={`flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 ${aviso.tono === 'ok' ? 'bg-green-50 text-green-900' : aviso.tono === 'bolsa' ? 'bg-amber-50 text-amber-900' : 'bg-red-50 text-red-800'}`}>
+        <div className={`flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 ${aviso.tono === 'ok' ? 'bg-green-50 text-green-900' : 'bg-red-50 text-red-800'}`}>
           <p className="flex-1 text-lg font-semibold">{aviso.texto}</p>
           {aviso.crear && <Link target="_blank" href={`/products/new?sku=${encodeURIComponent(aviso.crear)}`} className={`${boton} inline-flex items-center rounded-lg border border-red-300 font-semibold`}>Crear pieza</Link>}
           {aviso.deshacer && (

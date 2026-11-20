@@ -153,7 +153,7 @@ export default function LectorCamara({
     } catch { setLinterna(null) }
   }
 
-  const borde = flash === 'ok' ? 'border-green-500' : flash === 'bolsa' ? 'border-amber-400' : flash === 'error' ? 'border-red-600' : 'border-transparent'
+  const borde = flash === 'ok' ? 'border-green-500' : flash === 'error' ? 'border-red-600' : 'border-transparent'
 
   return createPortal(
     <div role="dialog" aria-modal="true" aria-label="Escanear con la cámara" className={`fixed inset-0 z-50 flex flex-col bg-black border-8 ${borde}`}>

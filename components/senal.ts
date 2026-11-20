@@ -1,6 +1,6 @@
-// Confirmación sin mirar la pantalla al contar: pitido agudo = sumó 1, doble = bolsa (sumó N),
+// Confirmación sin mirar la pantalla al contar: un pitido agudo = sumó (1 o una bolsa entera),
 // grave = no sumó (hay que mirar). La vibración solo existe en Android.
-export type Senal = 'ok' | 'bolsa' | 'error'
+export type Senal = 'ok' | 'error'
 
 let ctx: AudioContext | null = null
 
@@ -8,7 +8,7 @@ export function senal(tipo: Senal) {
   try {
     ctx ??= new AudioContext()
     void ctx.resume()
-    const tonos = tipo === 'error' ? [220] : tipo === 'bolsa' ? [1320, 1320] : [1320]
+    const tonos = tipo === 'error' ? [220] : [1320]
     tonos.forEach((hz, i) => {
       const o = ctx!.createOscillator()
       const g = ctx!.createGain()
