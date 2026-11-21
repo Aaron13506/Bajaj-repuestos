@@ -144,3 +144,4 @@ dist
 .idea
 
 data/*
+.claude/skills/security-audit

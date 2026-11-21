@@ -42,7 +42,7 @@ import { fisicoPorUnidad, pesoPorPieza } from '../lib/medido'
 import { realDeCobro, resumenCobro } from '../lib/cobro-bcv'
 import { construirResolver, piezasDeLinea } from '../lib/stock-piezas'
 import { resolverLectura } from '../lib/conteo'
-import { destinoDeUnidades, esperadoDeRecepcion, pendienteDeLinea, planCierre, puedeCerrar, repartirConteo, transicionManualPermitida, type FilaRecepcion, type LineaCaja } from '../lib/recepcion'
+import { destinoDeUnidades, esperadoDeRecepcion, estadoFila, pendienteDeLinea, planCierre, progresoRecepcion, puedeCerrar, repartirConteo, transicionManualPermitida, type FilaRecepcion, type LineaCaja } from '../lib/recepcion'
 import { leerEtiqueta, normUbicacion, type Lectura } from '../lib/qr-bajaj'
 import { difConteo, motivoNoCierraConteo, pideNota, planCierreConteo, sugerirConteo } from '../lib/conteo-inventario'
 import { cuentaDeMetodo, datosBs, leerCobroBs } from '../lib/cuentas'
@@ -1413,6 +1413,26 @@ console.log('\nRECEPCIÓN (esperado, reparto, cierre, stepper)')
   check('escanear: las 2 primeras son del más viejo', si(va(0, 2) === `${viejo.pedidoId}x2`), 1)
   check('escanear: una bolsa de 3 se parte entre viejo y nuevo', si(va(1, 4) === `${viejo.pedidoId}x1 ${nuevo.pedidoId}x2`), 1)
   check('escanear: después de los clientes, lo propio y lo que sobra va a stock', si(va(4, 8) === 'stockx4'), 1)
+
+  // Estado de fila y progreso de la caja (reglas puras del aviso de lectura).
+  check('estadoFila: null con esperado > 0 → sin_contar', si(estadoFila(null, 3) === 'sin_contar'), 1)
+  check('estadoFila: 0 de 3 → falta', si(estadoFila(0, 3) === 'falta'), 1)
+  check('estadoFila: 1 de 3 → falta', si(estadoFila(1, 3) === 'falta'), 1)
+  check('estadoFila: 3 de 3 → completa', si(estadoFila(3, 3) === 'completa'), 1)
+  check('estadoFila: 4 de 3 → sobra', si(estadoFila(4, 3) === 'sobra'), 1)
+  check('estadoFila: esperado 0 → no_esperada', si(estadoFila(1, 0) === 'no_esperada' && estadoFila(null, 0) === 'no_esperada'), 1)
+  const prog = progresoRecepcion([
+    { esperado: 3, contado: 1 },   // faltan 2
+    { esperado: 2, contado: 2 },   // completa
+    { esperado: 1, contado: 4 },   // sobran 3 (no inflan contadas)
+    { esperado: 4, contado: null }, // sin contar → faltan 4
+    { esperado: 0, contado: 2 },   // no esperada → sobran 2
+  ])
+  check('progreso: esperadas suma solo esperado', prog.esperadas, 10)
+  check('progreso: contadas no cuenta sobras', prog.contadas, 4)
+  check('progreso: faltan incluye sin contar', prog.faltan, 6)
+  check('progreso: sobran incluye de más y no esperadas', prog.sobran, 5)
+  check('progreso: sinContar cuenta solo las nulas', prog.sinContar, 1)
 
   // Cierre: puedeCerrar.
   const fila = (o: Partial<FilaRecepcion> = {}): FilaRecepcion => ({ codigo: 'B1', productId: 1, nombre: 'Bujía', esperado: 2, contado: 2, decision: null, ...o })

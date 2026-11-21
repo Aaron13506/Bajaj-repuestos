@@ -7,7 +7,7 @@ Requiere la fase 2 (el cierre escribe en el kardex) y aprovecha la fase 1 (lecto
 - **Llegar y contar se separan.** "Llegó" habilita el conteo en vez de apagarlo.
 - **El conteo vive en la base**, no en `localStorage`: se puede escanear con el teléfono y mirar desde la laptop, y queda como registro.
 - **Lo que entra es lo contado.** Las diferencias generan sus incidencias al cerrar.
-- **Conteo ciego por defecto.**
+- **Conteo con avisos de falta y sobra por defecto** (el modo ciego sigue disponible como interruptor en la laptop).
 - **Al cerrar con faltantes se decide si se espera el resto (backorder) o es faltante definitivo**, como el "¿Crear backorder?" de Odoo.
 - **Una recepción cerrada no se reabre.** Se corrige con un ajuste, una incidencia o una reversa completa con contramovimientos.
 
@@ -37,7 +37,7 @@ model Envio {
 model Recepcion {
   id         Int       @id @default(autoincrement())
   envioId    Int
-  ciego      Boolean   @default(true)
+  ciego      Boolean   @default(false)
   abiertaAt  DateTime  @default(now())
   cerradaAt  DateTime?
   // Revertida con contramovimientos (revertirRecepcion). Una revertida no cuenta para el

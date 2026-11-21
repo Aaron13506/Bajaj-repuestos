@@ -16,8 +16,8 @@ import { moverStock, StockInsuficiente } from '@/lib/stock'
 import { moverEtapasEn } from '@/lib/mover-etapas'
 import { contextoCosteo, costearMaritimo, ENVIO_COSTEO_INCLUDE } from '@/lib/costo-envios'
 import {
-  claveDe, destinoDeUnidades, esDecision, esperadoDeRecepcion, pendienteDeLinea, planCierre, puedeCerrar,
-  type FilaEsperada, type LineaCaja,
+  claveDe, destinoDeUnidades, esDecision, esperadoDeRecepcion, estadoFila, pendienteDeLinea, planCierre, puedeCerrar,
+  type EstadoFila, type FilaEsperada, type LineaCaja,
 } from '@/lib/recepcion'
 
 // La recepción contra la base (docs/plan-inventario/03-recepcion.md). Las reglas son puras en
@@ -154,10 +154,10 @@ export async function cambiarCiego(recepcionId: number, ciego: boolean): Promise
 // ── Contar ───────────────────────────────────────────────────────────────────────────────────
 
 export type ResultadoLectura =
-  | { tipo: 'sumo'; lecturaId: number; lineaId: number; codigo: string | null; nombre: string; cantidad: number; contado: number; esperado: number; leidoComo: string | null
+  | { tipo: 'sumo'; lecturaId: number; lineaId: number; codigo: string | null; nombre: string; cantidad: number; contado: number; esperado: number; estado: EstadoFila; leidoComo: string | null
     /** A qué estante va (putaway); null = sin ubicación: la próxima etiqueta UBI: se la asigna. */
     ubicacion: string | null; enCatalogo: boolean
-    /** A quién van las unidades leídas (caja aérea): cliente null = stock. Vacío = no se calculó. */
+    /** A quién van las unidades leídas: cliente null = stock (propio, marítimo o sobrante). */
     para?: { pedidoId: number | null; cliente: string | null; unidades: number }[] }
   | { tipo: 'varias'; filas: { lineaId: number; codigo: string | null; nombre: string }[] }
   | { tipo: 'no_esperada'; codigo: string; nombre: string; cantidad: number }
@@ -206,15 +206,19 @@ export async function registrarLectura(recepcionId: number, raw: string, origen:
       como = fila.codigo && normCodigo(fila.codigo) !== lectura.codigo && r.pieza.alternos.includes(lectura.codigo) ? lectura.codigo : null
     }
     const s = await sumar(tx, recepcionId, fila.id, lineaId != null ? null : raw, cantidad, origen)
-    const para = fila.esperado > 0 ? await paraQuien(tx, recepcionId, claveDe(fila.codigo, fila.nombre), s.contado - cantidad, s.contado) : []
-    return { tipo: 'sumo', ...s, lineaId: fila.id, codigo: fila.codigo, nombre: fila.nombre, cantidad, esperado: fila.esperado, leidoComo: como, ubicacion: await ubicacionDe(tx, fila.productId), enCatalogo: fila.productId != null, para }
+    const estado = estadoFila(s.contado, fila.esperado)
+    const para = fila.esperado > 0
+      ? await paraQuien(tx, recepcionId, claveDe(fila.codigo, fila.nombre), s.contado - cantidad, s.contado)
+      : [{ pedidoId: null, cliente: null, unidades: cantidad }]
+    return { tipo: 'sumo', ...s, lineaId: fila.id, codigo: fila.codigo, nombre: fila.nombre, cantidad, esperado: fila.esperado, estado, leidoComo: como, ubicacion: await ubicacionDe(tx, fila.productId), enCatalogo: fila.productId != null, para }
   }, TX_OPTS)
 }
 
-// A qué cliente van las unidades recién leídas, para separarlas al contar (solo cajas aéreas).
+// A qué cliente (o stock) van las unidades recién leídas, para separarlas al contar.
 async function paraQuien(tx: Tx, recepcionId: number, clave: string, desde: number, hasta: number) {
+  if (hasta <= desde) return []
   const { envio } = await tx.recepcion.findUniqueOrThrow({ where: { id: recepcionId }, select: { envio: { select: { id: true, modo: true } } } })
-  if (envio.modo === 'maritimo_cbm') return []
+  if (envio.modo === 'maritimo_cbm') return [{ pedidoId: null, cliente: null, unidades: hasta - desde }]
   const destinos = destinoDeUnidades(await lineasDeCaja(tx, envio.id), clave, desde, hasta)
   const ids = destinos.flatMap(d => (d.pedidoId != null ? [d.pedidoId] : []))
   const nombres = new Map(ids.length === 0 ? [] : (await tx.pedido.findMany({ where: { id: { in: ids } }, select: { id: true, clientName: true } })).map(p => [p.id, p.clientName]))
@@ -261,7 +265,13 @@ export async function anotarCodigo(recepcionId: number, raw: string, origen: Ori
       select: { id: true, codigo: true, nombre: true, esperado: true },
     })
     const s = await sumar(tx, recepcionId, fila.id, raw, lectura.cantidad, origen)
-    return { tipo: 'sumo', ...s, lineaId: fila.id, codigo: fila.codigo, nombre: fila.nombre, cantidad: lectura.cantidad, esperado: fila.esperado, leidoComo: p ? leidoComo(cat, p.bajajCode) : null, ubicacion: await ubicacionDe(tx, p?.id ?? null), enCatalogo: p != null }
+    const estado = estadoFila(s.contado, fila.esperado)
+    return {
+      tipo: 'sumo', ...s, lineaId: fila.id, codigo: fila.codigo, nombre: fila.nombre, cantidad: lectura.cantidad,
+      esperado: fila.esperado, estado, leidoComo: p ? leidoComo(cat, p.bajajCode) : null,
+      ubicacion: await ubicacionDe(tx, p?.id ?? null), enCatalogo: p != null,
+      para: [{ pedidoId: null, cliente: null, unidades: lectura.cantidad }],
+    }
   }, TX_OPTS)
 }
 
@@ -272,18 +282,20 @@ async function recepcionDeLinea(tx: Tx, lineaId: number) {
 }
 
 // "Eran 20, no 2": una lectura manual con la diferencia. 0 = la busqué y no está (o "descartar").
-export async function corregirConteo(lineaId: number, nuevoTotal: number): Promise<{ contado: number; para: Awaited<ReturnType<typeof paraQuien>> }> {
+export async function corregirConteo(lineaId: number, nuevoTotal: number): Promise<{ contado: number; estado: EstadoFila; para: Awaited<ReturnType<typeof paraQuien>> }> {
   if (!Number.isInteger(nuevoTotal) || nuevoTotal < 0) throw new ErrorDeNegocio('La cantidad tiene que ser un entero, 0 o más.')
   return db.$transaction(async tx => {
     const { recepcionId } = await recepcionDeLinea(tx, lineaId)
     await bloquearRecepcion(tx, recepcionId)
     const { contado } = (await recepcionDeLinea(tx, lineaId))
-    if (contado === nuevoTotal) return { contado, para: [] }
-    const s = await sumar(tx, recepcionId, lineaId, null, nuevoTotal - (contado ?? 0), 'manual')
-    // Al sumar con + también dice para qué cliente es lo agregado.
     const f = await tx.recepcionLinea.findUniqueOrThrow({ where: { id: lineaId }, select: { codigo: true, nombre: true, esperado: true } })
-    const para = s.contado > (contado ?? 0) && f.esperado > 0 ? await paraQuien(tx, recepcionId, claveDe(f.codigo, f.nombre), contado ?? 0, s.contado) : []
-    return { contado: s.contado, para }
+    if (contado === nuevoTotal) return { contado, estado: estadoFila(contado, f.esperado), para: [] }
+    const s = await sumar(tx, recepcionId, lineaId, null, nuevoTotal - (contado ?? 0), 'manual')
+    // Al sumar con + también dice para qué cliente (o stock) es lo agregado.
+    const para = s.contado > (contado ?? 0)
+      ? (f.esperado > 0 ? await paraQuien(tx, recepcionId, claveDe(f.codigo, f.nombre), contado ?? 0, s.contado) : [{ pedidoId: null, cliente: null, unidades: s.contado - (contado ?? 0) }])
+      : []
+    return { contado: s.contado, estado: estadoFila(s.contado, f.esperado), para }
   }, TX_OPTS)
 }
 

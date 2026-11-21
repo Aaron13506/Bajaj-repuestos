@@ -184,6 +184,8 @@ export default function Vender() {
 
 const COLOR: Record<Senal, string> = {
   ok: 'bg-green-50 text-green-900',
+  completa: 'bg-emerald-50 text-emerald-900',
+  sobra: 'bg-amber-50 text-amber-900',
   error: 'bg-red-50 text-red-800',
 }
 

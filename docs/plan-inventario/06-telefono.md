@@ -31,12 +31,12 @@ En un grupo propio, `app/(escaneo)/`, con un layout sin el `Sidebar` de `(pages)
 
 ## Cómo se ve (de arriba a abajo)
 
-1. **Barra superior:** el modo y el contexto ("Caja #48 · 99rpm · 12/18 códigos"), y un botón para volver.
-2. **Cámara:** ocupa la mitad superior, con un recuadro guía en el centro. Botones flotantes de linterna y de pausa.
-3. **Aviso de la última lectura**, grande: `+1 DH181135 · Pastilla freno del. → 3`. Verde si sumó, ámbar si es una bolsa (`+2 (bolsa)` con "corregir"), rojo si no viene en la caja. Con botón "Deshacer".
-4. **Campo manual**, siempre visible: código, parte del código o nombre. Autocompleta contra lo que corresponde al modo (las piezas de la caja al recibir; todo el catálogo al consultar).
-5. **Lista** (se desliza hacia arriba): las filas de la caja o del conteo, con + / − y la cantidad editable. En modo ciego, sin la columna "Esperado".
-6. **Botón final** según el modo: "Cerrar recepción", "Cerrar conteo", "Ir a cobrar".
+1. **Barra superior (siempre visible, incluso con la cámara abierta):** el contexto y el progreso (`Caja #48 · 99rpm · 7 de 12 piezas`) con barra de progreso y botón para volver.
+2. **Cámara (~32 dvh):** con recuadro guía en el centro y botones redondos de ícono arriba a la derecha (linterna, modo gatillo, cerrar).
+3. **Aviso de la última lectura**, grande: `contado / esperado` con el estado (`faltan 2` en verde, `✓ completa` en verde esmeralda, `Te pasaste: sobra 1` en ámbar, o error en rojo si no viene en la caja). Debajo, código y nombre, la franja de destino (`Apartar para …` en oscuro o `→ va al stock (sobrante)`), la ubicación y el botón **Deshacer**.
+4. **Campo de búsqueda a todo el ancho**, siempre visible: código, parte del código o nombre.
+5. **Lista agrupada por estado:** **Faltan**, **Sobran**, **No esperadas / sin identificar**, **Sin contar** y **Completas** (colapsada), cada fila con + / − y cantidad editable. Debajo, la acción secundaria **Anotar pieza sin identificar**.
+6. **Barra fija abajo:** `Revisar y cerrar · faltan X · sobra Y`, que lleva directo al bloque de cierre.
 
 ## Modos
 

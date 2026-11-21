@@ -817,7 +817,7 @@ model MovimientoStock {
 model Recepcion {
   id          Int       @id @default(autoincrement())
   envioId     Int
-  ciego       Boolean   @default(true)
+  ciego       Boolean   @default(false)
   abiertaAt   DateTime  @default(now())
   cerradaAt   DateTime?
   // Revertida con contramovimientos (revertirRecepcion). CHECK: solo una cerrada.

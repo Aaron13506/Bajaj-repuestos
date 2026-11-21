@@ -174,6 +174,34 @@ export interface FilaRecepcion {
   decision: string | null
 }
 
+// Cómo quedó una fila: lo que el aviso de cada lectura dice en voz alta (pasarse no es silencioso).
+//   sin_contar   nadie la contó todavía (vacío no es cero)
+//   falta        contada por debajo de lo esperado (0 = la busqué y no está)
+//   completa     llegó justo lo esperado
+//   sobra        llegó más de lo esperado: lo de más entra como sobrante al cerrar
+//   no_esperada  no venía en la caja (esperado 0): anotada a propósito
+export type EstadoFila = 'sin_contar' | 'falta' | 'completa' | 'sobra' | 'no_esperada'
+export function estadoFila(contado: number | null, esperado: number): EstadoFila {
+  if (esperado === 0) return 'no_esperada'
+  if (contado == null) return 'sin_contar'
+  return contado < esperado ? 'falta' : contado === esperado ? 'completa' : 'sobra'
+}
+
+// El progreso de la caja en piezas (no en códigos): cuántas de las esperadas ya están, cuántas
+// faltan y cuántas sobran (lo contado de más y lo no esperado). Una fila sin contar falta entera.
+export function progresoRecepcion(filas: Pick<FilaRecepcion, 'esperado' | 'contado'>[]) {
+  let esperadas = 0, contadas = 0, faltan = 0, sobran = 0, sinContar = 0
+  for (const f of filas) {
+    const n = f.contado ?? 0
+    esperadas += f.esperado
+    contadas += Math.min(n, f.esperado)
+    faltan += Math.max(0, f.esperado - n)
+    sobran += Math.max(0, n - f.esperado)
+    if (f.contado == null) sinContar++
+  }
+  return { esperadas, contadas, faltan, sobran, sinContar }
+}
+
 // Por qué no se puede cerrar todavía, o null. Una fila sin pieza del catálogo (código desconocido o
 // sin identificar) contada en 0 está descartada y no frena.
 export function puedeCerrar(filas: FilaRecepcion[]): string | null {
