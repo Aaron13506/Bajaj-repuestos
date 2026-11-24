@@ -61,7 +61,7 @@ import { debeSaldo, motivoNoEntregable, saldoReal, seEntregaDesdeElPedido, situa
 import { diasSinMoverse, tiempoDeCompraA, tiemposPorTramo } from '../lib/etapas'
 import { leerDevolucion } from '../lib/devolucion'
 import { costoTablaPorKiloInr, kgFacturadosPorKilo, leerRutaPresupuesto, parsearTablaPorKilo, motivoReenvioFijo, motivoReenvioNoCoincide, reenvioDelPresupuestoNormal, reenvioPorDefecto, tarifaEquilibrioKgInr, tarifaKgReferencia } from '../lib/reenvio'
-import { compraTrasMover, motivoNoMueve, motivoNoMueveSinEnviar, type CajaParaMover } from '../lib/mover-caja'
+import { compraTrasMover, motivoNoMueve, motivoNoMueveSinEnviar, tieneTopeExpress, type CajaParaMover } from '../lib/mover-caja'
 import { avanzaSinEstar, motivoNoDespacha, planSeparar, repartirSinStock, tokensSku } from '../lib/sin-stock'
 import { leerTrackingsTramo, MAX_TRACKINGS_POR_TRAMO } from '../lib/tracking'
 import { esCodigoOneway, estadoOneway, fechaOneway, leerDetalle, leerLista } from '../lib/oneway'
@@ -1691,7 +1691,11 @@ console.log('\nMOVER UN PRESUPUESTO A OTRA CAJA (partir en el depósito)')
   check('sin stock: destino ya salió: no', noSE({}, { lineas: [{ shippingStatus: 'camino_usa', isLanded: false }] }), 1)
   check('sin stock: otro proveedor: no', noSE({}, { supplierId: 5 }), 1)
   check('sin stock: de una aérea a una express, se pasa', noSE({ modo: 'aereo' }, { modo: 'express' }), 0)
-  check('sin stock: de una express a una aérea, se pasa', noSE({ modo: 'express' }, { modo: 'aereo' }), 0)
+  check('sin stock: de una express a una aérea: no (plazo prometido)', noSE({ modo: 'express' }, { modo: 'aereo' }), 1)
+  check('sin stock: de express directa a express por USA, se pasa', noSE({ modo: 'express' }, { modo: 'express', reenvio: 'por_kilo' }), 0)
+  check('tope: express directa lo tiene', tieneTopeExpress({ modo: 'express', reenvio: 'shoppre' }) ? 1 : 0, 1)
+  check('tope: express por USA no', tieneTopeExpress({ modo: 'express', reenvio: 'por_kilo' }) ? 1 : 0, 0)
+  check('tope: aérea no', tieneTopeExpress({ modo: 'aereo', reenvio: 'shoppre' }) ? 1 : 0, 0)
   check('sin stock: de Shoppre a por kilo, se pasa', noSE({ reenvio: 'shoppre' }, { reenvio: 'por_kilo' }), 0)
   check('sin stock: a un marítimo: no', noSE({ modo: 'aereo' }, { modo: 'maritimo_cbm' }), 1)
   check('pieza en el depósito: a una express sigue sin poder', no({ modo: 'aereo' }, { modo: 'express' }), 1)

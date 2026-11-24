@@ -816,8 +816,9 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   const pasaPorDeposito = !esCbm && inboundCaja !== 'cotizado'
 
   // A qué cajas se puede pasar un presupuesto (caja partida en el depósito, ver lib/mover-caja.ts):
-  // las confirmadas del mismo proveedor, modo y reenvío que sean de esta compra o de ninguna. La
-  // acción lo vuelve a revisar todo con las filas bloqueadas.
+  // las confirmadas del mismo proveedor que sean de esta compra o de ninguna, aéreas o express;
+  // motivoNoMueve exige además el mismo modo y reenvío, motivoNoMueveSinEnviar no (lo que no vino).
+  // La acción lo vuelve a revisar todo con las filas bloqueadas.
   const origenMover: CajaParaMover = {
     id, modo: envio.modo, estado: envio.estado, supplierId: envio.supplierId, reenvio: envio.reenvio,
     despachaProveedor: inboundCaja === 'cotizado',
@@ -827,38 +828,6 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     tieneHijas: raizCompra === id && familia.length > 1,
   }
   const candidatasMover = await db.envio.findMany({
-    where: {
-      id: { not: id }, modo: envio.modo, supplierId: envio.supplierId, reenvio: envio.reenvio, estado: 'confirmado',
-      OR: [{ id: raizCompra }, { compraDeId: raizCompra }, { compraDeId: null, partes: { none: {} } }],
-    },
-    select: {
-      id: true, nombre: true, modo: true, estado: true, supplierId: true, reenvio: true, compraDeId: true,
-      items: { select: { shippingStatus: true, isLanded: true } },
-      movimientos: { where: { tipo: 'egreso', categoria: TRAMOS_FLETE.aereo.categoria }, select: { id: true } },
-      _count: { select: { partes: true } },
-    },
-    orderBy: { id: 'desc' },
-  })
-  const motivosMover = candidatasMover.map(c => ({
-    c,
-    motivo: motivoNoMueve(origenMover, {
-      id: c.id, modo: c.modo, estado: c.estado, supplierId: c.supplierId, reenvio: c.reenvio,
-      despachaProveedor: inboundCaja === 'cotizado', lineas: c.items,
-      fleteAereoPagado: c.movimientos.length > 0, compraDeId: c.compraDeId, tieneHijas: c._count.partes > 0,
-    }),
-  }))
-  // Lo que depende solo de esta caja (borrador, ya salió, flete pagado), contra una caja ideal: si
-  // pasa, también se ofrece una caja nueva de esta compra (la acción la crea en el mismo paso).
-  const cajaIdeal: CajaParaMover = { ...origenMover, id: -1, estado: 'confirmado', lineas: [], fleteAereoPagado: false, tieneHijas: false }
-  const motivoOrigen = motivoNoMueve(origenMover, cajaIdeal)
-  const cajaNueva = { id: 'nueva' as const, nombre: '＋ Caja nueva (misma compra)' }
-  const destinosMover = [
-    ...motivosMover.filter(m => m.motivo == null).map(({ c }) => ({ id: c.id, nombre: c.nombre ?? `Caja #${c.id}` })),
-    ...(motivoOrigen == null ? [cajaNueva] : []),
-  ]
-  // Una pieza sin stock no estuvo en el depósito: se pasa aunque esta caja ya haya salido, y a una
-  // caja de otra vía o reenvío (aérea ↔ express, Shoppre ↔ por kilo): va en la que sale.
-  const candidatasSinStock = await db.envio.findMany({
     where: {
       id: { not: id }, modo: { in: ['aereo', 'express'] }, supplierId: envio.supplierId, estado: 'confirmado',
       OR: [{ id: raizCompra }, { compraDeId: raizCompra }, { compraDeId: null, partes: { none: {} } }],
@@ -871,16 +840,37 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     },
     orderBy: { id: 'desc' },
   })
-  const etiquetaVia = (c: { modo: string; reenvio: string }) =>
-    c.modo === envio.modo && c.reenvio === envio.reenvio ? '' : ` (${c.modo === 'express' ? 'express' : 'aérea'}, ${c.reenvio === 'por_kilo' ? 'por kilo' : 'Shoppre'})`
+  const comoCaja = (c: (typeof candidatasMover)[number]): CajaParaMover => ({
+    id: c.id, modo: c.modo, estado: c.estado, supplierId: c.supplierId, reenvio: c.reenvio,
+    despachaProveedor: inboundCaja === 'cotizado', lineas: c.items,
+    fleteAereoPagado: c.movimientos.length > 0, compraDeId: c.compraDeId, tieneHijas: c._count.partes > 0,
+  })
+  // Lo que depende solo de esta caja (borrador, ya salió, flete pagado), contra una caja ideal: si
+  // pasa, también se ofrece una caja nueva de esta compra (la acción la crea en el mismo paso).
+  const cajaIdeal: CajaParaMover = { ...origenMover, id: -1, estado: 'confirmado', lineas: [], fleteAereoPagado: false, tieneHijas: false }
+  const motivoOrigen = motivoNoMueve(origenMover, cajaIdeal)
+  const cajaNueva = { id: 'nueva' as const, nombre: '＋ Caja nueva (misma compra)' }
+  const destinosMover = [
+    ...candidatasMover
+      .filter(c => motivoNoMueve(origenMover, comoCaja(c)) == null)
+      .map(c => ({ id: c.id, nombre: c.nombre ?? `Caja #${c.id}` })),
+    ...(motivoOrigen == null ? [cajaNueva] : []),
+  ]
+  // Una pieza sin stock no estuvo en el depósito: se pasa aunque esta caja ya haya salido, y a una
+  // caja de otro reenvío o de aérea a express: va en la que sale. Se nombra la vía de la que no es
+  // como esta. El tope de una express directa lo revisa la acción con la línea adentro.
+  const etiquetaVia = (c: { modo: string; reenvio: string }) => {
+    if (c.modo === envio.modo && c.reenvio === envio.reenvio) return ''
+    const porKiloC = c.reenvio === 'por_kilo'
+    return c.modo === 'express' ? (porKiloC ? ' · express por USA' : ' · express directa, con tope') : (porKiloC ? ' · aérea por kilo' : ' · aérea Shoppre')
+  }
   const destinosSinStock = [
-    ...candidatasSinStock
-      .filter(c => motivoNoMueveSinEnviar(origenMover, {
-        id: c.id, modo: c.modo, estado: c.estado, supplierId: c.supplierId, reenvio: c.reenvio,
-        despachaProveedor: inboundCaja === 'cotizado', lineas: c.items,
-        fleteAereoPagado: c.movimientos.length > 0, compraDeId: c.compraDeId, tieneHijas: c._count.partes > 0,
-      }) == null)
-      .map(c => ({ id: c.id, nombre: `${c.nombre ?? `Caja #${c.id}`}${etiquetaVia(c)}` })),
+    ...candidatasMover
+      .filter(c => motivoNoMueveSinEnviar(origenMover, comoCaja(c)) == null)
+      .map(c => ({ id: c.id, nombre: `${c.nombre ?? `Caja #${c.id}`}${etiquetaVia(c)}`, otraVia: etiquetaVia(c) !== '' }))
+      // Las de su misma vía primero: el selector arranca en la primera, y cambiar de vía se elige a propósito.
+      .sort((a, b) => Number(a.otraVia) - Number(b.otraVia))
+      .map(({ id, nombre }) => ({ id, nombre })),
     ...(motivoNoMueveSinEnviar(origenMover, cajaIdeal) == null ? [cajaNueva] : []),
   ]
   const motivoNoMover = destinosMover.length > 0 ? null : motivoOrigen

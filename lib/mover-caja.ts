@@ -67,16 +67,27 @@ export function motivoNoMueve(origen: CajaParaMover, destino: CajaParaMover): st
  * depósito, así que no viaja con lo que lleva la caja ni la cubre su flete. Que la caja ya haya
  * salido o pagado el flete no la ata; el destino sí tiene que poder recibirla.
  *
- * Tampoco la atan la vía ni el reenvío de esta caja: el proveedor la manda tarde, a donde se le
- * diga, y viaja en la caja que va a salir (decisión del dueño, 2026-11-24). Puede pasar de una
- * aérea a una express o de Shoppre a por kilo, y al revés. La ruta de la línea sale de la caja
- * (routeFor) y la línea está en pendiente o camino al depósito, que existen en todas. El precio
- * al cliente no cambia: lo que cuesta de más (o de menos) esa vía lo absorbe el margen.
+ * Tampoco la atan el reenvío ni, de aérea a express, la vía de esta caja: el proveedor la manda
+ * tarde, a donde se le diga, y viaja en la caja que va a salir (decisión del dueño, 2026-11-24).
+ * La ruta de la línea sale de la caja (routeFor) y la línea está en pendiente o camino al
+ * depósito, que existen en todas. El precio al cliente no cambia: lo que cuesta de más esa vía lo
+ * absorbe el margen.
+ *
+ * De express a aérea NO: al cliente se le prometió el plazo express, y la ficha de un presupuesto
+ * express costea su paquete con la caja donde están sus líneas (expressDelPedido), que tiene que
+ * ser express. El tope de una express directa no se mira acá: depende del costeo de la caja y lo
+ * revisa la acción con la línea ya adentro.
  */
 export function motivoNoMueveSinEnviar(origen: CajaParaMover, destino: CajaParaMover): string | null {
   if (origen.modo !== 'aereo' && origen.modo !== 'express') return 'Solo se mueven líneas entre cajas aéreas o express.'
+  if (origen.modo === 'express' && destino.modo !== 'express') {
+    return 'Es de una caja express: se le prometió al cliente el plazo express, así que va en otra caja express.'
+  }
   return motivoNoMueve({ ...origen, modo: destino.modo, reenvio: destino.reenvio, lineas: [], fleteAereoPagado: false }, destino)
 }
+
+/** Una caja express directa (Shoppre a Venezuela) tiene tope de landed; la express por USA no. */
+export const tieneTopeExpress = (c: { modo: string; reenvio: string }) => c.modo === 'express' && c.reenvio !== 'por_kilo'
 
 /** La compra de una caja: la caja raíz de la familia (ella misma si no se partió). */
 export const compraDe = (c: { id: number; compraDeId: number | null }) => c.compraDeId ?? c.id

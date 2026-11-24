@@ -18,7 +18,7 @@ import { contextoCosteo, costearAereo, ENVIO_COSTEO_INCLUDE } from '@/lib/costo-
 import { isReenvio, reenvioDe, ETAPAS_FUERA_DEL_DEPOSITO, motivoReenvioNoCoincide } from '@/lib/reenvio'
 import { fallo, ok, conErrorDeNegocio, ErrorDeNegocio, type ActionResult } from '@/lib/action-result'
 import { isForeignKeyViolation } from '@/lib/prisma-errors'
-import { compraTrasMover, motivoNoMueve, motivoNoMueveSinEnviar, type CajaParaMover } from '@/lib/mover-caja'
+import { compraTrasMover, motivoNoMueve, motivoNoMueveSinEnviar, tieneTopeExpress, type CajaParaMover } from '@/lib/mover-caja'
 import { avanzaSinEstar, motivoNoDespacha, planSeparar } from '@/lib/sin-stock'
 import { bloquearPedido } from '@/lib/movimientos'
 import { registrarEvento, SELECT_LINEA_MOVIBLE } from '@/lib/pedido-derivado'
@@ -108,7 +108,7 @@ export async function confirmarCajaAerea(envioId: number): Promise<ActionResult>
   // Una caja express pasada del tope no se despacha: confirmarla sería comprarla igual. La express
   // por USA (reenvío por kilo) va DDP y no tiene tope.
   const caja = await db.envio.findUnique({ where: { id: envioId }, include: ENVIO_COSTEO_INCLUDE })
-  if (caja?.modo === 'express' && caja.reenvio !== 'por_kilo' && caja.estado === 'borrador') {
+  if (caja && tieneTopeExpress(caja) && caja.estado === 'borrador') {
     const ctx = await contextoCosteo([caja])
     const motivo = motivoExpressNoAprobable(topeDeCaja(costearAereo(caja, ctx).calc, ctx.cfg))
     if (motivo) return fallo(motivo)
@@ -573,6 +573,16 @@ async function moverACaja(
         data: { envioId: destinoId },
       })
       if (r.count !== esperadas) throw new ErrorDeNegocio('Alguna línea cambió de etapa mientras tanto. Recargá la página.')
+
+      // Una express directa no se despacha pasada del tope (el mismo candado que al confirmarla):
+      // se costea la caja con lo que acaba de entrar, dentro de la transacción, y si se pasa se
+      // deshace todo. Vale también para partir una express en dos.
+      if (tieneTopeExpress(destino)) {
+        const caja = await tx.envio.findUniqueOrThrow({ where: { id: destinoId }, include: ENVIO_COSTEO_INCLUDE })
+        const ctx = await contextoCosteo([caja])
+        const tope = motivoExpressNoAprobable(topeDeCaja(costearAereo(caja, ctx).calc, ctx.cfg))
+        if (tope) throw new ErrorDeNegocio(`No entra en esa caja express: ${tope}`)
+      }
 
       const compraDeId = compraTrasMover(origen, destino)
       if (compraDeId !== destino.compraDeId) {
