@@ -32,7 +32,7 @@ import {
   TRAMOS_FLETE, CATEGORIAS_FLETE, esTramoFlete, excedeFacturado, type TramoFlete,
 } from '@/lib/flete-real'
 import { TRAMOS_TRACKING, TRAMO_TRACKING_META, leerTrackingsTramo, type FilaTracking } from '@/lib/tracking'
-import { ETAPAS_CAJA, leerCajasEtapa, type CajaFisica, type CampoCaja, type EtapaCaja } from '@/lib/cajas-envio'
+import { leerCajasEtapa, type CajaFisica, type CampoCaja, type EtapaCaja } from '@/lib/cajas-envio'
 import { apiKeyTrack123, courierDeFila, ENV_API_KEY } from '@/lib/track123'
 import { listaCouriers, refrescarCouriers, sincronizarOneway, sincronizarTrackings } from '@/lib/sync-trackings'
 import { credencialesOneway, esCodigoOneway, ONEWAY_CODE, ONEWAY_NOMBRE } from '@/lib/oneway'
@@ -644,28 +644,27 @@ export async function assignAllConfirmados(envioId: number, formData: FormData):
   return r
 }
 
-// Las cajas como las pesó y midió el transportista o el depósito: lo que llegó y, si hubo
-// reempaque, lo que sale. Ver lib/cajas-envio.ts.
+// Las cajas como salen del depósito, pesadas y medidas por el transportista o el depósito: es lo
+// que se factura. Cómo llegaron da igual (decisión del dueño), así que hay UNA lista: se guarda
+// como etapa 'llegada' y sin reempaque, que es lo que cajasQueSeFacturan costea. Guardar borra
+// las de salida de las cajas viejas reempacadas y saca la marca provisoria de una caja partida.
+// Ver lib/cajas-envio.ts.
 //
 // Es el único dato físico del envío que NO se puede derivar del catálogo: el catálogo conoce
 // la pieza desnuda y la balanza pesa el bulto. Mientras no esté cargado, el costeo es un piso.
 //
-// El form manda todo junto y esto reemplaza lo guardado, como los trackings. Sin reempaque
-// las cajas de salida se borran: lo que se ve es lo que queda. Un número ilegible se RECHAZA
-// (vacío reemplaza lo que había, así que guardarlo como vacío borraría un peso cargado).
+// El form manda todo junto y esto reemplaza lo guardado, como los trackings. Un número ilegible
+// se RECHAZA (vacío reemplaza lo que había, así que guardarlo como vacío borraría un peso cargado).
 // Solo lo FÍSICO: el flete facturado tiene su propia acción (guardarFleteReal).
 export async function guardarCajas(envioId: number, formData: FormData): Promise<ActionResult> {
-  const reempaque = formData.get('reempaque') === '1'
-  const filas: (CajaFisica & { etapa: EtapaCaja })[] = []
-  for (const etapa of ETAPAS_CAJA) {
-    if (etapa === 'salida' && !reempaque) continue
-    const campo = (c: CampoCaja) => formData.getAll(`${c}_${etapa}`).map(String)
-    const r = leerCajasEtapa(etapa, {
-      referencia: campo('referencia'), peso: campo('peso'), largo: campo('largo'), ancho: campo('ancho'), alto: campo('alto'),
-    })
-    if ('error' in r) return fallo(r.error)
-    filas.push(...r.filas.map(f => ({ ...f, etapa })))
-  }
+  const reempaque = false
+  const etapa = 'llegada' as const
+  const campo = (c: CampoCaja) => formData.getAll(`${c}_${etapa}`).map(String)
+  const r = leerCajasEtapa(etapa, {
+    referencia: campo('referencia'), peso: campo('peso'), largo: campo('largo'), ancho: campo('ancho'), alto: campo('alto'),
+  })
+  if ('error' in r) return fallo(r.error)
+  const filas: (CajaFisica & { etapa: EtapaCaja })[] = r.filas.map(f => ({ ...f, etapa }))
   const existe = await db.$transaction(async tx => {
     // El update bloquea la fila del envío: dos guardados cruzados no se mezclan a medias.
     const r = await tx.envio.updateMany({ where: { id: envioId }, data: { reempaque } })

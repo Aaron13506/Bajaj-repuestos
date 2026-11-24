@@ -1,9 +1,10 @@
 // Las cajas físicas de un envío, como las pesó y midió el transportista o el depósito.
 //
-// Una entrega llega al depósito en varios paquetes (el proveedor despacha en dos o tres), y el
-// depósito puede reempacarlos en otras cajas antes de mandarlos. Para la trazabilidad se anota
-// lo que LLEGÓ y, si hubo reempaque, lo que SALE. Para el costeo cuenta lo que sale: es lo que
-// el transportista pesa, mide y factura, caja por caja.
+// Cuenta cómo SALEN del depósito: es lo que el transportista pesa, mide y factura, caja por caja.
+// Cómo llegaron da igual (decisión del dueño, 2026-11-24), así que la pantalla tiene UNA lista y
+// la guarda como etapa 'llegada' con `reempaque` en falso. Las etapas 'salida' + `reempaque`
+// quedan por las cajas viejas (ahí se costea la salida) y por moverPedidoACaja, que al partir una
+// caja pesada le prende `reempaque`: sin salida, sus cajas quedan provisorias hasta re-cargarlas.
 //
 // Vacío es "no se sabe todavía", nunca cero: una caja anotada con su referencia y sin pesar
 // sigue sirviendo para ubicarla, y no entra a la cuenta como 0 kg.
@@ -18,7 +19,7 @@ export const MAX_CAJAS_POR_ETAPA = 20
 const MAX_REFERENCIA = 80
 
 export const ETAPA_CAJA_META: Record<EtapaCaja, { label: string; corto: string }> = {
-  llegada: { label: 'Lo que llegó al depósito', corto: 'llegó' },
+  llegada: { label: 'Cajas que salen del depósito', corto: 'sale' },
   salida: { label: 'Lo que sale después del reempaque', corto: 'sale' },
 }
 
