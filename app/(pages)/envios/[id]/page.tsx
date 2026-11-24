@@ -856,15 +856,31 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     ...motivosMover.filter(m => m.motivo == null).map(({ c }) => ({ id: c.id, nombre: c.nombre ?? `Caja #${c.id}` })),
     ...(motivoOrigen == null ? [cajaNueva] : []),
   ]
-  // Una pieza sin stock no estuvo en el depósito: se pasa aunque esta caja ya haya salido.
+  // Una pieza sin stock no estuvo en el depósito: se pasa aunque esta caja ya haya salido, y a una
+  // caja de otra vía o reenvío (aérea ↔ express, Shoppre ↔ por kilo): va en la que sale.
+  const candidatasSinStock = await db.envio.findMany({
+    where: {
+      id: { not: id }, modo: { in: ['aereo', 'express'] }, supplierId: envio.supplierId, estado: 'confirmado',
+      OR: [{ id: raizCompra }, { compraDeId: raizCompra }, { compraDeId: null, partes: { none: {} } }],
+    },
+    select: {
+      id: true, nombre: true, modo: true, estado: true, supplierId: true, reenvio: true, compraDeId: true,
+      items: { select: { shippingStatus: true, isLanded: true } },
+      movimientos: { where: { tipo: 'egreso', categoria: TRAMOS_FLETE.aereo.categoria }, select: { id: true } },
+      _count: { select: { partes: true } },
+    },
+    orderBy: { id: 'desc' },
+  })
+  const etiquetaVia = (c: { modo: string; reenvio: string }) =>
+    c.modo === envio.modo && c.reenvio === envio.reenvio ? '' : ` (${c.modo === 'express' ? 'express' : 'aérea'}, ${c.reenvio === 'por_kilo' ? 'por kilo' : 'Shoppre'})`
   const destinosSinStock = [
-    ...candidatasMover
+    ...candidatasSinStock
       .filter(c => motivoNoMueveSinEnviar(origenMover, {
         id: c.id, modo: c.modo, estado: c.estado, supplierId: c.supplierId, reenvio: c.reenvio,
         despachaProveedor: inboundCaja === 'cotizado', lineas: c.items,
         fleteAereoPagado: c.movimientos.length > 0, compraDeId: c.compraDeId, tieneHijas: c._count.partes > 0,
       }) == null)
-      .map(c => ({ id: c.id, nombre: c.nombre ?? `Caja #${c.id}` })),
+      .map(c => ({ id: c.id, nombre: `${c.nombre ?? `Caja #${c.id}`}${etiquetaVia(c)}` })),
     ...(motivoNoMueveSinEnviar(origenMover, cajaIdeal) == null ? [cajaNueva] : []),
   ]
   const motivoNoMover = destinosMover.length > 0 ? null : motivoOrigen

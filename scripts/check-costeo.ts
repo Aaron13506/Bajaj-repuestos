@@ -1690,6 +1690,11 @@ console.log('\nMOVER UN PRESUPUESTO A OTRA CAJA (partir en el depósito)')
   check('sin stock: flete del origen pagado, igual se pasa', noSE({ fleteAereoPagado: true }, {}), 0)
   check('sin stock: destino ya salió: no', noSE({}, { lineas: [{ shippingStatus: 'camino_usa', isLanded: false }] }), 1)
   check('sin stock: otro proveedor: no', noSE({}, { supplierId: 5 }), 1)
+  check('sin stock: de una aérea a una express, se pasa', noSE({ modo: 'aereo' }, { modo: 'express' }), 0)
+  check('sin stock: de una express a una aérea, se pasa', noSE({ modo: 'express' }, { modo: 'aereo' }), 0)
+  check('sin stock: de Shoppre a por kilo, se pasa', noSE({ reenvio: 'shoppre' }, { reenvio: 'por_kilo' }), 0)
+  check('sin stock: a un marítimo: no', noSE({ modo: 'aereo' }, { modo: 'maritimo_cbm' }), 1)
+  check('pieza en el depósito: a una express sigue sin poder', no({ modo: 'aereo' }, { modo: 'express' }), 1)
 }
 
 console.log('\nSIN STOCK POR SKU (quién se queda esperando)')

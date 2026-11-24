@@ -66,9 +66,16 @@ export function motivoNoMueve(origen: CajaParaMover, destino: CajaParaMover): st
  * Lo mismo para UNA línea que el proveedor no mandó (sin_enviar, la línea entera): nunca llegó al
  * depósito, así que no viaja con lo que lleva la caja ni la cubre su flete. Que la caja ya haya
  * salido o pagado el flete no la ata; el destino sí tiene que poder recibirla.
+ *
+ * Tampoco la atan la vía ni el reenvío de esta caja: el proveedor la manda tarde, a donde se le
+ * diga, y viaja en la caja que va a salir (decisión del dueño, 2026-11-24). Puede pasar de una
+ * aérea a una express o de Shoppre a por kilo, y al revés. La ruta de la línea sale de la caja
+ * (routeFor) y la línea está en pendiente o camino al depósito, que existen en todas. El precio
+ * al cliente no cambia: lo que cuesta de más (o de menos) esa vía lo absorbe el margen.
  */
 export function motivoNoMueveSinEnviar(origen: CajaParaMover, destino: CajaParaMover): string | null {
-  return motivoNoMueve({ ...origen, lineas: [], fleteAereoPagado: false }, destino)
+  if (origen.modo !== 'aereo' && origen.modo !== 'express') return 'Solo se mueven líneas entre cajas aéreas o express.'
+  return motivoNoMueve({ ...origen, modo: destino.modo, reenvio: destino.reenvio, lineas: [], fleteAereoPagado: false }, destino)
 }
 
 /** La compra de una caja: la caja raíz de la familia (ella misma si no se partió). */
