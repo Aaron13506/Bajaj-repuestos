@@ -438,6 +438,33 @@ export async function cerrarRecepcion(recepcionId: number, decisiones: Record<nu
   }, TX_OPTS)
 }
 
+// ── Descartar ────────────────────────────────────────────────────────────────────────────────
+
+// Borra una recepción abierta y sus lecturas: un conteo abierto no movió stock, etapas ni plata,
+// así que no hay nada que contramover. Sirve para la caja que se "recibió" por error (todavía está
+// en la India) y quedó trabada: con un conteo abierto no acepta pedidos. Si la caja no tiene otra
+// recepción, también desmarca la llegada (fecha, nota, peso y medidas del bulto), porque la caja
+// no llegó. Con recepciones anteriores la llegada se deja: esa caja sí llegó.
+export async function descartarRecepcion(recepcionId: number): Promise<void> {
+  await db.$transaction(async tx => {
+    const { envioId } = await bloquearRecepcion(tx, recepcionId)
+    const [incidencias, movs] = await Promise.all([
+      tx.incidencia.count({ where: { OR: [{ recepcionId }, { recepcionCierreId: recepcionId }] } }),
+      tx.movimientoStock.count({ where: { recepcionId } }),
+    ])
+    if (incidencias > 0 || movs > 0) throw new ErrorDeNegocio('Este conteo ya dejó incidencias o movimientos de stock: no se puede descartar.')
+    const borrada = await tx.recepcion.deleteMany({ where: { id: recepcionId, cerradaAt: null } })
+    if (borrada.count === 0) throw new ErrorDeNegocio('Esta recepción ya está cerrada.', 'cerrada')
+    const otras = await tx.recepcion.count({ where: { envioId } })
+    if (otras === 0) {
+      await tx.envio.update({
+        where: { id: envioId },
+        data: { llegadaAt: null, llegadaNota: null, llegadaPesoKg: null, llegadaLargoCm: null, llegadaAnchoCm: null, llegadaAltoCm: null },
+      })
+    }
+  }, TX_OPTS)
+}
+
 // ── Revertir ─────────────────────────────────────────────────────────────────────────────────
 
 // Deshace una recepción cerrada con contramovimientos: resta el stock que sumó, borra sus

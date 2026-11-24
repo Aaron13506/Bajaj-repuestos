@@ -7,7 +7,7 @@ import type { OrigenLectura } from '@/lib/qr-bajaj'
 import { buscarPorCodigo } from '@/lib/buscar-codigo'
 import {
   abrirRecepcion, anotarCodigo, anotarSinIdentificar, cambiarCiego, cerrarRecepcion, corregirConteo,
-  deshacerLectura, identificar, registrarLectura, revertirRecepcion, type ResultadoLectura,
+  descartarRecepcion, deshacerLectura, identificar, registrarLectura, revertirRecepcion, type ResultadoLectura,
 } from '@/lib/recepcion-db'
 
 // La recepción de una caja (docs/plan-inventario/03-recepcion.md): las mismas acciones para la
@@ -107,5 +107,13 @@ export async function cerrarEnRecepcion(recepcionId: number, envioId: number, de
 export async function revertirEnRecepcion(recepcionId: number, envioId: number): Promise<ActionResult> {
   const r = await conErrorDeNegocio(() => revertirRecepcion(recepcionId))
   revalidarRecepcion(envioId)
+  return r
+}
+
+// Descartar un conteo abierto por error: no movió nada, se borra (y la llegada, si era la única).
+export async function descartarEnRecepcion(recepcionId: number, envioId: number): Promise<ActionResult> {
+  const r = await conErrorDeNegocio(() => descartarRecepcion(recepcionId))
+  revalidatePath(`/envios/${envioId}`)
+  revalidatePath('/envios')
   return r
 }
