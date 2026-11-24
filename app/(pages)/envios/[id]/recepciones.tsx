@@ -12,7 +12,7 @@ import FormConResultado from '@/components/FormConResultado'
 import PendingButton from '@/components/PendingButton'
 import CamposBulto from '@/components/CamposBulto'
 import { cajasQueSeFacturan } from '@/lib/cajas-envio'
-import { abrirConteo, marcarLlegada, revertirEnRecepcion } from '../recepcion-actions'
+import { abrirConteo, descartarEnRecepcion, marcarLlegada, revertirEnRecepcion } from '../recepcion-actions'
 
 const fecha = (d: Date) => d.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'America/Caracas' })
 
@@ -103,6 +103,15 @@ export default async function RecepcionesCaja({ envioId }: { envioId: number }) 
             <QrEnlace ruta={`/escanear/recepcion/${vista.id}`} base={process.env.APP_URL?.trim().replace(/\/+$/, '') || null}
               texto="Escaneá este QR con el teléfono para contar ahí; esta pantalla muestra el progreso." />
             <ConteoCaja vista={vista} volver={volver} estimadas={estimadas} refrescar />
+            <FormConResultado action={descartarEnRecepcion.bind(null, vista.id, envioId)} className="border-t border-gray-100 pt-3">
+              <PendingButton
+                confirmMessage={`¿Descartar este conteo? Se borra lo contado hasta ahora (no tocó stock ni pedidos) y la caja vuelve a aceptar pedidos.${cerradas.length === 0 ? ' También se desmarca la llegada, con su peso y medidas.' : ''}`}
+                pendingLabel="Descartando…"
+                className="min-h-9 rounded-lg border border-red-300 px-3 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"
+              >
+                Descartar conteo{cerradas.length === 0 && envio.llegadaAt ? ' y desmarcar llegada' : ''}
+              </PendingButton>
+            </FormConResultado>
           </div>
         )}
       </SeccionCaja>
