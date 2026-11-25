@@ -8,9 +8,16 @@ import { reenvioPorDefecto } from '@/lib/reenvio'
 import { getConfig } from '@/lib/config-db'
 import { costearEnvios } from '@/lib/costo-envios'
 import { CATEGORIAS_FLETE, resumenFletes } from '@/lib/flete-real'
-import { tiempoDeCompraA, tiemposPorTramo } from '@/lib/etapas'
+import { rutaTiempoDeEnvio, tiemposPorRuta, type RutaTiempo } from '@/lib/etapas'
 import { nombreEnsamble } from '@/lib/linea-pedido'
 import type { BundlePiece } from '@/lib/bundle'
+
+const RUTA_ICONO: Record<RutaTiempo, string> = {
+  express_directo: '⚡',
+  express_usa: '⚡',
+  aereo: '✈️',
+  maritimo_cbm: '🚢',
+}
 
 // El código de la pieza, o los de las piezas de un conjunto (hasta 3).
 const codigos = (it: { product: { bajajCode: string | null } | null; bundleItems: unknown }) => {
@@ -51,10 +58,19 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
       where: { tipo: 'egreso', envioId: { not: null }, categoria: { in: [...CATEGORIAS_FLETE] } },
       _sum: { monto: true },
     }),
-    // Cada cambio de etapa de cada línea: de ahí salen los tiempos REALES (lib/etapas.ts). Solo
-    // existen desde que se empezaron a guardar; las líneas anteriores no tienen historia y no se inventa.
+    // Cada cambio de etapa de líneas que viajaron en una caja (excluye stock local y landed).
     db.pedidoItemEtapa.findMany({
-      select: { itemId: true, desde: true, hacia: true, at: true },
+      where: {
+        item: {
+          desdeStock: false,
+          isLanded: false,
+          envioId: { not: null },
+        },
+      },
+      select: {
+        itemId: true, desde: true, hacia: true, at: true,
+        item: { select: { envio: { select: { modo: true, reenvio: true } } } },
+      },
       orderBy: { at: 'desc' },
       take: 5000,
     }),
@@ -78,8 +94,17 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
     // Con cuál reenvío nace una caja aérea nueva (el mismo default que los presupuestos).
     getConfig(),
   ])
-  const tramos = tiemposPorTramo(etapas)
-  const compraAVenezuela = tiempoDeCompraA(etapas, 'en_venezuela')
+  const eventosPorRuta = etapas.flatMap(ev => {
+    const envio = ev.item.envio
+    if (!envio) return []
+    const ruta = rutaTiempoDeEnvio(envio)
+    if (ruta === 'maritimo_cbm') return []
+    return [{ itemId: ev.itemId, desde: ev.desde, hacia: ev.hacia, at: ev.at, ruta }]
+  })
+  const embarquesMaritimos = envios
+    .filter(e => e.modo === 'maritimo_cbm' && e.estado !== 'borrador')
+    .map(e => ({ createdAt: e.createdAt, llegadaAt: e.llegadaAt, entregadoAt: e.entregadoAt }))
+  const resumenTiempos = tiemposPorRuta(eventosPorRuta, embarquesMaritimos)
   const pagadoFlete = new Map<string, number>(
     pagosFlete.map(p => [`${p.envioId}:${p.categoria}`, parseFloat((p._sum.monto ?? 0).toString())]),
   )
@@ -119,30 +144,49 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
         />
       </div>
 
-      {/* Cuánto tarda de verdad: es lo que se le promete al cliente. */}
-      {compraAVenezuela && (
-        <div className="mb-6 bg-white rounded-xl shadow-sm border border-gray-100 px-5 py-4">
-          <div className="flex items-baseline justify-between gap-3 flex-wrap mb-2">
-            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Tiempos reales</h2>
-            <p className="text-xs text-gray-500">de las {etapas.length} etapas registradas</p>
-          </div>
-          <p className="text-sm text-gray-700">
-            De comprado a <strong>en Venezuela</strong>:{' '}
-            <span className="font-mono font-semibold">{compraAVenezuela.medianaDias.toFixed(0)} días</span> (mediana)
-            <span className="text-gray-500">
-              {' '}· promedio {compraAVenezuela.promedioDias.toFixed(0)} · entre {compraAVenezuela.minDias.toFixed(0)} y {compraAVenezuela.maxDias.toFixed(0)} · {compraAVenezuela.n} línea{compraAVenezuela.n === 1 ? '' : 's'}
-            </span>
-          </p>
-          {tramos.length > 0 && (
-            <ul className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-0.5 text-xs text-gray-500">
-              {tramos.map(t => (
-                <li key={t.tramo} className="flex justify-between gap-2">
-                  <span>{SHIPPING_STATUSES.find(s => s.value === t.desde)?.short} → {SHIPPING_STATUSES.find(s => s.value === t.hacia)?.short}</span>
-                  <span className="font-mono">{t.medianaDias.toFixed(1)} d <span className="text-gray-500">({t.n})</span></span>
-                </li>
-              ))}
-            </ul>
-          )}
+      {/* Tiempos reales separados por ruta */}
+      {resumenTiempos.length > 0 && (
+        <div className="mb-6 bg-white rounded-xl shadow-sm border border-gray-100 px-5 py-3.5">
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Tiempos reales</h2>
+          <ul className="divide-y divide-gray-100">
+            {resumenTiempos.map(r => (
+              <li key={r.ruta} className="py-1.5 first:pt-0 last:pb-0">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-sm">
+                  <span className="font-medium text-gray-800">
+                    <span aria-hidden="true">{RUTA_ICONO[r.ruta]}</span> {r.label}
+                  </span>
+                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-xs text-gray-600">
+                    {r.total ? (
+                      <span>
+                        <strong className="font-mono text-sm text-gray-900">{r.total.medianaDias.toFixed(0)} d</strong>{' '}
+                        mediana{' '}
+                        <span className="text-gray-500">
+                          ({r.total.minDias.toFixed(0)}–{r.total.maxDias.toFixed(0)} d · n={r.total.n})
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="text-gray-400">Sin llegadas</span>
+                    )}
+                  </div>
+                </div>
+                {r.tramos.length > 0 && (
+                  <details className="mt-1">
+                    <summary className="text-xs text-gray-500 hover:text-gray-700 cursor-pointer select-none w-fit">
+                      Ver tramos
+                    </summary>
+                    <ul className="mt-1.5 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-0.5 text-xs text-gray-500 pl-1">
+                      {r.tramos.map(t => (
+                        <li key={t.tramo} className="flex justify-between gap-2">
+                          <span>{SHIPPING_STATUSES.find(s => s.value === t.desde)?.short} → {SHIPPING_STATUSES.find(s => s.value === t.hacia)?.short}</span>
+                          <span className="font-mono">{t.medianaDias.toFixed(1)} d <span className="text-gray-400">({t.n})</span></span>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

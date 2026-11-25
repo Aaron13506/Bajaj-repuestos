@@ -58,7 +58,7 @@ import {
   resolucionesPara, tiposPara, sinEnviarDe, lineaNoViene, textoSinEnviar, admitePieza, tiposParaPropio, perdidaTrasDevolucion, planNoVino, planReembolsoPieza, type Resolucion,
 } from '../lib/incidencias'
 import { debeSaldo, motivoNoEntregable, saldoReal, seEntregaDesdeElPedido, situacionDeCobro } from '../lib/saldo-entrega'
-import { diasSinMoverse, tiempoDeCompraA, tiemposPorTramo } from '../lib/etapas'
+import { diasSinMoverse, rutaTiempoDeEnvio, tiempoDeCompraA, tiemposPorRuta, tiemposPorTramo } from '../lib/etapas'
 import { leerDevolucion } from '../lib/devolucion'
 import { costoTablaPorKiloInr, kgFacturadosPorKilo, leerRutaPresupuesto, parsearTablaPorKilo, motivoReenvioFijo, motivoReenvioNoCoincide, reenvioDelPresupuestoNormal, reenvioPorDefecto, tarifaEquilibrioKgInr, tarifaKgReferencia } from '../lib/reenvio'
 import { compraTrasMover, motivoNoMueve, motivoNoMueveSinEnviar, type CajaParaMover } from '../lib/mover-caja'
@@ -1277,6 +1277,41 @@ console.log('\nTIEMPOS REALES POR ETAPA')
   // Un hueco en la cadena (falta un cambio) no se mide como si fuera continuo.
   const hueco = tiemposPorTramo([ev(4, 'pendiente', 'camino_usa', 0), ev(4, 'en_usa', 'camino_venezuela', 9)])
   check('con un hueco en el historial no se inventa el tramo', hueco.length, 0)
+
+  // Separación por ruta: express directo (12 d), aéreo (42 d) y marítimo (llegadaAt ?? entregadoAt).
+  check('rutaTiempoDeEnvio: express directo', si(rutaTiempoDeEnvio({ modo: 'express', reenvio: 'shoppre' }) === 'express_directo'), 1)
+  check('rutaTiempoDeEnvio: express por USA', si(rutaTiempoDeEnvio({ modo: 'express', reenvio: 'por_kilo' }) === 'express_usa'), 1)
+  check('rutaTiempoDeEnvio: aéreo', si(rutaTiempoDeEnvio({ modo: 'aereo', reenvio: 'shoppre' }) === 'aereo'), 1)
+  check('rutaTiempoDeEnvio: marítimo', si(rutaTiempoDeEnvio({ modo: 'maritimo_cbm', reenvio: 'shoppre' }) === 'maritimo_cbm'), 1)
+
+  const porRuta = tiemposPorRuta(
+    [
+      { ...ev(10, 'pendiente', 'camino_shoppre', 0), ruta: 'express_directo' },
+      { ...ev(10, 'camino_shoppre', 'en_venezuela', 12), ruta: 'express_directo' },
+      { ...ev(20, 'pendiente', 'camino_shoppre', 0), ruta: 'aereo' },
+      { ...ev(20, 'camino_shoppre', 'en_usa', 10), ruta: 'aereo' },
+      { ...ev(20, 'en_usa', 'en_venezuela', 42), ruta: 'aereo' },
+    ],
+    [
+      { createdAt: d(0), llegadaAt: d(55), entregadoAt: d(58) },
+      { createdAt: d(10), llegadaAt: null, entregadoAt: d(75) },
+      // Inválido: llegada anterior a creación → se ignora.
+      { createdAt: d(30), llegadaAt: d(20), entregadoAt: null },
+      // Sin fecha de llegada ni entrega → se ignora.
+      { createdAt: d(30), llegadaAt: null, entregadoAt: null },
+    ],
+  )
+  check('tiemposPorRuta: devuelve 3 rutas con datos (sin express_usa)', porRuta.length, 3)
+  const rExp = porRuta.find(r => r.ruta === 'express_directo')!
+  const rAer = porRuta.find(r => r.ruta === 'aereo')!
+  const rMar = porRuta.find(r => r.ruta === 'maritimo_cbm')!
+  check('tiemposPorRuta: express directo 12 d (no mezclado con aéreo)', rExp.total?.medianaDias ?? -1, 12)
+  check('tiemposPorRuta: aéreo 42 d (no mezclado con express)', rAer.total?.medianaDias ?? -1, 42)
+  check('tiemposPorRuta: marítimo ignora inválidas y toma n=2', rMar.total?.n ?? -1, 2)
+  check('tiemposPorRuta: marítimo mediana de 55 y 65 d', rMar.total?.medianaDias ?? -1, 60)
+  check('tiemposPorRuta: marítimo min 55 d', rMar.total?.minDias ?? -1, 55)
+  check('tiemposPorRuta: marítimo max 65 d', rMar.total?.maxDias ?? -1, 65)
+  check('tiemposPorRuta: marítimo sin tramos intermedios', rMar.tramos.length, 0)
 }
 
 console.log('\nDEVOLUCIÓN AL CLIENTE (lo que se lee del formulario)')

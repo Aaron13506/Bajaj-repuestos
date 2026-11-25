@@ -107,6 +107,72 @@ export function tiempoDeCompraA(eventos: EventoEtapa[], meta: string): TramoStat
   return dias.length > 0 ? resumir(`compra→${meta}`, 'pendiente', meta, dias) : null
 }
 
+export type RutaTiempo = 'express_directo' | 'express_usa' | 'aereo' | 'maritimo_cbm'
+
+export interface ResumenTiempoRuta {
+  ruta: RutaTiempo
+  label: string
+  /** De compra a en_venezuela (o de creación a llegada/recepción en marítimo). */
+  total: TramoStat | null
+  /** Desglose por tramo intermedio (vacío en marítimo). */
+  tramos: TramoStat[]
+}
+
+const RUTAS_ORDEN: { ruta: RutaTiempo; label: string }[] = [
+  { ruta: 'express_directo', label: 'Express directo' },
+  { ruta: 'express_usa', label: 'Express por USA' },
+  { ruta: 'aereo', label: 'Aéreo (vía USA)' },
+  { ruta: 'maritimo_cbm', label: 'Marítimo' },
+]
+
+export function rutaTiempoDeEnvio(envio: { modo: string; reenvio: string }): RutaTiempo {
+  if (envio.modo === 'maritimo_cbm') return 'maritimo_cbm'
+  if (envio.modo === 'express' && envio.reenvio === 'por_kilo') return 'express_usa'
+  if (envio.modo === 'express') return 'express_directo'
+  return 'aereo'
+}
+
+export function tiemposPorRuta(
+  eventos: (EventoEtapa & { ruta: Exclude<RutaTiempo, 'maritimo_cbm'> })[],
+  embarquesMaritimos: { createdAt: Date; llegadaAt: Date | null; entregadoAt: Date | null }[] = [],
+): ResumenTiempoRuta[] {
+  const porRuta = new Map<Exclude<RutaTiempo, 'maritimo_cbm'>, EventoEtapa[]>()
+  for (const e of eventos) {
+    const l = porRuta.get(e.ruta) ?? []
+    l.push(e)
+    porRuta.set(e.ruta, l)
+  }
+
+  const out: ResumenTiempoRuta[] = []
+  for (const { ruta, label } of RUTAS_ORDEN) {
+    if (ruta === 'maritimo_cbm') {
+      const dias: number[] = []
+      for (const emb of embarquesMaritimos) {
+        const fin = emb.llegadaAt ?? emb.entregadoAt
+        if (!fin || fin.getTime() <= emb.createdAt.getTime()) continue
+        dias.push((fin.getTime() - emb.createdAt.getTime()) / DIA_MS)
+      }
+      if (dias.length > 0) {
+        out.push({
+          ruta,
+          label,
+          total: resumir('maritimo→llegada', 'creado', 'en_venezuela', dias),
+          tramos: [],
+        })
+      }
+      continue
+    }
+    const evs = porRuta.get(ruta)
+    if (!evs || evs.length === 0) continue
+    const total = tiempoDeCompraA(evs, 'en_venezuela')
+    const tramos = tiemposPorTramo(evs)
+    if (total !== null || tramos.length > 0) {
+      out.push({ ruta, label, total, tramos })
+    }
+  }
+  return out
+}
+
 // ── Cajas paradas ──────────────────────────────────────────────────────────────────────────────
 //
 // Una caja en viaje cuyas líneas no cambian de etapa hace días es la que hay que ir a preguntar
