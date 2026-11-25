@@ -1,11 +1,10 @@
 import { db } from '@/lib/db'
 import Link from 'next/link'
 import { createEnvio } from './actions'
-import PendingButton from '@/components/PendingButton'
-import FormConResultado from '@/components/FormConResultado'
+import CrearEnvioModal from '@/components/CrearEnvioModal'
 import { stageSummary, statusIndex, SHIPPING_STATUSES } from '@/lib/shipping-status'
 import { inboundDe, inboundMeta } from '@/lib/inbound'
-import { REENVIOS, reenvioPorDefecto } from '@/lib/reenvio'
+import { reenvioPorDefecto } from '@/lib/reenvio'
 import { getConfig } from '@/lib/config-db'
 import { costearEnvios } from '@/lib/costo-envios'
 import { CATEGORIAS_FLETE, resumenFletes } from '@/lib/flete-real'
@@ -94,15 +93,30 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
   const enCurso = envios.filter(e => !llego(e))
   const lista = verLlegaron ? llegaron : enCurso
 
+  const proveedores = suppliers.map(s => ({
+    id: s.id,
+    name: s.name,
+    origen: s.origen,
+    inbound: s.inbound,
+    fobUsd: s.fobUsd != null ? parseFloat(s.fobUsd.toString()) : null,
+  }))
+
   return (
     <div className="max-w-5xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Envíos</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Tres rutas: la aérea agrupa <span className="font-medium">pedidos de cliente</span>, la marítima se arma
-          con <span className="font-medium">mercancía propia</span> pieza por pieza, y la express lleva un
-          <span className="font-medium"> presupuesto express</span> directo a Venezuela.
-        </p>
+      <div className="flex items-center justify-between gap-4 mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Envíos</h1>
+          {sinAsignar > 0 && (
+            <p className="text-xs text-gray-500 mt-0.5">
+              {sinAsignar} {sinAsignar === 1 ? 'ítem sin caja' : 'ítems sin caja'}
+            </p>
+          )}
+        </div>
+        <CrearEnvioModal
+          action={createEnvio}
+          suppliers={proveedores}
+          reenvioDefault={reenvioPorDefecto(cfg)}
+        />
       </div>
 
       {/* Cuánto tarda de verdad: es lo que se le promete al cliente. */}
@@ -187,136 +201,6 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
         </section>
       )}
 
-      {/* Crear: la ruta se elige acá y ya no se cambia — decide cómo se costea la caja y
-          qué se le puede meter adentro. */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        {[
-          {
-            modo: 'aereo',
-            icono: '✈️',
-            titulo: 'Envío aéreo',
-            desc: 'Origen → USA por aire → Venezuela. Se llena asignándole pedidos de cliente ya confirmados. El proveedor decide cómo se cobra el tramo a USA.',
-            placeholder: 'Ej: Caja Julio #1',
-            cls: 'border-indigo-200 bg-indigo-50/40',
-            btn: 'bg-indigo-600 hover:bg-indigo-700',
-          },
-          {
-            modo: 'maritimo_cbm',
-            icono: '🚢',
-            titulo: 'Embarque marítimo',
-            desc: 'India → Venezuela directo por barco. Se cobra por volumen (m³ + FOB fijo). Nace en borrador y se llena con mercancía tuya.',
-            placeholder: 'Ej: Embarque agosto',
-            cls: 'border-cyan-200 bg-cyan-50/40',
-            btn: 'bg-cyan-600 hover:bg-cyan-700',
-          },
-          {
-            modo: 'express',
-            icono: '⚡',
-            titulo: 'Envío express',
-            desc: 'Lleva presupuestos express. Shoppre directo India → Venezuela con tope de landed por paquete, o por USA (DDP) sin tope.',
-            placeholder: 'Ej: Express María',
-            cls: 'border-amber-200 bg-amber-50/40',
-            btn: 'bg-amber-600 hover:bg-amber-700',
-          },
-        ].map(r => (
-          <FormConResultado
-            key={r.modo}
-            action={createEnvio}
-            className={`rounded-xl border p-5 flex flex-col gap-3 ${r.cls}`}
-          >
-            <input type="hidden" name="modo" value={r.modo} />
-            <div>
-              <h2 className="font-semibold text-gray-900"><span aria-hidden="true">{r.icono}</span> {r.titulo}</h2>
-              <p className="text-xs text-gray-500 mt-1">{r.desc}</p>
-            </div>
-            <input
-              type="text"
-              name="nombre"
-              aria-label={`Nombre del ${r.modo === 'aereo' ? 'envío aéreo' : 'embarque marítimo'} (opcional)`}
-              placeholder={r.placeholder}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-            {/* El proveedor se elige acá y queda congelado. Es la decisión que define todo
-                lo demás: el precio de cada pieza, si el tramo a USA lo cobra la tabla
-                escalón o lo factura él, las etapas de la ruta, y el FOB por mar. Lo que se
-                asigne después a esta caja lo hereda. */}
-            <label className="block">
-              <span className="text-xs text-gray-500">
-                Proveedor {r.modo === 'aereo' ? '(define precios y cómo llega a USA)' : r.modo === 'express' ? '(solo los que pasan por el depósito)' : '(define precios y FOB)'}
-              </span>
-              <select
-                name="supplierId"
-                defaultValue=""
-                className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">99rpm · precio base ₹{r.modo !== 'maritimo_cbm' ? ' · por depósito' : ''}</option>
-                {suppliers.map(sp => {
-                  const meta = inboundMeta(inboundDe(sp.origen, sp.inbound))
-                  // Express es Shoppre despachando desde su depósito: quien manda él mismo no entra.
-                  if (r.modo === 'express' && meta.value !== 'shoppre') return null
-                  return (
-                    <option key={sp.id} value={sp.id}>
-                      {sp.name}
-                      {r.modo !== 'maritimo_cbm'
-                        ? (meta.value === 'shoppre' ? ' · por depósito' : ` · ${meta.label}`)
-                        : sp.fobUsd != null
-                          ? ` · FOB $${parseFloat(sp.fobUsd.toString()).toFixed(0)}`
-                          : ' · FOB por defecto'}
-                    </option>
-                  )
-                })}
-              </select>
-            </label>
-            {/* Quién la lleva a USA cuando pasa por un depósito en India. Es de la caja, no del
-                proveedor, y también queda congelado. No aplica si el proveedor despacha él. */}
-            {r.modo === 'aereo' && (
-              <label className="block">
-                <span className="text-xs text-gray-500">Reenvío a USA (si no despacha el proveedor)</span>
-                <select
-                  name="reenvio"
-                  defaultValue={reenvioPorDefecto(cfg)}
-                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  {REENVIOS.map(rv => (
-                    <option key={rv.value} value={rv.value}>{rv.label}</option>
-                  ))}
-                </select>
-                <span className="block text-[11px] text-gray-500 mt-1">
-                  {REENVIOS.map(rv => `${rv.label}: ${rv.hint}`).join(' · ')}
-                </span>
-              </label>
-            )}
-            {/* La express por USA es la caja express con reenvío por kilo (lib/calc.ts expressPorUsa). */}
-            {r.modo === 'express' && (
-              <label className="block">
-                <span className="text-xs text-gray-500">Ruta</span>
-                <select
-                  name="reenvio"
-                  defaultValue="shoppre"
-                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="shoppre">Shoppre directo a Venezuela · tope de landed</option>
-                  <option value="por_kilo">Por USA (DDP) · reenvío por kilo + One Way aéreo, sin tope</option>
-                </select>
-                <span className="block text-[11px] text-gray-500 mt-1">
-                  Por USA: la tarifa ₹/kg se anota en la caja; One Way (USD/lb y por paquete) sale de Configuración.
-                </span>
-              </label>
-            )}
-            <PendingButton
-              pendingLabel="Creando…"
-              className={`text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors ${r.btn}`}
-            >
-              + Crear {r.modo === 'aereo' ? 'envío aéreo' : r.modo === 'express' ? 'envío express' : 'embarque marítimo'}
-            </PendingButton>
-          </FormConResultado>
-        ))}
-      </div>
-
-      <p className="text-xs text-gray-500 mb-3">
-        {sinAsignar} {sinAsignar === 1 ? 'ítem sin asignar' : 'ítems sin asignar'} a un envío.
-      </p>
-
       <nav aria-label="Envíos por estado" className="flex gap-2 mb-4 border-b border-gray-200">
         {[
           { href: '/envios', label: 'En curso', n: enCurso.length, activa: !verLlegaron },
@@ -336,9 +220,8 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
       </nav>
 
       {envios.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-500">
-          <p className="text-lg">Sin envíos</p>
-          <p className="text-sm mt-1">Elegí arriba la ruta con la que querés traer la mercancía.</p>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-500">
+          <p className="text-sm">Sin envíos</p>
         </div>
       ) : lista.length === 0 ? (
         <p className="text-sm text-gray-500 py-6 text-center">{verLlegaron ? 'Todavía no llegó ninguna caja.' : 'No hay cajas en curso.'}</p>
