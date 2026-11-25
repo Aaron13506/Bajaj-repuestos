@@ -163,7 +163,7 @@ export default async function EnviosPage({ searchParams }: { searchParams: Promi
           <div className="px-4 sm:px-5 py-3 border-b border-gray-100">
             <h2 id="esperando-caja" className="font-semibold text-gray-900">Pagadas esperando caja ({esperandoCaja.length})</h2>
             <p className="text-sm text-gray-600">
-              El proveedor no las tenía cuando salió su caja. Entran en la próxima caja aérea desde «Agregar pedidos».
+              El proveedor no las tenía cuando salió su caja. Entran en la próxima caja (aérea o express por kilo) desde «Agregar pedidos».
             </p>
           </div>
           <ul className="divide-y divide-gray-100">

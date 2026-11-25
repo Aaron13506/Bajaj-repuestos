@@ -35,6 +35,7 @@ interface Props {
   lineas: LineaSuelta[]
   otrasCajas: EnOtraCaja[]
   sinAprobar?: boolean
+  etiqueta?: string
   agregarTodo: (envioId: number, pedidoId: number) => Promise<ActionResult>
   agregarElegidas: (envioId: number, itemIds: number[]) => Promise<ActionResult>
 }
@@ -49,6 +50,7 @@ export default function SueltoPedido({
   lineas,
   otrasCajas,
   sinAprobar,
+  etiqueta,
   agregarTodo,
   agregarElegidas,
 }: Props) {
@@ -109,6 +111,11 @@ export default function SueltoPedido({
           {sinAprobar && (
             <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700">
               Sin aprobar
+            </span>
+          )}
+          {etiqueta && (
+            <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-orange-100 text-orange-800">
+              {etiqueta}
             </span>
           )}
           {otrasCajas.length > 0 && (

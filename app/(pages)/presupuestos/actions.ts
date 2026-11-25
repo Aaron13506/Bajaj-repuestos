@@ -25,7 +25,7 @@ import { pasarAStockPropio, registrarEvento, SELECT_LINEA_MOVIBLE } from '@/lib/
 import { cerradosPorEdicion } from '@/lib/incidencias'
 import { notaCobroBcv, realDeCobro, resumenCobro } from '@/lib/cobro-bcv'
 import { cobraEnBolivares } from '@/lib/pagos'
-import { motivoExpressNoAprobable, viaDe } from '@/lib/express'
+import { esLineaAvanzada, motivoExpressNoAprobable, viaDe } from '@/lib/express'
 import { expressDelPedido } from '@/lib/express-pedido'
 import { leerRutaPresupuesto, type Reenvio } from '@/lib/reenvio'
 import { getConfig } from '@/lib/config-db'
@@ -284,7 +284,7 @@ async function editarPresupuesto(id: number, formData: FormData) {
       tipo: true, status: true, via: true,
       items: {
         select: {
-          productId: true, ensambleId: true, quantity: true, shippingStatus: true, bundleItems: true, costRealUsd: true, envioId: true,
+          productId: true, ensambleId: true, quantity: true, shippingStatus: true, bundleItems: true, costRealUsd: true, envioId: true, desdeStock: true,
           salePrice: true, product: { select: { nameEs: true } }, ensamble: { select: { nameEs: true, nameEn: true } },
         },
       },
@@ -442,9 +442,9 @@ async function editarPresupuesto(id: number, formData: FormData) {
     ? { cotizadoAt: new Date(), escalonCotizadoPct: escalonBcvVigente(toConfigMap(await db.config.findMany())) }
     : {}
   // La vía solo se cambia mientras es presupuesto (un pedido confirmado se cotizó y se cobró así)
-  // o, en el stock propio, mientras ninguna línea está en una caja (la caja exige su misma vía).
+  // o, en el stock propio, mientras ninguna línea esté en una caja ni avanzada (misma regla que motivoViaFija).
   const via = (existing.tipo === 'cliente' && existing.status === 'presupuesto') ||
-    (existing.tipo === 'propio' && existing.items.every(it => it.envioId == null))
+    (existing.tipo === 'propio' && existing.items.every(it => it.envioId == null && !esLineaAvanzada(it)))
     ? { via: viaDe(formData.get('via') as string | null) }
     : {}
   // Lo que ya está en una caja manda (lo nuevo entra en la misma); si no, la que se eligió.

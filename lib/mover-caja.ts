@@ -42,12 +42,24 @@ const salioDelDeposito = (c: CajaParaMover) =>
 export function motivoNoMueve(origen: CajaParaMover, destino: CajaParaMover): string | null {
   if (origen.id === destino.id) return 'Es la misma caja.'
   if (origen.modo !== 'aereo' && origen.modo !== 'express') return 'Solo se mueven líneas entre cajas aéreas o express.'
-  if (destino.modo !== origen.modo) return 'Las dos cajas tienen que ir por la misma vía (aérea o express).'
+  if (destino.modo !== 'aereo' && destino.modo !== 'express') return 'Solo se mueven líneas entre cajas aéreas o express.'
+  if (destino.reenvio !== origen.reenvio) return 'Las dos cajas tienen que ir por el mismo reenvío (Shoppre o por kilo).'
+  // Por kilo, una caja aérea y una express por USA comparten depósito, etapas y no tienen tope:
+  // se puede promover una línea de aérea → express mientras esté en el depósito y sin flete pagado.
+  // Al revés (express → aérea) nunca: un pedido express tiene entrega rápida prometida y no debe
+  // bajar a una caja aérea normal. En Shoppre directo cambia la ruta y entra el tope de $100.
+  if (destino.modo !== origen.modo) {
+    const promocionPorKilo = origen.modo === 'aereo' && destino.modo === 'express' && origen.reenvio === 'por_kilo'
+    if (!promocionPorKilo) {
+      return origen.modo === 'express'
+        ? 'De una caja express solo se mueve a otra caja express.'
+        : 'Las dos cajas tienen que ir por la misma vía (aérea o express).'
+    }
+  }
   if (destino.supplierId !== origen.supplierId) return 'Las dos cajas tienen que ser del mismo proveedor: la pieza ya se le compró a él.'
   if (compraDe(origen) !== compraDe(destino) && (destino.compraDeId != null || destino.tieneHijas)) {
     return 'La otra caja ya es parte de otra compra partida: elegí una de esta compra o una nueva.'
   }
-  if (destino.reenvio !== origen.reenvio) return 'Las dos cajas tienen que ir por el mismo reenvío (Shoppre o por kilo).'
   if (origen.despachaProveedor) return 'El proveedor de esta caja despacha él mismo: no pasa por un depósito donde partirla.'
   if (origen.estado === 'borrador') return 'La caja está en borrador: quitá el presupuesto y agregalo a la otra.'
   if (destino.estado !== 'confirmado') {

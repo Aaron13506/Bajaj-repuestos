@@ -26,7 +26,7 @@ import {
 } from '../lib/comparar-compra'
 import { parseListaSkus } from '../lib/lista-skus'
 import { cotizarTramoAereo, capacidadCajaKg, CARRIER_EXPRESS_VE } from '../lib/shipping-rates'
-import { calcExpress, motivoExpressNoAprobable, reenvioDelPresupuesto, motivoViaNoCoincide, plazoExpress, topeDeCaja, viaDe } from '../lib/express'
+import { calcExpress, esLineaAvanzada, motivoExpressNoAprobable, reenvioDelPresupuesto, motivoViaFija, motivoViaNoCoincide, plazoExpress, topeDeCaja, viaDe } from '../lib/express'
 import { nextStatus, normalizeToRoute, routeFor, routeStages } from '../lib/shipping-status'
 import { isModoApp, llevaPedidos } from '../lib/modo'
 import { repartirEnCentavos } from '../lib/reparto-compra'
@@ -1665,7 +1665,10 @@ console.log('\nMOVER UN PRESUPUESTO A OTRA CAJA (partir en el depósito)')
   check('comprada camino al depósito: se puede', no({ lineas: [{ shippingStatus: 'camino_shoppre', isLanded: false }] }, {}), 0)
   check('la misma caja: no', motivoNoMueve(caja(), caja()) != null ? 1 : 0, 1)
   check('otro proveedor: no', no({}, { supplierId: 5 }), 1)
-  check('otro modo: no', no({}, { modo: 'express' }), 1)
+  check('otro modo (Shoppre): no', no({}, { modo: 'express' }), 1)
+  check('aérea por kilo → express por kilo: se puede', no({ reenvio: 'por_kilo' }, { modo: 'express', reenvio: 'por_kilo' }), 0)
+  check('express por kilo → aérea por kilo: no (express no baja a aérea)', no({ modo: 'express', reenvio: 'por_kilo' }, { modo: 'aereo', reenvio: 'por_kilo' }), 1)
+  check('por kilo → marítimo: no', no({ reenvio: 'por_kilo' }, { modo: 'maritimo_cbm', reenvio: 'por_kilo' }), 1)
   check('otro reenvío: no', no({}, { reenvio: 'por_kilo' }), 1)
   check('destino en borrador: no', no({}, { estado: 'borrador' }), 1)
   check('origen en borrador: no (se quita y se agrega)', no({ estado: 'borrador' }, {}), 1)
@@ -1861,8 +1864,23 @@ console.log('\nENVÍO EXPRESS')
   check('caja: express lleva pedidos', si(isModoApp('express') && llevaPedidos('express') && !llevaPedidos('maritimo_cbm')), 1)
   check('caja: presupuesto express en caja express', si(motivoViaNoCoincide('express', 'express') == null), 1)
   check('caja: presupuesto express no va en la aérea', si(motivoViaNoCoincide('express', 'aereo') != null), 1)
-  check('caja: presupuesto normal no va en la express', si(motivoViaNoCoincide('normal', 'express') != null), 1)
+  check('caja: presupuesto express por kilo no va en la aérea por kilo', si(motivoViaNoCoincide('express', 'aereo', 'por_kilo', 'por_kilo') != null), 1)
+  check('caja: presupuesto normal no va en la express directo', si(motivoViaNoCoincide('normal', 'express') != null), 1)
+  check('caja: presupuesto normal por kilo no va en express Shoppre directo', si(motivoViaNoCoincide('normal', 'express', 'por_kilo', 'shoppre') != null), 1)
+  check('caja: presupuesto normal Shoppre no va en express por kilo', si(motivoViaNoCoincide('normal', 'express', 'shoppre', 'por_kilo') != null), 1)
+  check('caja: presupuesto normal por kilo SÍ entra en express por kilo', si(motivoViaNoCoincide('normal', 'express', 'por_kilo', 'por_kilo') == null), 1)
   check('caja: presupuesto normal en la aérea', si(motivoViaNoCoincide('normal', 'aereo') == null), 1)
+  check('cambiar vía: pedido confirmado suelto y pendiente', si(motivoViaFija({ tipo: 'cliente', status: 'pedido', enCaja: false, avanzado: false }) == null), 1)
+  check('cambiar vía: stock propio suelto y pendiente', si(motivoViaFija({ tipo: 'propio', status: 'pedido', enCaja: false, avanzado: false }) == null), 1)
+  check('cambiar vía: presupuesto sin confirmar usa Editar', si(motivoViaFija({ tipo: 'cliente', status: 'presupuesto', enCaja: false, avanzado: false }) != null), 1)
+  check('cambiar vía: con líneas en caja, no', si(motivoViaFija({ tipo: 'cliente', status: 'pedido', enCaja: true, avanzado: false }) != null), 1)
+  check('cambiar vía: ya comprado o avanzado, no', si(motivoViaFija({ tipo: 'cliente', status: 'pedido', enCaja: false, avanzado: true }) != null), 1)
+  check('cambiar vía: cancelado, no', si(motivoViaFija({ tipo: 'cliente', status: 'cancelado', enCaja: false, avanzado: false }) != null), 1)
+  check('cambiar vía: venta del depósito, no', si(motivoViaFija({ tipo: 'venta', status: 'pedido', enCaja: false, avanzado: false }) != null), 1)
+  check('línea avanzada: pendiente sin costo ni stock = libre', si(esLineaAvanzada({ shippingStatus: 'pendiente', costRealUsd: null, desdeStock: false })), 0)
+  check('línea avanzada: con costo real = avanzada', si(esLineaAvanzada({ shippingStatus: 'pendiente', costRealUsd: 12.5, desdeStock: false })), 1)
+  check('línea avanzada: servida desde stock = avanzada', si(esLineaAvanzada({ shippingStatus: 'pendiente', costRealUsd: null, desdeStock: true })), 1)
+  check('línea avanzada: camino al depósito = avanzada', si(esLineaAvanzada({ shippingStatus: 'camino_shoppre', costRealUsd: null, desdeStock: false })), 1)
   const cajaX = calcEnvio([pieza(3000, 4000)], cfg, { modo: 'express' })
   check('caja: el tope de la caja usa su landed', topeDeCaja(cajaX, cfg).holguraUsd, 100 - cajaX.landedUsd)
   check('caja: pasada del tope no se confirma', si(motivoExpressNoAprobable(topeDeCaja(cajaX, cfg)) != null), 1)

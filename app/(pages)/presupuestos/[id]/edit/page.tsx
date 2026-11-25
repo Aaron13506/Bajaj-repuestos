@@ -2,7 +2,7 @@ import { db } from '@/lib/db'
 import { toModelIds } from '@/lib/modelo'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { plazoExpress, viaDe } from '@/lib/express'
+import { esLineaAvanzada, plazoExpress, viaDe } from '@/lib/express'
 import { getConfig } from '@/lib/config-db'
 import { reenvioPorDefecto, tarifaKgReferencia } from '@/lib/reenvio'
 import PresupuestoBuilder from '@/components/PresupuestoBuilder'
@@ -128,7 +128,7 @@ export default async function EditPresupuestoPage({ params }: { params: Promise<
         initialClientName={presupuesto.clientName}
         initialClienteId={presupuesto.clienteId}
         clienteFijo={confirmado}
-        viaFija={presupuesto.tipo === 'propio' && presupuesto.items.some(it => it.envioId != null)}
+        viaFija={presupuesto.tipo === 'propio' && presupuesto.items.some(it => it.envioId != null || esLineaAvanzada(it))}
         initialNotas={presupuesto.notas ?? ''}
         initialItems={initialItems}
         clientes={clientes}

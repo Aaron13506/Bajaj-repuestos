@@ -15,11 +15,12 @@ import ConfirmarEntregaForm, { type LineaEntrega } from '@/components/ConfirmarE
 import { motivoNoServible } from '@/lib/venta-stock'
 import { deletePresupuesto, aprobarPedido, registrarPagoPedido } from '../actions'
 import {
-  cambiarReenvioPedido, cancelarPedido, confirmarEntrega, devolverAlCliente, devolverAlDeposito, marcarPerdido, servirDesdeStock, reabrirPresupuesto, renovarPresupuesto, reportarIncidencia,
+  cambiarReenvioPedido, cambiarViaPedido, cancelarPedido, confirmarEntrega, devolverAlCliente, devolverAlDeposito, marcarPerdido, servirDesdeStock, reabrirPresupuesto, renovarPresupuesto, reportarIncidencia,
   resolverIncidencia,
 } from '../flujos-actions'
 import FormConResultado from '@/components/FormConResultado'
 import CambiarReenvioPedido from '@/components/CambiarReenvioPedido'
+import CambiarViaPedido from '@/components/CambiarViaPedido'
 import { motivoReenvioFijo, reenvioDe, tarifaKgReferencia } from '@/lib/reenvio'
 import PendingButton from '@/components/PendingButton'
 import { anularVenta } from '../../ventas/actions'
@@ -47,7 +48,7 @@ import { estadoLinea } from '@/lib/pedido-edicion'
 import { etiquetaPieza, tiposPara, tiposParaPropio, TIPO_LABELS } from '@/lib/incidencias'
 import { motivoNoEntregable, saldoReal } from '@/lib/saldo-entrega'
 import { mensajeEstado, VERSIONES_VENEZUELA, type MensajeInput } from '@/lib/mensajes-cliente'
-import { motivoExpressNoAprobable, plazoExpress } from '@/lib/express'
+import { esLineaAvanzada, motivoExpressNoAprobable, motivoViaFija, plazoExpress } from '@/lib/express'
 import { expressDelPedido } from '@/lib/express-pedido'
 
 // "#123 Andry" en la pestaña del navegador; lo reexportan las dos rutas del detalle.
@@ -152,6 +153,12 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
   const puedeCambiarReenvio = porMiami && !isPresupuesto &&
     motivoReenvioFijo({ via: presupuesto.via, status: presupuesto.status, enCaja: presupuesto.items.some(it => it.envioId != null) }) == null &&
     (reenvioPedido === 'por_kilo' || tarifaKgReferencia(cfg) != null)
+  const puedeCambiarVia = motivoViaFija({
+    tipo: presupuesto.tipo,
+    status: presupuesto.status,
+    enCaja: presupuesto.items.some(it => it.envioId != null),
+    avanzado: presupuesto.items.some(esLineaAvanzada),
+  }) == null
 
   // ── Volumen y costo por mar ────────────────────────────────────────────────
   // El presupuesto es donde se decide el precio, así que es donde tiene que verse el
@@ -498,6 +505,12 @@ export default async function DetallePedido({ params, ruta }: { params: Promise<
               <CambiarReenvioPedido
                 a={reenvioPedido === 'por_kilo' ? 'shoppre' : 'por_kilo'}
                 action={cambiarReenvioPedido.bind(null, presupuesto.id, reenvioPedido === 'por_kilo' ? 'shoppre' : 'por_kilo')}
+              />
+            )}
+            {puedeCambiarVia && (
+              <CambiarViaPedido
+                a={presupuesto.via === 'express' ? 'normal' : 'express'}
+                action={cambiarViaPedido.bind(null, presupuesto.id, presupuesto.via === 'express' ? 'normal' : 'express')}
               />
             )}
             {isVenta ? <span className={`${chip} bg-green-100 text-green-700`}>Venta del depósito</span>

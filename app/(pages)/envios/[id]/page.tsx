@@ -153,7 +153,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   // Los dos carriles son documentos distintos, no variantes del mismo: el marítimo lleva
   // mercancía propia (EnvioLinea) y se arma pieza por pieza, el aéreo agrupa pedidos de
   // cliente. Se bifurca acá arriba en vez de llenar la ficha de condicionales.
-  const ruta = await db.envio.findUnique({ where: { id }, select: { modo: true, compraDeId: true } })
+  const ruta = await db.envio.findUnique({ where: { id }, select: { modo: true, reenvio: true, compraDeId: true } })
   if (!ruta) notFound()
   if (ruta.modo === 'maritimo_cbm') return <EnvioMaritimo envioId={id} />
   // Las cajas de la misma compra (una caja partida en el depósito, ver lib/mover-caja.ts): lo
@@ -193,8 +193,21 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     }),
     db.config.findMany(),
     db.pedidoItem.findMany({
-      // Una caja express lleva solo presupuestos express, y una aérea los demás (motivoViaNoCoincide).
-      where: { envioId: null, desdeStock: false, pedido: { tipo: { not: 'venta' }, status: { not: 'cancelado' }, via: ruta.modo === 'express' ? 'express' : 'normal' } },
+      // Una caja express lleva presupuestos express; si es express por USA (por kilo), también
+      // admite pedidos normales por kilo (se muestran aparte y no entran en el agregado masivo).
+      where: {
+        envioId: null,
+        desdeStock: false,
+        pedido: {
+          tipo: { not: 'venta' },
+          status: { not: 'cancelado' },
+          ...(ruta.modo === 'express'
+            ? (ruta.reenvio === 'por_kilo'
+                ? { OR: [{ via: 'express' }, { via: 'normal', reenvio: 'por_kilo' }] }
+                : { via: 'express' })
+            : { via: 'normal' }),
+        },
+      },
       include: {
         product: { select: { nameEs: true, bajajCode: true, discontinuedAt: true } },
         ensamble: { select: { nameEs: true, nameEn: true } },
@@ -762,7 +775,14 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     }
     return Array.from(m.values())
   }
-  const confirmadosSinAsignar = agruparSueltos(it => it.pedido.status === 'pedido')
+  const confirmadosSinAsignar = agruparSueltos(it =>
+    it.pedido.status === 'pedido' && (modoEnvio !== 'express' || it.pedido.via === 'express'),
+  )
+  // En express por USA (por kilo), los confirmados normales por kilo se muestran aparte: se pueden
+  // agregar de a uno o por línea, pero nunca entran en «Agregar los confirmados».
+  const normalesPorKiloSinAsignar = modoEnvio === 'express' && porKilo
+    ? agruparSueltos(it => it.pedido.status === 'pedido' && it.pedido.via !== 'express')
+    : []
   const presupuestosSinAsignar = agruparSueltos(it => it.pedido.status === 'presupuesto')
   const confirmadosPropios = confirmadosSinAsignar.filter(g => g[0].pedido.tipo === 'propio').length
 
@@ -816,8 +836,8 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   const pasaPorDeposito = !esCbm && inboundCaja !== 'cotizado'
 
   // A qué cajas se puede pasar un presupuesto (caja partida en el depósito, ver lib/mover-caja.ts):
-  // las confirmadas del mismo proveedor, modo y reenvío que sean de esta compra o de ninguna. La
-  // acción lo vuelve a revisar todo con las filas bloqueadas.
+  // las confirmadas del mismo proveedor, reenvío y vía (en por kilo, aérea y express por USA se
+  // cruzan entre sí) que sean de esta compra o de ninguna. La acción vuelve a revisar todo bajo lock.
   const origenMover: CajaParaMover = {
     id, modo: envio.modo, estado: envio.estado, supplierId: envio.supplierId, reenvio: envio.reenvio,
     despachaProveedor: inboundCaja === 'cotizado',
@@ -828,7 +848,13 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   }
   const candidatasMover = await db.envio.findMany({
     where: {
-      id: { not: id }, modo: envio.modo, supplierId: envio.supplierId, reenvio: envio.reenvio, estado: 'confirmado',
+      id: { not: id },
+      modo: envio.modo === 'aereo' && envio.reenvio === 'por_kilo'
+        ? { in: ['aereo', 'express'] }
+        : envio.modo,
+      supplierId: envio.supplierId,
+      reenvio: envio.reenvio,
+      estado: 'confirmado',
       OR: [{ id: raizCompra }, { compraDeId: raizCompra }, { compraDeId: null, partes: { none: {} } }],
     },
     select: {
@@ -839,6 +865,8 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
     },
     orderBy: { id: 'desc' },
   })
+  const nombreDestino = (c: (typeof candidatasMover)[number]) =>
+    `${c.nombre ?? `Caja #${c.id}`}${c.modo !== envio.modo ? ' (express)' : ''}`
   const motivosMover = candidatasMover.map(c => ({
     c,
     motivo: motivoNoMueve(origenMover, {
@@ -853,7 +881,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
   const motivoOrigen = motivoNoMueve(origenMover, cajaIdeal)
   const cajaNueva = { id: 'nueva' as const, nombre: '＋ Caja nueva (misma compra)' }
   const destinosMover = [
-    ...motivosMover.filter(m => m.motivo == null).map(({ c }) => ({ id: c.id, nombre: c.nombre ?? `Caja #${c.id}` })),
+    ...motivosMover.filter(m => m.motivo == null).map(({ c }) => ({ id: c.id, nombre: nombreDestino(c) })),
     ...(motivoOrigen == null ? [cajaNueva] : []),
   ]
   // Una pieza sin stock no estuvo en el depósito: se pasa aunque esta caja ya haya salido.
@@ -864,7 +892,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
         despachaProveedor: inboundCaja === 'cotizado', lineas: c.items,
         fleteAereoPagado: c.movimientos.length > 0, compraDeId: c.compraDeId, tieneHijas: c._count.partes > 0,
       }) == null)
-      .map(c => ({ id: c.id, nombre: c.nombre ?? `Caja #${c.id}` })),
+      .map(c => ({ id: c.id, nombre: nombreDestino(c) })),
     ...(motivoNoMueveSinEnviar(origenMover, cajaIdeal) == null ? [cajaNueva] : []),
   ]
   const motivoNoMover = destinosMover.length > 0 ? null : motivoOrigen
@@ -1199,11 +1227,12 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                 <details id="agregar-pedidos" className="group bg-white rounded-xl shadow-sm border border-gray-100 mb-4" open={items.length === 0 || esBorrador}>
                   <summary className={SUMMARY_CLS}>
                     <span className="min-w-0">
-                      <span className="block text-base font-semibold text-gray-900">{modoEnvio === 'express' ? 'Agregar presupuestos express' : 'Agregar pedidos'}</span>
+                      <span className="block text-base font-semibold text-gray-900">{esExpress ? 'Agregar presupuestos express' : 'Agregar pedidos'}</span>
                       <span className="block text-sm text-gray-600">
                         {confirmadosSinAsignar.length} {confirmadosSinAsignar.length === 1 ? 'confirmado' : 'confirmados'} con líneas sueltas
+                        {normalesPorKiloSinAsignar.length > 0 && ` · ${normalesPorKiloSinAsignar.length} ${normalesPorKiloSinAsignar.length === 1 ? 'normal por kilo' : 'normales por kilo'}`}
                         {' · '}{presupuestosSinAsignar.length} sin aprobar
-                        {modoEnvio === 'express' && ' · solo entran presupuestos express'}
+                        {esExpress && ' · solo entran presupuestos express'}
                       </span>
                     </span>
                     <span aria-hidden="true" className="mt-1 text-gray-500 transition-transform group-open:rotate-90">▶</span>
@@ -1216,7 +1245,9 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                     </p>
                   )}
                   {confirmadosSinAsignar.length === 0 ? (
-                    <p className="px-4 sm:px-6 py-4 text-sm text-gray-600">No hay pedidos confirmados con líneas sueltas.</p>
+                    <p className="px-4 sm:px-6 py-4 text-sm text-gray-600">
+                      {modoEnvio === 'express' ? 'No hay pedidos express confirmados con líneas sueltas.' : 'No hay pedidos confirmados con líneas sueltas.'}
+                    </p>
                   ) : (
                     <>
                       <FormConResultado
@@ -1253,6 +1284,29 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                       </div>
                     </>
                   )}
+                  {normalesPorKiloSinAsignar.length > 0 && (
+                    <>
+                      <h3 className="px-4 sm:px-6 pt-4 pb-1 border-t border-gray-100 text-sm font-semibold text-gray-700">
+                        Pedidos normales por kilo ({normalesPorKiloSinAsignar.length}) · no entran en «Agregar los confirmados»
+                      </h3>
+                      <div className="divide-y divide-gray-100">
+                        {normalesPorKiloSinAsignar.map(its => (
+                          <SueltoPedido
+                            key={its[0].pedidoId}
+                            envioId={envio.id}
+                            pedidoId={its[0].pedidoId}
+                            clientName={its[0].pedido.clientName}
+                            tipo={its[0].pedido.tipo}
+                            etiqueta="Normal · por kilo"
+                            lineas={lineasSueltas(its)}
+                            otrasCajas={otrasCajasDe(its[0].pedidoId)}
+                            agregarTodo={assignPedido}
+                            agregarElegidas={assignItems}
+                          />
+                        ))}
+                      </div>
+                    </>
+                  )}
                   {/* Los presupuestos sin aprobar pueden caerse: se agregan de a uno, nunca en el agregado masivo. */}
                   <h3 className="px-4 sm:px-6 pt-4 pb-1 border-t border-gray-100 text-sm font-semibold text-gray-700">
                     Presupuestos sin aprobar ({presupuestosSinAsignar.length}) · no entran en «Agregar los confirmados»
@@ -1270,6 +1324,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                           pedidoId={its[0].pedidoId}
                           clientName={its[0].pedido.clientName}
                           tipo={its[0].pedido.tipo}
+                          etiqueta={modoEnvio === 'express' && its[0].pedido.via !== 'express' ? 'Normal · por kilo' : undefined}
                           lineas={lineasSueltas(its)}
                           otrasCajas={otrasCajasDe(its[0].pedidoId)}
                           sinAprobar

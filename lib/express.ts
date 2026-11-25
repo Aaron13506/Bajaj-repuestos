@@ -213,14 +213,62 @@ export function motivoExpressNoAprobable(e: Pick<Express, 'excede' | 'holguraUsd
 }
 
 /**
- * Por qué una línea de un presupuesto no entra en esta caja, o null si entra. Un presupuesto
- * express viaja solo en una caja express, y una caja express lleva solo presupuestos
- * express: su precio se calculó con el flete directo y su tope es del paquete.
+ * Por qué una línea de un presupuesto no entra en esta caja por su vía, o null si entra.
+ *
+ * - Un presupuesto express viaja solo en una caja express (nunca en una aérea normal: se le
+ *   prometió entrega rápida).
+ * - Una caja express directo (Shoppre, con tope de $100) lleva solo presupuestos express.
+ * - Una caja express por USA (reenvío por kilo + One Way aéreo, sin tope) también acepta
+ *   pedidos normales cotizados por kilo: comparten depósito y tarifa hasta Miami, solo acelera
+ *   el último tramo. (No entran en el agregado masivo: se agregan de a uno.)
  */
-export function motivoViaNoCoincide(via: string | null | undefined, modoCaja: string | null | undefined): string | null {
+export function motivoViaNoCoincide(
+  via: string | null | undefined,
+  modoCaja: string | null | undefined,
+  reenvioPedido?: string | null,
+  reenvioCaja?: string | null,
+): string | null {
   const express = viaDe(via) === 'express'
   if (express && modoCaja !== 'express') return 'Es un presupuesto express: va en una caja express, no en esta.'
-  if (!express && modoCaja === 'express') return 'Esta caja es express: lleva solo presupuestos express.'
+  if (!express && modoCaja === 'express') {
+    if (reenvioCaja === 'por_kilo') {
+      if (reenvioPedido === 'por_kilo') return null
+      return 'Esta caja es express por kilo: para meter un pedido normal, cambiale el reenvío a por kilo (o pasalo a express).'
+    }
+    return 'Esta caja es express: lleva solo presupuestos express.'
+  }
+  return null
+}
+
+/**
+ * Si una línea ya avanzó más allá de «pendiente» (comprada, servida del depósito o en camino):
+ * una vez que pasa eso, la vía del pedido ya no se cambia. Compartido por ficha, editar y acciones.
+ */
+export function esLineaAvanzada(it: {
+  shippingStatus: string
+  costRealUsd: unknown
+  desdeStock: boolean
+}): boolean {
+  return it.shippingStatus !== 'pendiente' || it.costRealUsd != null || it.desdeStock
+}
+
+/**
+ * Por qué no se le puede cambiar la vía (normal ↔ express) a un pedido desde su ficha, sin
+ * recotizar, o null si se puede. Solo pedidos confirmados (los presupuestos se cambian desde
+ * Editar para que recoticen) mientras ninguna línea esté en una caja, comprada, servida del
+ * depósito o avanzada más allá de pendiente. No toca precios ni cobros.
+ */
+export function motivoViaFija(p: {
+  tipo: string
+  status: string
+  enCaja: boolean
+  avanzado: boolean
+}): string | null {
+  if (p.tipo === 'venta') return 'Una venta del depósito ya está entregada.'
+  if (p.status === 'cancelado') return 'Este pedido está cancelado.'
+  if (p.status === 'presupuesto') return 'Es un presupuesto sin confirmar: cambiale la vía desde Editar para recotizar.'
+  if (p.enCaja) return 'Ya tiene piezas en una caja: sacalas de la caja o movelas desde ahí.'
+  if (p.avanzado) return 'Ya tiene piezas compradas, servidas del depósito o en camino: no se puede cambiar de vía.'
   return null
 }
 

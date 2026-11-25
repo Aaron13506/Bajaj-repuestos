@@ -31,7 +31,8 @@ import { nombreEnsamble } from '@/lib/linea-pedido'
 import type { BundlePiece } from '@/lib/bundle'
 import { debeSaldo, mensajeEntregaConSaldo, motivoNoEntregable, saldoReal, seEntregaDesdeElPedido } from '@/lib/saldo-entrega'
 import { costoDeLinea, motivoNoServible } from '@/lib/venta-stock'
-import { isReenvio, motivoReenvioFijo, tarifaKgReferencia } from '@/lib/reenvio'
+import { isReenvio, motivoReenvioFijo, reenvioDe, tarifaKgReferencia } from '@/lib/reenvio'
+import { esLineaAvanzada, motivoViaFija } from '@/lib/express'
 
 const dec = (v: { toString(): string } | null | undefined) => (v != null ? parseFloat(v.toString()) : null)
 const usd = (n: number) => `$${n.toFixed(2)}`
@@ -828,6 +829,78 @@ export async function cambiarReenvioPedido(id: number, reenvio: string): Promise
       await registrarEvento(tx, id, 'reenvio', reenvio === 'por_kilo'
         ? `Reenvío cambiado a por kilo (₹${tarifaKgInr}/kg): va en una caja aérea por kilo`
         : 'Reenvío cambiado a Shoppre: va en una caja aérea Shoppre')
+    })
+  })
+  if (r.ok) {
+    revalidarPedido(id)
+    revalidatePath('/envios')
+  }
+  return r
+}
+
+/**
+ * Cambia la vía de un pedido confirmado (normal ↔ express) sin recotizar ni tocar cobros,
+ * mientras ninguna línea esté en una caja, comprada, servida del depósito o avanzada más allá de
+ * pendiente (motivoViaFija). Pensado para reposiciones (que nacen confirmadas como normales) o
+ * pedidos cuya vía se decide cambiar antes de meterlos en caja.
+ */
+export async function cambiarViaPedido(id: number, via: string): Promise<ActionResult> {
+  const r = await conErrorDeNegocio(async () => {
+    if (via !== 'normal' && via !== 'express') throw new ErrorDeNegocio('Esa vía no existe.')
+    const cfg = via === 'normal' ? toConfigMap(await db.config.findMany()) : null
+    await db.$transaction(async tx => {
+      const estado = await bloquearPedido(tx, id)
+      if (!estado) throw new ErrorDeNegocio(`El pedido #${id} ya no existe.`)
+      const p = await tx.pedido.findUniqueOrThrow({
+        where: { id },
+        select: {
+          tipo: true, via: true, reenvio: true, tarifaKgInr: true,
+          items: { select: { envioId: true, shippingStatus: true, costRealUsd: true, desdeStock: true } },
+        },
+      })
+      const motivo = motivoViaFija({
+        tipo: p.tipo,
+        status: estado.status,
+        enCaja: p.items.some(it => it.envioId != null),
+        avanzado: p.items.some(esLineaAvanzada),
+      })
+      if (motivo) throw new ErrorDeNegocio(motivo)
+      if (p.via === via) return
+
+      const reenvioActual = reenvioDe(p.reenvio)
+      let nuevoReenvio = reenvioActual
+      let nuevaTarifa: number | null = null
+      if (via === 'normal' && reenvioActual === 'por_kilo') {
+        const ref = cfg ? tarifaKgReferencia(cfg) : null
+        nuevaTarifa = p.tarifaKgInr != null ? Number(p.tarifaKgInr) : ref
+        if (nuevaTarifa == null) nuevoReenvio = 'shoppre'
+      }
+
+      // Guardado: si una línea entró a una caja, se compró o avanzó entre la lectura y acá, no cambia.
+      const hecho = await tx.pedido.updateMany({
+        where: {
+          id,
+          tipo: { not: 'venta' },
+          status: 'pedido',
+          items: {
+            none: {
+              OR: [
+                { envioId: { not: null } },
+                { shippingStatus: { not: 'pendiente' } },
+                { costRealUsd: { not: null } },
+                { desdeStock: true },
+              ],
+            },
+          },
+        },
+        data: { via, cajaExpressId: null, reenvio: nuevoReenvio, tarifaKgInr: nuevaTarifa },
+      })
+      if (hecho.count === 0) {
+        throw new ErrorDeNegocio('El pedido cambió mientras tanto (alguna pieza entró a una caja o avanzó). Recargá la página.')
+      }
+      await registrarEvento(tx, id, 'via', via === 'express'
+        ? 'Vía cambiada a express: puede entrar en una caja express'
+        : `Vía cambiada a normal (por Miami · ${nuevoReenvio === 'por_kilo' ? `por kilo ₹${nuevaTarifa}/kg` : 'Shoppre'})`)
     })
   })
   if (r.ok) {

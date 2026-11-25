@@ -2,7 +2,7 @@
 
 import { cuentaDeMetodo } from '@/lib/cuentas'
 import { db } from '@/lib/db'
-import type { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { isDelivered, isPending, isValidStatus, normalizeToRoute, routeFor, statusIndex } from '@/lib/shipping-status'
@@ -381,85 +381,111 @@ export async function assignItems(envioId: number, itemIds: number[]): Promise<A
 // muestra `items`, así que la línea desaparecía de la vista— o de una ya entregada, y con un
 // id que ya no existe saltaba un error de FK sin explicación. Devuelve el motivo en vez de
 // tirarlo, porque en producción un throw llega sin texto.
+// Todo dentro de UNA transacción, bloqueando Envio primero y los Pedido implicados después
+// (orden ascendente de id, mismo orden que moverACaja): así una pestaña que cambia la vía/reenvío
+// del pedido, abre una recepción o asigna las mismas líneas a otra caja se serializa sin pisarse.
 async function asignarAEnvio(envioId: number, itemIds: number[]): Promise<ActionResult> {
-  if (itemIds.length === 0) return ok()
-  const contando = await motivoRecepcionAbierta(envioId)
-  if (contando) return fallo(contando)
+  const idsUnicos = [...new Set(itemIds)]
+  if (idsUnicos.length === 0) return ok()
 
-  const [envio, items] = await Promise.all([
-    db.envio.findUnique({
-      where: { id: envioId },
-      select: { modo: true, reenvio: true, estado: true, supplier: { select: { id: true, origen: true, inbound: true } } },
-    }),
-    db.pedidoItem.findMany({
-      where: { id: { in: itemIds } },
-      select: { id: true, productId: true, shippingStatus: true, costRealUsd: true, pedido: { select: { tipo: true, status: true, via: true, reenvio: true } } },
-    }),
-  ])
+  return conErrorDeNegocio(() => db.$transaction(async tx => {
+    const lockEnvio = await tx.$queryRaw<{ id: number }[]>`SELECT "id" FROM "Envio" WHERE "id" = ${envioId} FOR UPDATE`
+    if (lockEnvio.length === 0) throw new ErrorDeNegocio(`La caja #${envioId} ya no existe.`)
 
-  if (!envio) return fallo(`La caja #${envioId} ya no existe.`)
-  // Una venta del depósito ya salió: no hay nada que comprar ni que viajar.
-  if (items.some(i => i.pedido.tipo === 'venta')) {
-    return fallo('Una venta del depósito ya está entregada: no viaja en ninguna caja.')
-  }
-  if (items.some(i => i.pedido.status === 'cancelado')) {
-    return fallo('Ese pedido está cancelado: no viaja en ninguna caja.')
-  }
-  if (!llevaPedidos(envio.modo)) {
-    return fallo('Esa caja es marítima: lleva mercancía propia pieza por pieza, no pedidos.')
-  }
-  // Express con express, y por Miami cada pedido en una caja aérea de su mismo reenvío: es lo que
-  // se le cotizó al cliente. Candado real de assignPedido, "agregar todos" y la confirmación.
-  for (const it of items) {
-    const motivo = motivoViaNoCoincide(it.pedido.via, envio.modo) ?? motivoReenvioNoCoincide(it.pedido, {
-      ...envio, despachaProveedor: envio.supplier != null && inboundDe(envio.supplier.origen, envio.supplier.inbound) === 'cotizado',
+    const contando = await motivoRecepcionAbierta(envioId, tx)
+    if (contando) throw new ErrorDeNegocio(contando)
+
+    // Orden canónico: Envio → Pedido (asc por id) para evitar deadlocks con cambiarViaPedido/moverACaja.
+    const refs = await tx.pedidoItem.findMany({
+      where: { id: { in: idsUnicos } },
+      select: { pedidoId: true },
+      distinct: ['pedidoId'],
     })
-    if (motivo) return fallo(motivo)
-  }
-  if (envio.estado === 'entregado') {
-    return fallo('Esa caja ya se entregó: no se le pueden agregar pedidos.')
-  }
-  // Lo que ya se pagó se le compró a alguien que no es esta caja: entrar acá le cambiaría el
-  // proveedor y la ruta, y su pago (sin caja) nunca saldaría la deuda que sumaría aquí. Una caja
-  // de 99rpm no lleva cuenta con el proveedor, así que esa sí la recibe.
-  if (envio.supplier && items.some(i => i.costRealUsd != null)) {
-    return fallo('Hay piezas que ya se compraron fuera de esta caja: no pueden pasar a una caja con proveedor.')
-  }
+    const pedidoIds = refs.map(r => r.pedidoId).sort((a, b) => a - b)
+    if (pedidoIds.length > 0) {
+      await tx.$queryRaw`SELECT "id" FROM "Pedido" WHERE "id" IN (${Prisma.join(pedidoIds)}) ORDER BY "id" FOR UPDATE`
+    }
 
-  const sup = envio.supplier
-  const origen = sup?.origen ?? 'india'
-  const inbound = inboundDe(origen, sup?.inbound)
+    const [envio, items] = await Promise.all([
+      tx.envio.findUniqueOrThrow({
+        where: { id: envioId },
+        select: { modo: true, reenvio: true, estado: true, supplier: { select: { id: true, origen: true, inbound: true } } },
+      }),
+      tx.pedidoItem.findMany({
+        where: { id: { in: idsUnicos }, envioId: null, desdeStock: false },
+        select: { id: true, productId: true, shippingStatus: true, costRealUsd: true, pedido: { select: { tipo: true, status: true, via: true, reenvio: true } } },
+      }),
+    ])
 
-  // isLanded no sale del proveedor sino de la fila explícita (proveedor, producto): el
-  // mismo proveedor puede cotizar unas piezas puestas en Venezuela y otras no. Un conjunto no
-  // es una pieza y no tiene precio de proveedor propio (cotizan cada pieza, no el ensamble),
-  // así que nunca es landed.
-  // En express todo sale del depósito de Shoppre en el mismo paquete: nada es landed.
-  const piezaIds = envio.modo === 'express' ? [] : items.flatMap(i => (i.productId != null ? [i.productId] : []))
-  const landed = sup && piezaIds.length > 0
-    ? new Set(
-        (await db.supplierPrice.findMany({
-          where: { supplierId: sup.id, productId: { in: piezaIds }, isLanded: true },
-          select: { productId: true },
-        })).map(r => r.productId),
-      )
-    : new Set<number>()
+    if (!llevaPedidos(envio.modo)) {
+      throw new ErrorDeNegocio('Esa caja es marítima: lleva mercancía propia pieza por pieza, no pedidos.')
+    }
+    if (envio.estado === 'entregado') {
+      throw new ErrorDeNegocio('Esa caja ya se entregó: no se le pueden agregar pedidos.')
+    }
+    if (items.length === 0) {
+      throw new ErrorDeNegocio('Esas líneas ya entraron en otra caja o no están libres. Recargá la página.')
+    }
+    // Una venta del depósito ya salió: no hay nada que comprar ni que viajar.
+    if (items.some(i => i.pedido.tipo === 'venta')) {
+      throw new ErrorDeNegocio('Una venta del depósito ya está entregada: no viaja en ninguna caja.')
+    }
+    if (items.some(i => i.pedido.status === 'cancelado')) {
+      throw new ErrorDeNegocio('Ese pedido está cancelado: no viaja en ninguna caja.')
+    }
+    // Express con express, y por Miami cada pedido en una caja aérea de su mismo reenvío (salvo
+    // express por USA —por kilo— que también admite pedidos normales por kilo). Candado real de
+    // assignPedido, assignItems, "agregar todos" y la confirmación.
+    const despachaProveedor = envio.supplier != null && inboundDe(envio.supplier.origen, envio.supplier.inbound) === 'cotizado'
+    for (const it of items) {
+      const motivo = motivoViaNoCoincide(it.pedido.via, envio.modo, it.pedido.reenvio, envio.reenvio)
+        ?? motivoReenvioNoCoincide(it.pedido, { ...envio, despachaProveedor })
+      if (motivo) throw new ErrorDeNegocio(motivo)
+    }
+    // Lo que ya se pagó se le compró a alguien que no es esta caja: entrar acá le cambiaría el
+    // proveedor y la ruta, y su pago (sin caja) nunca saldaría la deuda que sumaría aquí. Una caja
+    // de 99rpm no lleva cuenta con el proveedor, así que esa sí la recibe.
+    if (envio.supplier && items.some(i => i.costRealUsd != null)) {
+      throw new ErrorDeNegocio('Hay piezas que ya se compraron fuera de esta caja: no pueden pasar a una caja con proveedor.')
+    }
 
-  await db.$transaction(items.map(it => {
-    const esLanded = it.productId != null && landed.has(it.productId)
-    return db.pedidoItem.update({
-      where: { id: it.id },
-      data: {
-        envioId,
-        supplierId: sup?.id ?? null,
-        origen,
-        inbound,
-        isLanded: esLanded,
-        shippingStatus: normalizeToRoute(it.shippingStatus, routeFor(inbound, esLanded, envio.modo, envio.reenvio)),
-      },
-    })
-  }))
-  return ok()
+    const sup = envio.supplier
+    const origen = sup?.origen ?? 'india'
+    const inbound = inboundDe(origen, sup?.inbound)
+
+    // isLanded no sale del proveedor sino de la fila explícita (proveedor, producto): el
+    // mismo proveedor puede cotizar unas piezas puestas en Venezuela y otras no. Un conjunto no
+    // es una pieza y no tiene precio de proveedor propio (cotizan cada pieza, no el ensamble),
+    // así que nunca es landed.
+    // En express todo sale del depósito de Shoppre en el mismo paquete: nada es landed.
+    const piezaIds = envio.modo === 'express' ? [] : items.flatMap(i => (i.productId != null ? [i.productId] : []))
+    const landed = sup && piezaIds.length > 0
+      ? new Set(
+          (await tx.supplierPrice.findMany({
+            where: { supplierId: sup.id, productId: { in: piezaIds }, isLanded: true },
+            select: { productId: true },
+          })).map(r => r.productId),
+        )
+      : new Set<number>()
+
+    for (const it of items) {
+      const esLanded = it.productId != null && landed.has(it.productId)
+      const r = await tx.pedidoItem.updateMany({
+        where: { id: it.id, envioId: null, desdeStock: false },
+        data: {
+          envioId,
+          supplierId: sup?.id ?? null,
+          origen,
+          inbound,
+          isLanded: esLanded,
+          shippingStatus: normalizeToRoute(it.shippingStatus, routeFor(inbound, esLanded, envio.modo, envio.reenvio)),
+        },
+      })
+      if (r.count !== 1) {
+        throw new ErrorDeNegocio('Alguna línea cambió mientras se agregaba a la caja. Recargá la página.')
+      }
+    }
+  }, { maxWait: 10_000, timeout: 15_000 }))
 }
 
 // Saca de la caja SOLO lo que nunca se compró (estadoLinea 'libre'). Una línea comprada ya tiene
@@ -511,8 +537,6 @@ async function moverACaja(
   const nueva = destinoRaw === 'nueva'
   let destinoId = parseInt(destinoRaw)
   if (!nueva && !Number.isInteger(destinoId)) return fallo('Elegí a qué caja pasarlo.')
-  const contando = await motivoRecepcionAbierta(envioId) ?? (nueva ? null : await motivoRecepcionAbierta(destinoId))
-  if (contando) return fallo(contando)
 
   return conErrorDeNegocio(async () => {
     await db.$transaction(async tx => {
@@ -534,8 +558,16 @@ async function moverACaja(
         })
         destinoId = creada.id
       }
+      // Orden canónico: Envio (asc por id) → Pedido, igual que asignarAEnvio.
       const [a, b] = envioId < destinoId ? [envioId, destinoId] : [destinoId, envioId]
       await tx.$queryRaw`SELECT "id" FROM "Envio" WHERE "id" IN (${a}, ${b}) ORDER BY "id" FOR UPDATE`
+      const contando = await motivoRecepcionAbierta(envioId, tx) ?? (nueva ? null : await motivoRecepcionAbierta(destinoId, tx))
+      if (contando) throw new ErrorDeNegocio(contando)
+
+      const estadoPedido = await bloquearPedido(tx, pedidoId)
+      if (!estadoPedido) throw new ErrorDeNegocio(`El pedido #${pedidoId} ya no existe.`)
+      const pedido = await tx.pedido.findUniqueOrThrow({ where: { id: pedidoId }, select: { via: true, reenvio: true } })
+
       const cajas = await tx.envio.findMany({
         where: { id: { in: [envioId, destinoId] } },
         select: {
@@ -562,7 +594,16 @@ async function moverACaja(
       const origen = leer(envioId)
       const destino = leer(destinoId)
       const motivo = (sinEnviar ? motivoNoMueveSinEnviar : motivoNoMueve)(origen, destino)
+        ?? motivoViaNoCoincide(pedido.via, destino.modo, pedido.reenvio, destino.reenvio)
       if (motivo) throw new ErrorDeNegocio(motivo)
+
+      // En express todo sale del depósito en el mismo paquete: nada es landed.
+      if (destino.modo === 'express') {
+        const hayLanded = await tx.pedidoItem.count({ where: { ...cuales, envioId, isLanded: true } })
+        if (hayLanded > 0) {
+          throw new ErrorDeNegocio('Hay piezas puestas en Venezuela (landed): no viajan en una caja express.')
+        }
+      }
 
       const esperadas = await tx.pedidoItem.count({ where: { ...cuales, envioId } })
       if (esperadas === 0) throw new ErrorDeNegocio(sinEnviar ? 'Esa línea ya no está en esta caja. Recargá la página.' : 'Ese presupuesto ya no está en esta caja. Recargá la página.')
@@ -626,6 +667,7 @@ export async function assignAllConfirmados(envioId: number, formData: FormData):
   const ids = await db.pedidoItem.findMany({
     where: {
       envioId: null,
+      desdeStock: false,
       pedido: {
         status: 'pedido',
         via,

@@ -105,8 +105,8 @@ export async function pendienteDeRecibir(envio: { id: number; modo: string }): P
 }
 
 /** Por qué no se puede cambiar el contenido de la caja, o null: con una recepción abierta, no. */
-export async function motivoRecepcionAbierta(envioId: number): Promise<string | null> {
-  const r = await db.recepcion.findFirst({ where: { envioId, cerradaAt: null }, select: { id: true } })
+export async function motivoRecepcionAbierta(envioId: number, client: Pick<Tx, 'recepcion'> = db): Promise<string | null> {
+  const r = await client.recepcion.findFirst({ where: { envioId, cerradaAt: null }, select: { id: true } })
   return r ? 'La caja se está contando (recepción abierta): cerrala o terminá el conteo antes de cambiar lo que lleva.' : null
 }
 
