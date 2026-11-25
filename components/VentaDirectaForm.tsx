@@ -583,6 +583,11 @@ export default function VentaDirectaForm({ action, clientes, ensambles, motos, m
                         </label>
                         <span className="ml-auto pb-2 text-sm font-semibold text-gray-900 tabular-nums">{Number.isFinite(subtotal) ? usd(subtotal) : '—'}</span>
                       </div>
+                      {l.pieza.ajustadoPorCosto && (
+                        <p className="text-[11px] text-amber-800">
+                          Ajustado por costo de entrada (catálogo ${l.pieza.precioCatalogo.toFixed(2)})
+                        </p>
+                      )}
                     </li>
                   )
                 })}

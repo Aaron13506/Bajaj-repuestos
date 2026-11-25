@@ -117,3 +117,103 @@ export function motivoNoServible(
 export function cuantoSumar(cantidad: number, stock: number, enCarrito: number): number {
   return Math.max(0, Math.min(cantidad, stock - enCarrito))
 }
+
+// ── Costo real en depósito (capas FIFO vigentes) y piso de margen al vender ──────────────────
+
+export interface EntradaStockCosto {
+  /** Unidades positivas de una entrada de compra/recepción/alta/saldo_inicial (de más reciente a más vieja). */
+  cantidad: number
+  /** null = entrada vieja sin costo registrado; usa fallbackCatalogoUsd. */
+  costoUnitUsd: number | null
+  motivo: string
+}
+
+const MOTIVOS_ENTRADA_COSTO = new Set([
+  'recepcion', 'entrega_propio', 'alta', 'saldo_inicial', 'ajuste', 'conteo', 'edicion_pedido',
+])
+
+/**
+ * Costo unitario promedio ponderado de las `stockActual` unidades que hoy están en el depósito,
+ * tomando las entradas de adquisición más recientes (FIFO: lo viejo ya se vendió).
+ * - Ignora entradas que son reversas de salidas ('anulacion_venta', 'devuelto_deposito').
+ * - Una entrada sin costoUnitUsd (o sobrante en 0) usa `fallbackCatalogoUsd` para esas unidades;
+ *   si tampoco hay fallback o el resultado no es > 0, devuelve `fallbackCatalogoUsd` (o null).
+ */
+export function costoStockActual(
+  stockActual: number,
+  entradasRecientesPrimero: EntradaStockCosto[],
+  fallbackCatalogoUsd: number | null,
+): number | null {
+  const fallback =
+    fallbackCatalogoUsd != null && Number.isFinite(fallbackCatalogoUsd) && fallbackCatalogoUsd > 0
+      ? fallbackCatalogoUsd
+      : null
+
+  if (stockActual <= 0) return fallback != null ? round2(fallback) : null
+
+  const entradas = entradasRecientesPrimero.filter(
+    e => e.cantidad > 0 && MOTIVOS_ENTRADA_COSTO.has(e.motivo),
+  )
+
+  let restante = stockActual
+  let sumaCosto = 0
+  let cubierto = 0
+
+  for (const e of entradas) {
+    if (restante <= 0) break
+    const tomar = Math.min(restante, e.cantidad)
+    const costoCapa =
+      e.costoUnitUsd != null && Number.isFinite(e.costoUnitUsd) && e.costoUnitUsd > 0
+        ? e.costoUnitUsd
+        : fallback
+    if (costoCapa == null || !(costoCapa > 0)) {
+      return fallback != null ? round2(fallback) : null
+    }
+    sumaCosto += tomar * costoCapa
+    cubierto += tomar
+    restante -= tomar
+  }
+
+  if (restante > 0) {
+    if (fallback != null) {
+      sumaCosto += restante * fallback
+      cubierto += restante
+    } else if (cubierto === 0) {
+      return null
+    }
+  }
+
+  const promedio = cubierto > 0 ? sumaCosto / cubierto : 0
+  return promedio > 0 ? round2(promedio) : (fallback != null ? round2(fallback) : null)
+}
+
+export interface PrecioDeposito {
+  precioSugeridoUsd: number
+  /** true cuando el costo real en depósito obligó a subir sobre el precio de catálogo para cuidar el margen. */
+  ajustadoPorCosto: boolean
+  pisoMargenUsd: number | null
+}
+
+export function precioVentaDeposito(opts: {
+  precioCatalogoUsd: number
+  costoStockUsd: number | null
+  /** Fracción [0, 1), ej. 0.30. */
+  margen: number
+}): PrecioDeposito {
+  const catalogo = round2(Math.max(0, Number.isFinite(opts.precioCatalogoUsd) ? opts.precioCatalogoUsd : 0))
+  const piso =
+    opts.costoStockUsd != null &&
+    Number.isFinite(opts.costoStockUsd) &&
+    opts.costoStockUsd > 0 &&
+    Number.isFinite(opts.margen) &&
+    opts.margen >= 0 &&
+    opts.margen < 0.95
+      ? round2(opts.costoStockUsd / (1 - opts.margen))
+      : null
+
+  if (piso != null && piso > catalogo + 0.01) {
+    return { precioSugeridoUsd: piso, ajustadoPorCosto: true, pisoMargenUsd: piso }
+  }
+  return { precioSugeridoUsd: catalogo, ajustadoPorCosto: false, pisoMargenUsd: piso }
+}
+

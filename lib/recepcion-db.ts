@@ -14,7 +14,7 @@ import { normCodigo, resolverLectura, type PiezaAContar } from '@/lib/conteo'
 import { buscarPorCodigo, leidoComo } from '@/lib/buscar-codigo'
 import { moverStock, StockInsuficiente } from '@/lib/stock'
 import { moverEtapasEn } from '@/lib/mover-etapas'
-import { contextoCosteo, costearMaritimo, ENVIO_COSTEO_INCLUDE } from '@/lib/costo-envios'
+import { contextoCosteo, costearAereo, costearMaritimo, ENVIO_COSTEO_INCLUDE } from '@/lib/costo-envios'
 import {
   claveDe, destinoDeUnidades, esDecision, esperadoDeRecepcion, estadoFila, pendienteDeLinea, planCierre, puedeCerrar,
   type EstadoFila, type FilaEsperada, type LineaCaja,
@@ -368,6 +368,31 @@ async function costoUnitMaritimo(envioId: number): Promise<Map<number, number | 
   return out
 }
 
+// Costo por unidad de cada pieza en una caja aérea o express (clave itemId:productId + fallback *:productId).
+async function costoUnitAereo(envioId: number): Promise<Map<string, number | null>> {
+  const e = await db.envio.findUniqueOrThrow({ where: { id: envioId }, include: ENVIO_COSTEO_INCLUDE })
+  const { calc, itemIdDeLinea } = costearAereo(e, await contextoCosteo([e]))
+  const acum = new Map<string, { landed: number; qty: number; incompleto: boolean }>()
+  const sumar = (clave: string, landed: number, qty: number, incompleto: boolean) => {
+    const cur = acum.get(clave) ?? { landed: 0, qty: 0, incompleto: false }
+    cur.landed += landed
+    cur.qty += qty
+    if (incompleto) cur.incompleto = true
+    acum.set(clave, cur)
+  }
+  calc.lines.forEach((l, i) => {
+    if (l.productId == null || l.quantity <= 0) return
+    const incompleto = l.missingWeight || l.productCostUsd <= 0
+    sumar(`${itemIdDeLinea[i]}:${l.productId}`, l.landedUsd, l.quantity, incompleto)
+    sumar(`*:${l.productId}`, l.landedUsd, l.quantity, incompleto)
+  })
+  const out = new Map<string, number | null>()
+  for (const [k, v] of acum) {
+    out.set(k, v.incompleto || v.qty <= 0 ? null : Math.round((v.landed / v.qty) * 100) / 100)
+  }
+  return out
+}
+
 // Cierra la recepción: escribe lo que dice planCierre (etapas, stock con moverStock, incidencias) y
 // la deja cerrada. `decisiones` va por id de fila. Primero, en su propia transacción, refresca lo
 // esperado contra lo que la caja lleva hoy y guarda las decisiones (no se pierden si el cierre se niega).
@@ -403,7 +428,8 @@ export async function cerrarRecepcion(recepcionId: number, decisiones: Record<nu
     }
   }, TX_OPTS)
 
-  const costoUnit = maritimo ? await costoUnitMaritimo(envio.id) : null
+  const costoUnitMar = maritimo ? await costoUnitMaritimo(envio.id) : null
+  const costoUnitAer = maritimo ? null : await costoUnitAereo(envio.id)
 
   await db.$transaction(async tx => {
     await bloquearRecepcion(tx, recepcionId)
@@ -411,7 +437,12 @@ export async function cerrarRecepcion(recepcionId: number, decisiones: Record<nu
     const no = puedeCerrar(filas)
     if (no) throw new ErrorDeNegocio(no)
     const lineas = maritimo ? [] : await lineasDeCaja(tx, envio.id)
-    const plan = planCierre(filas, maritimo ? { modo: 'maritimo', costoUnit: costoUnit! } : { modo: 'aereo', lineas })
+    const plan = planCierre(
+      filas,
+      maritimo
+        ? { modo: 'maritimo', costoUnit: costoUnitMar! }
+        : { modo: 'aereo', lineas, costoUnit: costoUnitAer! },
+    )
 
     const cerrada = await tx.recepcion.updateMany({
       where: { id: recepcionId, cerradaAt: null },

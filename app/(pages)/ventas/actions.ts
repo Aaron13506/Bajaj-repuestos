@@ -17,6 +17,7 @@ import { toModelIds, type MotoModelId } from '@/lib/modelo'
 import { whereModel } from '@/lib/catalog'
 import { codigoContiene } from '@/lib/alt-sku'
 import { moverStock, StockInsuficiente } from '@/lib/stock'
+import { costosEnDepositoDb, type CostoYPrecioDeposito } from '@/lib/costo-stock'
 
 // Una pieza del depósito tal como la ve el formulario de venta.
 export interface PiezaEnStock {
@@ -27,10 +28,13 @@ export interface PiezaEnStock {
   /** Estante del depósito, para ir a buscarla. null = sin asignar. */
   ubicacion: string | null
   price: number
+  /** Precio de catálogo (Product.price, aéreo normal) sin ajustar. */
+  precioCatalogo: number
+  /** true cuando el costo real en depósito obligó a subir el precio sugerido sobre el de catálogo. */
+  ajustadoPorCosto: boolean
   imageUrl: string | null
   models: MotoModelId[]
-  // Lo que cuesta reponerla hoy (el mismo costo con el que se valúa el inventario). Null = la
-  // pieza no tiene costo cargado y hay que escribirlo en la venta.
+  // Costo real de las unidades en el depósito (capas FIFO vigentes, con fallback a landedCostUsd).
   costoUnitUsd: number | null
 }
 
@@ -39,20 +43,26 @@ const SELECT_EN_STOCK = {
   compatibleModels: true, landedCostUsd: true,
 } as const
 
-function aPiezaEnStock(p: {
+type RowEnStock = {
   id: number; nameEs: string; bajajCode: string | null; stock: number; ubicacion: string | null; price: { toString(): string }
   imageUrl: string | null; compatibleModels: string | null; landedCostUsd: { toString(): string } | null
-}): PiezaEnStock {
+}
+
+function aPiezaEnStock(p: RowEnStock, costos: Map<number, CostoYPrecioDeposito>): PiezaEnStock {
+  const c = costos.get(p.id)
+  const precioCatalogo = c?.precioCatalogoUsd ?? parseFloat(p.price.toString())
   return {
     id: p.id,
     nameEs: p.nameEs,
     bajajCode: p.bajajCode,
     stock: p.stock,
     ubicacion: p.ubicacion,
-    price: parseFloat(p.price.toString()),
+    price: c?.precioSugeridoUsd ?? precioCatalogo,
+    precioCatalogo,
+    ajustadoPorCosto: c?.ajustadoPorCosto ?? false,
     imageUrl: p.imageUrl,
     models: toModelIds(p.compatibleModels),
-    costoUnitUsd: p.landedCostUsd != null ? parseFloat(p.landedCostUsd.toString()) : null,
+    costoUnitUsd: c ? c.costoUnitUsd : (p.landedCostUsd != null ? parseFloat(p.landedCostUsd.toString()) : null),
   }
 }
 
@@ -75,7 +85,8 @@ export async function buscarEnStock(term: string, modelo?: string) {
     take: 12,
     orderBy: { nameEs: 'asc' },
   })
-  return rows.map(aPiezaEnStock)
+  const costos = await costosEnDepositoDb(rows.map(r => r.id))
+  return rows.map(r => aPiezaEnStock(r, costos))
 }
 
 // Las piezas con que arranca la venta ya cargada (el «Vender» del inicio, el carrito del modo
@@ -84,7 +95,8 @@ export async function piezasEnStock(ids: number[]): Promise<PiezaEnStock[]> {
   const validos = ids.filter(id => Number.isInteger(id) && id > 0)
   if (validos.length === 0) return []
   const ps = await db.product.findMany({ where: { id: { in: validos }, stock: { gt: 0 } }, select: SELECT_EN_STOCK })
-  return ps.map(aPiezaEnStock)
+  const costos = await costosEnDepositoDb(ps.map(p => p.id))
+  return ps.map(p => aPiezaEnStock(p, costos))
 }
 
 // Las piezas de un ensamble (todas sus variantes por moto) que están en el depósito, agrupadas
@@ -96,7 +108,8 @@ export async function getComponentesEnStock(ensambleIds: number[]) {
     select: { id: true, groupName: true, sortOrder: true, product: { select: SELECT_EN_STOCK } },
     orderBy: [{ groupName: 'asc' }, { sortOrder: 'asc' }, { id: 'asc' }],
   })
-  return comps.map(c => ({ id: c.id, groupName: c.groupName, product: aPiezaEnStock(c.product) }))
+  const costos = await costosEnDepositoDb(comps.map(c => c.product.id))
+  return comps.map(c => ({ id: c.id, groupName: c.groupName, product: aPiezaEnStock(c.product, costos) }))
 }
 
 function leerLineas(formData: FormData): LineaVenta[] {

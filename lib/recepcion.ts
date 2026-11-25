@@ -252,7 +252,9 @@ const TIPO_DE: Record<Decision, IncidenciaPlan['tipo']> = { backorder: 'sin_envi
 //   los dos   lo contado de más entra como sobrante a $0 (regalo del proveedor).
 export function planCierre(
   filas: FilaRecepcion[],
-  caja: { modo: 'aereo'; lineas: LineaCaja[] } | { modo: 'maritimo'; costoUnit: Map<number, number | null> },
+  caja:
+    | { modo: 'aereo'; lineas: LineaCaja[]; costoUnit?: Map<string, number | null> }
+    | { modo: 'maritimo'; costoUnit: Map<number, number | null> },
 ): PlanCierre {
   const plan: PlanCierre = { etapas: [], stock: [], incidencias: [], backordersCerrados: [] }
   const porClave = new Map(filas.flatMap(f => (f.codigo != null ? [[f.codigo, f] as const] : [])))
@@ -286,7 +288,8 @@ export function planCierre(
       for (const p of piezas) {
         const productId = porClave.get(p.clave)?.productId ?? p.productId
         if (p.cubierto > 0 && productId != null) {
-          plan.stock.push({ productId, cantidad: p.cubierto, motivo: 'recepcion', costoUnitUsd: null, pedidoId: l.pedidoId, pedidoItemId: l.itemId })
+          const costoUnitUsd = caja.costoUnit?.get(`${l.itemId}:${productId}`) ?? caja.costoUnit?.get(`*:${productId}`) ?? null
+          plan.stock.push({ productId, cantidad: p.cubierto, motivo: 'recepcion', costoUnitUsd, pedidoId: l.pedidoId, pedidoItemId: l.itemId })
         }
       }
     }

@@ -225,7 +225,7 @@ function FichaCorta({ f, leidoComo, ubicar, escanearEstante }: { f: Ficha; leido
             {f.enCamino.map(c => (
               <li key={c.envioId}>
                 <Link target="_blank" href={`/envios/${c.envioId}`} className="inline-flex min-h-11 items-center text-blue-700 underline">
-                  {c.nombre} · {c.unidades} u.
+                  {c.modo === 'maritimo_cbm' ? '🚢' : c.modo === 'express' ? '⚡' : '✈️'} {c.nombre} · {c.unidades} u.
                 </Link>
               </li>
             ))}

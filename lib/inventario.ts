@@ -3,7 +3,9 @@ import type { BundlePiece } from './bundle'
 import { nombreEnsamble } from './linea-pedido'
 import { construirResolver, piezasDeLinea, type LineaStock, type ResolverPieza } from './stock-piezas'
 import { ENVIO_COSTEO_INCLUDE, contextoCosteo, costearAereo, costearMaritimo } from './costo-envios'
+import { costosEnDepositoDb } from './costo-stock'
 import { ensamblesDePieza, type EnsambleDePieza } from './inventario-vista'
+import { MODOS_CON_PEDIDOS } from './modo'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Inventario PROPIO: lo que tengo y lo que ya compré y viene, pieza por pieza.
@@ -13,8 +15,8 @@ import { ensamblesDePieza, type EnsambleDePieza } from './inventario-vista'
 //   aquí        Product.stock. Entra cuando la línea se marca 'entregado' (aéreo) o la caja
 //               se recibe (marítimo). Un conjunto entra como sus piezas (lib/stock-piezas).
 //   en camino   Lo que está en una caja CONFIRMADA y todavía no llegó: las líneas de pedidos
-//               propios en cajas aéreas confirmadas, y las de embarques marítimos confirmados.
-//               Confirmar la caja es decidir la compra (ver confirmarCajaAerea).
+//               propios en cajas aéreas o express confirmadas, y las de embarques marítimos
+//               confirmados. Confirmar la caja es decidir la compra (ver confirmarCajaAerea).
 //
 // Nada más. Un pedido propio fuera de una caja, o una caja en BORRADOR (aérea o marítima, como
 // un embarque de "planificación"), no aparece en ningún lado: ni en el valor, ni en las
@@ -47,7 +49,7 @@ export async function resolverDePiezas(lineas: LineaStock[]): Promise<ResolverPi
 export interface CajaDePieza {
   envioId: number
   nombre: string
-  modo: 'aereo' | 'maritimo_cbm'
+  modo: 'aereo' | 'express' | 'maritimo_cbm'
   unidades: number
 }
 
@@ -75,7 +77,7 @@ export async function posicionesStock(): Promise<{ porProducto: Map<number, Posi
       where: {
         pedido: { tipo: 'propio' },
         shippingStatus: { not: 'entregado' },
-        envio: { modo: 'aereo', estado: 'confirmado' },
+        envio: { modo: { in: [...MODOS_CON_PEDIDOS] }, estado: 'confirmado' },
       },
       select: {
         productId: true, quantity: true, bundleItems: true,
@@ -106,9 +108,10 @@ export async function posicionesStock(): Promise<{ porProducto: Map<number, Posi
     envio: { id: number; nombre: string | null; modo: string },
   ) => {
     const p = de(productId)
-    const modo = envio.modo === 'maritimo_cbm' ? 'maritimo_cbm' : 'aereo'
-    if (modo === 'aereo') p.caminoAereo += unidades
-    else p.caminoMaritimo += unidades
+    const modo: CajaDePieza['modo'] =
+      envio.modo === 'maritimo_cbm' ? 'maritimo_cbm' : envio.modo === 'express' ? 'express' : 'aereo'
+    if (modo === 'maritimo_cbm') p.caminoMaritimo += unidades
+    else p.caminoAereo += unidades
     const caja = p.cajas.find(c => c.envioId === envio.id)
     if (caja) caja.unidades += unidades
     else p.cajas.push({ envioId: envio.id, nombre: nombreCaja(envio), modo, unidades })
@@ -168,21 +171,18 @@ export interface ResumenInventario {
     incompleto: boolean
   }
   /** Cada caja confirmada con mercancía propia en camino, con lo que vale eso puesto en Venezuela. */
-  cajas: { envioId: number; nombre: string; modo: 'aereo' | 'maritimo_cbm'; valorUsd: number }[]
+  cajas: { envioId: number; nombre: string; modo: 'aereo' | 'express' | 'maritimo_cbm'; valorUsd: number }[]
   /** Piezas de conjuntos en camino que no se pudieron identificar en el catálogo. */
   sinResolver: number
 }
 
 // El inventario completo, valorado.
 //
-//   aquí:      costo de REPOSICIÓN actual (landedCostUsd, el mismo que fija los precios de
-//              venta), no el histórico de lo que ya está en el depósito — eso pediría costeo
-//              por lote. Decisión explícita.
+//   aquí:      costo real de las entradas vigentes en el kardex (capas FIFO vía costosEnDepositoDb),
+//              con fallback a Product.landedCostUsd cuando no hay costo unitario registrado.
 //   en camino: el landed de cada línea según el costeo de SU caja (lib/costo-envios, el mismo
 //              número que la ficha): mercancía (lo pagado si ya se cargó) + flete (el
-//              facturado si ya llegó la factura) + cargos + comisiones. Antes se tomaba
-//              solo lo que se le pagó al proveedor, que es la mercancía sola: en la primera
-//              caja propia, un tercio de lo que de verdad cuesta.
+//              facturado si ya llegó la factura) + cargos + comisiones.
 export async function resumenInventario(): Promise<ResumenInventario> {
   const [{ porProducto, sinResolver }, cajas] = await Promise.all([
     posicionesStock(),
@@ -190,7 +190,7 @@ export async function resumenInventario(): Promise<ResumenInventario> {
       where: {
         estado: 'confirmado',
         OR: [
-          { modo: 'aereo', items: { some: { pedido: { tipo: 'propio' }, shippingStatus: { not: 'entregado' } } } },
+          { modo: { in: [...MODOS_CON_PEDIDOS] }, items: { some: { pedido: { tipo: 'propio' }, shippingStatus: { not: 'entregado' } } } },
           { modo: 'maritimo_cbm', lineas: { some: {} } },
         ],
       },
@@ -241,25 +241,29 @@ export async function resumenInventario(): Promise<ResumenInventario> {
     })
     valorAereo += suma
     cajasAereo++
-    porCaja.push({ envioId: e.id, nombre: nombreCaja(e), modo: 'aereo', valorUsd: suma })
+    porCaja.push({ envioId: e.id, nombre: nombreCaja(e), modo: e.modo === 'express' ? 'express' : 'aereo', valorUsd: suma })
     if (!calc.caja.medido || calc.tramo?.faltaCosto === true) incompleto = true
   }
 
   const ids = [...new Set([...porProducto.keys(), ...valorCamino.keys()])]
-  const productos = ids.length > 0
-    ? await db.product.findMany({
-        where: { id: { in: ids } },
-        select: {
-          id: true, nameEs: true, bajajCode: true, ubicacion: true, compatibleModels: true, landedCostUsd: true, price: true,
-          assemblies: {
-            select: {
-              groupName: true,
-              ensamble: { select: { nameEs: true, nameEn: true, imageUrl: true, compatibleModels: true } },
+  const aquiIds = [...porProducto.values()].filter(p => p.aqui > 0).map(p => p.productId)
+  const [productos, costosAqui] = await Promise.all([
+    ids.length > 0
+      ? db.product.findMany({
+          where: { id: { in: ids } },
+          select: {
+            id: true, nameEs: true, bajajCode: true, ubicacion: true, compatibleModels: true, landedCostUsd: true, price: true,
+            assemblies: {
+              select: {
+                groupName: true,
+                ensamble: { select: { nameEs: true, nameEn: true, imageUrl: true, compatibleModels: true } },
+              },
             },
           },
-        },
-      })
-    : []
+        })
+      : Promise.resolve([]),
+    costosEnDepositoDb(aquiIds, db, ctx.cfg),
+  ])
 
   const filas: FilaInventario[] = []
   let aquiValor = 0
@@ -275,11 +279,12 @@ export async function resumenInventario(): Promise<ResumenInventario> {
     if (pos.aqui > 0) {
       aquiProductos++
       aquiUnidades += pos.aqui
-      if (pr.landedCostUsd == null) {
+      const costoAqui = costosAqui.get(pr.id)?.costoUnitUsd ?? (pr.landedCostUsd != null ? parseFloat(pr.landedCostUsd.toString()) : null)
+      if (costoAqui == null || !(costoAqui > 0)) {
         valorAquiUsd = null
         sinCosto++
       } else {
-        valorAquiUsd = pos.aqui * parseFloat(pr.landedCostUsd.toString())
+        valorAquiUsd = pos.aqui * costoAqui
         aquiValor += valorAquiUsd
       }
     }

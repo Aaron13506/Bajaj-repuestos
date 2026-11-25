@@ -47,7 +47,7 @@ import { leerEtiqueta, normUbicacion, type Lectura } from '../lib/qr-bajaj'
 import { difConteo, motivoNoCierraConteo, pideNota, planCierreConteo, sugerirConteo } from '../lib/conteo-inventario'
 import { cuentaDeMetodo, datosBs, leerCobroBs } from '../lib/cuentas'
 import { convertir, usdPorBsAlConvertir, usdPorBsEnCuenta } from '../lib/conversion'
-import { costoDeLinea, cuantoSumar, motivoNoServible, motivoNoVendible, resumenVenta } from '../lib/venta-stock'
+import { costoDeLinea, costoStockActual, cuantoSumar, motivoNoServible, motivoNoVendible, precioVentaDeposito, resumenVenta } from '../lib/venta-stock'
 import { agruparPorEnsamble, ensamblesDePieza, margenAPrecioDeHoy, SE_PIERDE } from '../lib/inventario-vista'
 import { margenDePedido, mesDe, resultadoPorMes, type LineaMargen, type MargenPedido } from '../lib/margen'
 import { cierreDe, embudo, estadoValidez, escalonDelPresupuesto, motivoNoAprobable, validezDias } from '../lib/validez'
@@ -1500,6 +1500,23 @@ console.log('\nRECEPCIÓN (esperado, reparto, cierre, stepper)')
   check('cierre: no esperada entra como sobrante a $0', si(plan.stock.some(m => m.productId === 99 && m.motivo === 'sobrante_recepcion' && m.cantidad === 2 && m.costoUnitUsd === 0)), 1)
   check('cierre: lo del cliente no suma stock', plan.stock.filter(m => m.pedidoItemId === cli.itemId).length, 0)
 
+  // planCierre aéreo/express con costoUnit real: graba costoUnitUsd por itemId:productId y fallback *:productId.
+  const proExp = linea({ codigo: 'E1', nombre: 'Bujía', productId: 77, quantity: 2, propio: true })
+  const proFb = linea({ codigo: 'E2', nombre: 'Junta', productId: 78, quantity: 1, propio: true })
+  const planConCosto = planCierre(
+    [
+      fila({ codigo: 'E1', productId: 77, esperado: 2, contado: 2 }),
+      fila({ codigo: 'E2', productId: 78, esperado: 1, contado: 1 }),
+    ],
+    {
+      modo: 'aereo',
+      lineas: [proExp, proFb],
+      costoUnit: new Map<string, number | null>([[`${proExp.itemId}:77`, 18.45], ['*:78', 9.2]]),
+    },
+  )
+  check('cierre aéreo/express: graba costoUnitUsd exacto por itemId:productId', planConCosto.stock.find(m => m.productId === 77)?.costoUnitUsd ?? -1, 18.45)
+  check('cierre aéreo/express: fallback *:productId si falta la clave exacta', planConCosto.stock.find(m => m.productId === 78)?.costoUnitUsd ?? -1, 9.2)
+
   const entera = linea({ codigo: 'Q1', productId: 5, quantity: 2 })
   const pe = planCierre([fila({ codigo: 'Q1', productId: 5, esperado: 2, contado: 0, decision: 'backorder' })], { modo: 'aereo', lineas: [entera] })
   check('cierre: todo en backorder no se mueve', pe.etapas.length, 0)
@@ -2372,6 +2389,85 @@ console.log('\nMEDIDAS DE UNA PIEZA')
   check('bolsa: 0 piezas se rechaza', si(pesoPorPieza(25, 0) === null), 1)
   check('bolsa: cantidad no entera se rechaza', si(pesoPorPieza(25, 2.5) === null), 1)
   check('bolsa: cantidad ilegible se rechaza', si(pesoPorPieza(25, NaN) === null), 1)
+}
+
+console.log('\nCOSTO REAL EN DEPÓSITO Y PISO DE MARGEN')
+{
+  const si = (b: boolean) => (b ? 1 : 0)
+  // 1 unidad express ($18) tras haber vendido 2 marítimas ($8) → la que queda en depósito cuesta $18.
+  check(
+    'fifo: 1 express $18 + 2 marítimas $8 con stock=1 → $18',
+    costoStockActual(1, [
+      { cantidad: 1, costoUnitUsd: 18, motivo: 'recepcion' },
+      { cantidad: 2, costoUnitUsd: 8, motivo: 'recepcion' },
+    ], 11)!,
+    18,
+  )
+  // Mezcla 1 express $18 + 1 marítima $8 con stock=2 → promedio ponderado $13.
+  check(
+    'fifo: 1 express $18 + 1 marítima $8 con stock=2 → $13',
+    costoStockActual(2, [
+      { cantidad: 1, costoUnitUsd: 18, motivo: 'recepcion' },
+      { cantidad: 1, costoUnitUsd: 8, motivo: 'recepcion' },
+    ], 11)!,
+    13,
+  )
+  // Entrada vieja sin costoUnitUsd (null) usa el fallback de catálogo.
+  check(
+    'fifo: entrada con null usa fallback de catálogo',
+    costoStockActual(2, [
+      { cantidad: 1, costoUnitUsd: 18, motivo: 'recepcion' },
+      { cantidad: 2, costoUnitUsd: null, motivo: 'saldo_inicial' },
+    ], 10)!,
+    14,
+  )
+  // Reversas de salidas ('anulacion_venta', 'devuelto_deposito') y sobrante a $0 no contaminan.
+  check(
+    'fifo: anulacion_venta y devuelto_deposito se ignoran',
+    costoStockActual(1, [
+      { cantidad: 1, costoUnitUsd: 99, motivo: 'anulacion_venta' },
+      { cantidad: 1, costoUnitUsd: 50, motivo: 'devuelto_deposito' },
+      { cantidad: 1, costoUnitUsd: 0, motivo: 'sobrante_recepcion' },
+      { cantidad: 1, costoUnitUsd: 18, motivo: 'recepcion' },
+    ], 11)!,
+    18,
+  )
+  // Sin historial suficiente: el sobrante se cubre con fallback de catálogo.
+  check(
+    'fifo: faltan entradas históricas → cubre restante con fallback',
+    costoStockActual(3, [{ cantidad: 1, costoUnitUsd: 18, motivo: 'recepcion' }], 9)!,
+    12,
+  )
+  // Sin historial y sin fallback: devuelve promedio de lo cubierto si hay algo, o null si nada.
+  check(
+    'fifo: sin fallback, devuelve promedio de lo cubierto',
+    costoStockActual(3, [{ cantidad: 1, costoUnitUsd: 18, motivo: 'recepcion' }], null)!,
+    18,
+  )
+  check(
+    'fifo: sin entradas ni fallback → null',
+    si(costoStockActual(2, [], null) === null),
+    1,
+  )
+  // Stock en 0 devuelve fallback (si hay).
+  check('fifo: stock 0 devuelve fallback', costoStockActual(0, [{ cantidad: 1, costoUnitUsd: 18, motivo: 'recepcion' }], 11)!, 11)
+
+  // Piso de margen en /ventas/new:
+  // Stock barato (marítimo o relleno express barato) respeta Product.price del catálogo.
+  const barato = precioVentaDeposito({ precioCatalogoUsd: 16, costoStockUsd: 7, margen: 0.30 })
+  check('piso: stock barato respeta catálogo ($16)', barato.precioSugeridoUsd, 16)
+  check('piso: stock barato no marca ajustadoPorCosto', si(barato.ajustadoPorCosto), 0)
+  check('piso: expone pisoMargenUsd ($10)', barato.pisoMargenUsd!, 10)
+
+  // Express caro ($18, catálogo $16, margen 30%) sube al piso $25.71.
+  const caro = precioVentaDeposito({ precioCatalogoUsd: 16, costoStockUsd: 18, margen: 0.30 })
+  check('piso: express caro sube al piso de margen ($25.71)', caro.precioSugeridoUsd, 25.71)
+  check('piso: express caro marca ajustadoPorCosto', si(caro.ajustadoPorCosto), 1)
+
+  // Sin costo en depósito: mantiene catálogo sin ajustar.
+  const sinCosto = precioVentaDeposito({ precioCatalogoUsd: 16, costoStockUsd: null, margen: 0.30 })
+  check('piso: sin costo respeta catálogo', sinCosto.precioSugeridoUsd, 16)
+  check('piso: sin costo no marca ajustado', si(sinCosto.ajustadoPorCosto), 0)
 }
 
 console.log(`\n${fallos === 0 ? '✅ todo ok' : `❌ ${fallos} fallos`}\n`)

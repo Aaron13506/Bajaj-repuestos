@@ -7,6 +7,7 @@
 // pedido, con el mismo orden de siempre: pedido primero, sus movimientos después.
 import { Prisma } from '@prisma/client'
 import { moverStock, StockInsuficiente } from '@/lib/stock'
+import { costosEnDepositoDb } from '@/lib/costo-stock'
 import { db } from '@/lib/db'
 import { noVinoVuelveACamino } from '@/lib/mover-etapas'
 import { revalidatePath } from 'next/cache'
@@ -259,7 +260,8 @@ export async function servirDesdeStock(itemId: number): Promise<ActionResult> {
         incidencias: { select: { tipo: true, estado: true } },
       },
     })
-    const costoUnit = dec(l.product?.landedCostUsd)
+    const costos = l.productId != null ? await costosEnDepositoDb([l.productId], tx) : null
+    const costoUnit = l.productId != null ? (costos?.get(l.productId)?.costoUnitUsd ?? null) : null
     const no = motivoNoServible(
       { ...l, costRealUsd: dec(l.costRealUsd) },
       l.pedido,

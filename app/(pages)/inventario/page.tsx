@@ -114,8 +114,10 @@ export default async function InventarioPage({ searchParams }: Props) {
   const aPerdida = filas.filter(f => SE_PIERDE(f.margenUsd)).length
   const sinPrecioOCosto = filas.length - conCosto.length
 
+  const iconoModo = (modo: 'aereo' | 'express' | 'maritimo_cbm') =>
+    modo === 'maritimo_cbm' ? '🚢' : modo === 'express' ? '⚡' : '✈️'
   const hayFiltro = e.ver !== 'todo' || e.moto != null || e.pierde || e.q !== ''
-  const titulo = caja ? `Viene en ${caja.modo === 'maritimo_cbm' ? '🚢' : '✈️'} ${caja.nombre}`
+  const titulo = caja ? `Viene en ${iconoModo(caja.modo)} ${caja.nombre}`
     : e.pierde ? 'Cuestan más que su precio'
       : e.por === 'ensamble' ? 'Ensambles' : 'Piezas'
   const deMoto = e.moto ? ` · ${e.moto}` : ''
@@ -228,7 +230,7 @@ export default async function InventarioPage({ searchParams }: Props) {
               </Link>
               {cajas.map(c => (
                 <Link key={c.envioId} href={href({ caja: c.envioId })} aria-current={e.caja === c.envioId ? 'true' : undefined} className={CHIP(e.caja === c.envioId)}>
-                  {c.modo === 'maritimo_cbm' ? '🚢' : '✈️'} {c.nombre}
+                  {iconoModo(c.modo)} {c.nombre}
                   <span className="text-xs opacity-80 tabular-nums">{plural(c.piezas, 'pieza', 'piezas')} · {usd(c.valorUsd)}</span>
                 </Link>
               ))}
@@ -346,7 +348,7 @@ function CajasDe({ f }: { f: Fila }) {
     <span className="flex flex-wrap gap-x-3">
       {f.cajas.map(c => (
         <Link key={c.envioId} href={`/envios/${c.envioId}`} className={`inline-flex items-center min-h-6 text-xs whitespace-nowrap ${LINK}`}>
-          {c.modo === 'maritimo_cbm' ? '🚢' : '✈️'} {c.nombre} · {c.unidades} u.
+          {c.modo === 'maritimo_cbm' ? '🚢' : c.modo === 'express' ? '⚡' : '✈️'} {c.nombre} · {c.unidades} u.
         </Link>
       ))}
     </span>
