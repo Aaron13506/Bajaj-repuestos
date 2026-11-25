@@ -338,13 +338,11 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
               editable={esBorrador}
             />
           </div>
-          <p className="text-sm text-gray-500 mt-1">
-            {envio.notas ?? (
-              esEntregado
-                ? `Recibida${envio.entregadoAt ? ` el ${envio.entregadoAt.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' })}` : ''} — ${lineas.length} pieza${lineas.length === 1 ? '' : 's'} ya sumada${lineas.length === 1 ? '' : 's'} a stock.`
-                : 'Mercancía propia que viaja por barco. Sin clientes: cuando llega, entra a stock.'
-            )}
-          </p>
+          {(envio.notas || esEntregado) && (
+            <p className="text-sm text-gray-500 mt-1">
+              {envio.notas ?? `Recibida${envio.entregadoAt ? ` el ${envio.entregadoAt.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' })}` : ''} · ${lineas.length} pieza${lineas.length === 1 ? '' : 's'} en stock.`}
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {!esBorrador && !esEntregado && lineas.length > 0 && (
@@ -404,38 +402,34 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
           {descontinuadas.length > 0 && (
             <p className="bg-red-50 border border-red-200 text-red-800 rounded-lg px-4 py-3 text-sm">
               <span className="font-semibold">
-                {descontinuadas.length} pieza{descontinuadas.length === 1 ? '' : 's'} descontinuada
-                {descontinuadas.length === 1 ? '' : 's'} adentro de la caja:{' '}
+                {descontinuadas.length} descontinuada{descontinuadas.length === 1 ? '' : 's'}:{' '}
                 {descontinuadas.slice(0, 3).map(l => l.bajajCode ?? l.nameEs).join(', ')}
-                {descontinuadas.length > 3 && `… y ${descontinuadas.length - 3} más`}.
+                {descontinuadas.length > 3 && `… (+${descontinuadas.length - 3})`}.
               </span>{' '}
-              Bajaj no las fabrica más, así que no se le pueden comprar a ningún proveedor. Sacalas del embarque
-              — mientras estén, no se puede guardar.
+              Sacalas para poder guardar.
             </p>
           )}
 
           {resumen.sinMedidas > 0 && (
             <p className="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-4 py-3 text-sm">
-              <span className="font-semibold">{resumen.sinMedidas} pieza{resumen.sinMedidas === 1 ? '' : 's'} sin medir.</span>{' '}
-              No suman volumen: el m³ real de esta caja es mayor que el que ves. Cargalas abajo antes de cerrarla.
+              <span className="font-semibold">{resumen.sinMedidas} pieza{resumen.sinMedidas === 1 ? '' : 's'} sin medir:</span>{' '}
+              no suman al volumen.
             </p>
           )}
 
           {bajoMinimo.length > 0 && (
             <p className="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-4 py-3 text-sm">
               <span className="font-semibold">
-                {bajoMinimo.length} línea{bajoMinimo.length === 1 ? '' : 's'} por debajo del mínimo de{' '}
+                {bajoMinimo.length} línea{bajoMinimo.length === 1 ? '' : 's'} bajo el mínimo de{' '}
                 {envio.supplier?.name ?? 'el proveedor'}.
               </span>{' '}
-              Esas cantidades no se pueden pedir: hay que subirlas hasta el mínimo o sacar la pieza de la caja.
-              Ajustalas abajo — cada una te dice cuánto le falta.
+              Subí la cantidad o sacala de la caja.
             </p>
           )}
 
           {resumen.excedeDensidad && hayVolumenUtil && (
             <p className="bg-red-50 border border-red-200 text-red-800 rounded-lg px-4 py-3 text-sm">
-              Densidad de {Math.round(resumen.densidad!)} kg/m³, por encima del tope de {CBM_MAX_KG_PER_M3} kg/m³.
-              Con esta carga la naviera puede cobrar por peso en vez de por volumen.
+              Densidad {Math.round(resumen.densidad!)} kg/m³ (tope {CBM_MAX_KG_PER_M3} kg/m³): la naviera puede cobrar por peso.
             </p>
           )}
 
@@ -461,7 +455,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
                 {realPorM3 != null ? usd(realPorM3) : '—'}
               </p>
               <p className="text-[11px] text-gray-500">
-                {realPorM3 != null ? `tarifa ${usd(p.ratePerM3)}` : 'muy poco volumen para medirlo'}
+                {realPorM3 != null ? `tarifa ${usd(p.ratePerM3)}` : 'volumen bajo'}
               </p>
             </div>
             <div>
@@ -529,7 +523,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
                   className="w-40 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
                 <p className="text-[11px] text-gray-500 mt-1">
-                  lo que te cobró tu banco por girar {usd(embarque.giroUsd)}
+                  Tu banco ({usd(embarque.giroUsd)})
                 </p>
               </div>
               <div>
@@ -551,7 +545,7 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
                   className="w-40 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
                 <p className="text-[11px] text-gray-500 mt-1">
-                  lo que le descontaron al recibir y le completaste
+                  Descontado al recibir
                 </p>
               </div>
               <PendingButton
@@ -561,17 +555,14 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
               </PendingButton>
               {!embarque.cargada && (
                 <p className="text-[11px] text-gray-500 basis-full">
-                  Vacío no es cero: mientras falte una punta, esa parte cuenta $0 y el landed sale corto.
+                  Vacío cuenta como $0; poné 0 si no hubo cargo.
                 </p>
               )}
             </FormConResultado>
           )}
 
-          {/* Curva de dilución del FOB: es la decisión de CUÁNDO mandar. El flete escala
-              con el volumen, el FOB no — así que el costo por m³ baja al llenar, y hasta
-              el mínimo facturable baja en picada. */}
           <div className="pt-4 border-t border-gray-100 text-xs text-gray-500">
-            <span className="font-medium text-gray-600">Costo por m³ según cuánto lleves:</span>{' '}
+            <span className="font-medium text-gray-600">Ref. $/m³ (FOB {usd(p.fobUsd)}):</span>{' '}
             {[p.minM3, Math.max(p.minM3, 1) * 2, Math.max(p.minM3, 1) * 3].map((v, i) => (
               <span key={v}>
                 {i > 0 && ' · '}
@@ -581,14 +572,8 @@ export default async function EnvioMaritimo({ envioId }: { envioId: number }) {
               </span>
             ))}
             {embarque.pagaMinimo && realPorM3 != null && (
-              <span className="font-mono text-amber-700"> · vos hoy: {usd(realPorM3)}/m³</span>
+              <span className="font-mono text-amber-700"> · hoy: {usd(realPorM3)}/m³</span>
             )}
-            {embarque.pagaMinimo && realPorM3 == null && (
-              <span className="text-amber-700"> · hoy llevás tan poco que el flete es casi todo el costo</span>
-            )}
-            <span className="block mt-1 text-gray-500">
-              Llenar más no abarata el flete: abarata el FOB de {usd(p.fobUsd)}, que se reparte entre más mercancía.
-            </span>
           </div>
         </div>
       )}

@@ -72,6 +72,12 @@ Charges attach to what generated them (spreading them wrecks the per-piece lande
 - Never hidden: **coverage** (unquoted pieces fall to 99rpm's base price), **MOQ** (raises quantity, never unit price; applied by default, extra units named), **pieces with no price** (enter as $0).
 - Inputs: an existing `Pedido` (`cargarPedido`, bundles expanded) or a pasted list. The list carries **only SKU and quantity** — the price comes from `SupplierPrice`, the thing under test. `parseListaSkus` tolerates fenced JSON, `{items:[…]}`, or a code per line, and drops freight/tax/total rows. `LISTA_SKU_PROMPT` warns that "Set Qty" is the MOQ, not the quantity wanted. SKUs resolve through the alternate SKU (`lib/alt-sku.ts`).
 
+## Deposit stock valuation & margin floor (`lib/venta-stock.ts` · `lib/costo-stock.ts`)
+
+- `Product.price` and `Product.landedCostUsd` in the catalog always stay on the normal air lane (never overwritten by an express or maritime reception).
+- For units physically in the depot (`stock > 0`), `costoStockActual` computes the weighted unit cost of the active FIFO layers from acquisition kardex entries (`recepcion`, `entrega_propio`, `alta`, `saldo_inicial`, `ajuste`, `conteo`, `edicion_pedido` — ignoring `anulacion_venta`, `devuelto_deposito`, `sobrante_recepcion`), falling back to `Product.landedCostUsd` when no costed entry exists.
+- `precioVentaDeposito` suggests `max(precioCatalogo, round2(costoStock / (1 - margen)))` in `/ventas/new` (`costosEnDepositoDb`, used by `ventas/actions.ts`, `servirDesdeStock` and `resumenInventario`), flagging `ajustadoPorCosto = true` when a higher-cost entry (e.g. own stock brought by Express) raises the suggested price above catalog.
+
 ## Any "how much does this weigh / cost" question
 
 Go through `lib/quote-metrics.ts` (`{ sku, qty }[]` → `calcEnvio`), e.g. `pnpm q quote` — never a one-off script with hardcoded rates: it drifts from the app the moment a Config value moves.

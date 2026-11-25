@@ -35,50 +35,50 @@ const NO_NEGATIVO: [number, number] = [0, Infinity]
 const FRACCION: [number, number] = [0, 0.5]
 
 export const FIELD_META: Record<string, FieldMeta> = {
-  inr_usd_rate:           { label: 'Tasa INR / USD',               hint: 'Rupias indias por 1 USD — ver XE.com', cron: true, rango: POSITIVO },
-  bsd_usd_rate:           { label: 'Tasa BsD / USD',               hint: 'Bolívares por 1 USD, paralelo/Binance. Es la tasa a la que se cobra directo, sin recargo', cron: true, rango: POSITIVO },
-  bcv_usd_rate:           { label: 'Tasa BCV / USD',                hint: 'Bolívares OFICIALES por 1 USD (usdt.com.ve)', cron: true, rango: POSITIVO },
-  bcv_brecha_pct:         { label: 'Brecha BCV vs. paralelo (%)',   hint: 'Brecha del día del mejor precio paralelo sobre el BCV (paralelo / BCV − 1). El precio a tasa BCV la pasa a descuento (brecha / (1 + brecha): 40% de brecha es 28.6% de descuento) y la redondea hacia arriba en escalones de 5%: ese es el descuento por pago en divisas', cron: true, rango: [0, 95] },
-  shoppre_member:         { label: 'Membresía Shoppre',            hint: 'Tildado = tarifa de socio (el descuento que Shoppre aplica sobre el básico). Entra en el flete de todo lo que pasa por Shoppre: catálogo, presupuestos y envíos', boolean: true, booleanDefault: true, checkLabel: 'Aplicar la tarifa de socio' },
-  shoppre_carrier:        { label: 'Transportista Shoppre',        hint: 'Define la tabla escalón del tramo India → USA. Las opciones salen de la tarifa vigente' },
-  reference_weight_kg:    { label: 'Peso de referencia (kg)',      hint: 'Peso total del envío de referencia para prorratear costos Shoppre', rango: POSITIVO },
-  air_volumetric_divisor: { label: 'Divisor volumétrico aéreo',     hint: 'vol_kg = L×A×H(cm) / divisor. Shoppre/ShipGlobal: 5000 (IATA clásico: 6000)', rango: POSITIVO },
-  miami_caracas_per_ft3:  { label: 'Marítimo Miami → CCS (USD/ft³)', hint: 'Costo del flete marítimo por pie cúbico', rango: NO_NEGATIVO },
-  caja_sin_pesar_tolerancia_pct: { label: 'Tolerancia de una caja sin pesar (%)', hint: 'En una caja que todavía no se pesó y midió, "ata el volumen" sale de comparar dos sumas de piezas. Si el volumétrico supera al real por menos de este %, el flete aéreo se reparte entre pedidos de forma gradual (peso → volumen) y no todo por volumen. Con la caja pesada y medida no aplica. Default 10', rango: [0, 100] },
-  shoppre_insurance_pct:  { label: 'Seguro Shoppre (fracción)',    hint: 'P.ej. 0.03 = 3% sobre el valor declarado', rango: FRACCION },
-  shoppre_processing_inr: { label: 'Processing fee Shoppre (INR)', hint: 'Cargo fijo por paquete en rupias', rango: NO_NEGATIVO },
+  inr_usd_rate:           { label: 'Tasa INR / USD',               hint: 'Rupias indias por 1 USD.', cron: true, rango: POSITIVO },
+  bsd_usd_rate:           { label: 'Tasa BsD / USD',               hint: 'Bs por 1 USD (paralelo/Binance). Tasa de cobro directo.', cron: true, rango: POSITIVO },
+  bcv_usd_rate:           { label: 'Tasa BCV / USD',                hint: 'Bs oficiales por 1 USD (BCV).', cron: true, rango: POSITIVO },
+  bcv_brecha_pct:         { label: 'Brecha BCV vs. paralelo (%)',   hint: 'Paralelo sobre BCV (%). Define el escalón de descuento en divisas.', cron: true, rango: [0, 95] },
+  shoppre_member:         { label: 'Membresía Shoppre',            hint: 'Aplica tarifa de socio Shoppre en catálogo, presupuestos y envíos.', boolean: true, booleanDefault: true, checkLabel: 'Aplicar la tarifa de socio' },
+  shoppre_carrier:        { label: 'Transportista Shoppre',        hint: 'Tabla escalón India → USA de la tarifa Shoppre vigente.' },
+  reference_weight_kg:    { label: 'Peso de referencia (kg)',      hint: 'Peso de referencia (kg) para prorratear costos Shoppre.', rango: POSITIVO },
+  air_volumetric_divisor: { label: 'Divisor volumétrico aéreo',     hint: 'vol_kg = L×A×H(cm) / divisor. Shoppre: 5000 (IATA: 6000).', rango: POSITIVO },
+  miami_caracas_per_ft3:  { label: 'Marítimo Miami → CCS (USD/ft³)', hint: 'Flete marítimo Miami → Caracas por pie cúbico (USD).', rango: NO_NEGATIVO },
+  caja_sin_pesar_tolerancia_pct: { label: 'Tolerancia de una caja sin pesar (%)', hint: 'Margen (%) para repartir gradualmente entre peso y volumen si la caja no está pesada. Default: 10.', rango: [0, 100] },
+  shoppre_insurance_pct:  { label: 'Seguro Shoppre (fracción)',    hint: 'Fracción sobre valor declarado (0.03 = 3%).', rango: FRACCION },
+  shoppre_processing_inr: { label: 'Processing fee Shoppre (INR)', hint: 'Cargo fijo por paquete en rupias.', rango: NO_NEGATIVO },
   // El otro reenvío India → USA, en paralelo a Shoppre (lib/reenvio.ts): su tabla por peso de caja.
-  reenvio_kilo_tarifa_inr: { label: 'Reenvío por kilo: tabla (₹)', hint: 'JSON: tramos en orden de peso, cada uno con hastaKg, inr y total (true = inr es el precio de la caja entera; false = ₹ por kg). Ej. [{"hastaKg": 4, "inr": 9878, "total": true}, {"hastaKg": 5, "inr": 1760, "total": false}]. Pasado el último tramo sigue su tarifa. Un número solo = tarifa plana por kg. Cada caja por kilo se costea con el tramo de su peso (salvo que le anotes su propia tarifa); el catálogo y los presupuestos, con el tramo del peso de referencia, como Shoppre. Vacío = la ruta por kilo no se muestra', multiline: true, valido: v => parsearTablaPorKilo(v) != null },
-  reenvio_precios:         { label: 'Reenvío con el que se cotiza', hint: 'Con cuál nacen los presupuestos nuevos por Miami (shoppre o por_kilo). En cada presupuesto se puede cambiar. Sin tarifa de referencia, siempre Shoppre', options: ['shoppre', 'por_kilo'] },
-  reenvio_kilo_en_catalogo: { label: 'Ruta por kilo en el catálogo', hint: 'Muestra el bloque ámbar (flete, landed, venta y margen por kilo) en Productos, la ficha de producto y la de ensamble. Necesita la tarifa de referencia. Solo cambia qué se ve: los presupuestos siguen pudiendo cotizar por kilo', boolean: true, booleanDefault: true, checkLabel: 'Mostrar la ruta por kilo en el catálogo' },
+  reenvio_kilo_tarifa_inr: { label: 'Reenvío por kilo: tabla (₹)', hint: 'JSON de tramos [{"hastaKg", "inr", "total"}] o número plano ₹/kg. Vacío = oculta ruta por kilo.', multiline: true, valido: v => parsearTablaPorKilo(v) != null },
+  reenvio_precios:         { label: 'Reenvío con el que se cotiza', hint: 'Reenvío por defecto al crear presupuestos por Miami.', options: ['shoppre', 'por_kilo'] },
+  reenvio_kilo_en_catalogo: { label: 'Ruta por kilo en el catálogo', hint: 'Muestra bloque por kilo en catálogo (requiere tarifa cargada).', boolean: true, booleanDefault: true, checkLabel: 'Mostrar la ruta por kilo en el catálogo' },
   // ── Envío express (Shoppre directo India → Venezuela). La tarifa la trae el cron
   // (shoppre_rates_ve_usd); seguro, processing y socio son los mismos de Shoppre.
-  express_tope_usd:   { label: 'Tope del paquete express (USD)', hint: 'El landed de cada paquete express (producto + flete + seguro + processing) no puede pasar de este monto. Vacío = 100', rango: POSITIVO },
-  express_plazo_dias: { label: 'Plazo express (días hábiles)',  hint: 'Lo que se le promete al cliente en el PDF, contado desde la compra. Ej: "10 a 15". Vacío = 10 a 15' },
-  oneway_aereo_usd_lb:      { label: 'One Way aéreo Miami → CCS (USD/lb)', hint: 'Express por USA: lo que cobra One Way por libra cobrable. Vacío = 5', rango: NO_NEGATIVO },
-  oneway_aereo_paquete_usd: { label: 'One Way aéreo: recibir el paquete (USD)', hint: 'Express por USA: cargo de One Way por cada paquete que recibe en Miami. Vacío = 1', rango: NO_NEGATIVO },
-  express_margen_pct: { label: 'Margen express (%)',             hint: 'Margen sobre el landed del paquete express. Vacío = el margen por defecto', rango: [0, 95] },
+  express_tope_usd:   { label: 'Tope del paquete express (USD)', hint: 'Landed máximo por paquete express directo. Vacío = 100.', rango: POSITIVO },
+  express_plazo_dias: { label: 'Plazo express (días hábiles)',  hint: 'Plazo mostrado en el PDF. Vacío = 10 a 15.' },
+  oneway_aereo_usd_lb:      { label: 'One Way aéreo Miami → CCS (USD/lb)', hint: 'Express por USA: tarifa por libra cobrable. Vacío = 5.', rango: NO_NEGATIVO },
+  oneway_aereo_paquete_usd: { label: 'One Way aéreo: recibir el paquete (USD)', hint: 'Express por USA: cargo fijo por paquete en Miami. Vacío = 1.', rango: NO_NEGATIVO },
+  express_margen_pct: { label: 'Margen express (%)',             hint: 'Margen sobre landed express. Vacío = margen por defecto.', rango: [0, 95] },
   // ── Escenario marítimo directo (India → Venezuela por mar, sin aéreo ni escala en USA).
   // Solo lo usa el simulador (/simular, modo Marítimo). No afecta ningún costo actual.
-  maritimo_directo_per_ft3: { label: 'Marítimo directo India → VEN (USD/ft³)', hint: 'Flete completo por mar, por pie cúbico. Reemplaza al aéreo + Miami→CCS. Vacío = usa la tarifa Miami→CCS como respaldo', rango: NO_NEGATIVO },
-  maritimo_min_ft3:         { label: 'Mínimo facturable marítimo (ft³)',       hint: 'Piso de volumen que cobra la naviera por embarque. 0 = cobra el volumen real, sin mínimo', rango: NO_NEGATIVO },
-  maritimo_fee_usd:         { label: 'Gastos fijos marítimo (USD)',            hint: 'Cargo fijo por caja: origen, destino, handling, aduana. 0 si ya están dentro del USD/ft³', rango: NO_NEGATIVO },
-  maritimo_insurance_pct:   { label: 'Seguro marítimo (fracción)',             hint: '% sobre el costo de producto. Vacío = 0.06 (6%), la prima por mar', rango: FRACCION },
+  maritimo_directo_per_ft3: { label: 'Marítimo directo India → VEN (USD/ft³)', hint: 'Flete marítimo directo por ft³ (/simular). Vacío = usa Miami→CCS.', rango: NO_NEGATIVO },
+  maritimo_min_ft3:         { label: 'Mínimo facturable marítimo (ft³)',       hint: 'Volumen mínimo facturable en ft³. 0 = sin mínimo.', rango: NO_NEGATIVO },
+  maritimo_fee_usd:         { label: 'Gastos fijos marítimo (USD)',            hint: 'Cargo fijo por caja en USD (0 si va incluido en USD/ft³).', rango: NO_NEGATIVO },
+  maritimo_insurance_pct:   { label: 'Seguro marítimo (fracción)',             hint: 'Fracción sobre valor de producto. Vacío = 0.06 (6%).', rango: FRACCION },
   // ── Modo Marítimo CBM (India → Venezuela por mar, cotización real por m³).
   // Rigen el carril marítimo de mercancía propia (cajas `maritimo_cbm`) y la columna
   // marítima del catálogo. No hay modo global que activar: la ruta es de cada envío.
-  cbm_rate_usd:           { label: 'Tarifa marítima (USD por m³)',   hint: 'Tarifa plana India → Venezuela por metro cúbico. Incluye todo el trayecto: flete, seguro, origen, destino y aduana', rango: NO_NEGATIVO },
-  cbm_fob_india_usd:      { label: 'FOB India (USD por embarque)',   hint: 'Monto FIJO por embarque, no escala con el volumen. Llenar más la caja lo diluye entre más piezas y baja el landed de cada una', rango: NO_NEGATIVO },
-  cbm_min_m3:             { label: 'Mínimo facturable (m³)',         hint: 'Piso de volumen que cobra la naviera por embarque aunque mandes menos. Vacío = 1 m³ (típico LCL)', rango: NO_NEGATIVO },
-  cbm_referencia_m3:      { label: 'Embarque de referencia (m³)',    hint: 'Volumen supuesto para prorratear el FOB al costear una pieza suelta en el catálogo. Vacío = 1 m³. Subilo si consolidás embarques más grandes: baja el landed de todo el catálogo', rango: NO_NEGATIVO },
+  cbm_rate_usd:           { label: 'Tarifa marítima (USD por m³)',   hint: 'Tarifa plana India → Venezuela por m³ (todo incluido).', rango: NO_NEGATIVO },
+  cbm_fob_india_usd:      { label: 'FOB India (USD por embarque)',   hint: 'Monto fijo por embarque marítimo.', rango: NO_NEGATIVO },
+  cbm_min_m3:             { label: 'Mínimo facturable (m³)',         hint: 'Volumen mínimo facturable por embarque. Vacío = 1 m³.', rango: NO_NEGATIVO },
+  cbm_referencia_m3:      { label: 'Embarque de referencia (m³)',    hint: 'Volumen supuesto para prorratear FOB en catálogo. Vacío = 1 m³.', rango: NO_NEGATIVO },
   // Solo pantalla: no toca ningún costo. Las columnas marítimas en la tabla de componentes de
   // un ensamble ensanchan la tabla y todavía no se usan; apagadas por defecto.
-  ensambles_columnas_maritimas: { label: 'Columnas marítimas en ensambles', hint: 'Muestra las columnas 🚢 (m³, flete mar, landed mar, venta mar, Δ) en la tabla de componentes de cada ensamble. Solo cambia qué se ve: el costeo no cambia', boolean: true, booleanDefault: false, checkLabel: 'Mostrar las columnas 🚢 en la ficha del ensamble' },
-  default_margin_pct:     { label: 'Margen por defecto (%)',       hint: 'Margen de ganancia al crear un producto; luego se ajusta por producto', rango: [0, 95] },
-  presupuesto_validez_dias: { label: 'Validez del presupuesto (días)', hint: 'Cuántos días vale un presupuesto desde que se cotiza o renueva. Pasado el plazo no se puede confirmar: se renueva (nueva fecha y escalón BCV de hoy). Vacío = 7. Ojo: el texto de los términos dice "7 días"; si lo cambiás, cambialo también ahí', rango: [1, 365] },
-  reclamo_horas:          { label: 'Plazo para reclamar (horas)', hint: 'Horas desde la entrega que el cliente tiene para reportar una pieza dañada, incorrecta o incompleta. Un reclamo fuera de plazo se anota igual, marcado, y vos decidís si se repone. Vacío = 48', rango: [1, 10000] },
-  terminos_presupuesto:   { label: 'Términos y condiciones — Presupuesto', hint: 'Texto que aparece al pie del presupuesto al imprimir / guardar como PDF', multiline: true },
-  terminos_pedido:        { label: 'Términos y condiciones — Pedido oficial', hint: 'Texto que aparece al pie del pedido confirmado al imprimir / guardar como PDF', multiline: true },
+  ensambles_columnas_maritimas: { label: 'Columnas marítimas en ensambles', hint: 'Muestra columnas marítimas (🚢) en la ficha de ensambles.', boolean: true, booleanDefault: false, checkLabel: 'Mostrar las columnas 🚢 en la ficha del ensamble' },
+  default_margin_pct:     { label: 'Margen por defecto (%)',       hint: 'Margen inicial al crear productos.', rango: [0, 95] },
+  presupuesto_validez_dias: { label: 'Validez del presupuesto (días)', hint: 'Vigencia del presupuesto en días. Vacío = 7 (actualizar en términos si cambia).', rango: [1, 365] },
+  reclamo_horas:          { label: 'Plazo para reclamar (horas)', hint: 'Horas desde la entrega para reclamos en plazo. Vacío = 48.', rango: [1, 10000] },
+  terminos_presupuesto:   { label: 'Términos y condiciones — Presupuesto', hint: 'Pie de página del PDF de presupuesto.', multiline: true },
+  terminos_pedido:        { label: 'Términos y condiciones — Pedido oficial', hint: 'Pie de página del PDF de pedido confirmado.', multiline: true },
 }
 
 /** Nombre del campo oculto con el que el formulario dice "así estaba la base cuando me abriste". */

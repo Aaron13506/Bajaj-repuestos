@@ -105,42 +105,33 @@ function airTierHint(
   if (chargeableKg <= 0) return null
   const perKg = `$${costPerKgUsd.toFixed(2)}/kg`
 
-  // Pasado el tope por caja el consejo se da vuelta: sumar kilos ya no abarata nada, porque
-  // el kilo 23 no entra en un escalón más alto — arranca una caja nueva desde la parte cara
-  // de la curva. Decir "estás en el tramo más eficiente" acá empuja para el lado que cuesta.
   if (cajas > 1 && capKg != null) {
     return {
       tone: 'warn',
-      text: `Pasaste el tope de ${capKg} kg por caja: van ${cajas} cajas y el flete es la suma de las ` +
-            `${cajas}, ${perKg} en promedio. Partir encarece siempre —los primeros kilos de cada caja ` +
-            `son los más caros—, así que conviene una sola caja llena antes que dos a medio llenar.`,
+      text: `${cajas} cajas (${capKg} kg máx c/u) · ${perKg} prom. — conviene consolidar en 1 caja`,
     }
   }
   if (capKg != null && chargeableKg > capKg - 1 && chargeableKg <= capKg) {
     return {
       tone: 'good',
-      text: `Caja llena: ${chargeableKg.toFixed(1)} de ${capKg} kg, a ${perKg} — lo más barato por kilo que da la tabla. Un kilo más y son dos cajas.`,
+      text: `Caja al tope (${chargeableKg.toFixed(1)}/${capKg} kg) · ${perKg}`,
     }
   }
   if (chargeableKg < 11) {
     return {
       tone: 'info',
-      text: `Vas a ${perKg}, en la parte cara de la curva. Te faltan ${(11 - chargeableKg).toFixed(1)} kg para los 11, ` +
-            `donde el flete por kilo cae fuerte; de ahí para arriba sigue bajando pero ya poco.`,
+      text: `${perKg} · faltan ${(11 - chargeableKg).toFixed(1)} kg para bajar al tramo de 11 kg`,
     }
   }
   if (chargeableKg < 20) {
     return {
       tone: 'info',
-      text: `Vas a ${perKg}, ya en la parte plana de la curva: sumar kilos sigue abaratando, pero de a poco. ` +
-            `Lo más barato por kilo está en el tope de la caja${capKg != null ? ` (${capKg} kg)` : ''}.`,
+      text: `${perKg} · tramo plano${capKg != null ? ` (tope ${capKg} kg)` : ''}`,
     }
   }
   return {
     tone: 'good',
-    text: capKg != null
-      ? `${perKg}: lo más barato por kilo que da la tabla. Te quedan ${(capKg - chargeableKg).toFixed(1)} kg antes del tope de la caja.`
-      : `${perKg}: lo más barato por kilo que da la tabla.`,
+    text: `${perKg}${capKg != null ? ` · quedan ${(capKg - chargeableKg).toFixed(1)} kg hasta el tope` : ''}`,
   }
 }
 
@@ -1098,7 +1089,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
         </div>
         {esBorrador && (
           <p className="mt-2 text-sm text-gray-600">
-            Borrador: todavía no es una compra. No cuenta como inventario en camino y no se compra, paga ni mueve.
+            En borrador: confirmá la caja para comprar, pagar o mover etapas.
           </p>
         )}
         {motivoTope && esBorrador && (
@@ -1430,7 +1421,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
               <>
                 {esBorrador ? (
                   <p className="rounded-xl border border-dashed border-gray-300 bg-white px-4 py-8 text-center text-sm text-gray-600 mb-4">
-                    Confirmá la compra para ver la lista de lo que hay que comprar y registrar lo que pagaste. En borrador no se compra nada.
+                    En borrador: confirmá la caja para comprar o registrar pagos.
                   </p>
                 ) : (
                   <>
@@ -1480,13 +1471,8 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                     id="giro-titulo"
                     titulo={`${calc.giro.nombre}: lo que le pagás`}
                     sub={<>
-                      Le girás <span className="font-mono font-semibold text-gray-900">{usd(calc.giro.montoUsd)}</span>
-                      {' '}({usd(calc.giro.mercanciaUsd)} de mercancía{calc.giro.tramoUsd > 0 && ` + ${usd(calc.giro.tramoUsd)} de envío`}).
-                      {inboundCaja === 'cotizado'
-                        ? ' Despacha él a USA: no hay tarifa por kilo, se carga el total que te pasó.'
-                        : porKilo
-                          ? ` Entra por ${reenvioLabel}: el tramo es la tarifa ₹/kg de la pestaña Plata.`
-                          : ' Entra por Shoppre: el tramo lo cobra la tabla escalón.'}
+                      Giro <span className="font-mono font-semibold text-gray-900">{usd(calc.giro.montoUsd)}</span>
+                      {' '}({usd(calc.giro.mercanciaUsd)} mercancía{calc.giro.tramoUsd > 0 && ` + ${usd(calc.giro.tramoUsd)} envío`})
                     </>}
                     acciones={
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${inboundCaja === 'cotizado' ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-700'}`}>
@@ -1501,19 +1487,19 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                         {inboundCaja === 'cotizado' && (
                           <CampoGiro
                             id="tramo-usd" name="tramoUsd" valor={tramoUsd} placeholder="0.00"
-                            label="Envío + impuestos (USD)" ayuda="el total que te pasó, DDP"
+                            label="Envío + impuestos (USD)" ayuda="Total DDP facturado"
                           />
                         )}
                         {/* Las dos puntas del giro van separadas porque se saben en momentos distintos. */}
                         <CampoGiro
                           id="comision-saliente" name="comisionSalienteUsd" valor={comisionSalienteUsd}
                           label="Comisión saliente (USD)"
-                          ayuda={`lo que te cobró tu banco por girar ${usd(calc.giro.montoUsd)} · vacío = no lo sé, 0 = no cobró`}
+                          ayuda={`Tu banco (${usd(calc.giro.montoUsd)}) · 0 = sin cargo`}
                         />
                         <CampoGiro
                           id="comision-entrante" name="comisionEntranteUsd" valor={comisionEntranteUsd}
                           label="Comisión entrante (USD)"
-                          ayuda="lo que le descontaron al recibir y le completaste · 0 = le llegó completo"
+                          ayuda="Descontado al recibir · 0 = completo"
                         />
                         <PendingButton className="min-h-9 px-4 py-1.5 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
                           Guardar
@@ -1522,23 +1508,21 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
 
                       {calc.tramo?.faltaCosto && (
                         <p className="text-sm text-amber-900 bg-amber-50 px-3 py-2 rounded-lg">
-                          Sin el total del envío las piezas viajan gratis en el cálculo y toda la caja queda subcosteada.
+                          Falta el total del envío: la caja está subcosteada.
                         </p>
                       )}
                       {!calc.giro.cargada && (
                         <p className="text-sm text-gray-700 bg-gray-50 px-3 py-2 rounded-lg">
                           {!calc.giro.salienteCargada && !calc.giro.entranteCargada
-                            ? 'Las dos comisiones están '
-                            : !calc.giro.salienteCargada ? 'La comisión saliente está ' : 'La comisión entrante está '}
-                          <strong>sin cargar</strong>: hoy cuenta{calc.giro.salienteCargada || calc.giro.entranteCargada ? '' : 'n'} como
-                          $0 y el landed sale corto. Si esa punta no cobró nada, poné 0 y queda dicho.
+                            ? 'Faltan ambas comisiones'
+                            : !calc.giro.salienteCargada ? 'Falta comisión saliente' : 'Falta comisión entrante'}
+                          {' '}(cuenta como $0; poné 0 si no hubo cargo).
                         </p>
                       )}
                       {calc.giro.cargada && calc.giro.comisionUsd > 0 && (
                         <p className="text-sm text-gray-700 bg-gray-50 px-3 py-2 rounded-lg">
-                          El giro te costó <span className="font-mono font-semibold">{usd(calc.giro.costoTotalUsd)}</span> en
-                          total: {usd(calc.giro.montoUsd)} facturados + {usd(calc.giro.comisionSalienteUsd)} de saliente
-                          + {usd(calc.giro.comisionEntranteUsd)} de entrante.
+                          Total del giro: <span className="font-mono font-semibold">{usd(calc.giro.costoTotalUsd)}</span>
+                          {' '}({usd(calc.giro.montoUsd)} + {usd(calc.giro.comisionSalienteUsd)} saliente + {usd(calc.giro.comisionEntranteUsd)} entrante).
                         </p>
                       )}
                     </div>
@@ -1585,7 +1569,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                         key={firmaNumeros}
                         tramo="local"
                         titulo={`${envio.supplier ? `De ${envio.supplier.name}` : 'Del proveedor'} al depósito de ${esExpress || !porKilo ? 'Shoppre' : reenvioLabel}`}
-                        sub="El proveedor despacha la compra en 2 o 3 paquetes y da un número por cada uno."
+                        sub="Guías locales del proveedor."
                         todos={numeros}
                         couriers={couriers}
                         guardar={guardarTrackings.bind(null, envio.id)}
@@ -1598,9 +1582,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                   key={firmaNumeros}
                   tramo={esExpress ? 'venezuela' : 'usa'}
                   titulo={esExpress ? 'Express a Venezuela: la guía del paquete' : 'Aéreo a USA: guías de lo que salió del depósito'}
-                  sub={esExpress
-                    ? 'Shoppre la lleva directo a Caracas, sin escala en USA. Su guía se sigue hasta la entrega.'
-                    : 'Una guía por caja que sale hacia Miami, reempacada o no. Peso y medidas van más abajo.'}
+                  sub={esExpress ? 'Guía directa a Caracas.' : 'Guías hacia Miami.'}
                   todos={numeros}
                   couriers={couriers}
                   guardar={guardarTrackings.bind(null, envio.id)}
@@ -1641,7 +1623,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
             {tierHint && <p className="text-xs text-gray-600 -mt-1 mb-3">{tierHint.text}</p>}
             {anyMissing && (
               <p className="text-xs mb-3 px-3 py-2 rounded-lg bg-amber-50 text-amber-800">
-                Algunas piezas no tienen peso o medidas: el cálculo las subestima. Están marcadas en la tabla de ítems.
+                Hay piezas sin peso o medidas: el cálculo está subestimado.
               </p>
             )}
             <CajasEnvio
@@ -1698,8 +1680,8 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                           tramo="venezuela"
                           titulo="Miami → Caracas: courier interno"
                           sub={onewayActivo
-                            ? 'El código de One Way Cargo (MT-…, CON-…, SB-…, CA-…) se sigue solo cada hora: anotalo sin elegir courier.'
-                            : 'Casi nunca se sigue solo: si Track123 no conoce el courier, la guía queda anotada y el estado lo sabés por el courier.'}
+                            ? 'Código One Way (MT-…, CON-…, SB-…, CA-…) se sigue automático.'
+                            : 'Guía del courier interno.'}
                           todos={numeros}
                           couriers={couriers}
                           guardar={guardarTrackings.bind(null, envio.id)}
@@ -1738,7 +1720,6 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                   <SeccionCaja
                     id="landed-titulo"
                     titulo="Costo landed"
-                    sub="Cada fila dice si el número es real o estimado."
                     acciones={
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                         realPct >= 99.5 ? 'bg-green-100 text-green-800' : realPct >= 50 ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-700'
@@ -1859,7 +1840,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                   <SeccionCaja
                     id="deposito-titulo"
                     titulo={`Lo que cobra el depósito${esExpress || !porKilo ? ' (Shoppre)' : ''} por esta caja`}
-                    sub="La factura del flete aéreo, cuando la cargues, ya lo trae y lo reemplaza."
+                    sub="Se reemplaza al cargar la factura del flete aéreo."
                   >
                     <div className="px-4 sm:px-6 py-4 space-y-3">
                       <FormConResultado action={guardarCotizacionDeposito.bind(null, envio.id)} className="flex flex-wrap items-end gap-x-4 gap-y-3">
@@ -1867,14 +1848,14 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                           <CampoGiro
                             id="tarifa-kg" name="tarifaKgInr" valor={reenvioCaja.tarifaKgInr}
                             // Vacío = la tabla de /config por el peso de esta caja.
-                            placeholder={calc.reenvio.tablaKgInr != null ? `vacío = tabla (₹${calc.reenvio.tablaKgInr.toFixed(0)}/kg a este peso)` : tablaPorKilo(cfg) ? 'vacío = tabla de Configuración' : 'sin cotizar'}
+                            placeholder={calc.reenvio.tablaKgInr != null ? `vacío = tabla (₹${calc.reenvio.tablaKgInr.toFixed(0)}/kg)` : tablaPorKilo(cfg) ? 'vacío = tabla de Ajustes' : 'sin cotizar'}
                             label="Tarifa (₹ por kg cobrable)"
-                            ayuda={`sobre ${kg(calc.reenvio.kgFacturados)} facturables (escalones de 0,5, mínimo 1)${equilibrioInr != null ? ` · conviene bajo ₹${equilibrioInr.toFixed(0)}/kg` : ''}`}
+                            ayuda={`${kg(calc.reenvio.kgFacturados)} facturables${equilibrioInr != null ? ` · conviene ≤ ₹${equilibrioInr.toFixed(0)}/kg` : ''}`}
                           />
                         )}
                         <CampoGiro
                           id="reempaque" name="reempaqueInr" valor={reenvioCaja.reempaqueInr}
-                          label="Reempaque (₹)" ayuda="lo que cobró por reempacar esta caja · 0 = no cobró"
+                          label="Reempaque (₹)" ayuda="0 = sin cargo"
                         />
                         <PendingButton className="min-h-9 px-4 py-1.5 text-sm font-medium border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
                           Guardar
@@ -1882,7 +1863,7 @@ export default async function EnvioDetailPage({ params }: { params: Promise<{ id
                       </FormConResultado>
                       {calc.reenvio.faltaTarifa && (
                         <p className="text-sm text-amber-900 bg-amber-50 px-3 py-2 rounded-lg">
-                          Sin tarifa (ni tabla en Configuración) el tramo a USA cuenta $0: la caja está subcosteada, no es gratis.
+                          Sin tarifa ni tabla en Ajustes: el tramo cuenta como $0.
                         </p>
                       )}
                     </div>

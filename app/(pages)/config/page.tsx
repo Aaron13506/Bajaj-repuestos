@@ -158,9 +158,7 @@ export default async function ConfigPage({
       )}
       {cron && (
         <div className="mb-6 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-3 text-sm">
-          El cron actualizó <span className="font-mono">{cron.split(',').join(', ')}</span> mientras
-          tenías esta pantalla abierta, así que no se pisó con el valor viejo. Si querés fijarla a
-          mano, volvé a escribirla ahora.
+          El cron actualizó <span className="font-mono">{cron.split(',').join(', ')}</span> mientras tenías esta pantalla abierta; no se pisaron.
         </div>
       )}
 

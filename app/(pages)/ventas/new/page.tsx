@@ -57,10 +57,6 @@ export default async function NuevaVentaPage({ searchParams }: { searchParams: P
       <div className="mb-6">
         <Link href="/ventas" className="inline-flex items-center min-h-8 text-sm text-blue-700 hover:underline">← Ventas</Link>
         <h1 className="text-2xl font-bold text-gray-900 text-balance">Nueva venta del depósito</h1>
-        <p className="text-sm text-gray-500 mt-1 text-pretty">
-          Solo aparece lo que tenés en stock. Al registrar baja el stock y queda a nombre del cliente con lo que
-          ganaste. Lo que no tenés se cotiza como <Link href="/presupuestos/new" className="text-blue-700 hover:underline">presupuesto</Link>.
-        </p>
       </div>
       <VentaDirectaForm
         action={registrarVenta}

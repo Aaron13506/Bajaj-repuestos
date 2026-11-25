@@ -21,45 +21,6 @@ export default async function SuppliersPage() {
         <h1 className="text-2xl font-bold text-gray-900">Proveedores</h1>
       </div>
 
-      <p className="text-sm text-gray-500 mb-4">
-        Además de 99rpm (precio base de cada producto), podés agregar otros proveedores
-        con su propio precio en USD por SKU. Desde el catálogo se filtra por proveedor
-        (<code className="text-xs">?proveedor=id</code>) para comparar; el proveedor de una
-        línea se elige en la ficha del envío.
-      </p>
-
-      {/* Los dos ejes se explican por separado a propósito: durante mucho tiempo fueron la
-          misma cosa (India ⇒ Shoppre, China ⇒ directo) y confundirlos es lo que hacía que
-          un proveedor como Garuda no entrara en el modelo. */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
-        <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-4">
-          <h2 className="text-sm font-semibold text-gray-800 mb-1">Origen · dónde está la mercancía</h2>
-          <p className="text-xs text-gray-500">
-            Informativo. Antes decidía la ruta, pero el país no alcanza: dos proveedores de
-            India pueden entrar a USA por vías distintas.
-          </p>
-        </div>
-        <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-4">
-          <h2 className="text-sm font-semibold text-indigo-900 mb-1">Entrada a USA · cómo se cobra el tramo</h2>
-          <ul className="text-xs text-indigo-800 space-y-1">
-            {INBOUNDS.map(i => (
-              <li key={i.value}>
-                <span className="font-semibold">{i.icon} {i.label}</span> — {i.hint}
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-
-      <p className="text-sm text-gray-500 mb-6">
-        El <strong>FOB</strong> es lo que cobra por sacar la carga en un embarque marítimo: es
-        fijo por embarque y no escala con el volumen. Vacío usa el default global de{' '}
-        <Link href="/config" className="underline">Configuración</Link>.
-        {' '}La <strong>comisión de la transferencia</strong> no se configura acá a propósito: no es
-        un rasgo del proveedor sino de cada giro, así que se anota en el envío, con el monto
-        que efectivamente costó.
-      </p>
-
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Nuevo proveedor</h2>
         <FormConResultado action={createSupplier} className="flex flex-wrap items-end gap-3">

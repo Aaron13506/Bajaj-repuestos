@@ -126,10 +126,6 @@ export default async function InventarioPage({ searchParams }: Props) {
     <div className="max-w-6xl space-y-5">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 text-balance">Inventario</h1>
-        <p className="text-sm text-gray-500 mt-1 text-pretty">
-          Lo tuyo: lo que ya llegó y lo que viaja en una caja <span className="font-medium text-gray-700">confirmada</span>.
-          Un pedido propio fuera de una caja, o en una caja en borrador, todavía no es una compra.
-        </p>
         <p className="text-sm mt-1 flex flex-wrap gap-x-4">
           <Link href="/inventario/conteo" className={LINK}>Conteo cíclico</Link>
           <Link href="/inventario/etiquetas" className={LINK}>Etiquetas de estante</Link>

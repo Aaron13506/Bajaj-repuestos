@@ -354,29 +354,24 @@ export default async function PresupuestosPage({
     const B = ({ children }: { children: React.ReactNode }) => <strong className="font-semibold text-gray-900 tabular-nums">{children}</strong>
     const resumen: Record<Estado, React.ReactNode> = {
       todo: <><B>{paraEntregar.length}</B> para entregar (<B>{usd(cobrar)}</B> por cobrar) · <B>{presus.length}</B> {presus.length === 1 ? 'presupuesto' : 'presupuestos'} sin confirmar · <B>{piezasPorComprar}</B> piezas por comprar</>,
-      entregar: <><B>{usd(cobrar)}</B> por cobrar al entregar · el que más espera, primero</>,
-      presu: (
-        <>
-          Sin confirmar: no se compran ni cuentan como venta hasta el adelanto del 50%. El que vence antes, primero.
-          {conversion.total > 0 && (
-            <span className="block text-xs text-gray-500 mt-0.5">
-              Últimos 90 días: {conversion.total} presupuestos · {conversion.confirmados} confirmados · {conversion.perdidos} perdidos · {conversion.vencidos} vencidos sin respuesta · {conversion.abiertos} abiertos
-              {conversion.conversionPct != null && <> · <span className="font-semibold text-gray-700">{conversion.conversionPct.toFixed(0)}% de conversión</span> (sobre los que ya se decidieron)</>}
-            </span>
-          )}
-        </>
-      ),
-      camino: 'Comprado y viajando: avanza solo cuando avanza su caja.',
-      comprar: <><B>{piezasPorComprar}</B> piezas por comprar · la compra se anota en su caja</>,
-      entregados: conSaldo > 0 ? <><B>{conSaldo}</B> se {conSaldo === 1 ? 'llevó' : 'llevaron'} las piezas debiendo</> : 'Todo cobrado.',
+      entregar: <><B>{usd(cobrar)}</B> por cobrar al entregar</>,
+      presu: conversion.total > 0 ? (
+        <span className="text-xs text-gray-500">
+          Últimos 90 días: {conversion.total} presupuestos · {conversion.confirmados} confirmados · {conversion.perdidos} perdidos · {conversion.vencidos} vencidos · {conversion.abiertos} abiertos
+          {conversion.conversionPct != null && <> · <span className="font-semibold text-gray-700">{conversion.conversionPct.toFixed(0)}% conversión</span></>}
+        </span>
+      ) : null,
+      camino: null,
+      comprar: <><B>{piezasPorComprar}</B> piezas por comprar</>,
+      entregados: conSaldo > 0 ? <><B>{conSaldo}</B> con saldo pendiente</> : 'Todo cobrado.',
     }
     const vacio: Record<Estado, React.ReactNode> = {
-      todo: q ? `Ningún pedido de cliente coincide con "${q}".` : <>Todavía no hay pedidos de clientes. <Link href="/presupuestos/new" className="font-medium text-blue-700 hover:underline">Crear un presupuesto</Link></>,
-      entregar: 'Nada para entregar. Cuando llegue una caja, sus pedidos aparecen acá.',
-      presu: <>No hay presupuestos sin confirmar. <Link href="/presupuestos/new" className="font-medium text-blue-700 hover:underline">Crear un presupuesto</Link></>,
-      camino: 'Nada viajando.',
+      todo: q ? `Ningún pedido de cliente coincide con "${q}".` : <>Sin pedidos de clientes. <Link href="/presupuestos/new" className="font-medium text-blue-700 hover:underline">Crear un presupuesto</Link></>,
+      entregar: 'Sin pedidos para entregar.',
+      presu: <>Sin presupuestos pendientes. <Link href="/presupuestos/new" className="font-medium text-blue-700 hover:underline">Crear un presupuesto</Link></>,
+      camino: 'Nada en camino.',
       comprar: 'Nada por comprar.',
-      entregados: 'Todavía no se entregó nada.',
+      entregados: 'Sin pedidos entregados.',
     }
     const etiqueta = ESTADOS_LISTA.find(e => e.id === estado)!.label
     return (
@@ -403,7 +398,7 @@ export default async function PresupuestosPage({
             )
           })}
         </nav>
-        <p className="text-sm text-gray-600 mb-3 text-pretty">{resumen[estado]}</p>
+        {resumen[estado] && <p className="text-sm text-gray-600 mb-3 text-pretty">{resumen[estado]}</p>}
         {filas.length > 0
           ? <Lista etiqueta={etiqueta}>{filas.map(c => <Fila key={c.p.id} p={c.p} estadoP={c.estado} validez={c.validez} />)}</Lista>
           : <p className="bg-white rounded-xl border border-gray-200 p-8 text-center text-sm text-gray-500">{vacio[estado]}</p>}
@@ -418,29 +413,26 @@ export default async function PresupuestosPage({
     if (propios.length === 0) {
       return (
         <p className="bg-white rounded-xl border border-gray-200 p-8 text-center text-sm text-gray-500">
-          {q ? `Nada de stock propio coincide con "${q}".` : <>Todavía no trajiste stock propio. <Link href="/presupuestos/new?tipo=propio" className="font-medium text-blue-700 hover:underline">Armar uno</Link></>}
+          {q ? `Nada de stock propio coincide con "${q}".` : <>Sin pedidos de stock propio. <Link href="/presupuestos/new?tipo=propio" className="font-medium text-blue-700 hover:underline">Armar uno</Link></>}
         </p>
       )
     }
     return (
       <div className="space-y-6">
-        <div className="text-sm text-gray-600 space-y-1">
-          <p>Lo que traigo para el depósito. Termina en <strong className="font-semibold text-gray-900">En depósito</strong>, no en «entregado».</p>
-          {propiosTotal.piezas > 0 && (
-            <p className="text-xs text-gray-500">
-              <span className="font-mono font-semibold text-gray-700 tabular-nums">{propiosTotal.chargeableKg.toFixed(2)} kg</span> cobrables ·{' '}
-              <span className="font-mono font-semibold text-gray-700 tabular-nums">{propiosTotal.ft3.toFixed(2)} ft³</span>{' '}
-              ({propiosTotal.realKg.toFixed(2)} kg reales{propiosTotal.incompletas > 0 && `, ${propiosTotal.incompletas} piezas sin medir`})
-            </p>
-          )}
-        </div>
+        {propiosTotal.piezas > 0 && (
+          <p className="text-xs text-gray-500">
+            <span className="font-mono font-semibold text-gray-700 tabular-nums">{propiosTotal.chargeableKg.toFixed(2)} kg</span> cobrables ·{' '}
+            <span className="font-mono font-semibold text-gray-700 tabular-nums">{propiosTotal.ft3.toFixed(2)} ft³</span>{' '}
+            ({propiosTotal.realKg.toFixed(2)} kg reales{propiosTotal.incompletas > 0 && `, ${propiosTotal.incompletas} sin medir`})
+          </p>
+        )}
         {enCurso.length > 0 && (
           <Seccion titulo="Por comprar o viajando" cuenta={enCurso.length}>
             {enCurso.map(p => <Fila key={p.id} p={p} />)}
           </Seccion>
         )}
         {enDeposito.length > 0 && (
-          <Seccion titulo="En depósito" cuenta={enDeposito.length} nota="ya suman al inventario" tono="text-green-800">
+          <Seccion titulo="En depósito" cuenta={enDeposito.length} tono="text-green-800">
             {enDeposito.map(p => <Fila key={p.id} p={p} />)}
           </Seccion>
         )}
@@ -454,7 +446,6 @@ export default async function PresupuestosPage({
       return (
         <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-500">
           <p className="font-medium text-gray-700">{q ? `Nada cerrado coincide con "${q}".` : 'Nada cancelado ni perdido'}</p>
-          {!q && <p className="text-sm mt-1 text-pretty">Cuando un cliente diga que no o se cancele un pedido, queda acá para contar en la conversión.</p>}
         </div>
       )
     }

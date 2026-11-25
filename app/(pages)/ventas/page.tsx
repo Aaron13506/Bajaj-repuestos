@@ -71,10 +71,7 @@ export default async function VentasPage({ searchParams }: { searchParams: Promi
   return (
     <div className="max-w-6xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 text-balance">Ventas</h1>
-          <p className="text-sm text-gray-500 mt-1 text-pretty">Lo que vendiste del depósito, en el momento y sin caja.</p>
-        </div>
+        <h1 className="text-2xl font-bold text-gray-900 text-balance">Ventas</h1>
         <Link
           href="/ventas/new"
           className="inline-flex items-center min-h-10 bg-blue-600 text-white px-4 rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors"
@@ -86,8 +83,7 @@ export default async function VentasPage({ searchParams }: { searchParams: Promi
       {filas.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-500">
           <p className="text-lg">Sin ventas</p>
-          <p className="text-sm mt-1">Cuando vendas algo que ya tenés en el depósito, aparece acá.</p>
-          <p className="text-sm mt-3">
+          <p className="text-sm mt-2">
             <Link href="/ventas/new" className="text-blue-600 hover:underline">Registrar una venta</Link>
           </p>
         </div>

@@ -187,8 +187,8 @@ function Novedades({ novedades, sinSeguir, consultadoEn }: {
       </div>
 
       {visibles.length === 0 ? (
-        <p className="px-4 sm:px-5 py-4 text-sm text-gray-500 text-pretty">
-          Nada nuevo. Cuando un courier registre un movimiento en una caja, aparece acá. <Link href="/envios" className="text-blue-700 hover:underline">Ver cajas</Link>
+        <p className="px-4 sm:px-5 py-4 text-sm text-gray-500">
+          Sin novedades de tracking.
         </p>
       ) : (
         <ul className="px-4 sm:px-5 divide-y divide-gray-100">
@@ -280,11 +280,10 @@ function ParaHoy({ d }: { d: Awaited<ReturnType<typeof getDatos>> }) {
     <section aria-labelledby="hoy-h" className="bg-white rounded-xl border border-gray-200 overflow-hidden">
       <div className="px-4 sm:px-5 py-3 border-b border-gray-100">
         <h2 id="hoy-h" className="text-base font-semibold text-gray-900">Para hacer hoy</h2>
-        <p className="text-xs text-gray-500">Cobros, presupuestos que vencen en {DIAS_AVISO_VENCE} días, cajas {DIAS_CAJA_PARADA}+ días quietas, clientes por avisar y compras</p>
       </div>
       {filas.length === 0 ? (
-        <p className="px-4 sm:px-5 py-4 text-sm text-gray-500 text-pretty">
-          Nada pendiente: nadie debe lo que se llevó, ninguna caja está parada y no vence ningún presupuesto.
+        <p className="px-4 sm:px-5 py-4 text-sm text-gray-500">
+          Todo al día.
         </p>
       ) : (
         <ul className="divide-y divide-gray-100">

@@ -39,10 +39,7 @@ export default async function EsperasPage({ searchParams }: { searchParams: Prom
   return (
     <div className="max-w-6xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 text-balance">Lista de espera</h1>
-          <p className="text-sm text-gray-500 mt-1 text-pretty">Quién preguntó por una pieza sin pedirla, para avisarle primero cuando llegue.</p>
-        </div>
+        <h1 className="text-2xl font-bold text-gray-900 text-balance">Lista de espera</h1>
         <Link
           href="/esperas/new"
           className="inline-flex items-center min-h-10 bg-blue-600 text-white px-4 rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors"
@@ -54,8 +51,7 @@ export default async function EsperasPage({ searchParams }: { searchParams: Prom
       {filas.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center text-gray-500">
           <p className="text-lg">Nadie está esperando</p>
-          <p className="text-sm mt-1">Cuando un cliente pregunte por una pieza que no tenés, anotalo y te avisa cuando llegue.</p>
-          <p className="text-sm mt-3">
+          <p className="text-sm mt-2">
             <Link href="/esperas/new" className="text-blue-600 hover:underline">Anotar una espera</Link>
           </p>
         </div>

@@ -359,8 +359,8 @@ export default async function ContabilidadPage({ searchParams }: Props) {
       id="cobrar-h"
       titulo="Por cobrar"
       sub={porCobrar.length === 0
-        ? 'Ningún pedido confirmado tiene saldo.'
-        : `${plural(porCobrar.length, 'pedido', 'pedidos')} con saldo, ${usd(totalPorCobrar)}. Lo entregado sin pagar va primero.`}
+        ? 'Sin pedidos con saldo.'
+        : `${plural(porCobrar.length, 'pedido', 'pedidos')} · ${usd(totalPorCobrar)}`}
     >
       {porCobrar.length > 0 && (
         <ul className="divide-y divide-gray-100">
@@ -387,8 +387,8 @@ export default async function ContabilidadPage({ searchParams }: Props) {
       id="pagar-h"
       titulo="Por pagar"
       sub={porVenir.cajas.length === 0
-        ? 'Ninguna caja en curso con gastos pendientes.'
-        : `Flete y proveedor de ${plural(porVenir.cajas.length, 'caja', 'cajas')} en curso, ${usd(totalPorVenir)}.`}
+        ? 'Sin gastos pendientes.'
+        : `${plural(porVenir.cajas.length, 'caja', 'cajas')} · ${usd(totalPorVenir)}`}
     >
       {porVenir.cajas.length > 0 && (
         <ul className="divide-y divide-gray-100">
@@ -429,7 +429,7 @@ export default async function ContabilidadPage({ searchParams }: Props) {
       )}
       {hayPiso && (
         <p className="px-4 sm:px-6 py-2.5 text-xs text-gray-600 border-t border-gray-100">
-          «desde»: estimado de piso, a esa caja le faltan pesos, medidas o costos.
+          «desde»: piso estimado (faltan pesos, medidas o costos).
         </p>
       )}
     </SeccionCaja>
@@ -439,7 +439,6 @@ export default async function ContabilidadPage({ searchParams }: Props) {
     <SeccionCaja
       id="anotar-h"
       titulo="Anotar en el libro"
-      sub="Cobros, pagos y gastos sueltos. Lo de un pedido o de una caja también se anota desde su ficha."
     >
       <div className="px-4 sm:px-6 py-4 max-w-3xl">
         <AnotarLibro
@@ -456,10 +455,7 @@ export default async function ContabilidadPage({ searchParams }: Props) {
   return (
     <div className="max-w-6xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-bold text-gray-900 text-balance">Contabilidad</h1>
-          <p className="text-sm text-gray-500 mt-1 text-pretty">La plata que hay, la que te deben y la que falta pagar.</p>
-        </div>
+        <h1 className="text-2xl font-bold text-gray-900 text-balance">Contabilidad</h1>
       </div>
 
       <div className="space-y-2">

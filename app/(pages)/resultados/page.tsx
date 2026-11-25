@@ -48,13 +48,7 @@ export default async function ResultadosPage({ searchParams }: Props) {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Resultados</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Cuánto se ganó de verdad: lo que se vendió contra lo que costó traerlo puesto acá, en dólares reales.
-          El margen cuenta cuando se <strong>entrega</strong>, no cuando se cobra.
-        </p>
-      </div>
+      <h1 className="text-2xl font-bold text-gray-900 mb-6">Resultados</h1>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
@@ -62,7 +56,7 @@ export default async function ResultadosPage({ searchParams }: Props) {
           <p className={`text-2xl font-bold font-mono ${(actual?.resultadoUsd ?? 0) >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
             {usd(actual?.resultadoUsd ?? 0)}
           </p>
-          <p className="text-[11px] text-gray-500 mt-1">margen + lo retenido de cancelados − gastos − costo de convertir Bs</p>
+          <p className="text-[11px] text-gray-500 mt-1">margen + cancelados − gastos − conversión</p>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
           <p className="text-xs text-gray-500 mb-1">Margen del mes</p>
